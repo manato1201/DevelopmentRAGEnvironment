@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>クラウドRAG環境構築 — Notion + GAS + Gemini 講義資料</title>
+<style>
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --surface: #21262d;
+  --border: #30363d; --text: #e6edf3; --muted: #7d8590;
+  --accent: #58a6ff; --green: #3fb950; --amber: #d29922;
+  --red: #f85149; --purple: #bc8cff; --teal: #2ea043;
+  --mono: 'JetBrains Mono','Cascadia Code','Fira Code','Consolas',monospace;
+  --sans: 'Inter','Noto Sans JP',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.75;}
+
+header{background:var(--bg2);border-bottom:1px solid var(--border);padding:56px 40px 44px;}
+.header-inner{max-width:860px;margin:0 auto;}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+.eyebrow-dot{width:6px;height:6px;border-radius:50%;background:var(--amber);}
+header h1{font-size:clamp(22px,4vw,38px);font-weight:600;line-height:1.25;letter-spacing:-.02em;margin-bottom:14px;}
+header h1 .acc{color:var(--amber);}
+.header-desc{color:var(--muted);max-width:560px;font-size:14px;margin-bottom:24px;}
+.meta-row{display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:var(--muted);font-family:var(--mono);}
+
+nav{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 40px;position:sticky;top:0;z-index:50;overflow-x:auto;}
+nav ul{max-width:860px;margin:0 auto;display:flex;list-style:none;}
+nav a{display:block;padding:12px 13px;font-size:12px;font-family:var(--mono);color:var(--muted);text-decoration:none;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;}
+nav a:hover{color:var(--text);border-color:var(--amber);}
+
+main{max-width:860px;margin:0 auto;padding:0 40px 80px;}
+
+.section{padding:52px 0 0;}
+.section-eye{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);margin-bottom:6px;}
+.section>h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+h3{font-size:15px;font-weight:600;color:var(--amber);margin:32px 0 10px;}
+p{color:var(--text);margin-bottom:14px;font-size:14px;}
+
+/* STEP */
+.step-group{margin:20px 0;}
+.step{display:flex;gap:0;margin-bottom:2px;position:relative;}
+.step-rail{display:flex;flex-direction:column;align-items:center;width:40px;flex-shrink:0;}
+.step-badge{width:28px;height:28px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--amber);flex-shrink:0;margin-top:10px;position:relative;z-index:1;}
+.step-line{width:1px;flex:1;background:var(--border);margin-top:4px;min-height:20px;}
+.step:last-child .step-line{display:none;}
+.step-content{flex:1;padding:8px 0 24px 12px;}
+.step-title{font-size:14px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.step-body{font-size:13px;color:var(--muted);}
+.step-body p{font-size:13px;color:var(--muted);margin-bottom:8px;}
+
+/* CODE */
+pre{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:14px 18px;overflow-x:auto;margin:8px 0;}
+pre code{font-family:var(--mono);font-size:12.5px;line-height:1.65;color:#adbac7;}
+code{font-family:var(--mono);font-size:12px;background:var(--surface);padding:1px 5px;border-radius:3px;border:1px solid var(--border);}
+.kw{color:#f47067;} .str{color:#96d0ff;} .cm{color:#636e7b;font-style:italic;} .fn{color:#dcbdfb;} .key{color:#6cb6ff;} .ok{color:var(--green);}
+
+/* TERMINAL */
+.terminal{background:#0d1117;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:10px 0;}
+.terminal-bar{background:var(--surface);padding:8px 14px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border);}
+.t-dot{width:10px;height:10px;border-radius:50%;}
+.t-red{background:#ff5f57;} .t-yellow{background:#febc2e;} .t-green{background:#28c840;}
+.terminal-label{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:6px;}
+.terminal pre{background:none;border:none;border-radius:0;padding:16px 18px;margin:0;}
+.prompt{color:var(--green);} .out{color:var(--muted);}
+
+/* BADGE */
+.badge{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;font-weight:500;}
+.badge-amber{background:rgba(210,153,34,.12);color:var(--amber);border:1px solid rgba(210,153,34,.3);}
+.badge-blue{background:rgba(88,166,255,.12);color:var(--accent);border:1px solid rgba(88,166,255,.3);}
+.badge-purple{background:rgba(188,140,255,.12);color:var(--purple);border:1px solid rgba(188,140,255,.3);}
+.badge-green{background:rgba(63,185,80,.1);color:var(--green);border:1px solid rgba(63,185,80,.25);}
+
+/* CALLOUT */
+.callout{border-radius:6px;padding:12px 16px;margin:14px 0;font-size:13px;border-left:3px solid;}
+.callout-note{background:rgba(88,166,255,.07);border-color:var(--accent);}
+.callout-warn{background:rgba(210,153,34,.08);border-color:var(--amber);}
+.callout-tip{background:rgba(63,185,80,.07);border-color:var(--green);}
+.callout p{margin:0;color:var(--muted);}
+.callout p:first-child{color:var(--text);margin-bottom:4px;}
+
+/* TABLE */
+.tbl-wrap{overflow-x:auto;margin:14px 0;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{background:var(--surface);color:var(--muted);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);}
+td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(255,255,255,.02);}
+
+/* ARCH BOX */
+.arch{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin:14px 0;overflow-x:auto;}
+.arch pre{background:none;border:none;padding:0;margin:0;}
+.arch pre code{font-size:12px;color:var(--muted);}
+
+/* GRID */
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:14px 0;}
+.card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:16px;}
+.card-title{font-size:13px;font-weight:600;margin-bottom:8px;}
+.card ul{font-size:12px;color:var(--muted);padding-left:14px;}
+.card li{margin-bottom:4px;}
+
+/* PROPS TABLE */
+.props{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:14px 0;}
+.props-row{display:grid;grid-template-columns:180px 100px 1fr;border-bottom:1px solid var(--border);font-size:12px;}
+.props-row:last-child{border-bottom:none;}
+.props-row.header{background:var(--surface);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
+.props-row > div{padding:8px 12px;}
+.props-row .name{font-family:var(--mono);color:var(--accent);}
+.props-row .type{color:var(--purple);}
+.props-row .desc{color:var(--muted);}
+.star{color:var(--amber);}
+
+a{color:var(--accent);}
+footer{background:var(--bg2);border-top:1px solid var(--border);padding:28px 40px;text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted);}
+footer a{color:var(--accent);text-decoration:none;}
+@media(max-width:640px){header,nav{padding-left:20px;padding-right:20px;}main{padding:0 20px 60px;}}
+</style>
+</head>
+<body>
+
+<header>
+<div class="header-inner">
+  <div class="eyebrow"><span class="eyebrow-dot"></span> Setup Guide · Cloud RAG</div>
+  <h1>クラウドRAG環境構築<br><span class="acc">Notion + GAS + Gemini API</span></h1>
+  <p class="header-desc">共有すべき技術情報をNotionに蓄積し、Google Apps Script経由でGeminiが参照する構成。サーバー管理不要・無料枠で動作する。</p>
+  <div class="meta-row">
+    <span>Notion / GAS / Gemini API</span>
+    <span>所要時間: 約60〜90分</span>
+    <span>Updated: 2026-06-10</span>
+  </div>
+</div>
+</header>
+
+<nav>
+<ul>
+  <li><a href="#overview">全体像</a></li>
+  <li><a href="#notion-db">Notion DB</a></li>
+  <li><a href="#gemini-key">Gemini API</a></li>
+  <li><a href="#gas-setup">GASセットアップ</a></li>
+  <li><a href="#notion-fn">Notion検索</a></li>
+  <li><a href="#gemini-fn">Gemini呼び出し</a></li>
+  <li><a href="#chat-ui">チャットUI</a></li>
+  <li><a href="#deploy">公開</a></li>
+  <li><a href="#data">データ投入</a></li>
+  <li><a href="#mcp">MCP連携</a></li>
+  <li><a href="#trouble">トラブル</a></li>
+</ul>
+</nav>
+
+<main>
+
+<!-- ===== 全体像 ===== -->
+<div class="section" id="overview">
+  <div class="section-eye">Overview</div>
+  <h2>全体像とRAGの流れ</h2>
+
+  <div class="arch">
+    <pre><code>
+  [ユーザー（ブラウザ）]
+        │ 質問 + DB選択
+        ▼
+  [GAS WebApp]  ─────────────────────────────────┐
+        │                                         │
+        │ ① 指定DBをキーワード検索                │ doPost(e)
+        ▼                                         │
+  [Notion API]                                    │
+        │ 上位5件の summary を返す                │
+        ▼                                         │
+  [GAS: context 構築]                             │
+    "以下を参考に答えよ\n{summary×5}\n{質問}"    │
+        │                                         │
+        │ ② プロンプトを送信                      │
+        ▼                                         │
+  [Gemini API]                                    │
+        │ 回答テキスト                            │
+        ▼                                         │
+  [GAS WebApp] ───────────────────────────────────┘
+        │ JSON { answer: "..." }
+        ▼
+  [ユーザー（ブラウザ）]
+    </code></pre>
+  </div>
+
+  <div class="callout callout-note">
+    <p><strong>なぜGemini UIから直接呼べないのか</strong></p>
+    <p>gemini.google.com は外部のGASエンドポイントをツールとして登録する機能を持たない。GASでWebAppを立て、そこからGemini APIを呼ぶ構成（A方式）が実装量最小かつ保守コストゼロ。</p>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">クラウドRAGに入れるもの</div>
+      <ul>
+        <li>Unity / Houdini / DX12 仕様書</li>
+        <li>ゲーム情報・共有設計書</li>
+        <li>手動精査した技術記事・論文</li>
+        <li>ゼミ資料・議事録</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">ローカルRAGに入れるもの</div>
+      <ul>
+        <li>チャット履歴・会話ログ</li>
+        <li>チュートリアル生成結果</li>
+        <li>Obsidianノート・個人進捗</li>
+        <li>共有NG文書・草稿</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Notion DB ===== -->
+<div class="section" id="notion-db">
+  <div class="section-eye">Step 01</div>
+  <h2>Notion DBの作成</h2>
+
+  <p>用途別に<strong>4つのDBを独立して作成</strong>する。<code>database_id</code>単位で検索するため、DB間の情報混合が物理的に防止される。</p>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>DB名</th><th>内容</th><th>追加方法</th></tr></thead>
+      <tbody>
+        <tr><td><code>Tool Docs DB</code></td><td>Unity・Houdini・DX12・環境設定</td><td>手動 / スクリプト</td></tr>
+        <tr><td><code>Game Info DB</code></td><td>ゲーム仕様・共有ゲーム情報</td><td>手動</td></tr>
+        <tr><td><code>Research DB</code></td><td>論文・技術記事（手動精査済み）</td><td>手動 / スクリプト</td></tr>
+        <tr><td><code>Team Notes DB</code></td><td>ゼミ資料・議事録・方針</td><td>手動</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>共通スキーマ（全DBで統一）</h3>
+
+  <div class="props">
+    <div class="props-row header">
+      <div>プロパティ名</div><div>種類</div><div>説明</div>
+    </div>
+    <div class="props-row">
+      <div class="name">title</div><div class="type">タイトル</div><div class="desc">ページタイトル（デフォルト）</div>
+    </div>
+    <div class="props-row">
+      <div class="name">source_url</div><div class="type">URL</div><div class="desc">元記事・ドキュメントのURL</div>
+    </div>
+    <div class="props-row">
+      <div class="name">tags</div><div class="type">マルチセレクト</div><div class="desc">Unity / Houdini / RAG 等</div>
+    </div>
+    <div class="props-row">
+      <div class="name">summary <span class="star">★</span></div><div class="type">テキスト</div><div class="desc">AI生成の100字要約 ← 検索精度の核</div>
+    </div>
+    <div class="props-row">
+      <div class="name">collected_at</div><div class="type">日付</div><div class="desc">追加日</div>
+    </div>
+    <div class="props-row">
+      <div class="name">category</div><div class="type">セレクト</div><div class="desc">tool_docs / game_info / research / team_notes</div>
+    </div>
+  </div>
+
+  <div class="callout callout-tip">
+    <p><strong>summaryが重要な理由</strong></p>
+    <p>ページ本文をそのままGeminiに渡すとトークン数が増えコストが跳ね上がる。100字のsummaryを渡すことでコストを1/10以下に抑えながら精度を維持できる。追加時点でGeminiに生成させておくのがポイント。</p>
+  </div>
+
+  <h3>database_idの確認方法</h3>
+  <p>各DBのURLから取得する（GASのスクリプトプロパティに設定する）：</p>
+  <pre><code>https://www.notion.so/{workspace}/<span class="key">xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</span>?v=...
+                                   ← ここが database_id（32文字）</code></pre>
+</div>
+
+<!-- ===== Gemini API ===== -->
+<div class="section" id="gemini-key">
+  <div class="section-eye">Step 02</div>
+  <h2>Gemini APIキーの取得</h2>
+
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">Google AI Studio にアクセス</div>
+        <div class="step-body"><p><a href="https://aistudio.google.com/">aistudio.google.com</a> にアクセスしてGoogleアカウントでログイン</p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">APIキーを発行</div>
+        <div class="step-body"><p>「Get API key」→「Create API key」→ 発行されたキーをメモ</p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">3</div></div>
+      <div class="step-content">
+        <div class="step-title">コード内に直書きしない</div>
+        <div class="step-body">
+          <div class="callout callout-warn">
+            <p><strong>セキュリティ注意</strong></p>
+            <p>APIキーはGASのスクリプトプロパティに設定する。コード内に直書きするとリポジトリ公開時に漏洩する。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== GAS Setup ===== -->
+<div class="section" id="gas-setup">
+  <div class="section-eye">Step 03</div>
+  <h2>GASプロジェクトの作成と設定</h2>
+
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">スプレッドシートから作成 <span class="badge badge-amber">GAS</span></div>
+        <div class="step-body">
+          <p>Google スプレッドシートを新規作成 →「拡張機能」→「Apps Script」→ プロジェクト名を <code>cloud-rag-chatbot</code> に変更</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">Notionインテグレーションキーを発行 <span class="badge badge-blue">Notion</span></div>
+        <div class="step-body">
+          <p><a href="https://www.notion.so/my-integrations">notion.so/my-integrations</a> →「新しいインテグレーション」→ 各DBで「接続先」に追加</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">3</div></div>
+      <div class="step-content">
+        <div class="step-title">スクリプトプロパティを設定 <span class="badge badge-amber">GAS</span></div>
+        <div class="step-body">
+          <p>「プロジェクトの設定」→「スクリプトプロパティ」に追加：</p>
+          <div class="props">
+            <div class="props-row header"><div>キー名</div><div></div><div>値</div></div>
+            <div class="props-row"><div class="name">NOTION_API_KEY</div><div></div><div class="desc">Notionインテグレーションキー（secret_...）</div></div>
+            <div class="props-row"><div class="name">GEMINI_API_KEY</div><div></div><div class="desc">Google AI Studioで発行したキー</div></div>
+            <div class="props-row"><div class="name">DB_TOOL_DOCS</div><div></div><div class="desc">Tool Docs DBのdatabase_id</div></div>
+            <div class="props-row"><div class="name">DB_GAME_INFO</div><div></div><div class="desc">Game Info DBのdatabase_id</div></div>
+            <div class="props-row"><div class="name">DB_RESEARCH</div><div></div><div class="desc">Research DBのdatabase_id</div></div>
+            <div class="props-row"><div class="name">DB_TEAM_NOTES</div><div></div><div class="desc">Team Notes DBのdatabase_id</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Notion検索 ===== -->
+<div class="section" id="notion-fn">
+  <div class="section-eye">Step 04</div>
+  <h2>Notion検索関数の実装</h2>
+
+  <p>GASエディタの <code>Code.gs</code> に実装する。<code>database_id</code>を指定して検索することで、DB間の混合を防ぐ。</p>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — Notion検索</span></div>
+    <pre><code><span class="cm">// DB識別キー → スクリプトプロパティキーのマップ</span>
+<span class="kw">const</span> DB_KEYS = {
+  tool_docs:  <span class="str">'DB_TOOL_DOCS'</span>,
+  game_info:  <span class="str">'DB_GAME_INFO'</span>,
+  research:   <span class="str">'DB_RESEARCH'</span>,
+  team_notes: <span class="str">'DB_TEAM_NOTES'</span>
+};
+
+<span class="kw">function</span> <span class="fn">searchNotion</span>(query, dbKey) {
+  <span class="kw">const</span> props  = PropertiesService.<span class="fn">getScriptProperties</span>();
+  <span class="kw">const</span> notionKey = props.<span class="fn">getProperty</span>(<span class="str">'NOTION_API_KEY'</span>);
+  <span class="kw">const</span> dbId   = props.<span class="fn">getProperty</span>(DB_KEYS[dbKey]);
+
+  <span class="kw">const</span> payload = {
+    filter: {
+      or: [
+        { property: <span class="str">'title'</span>,   title:        { contains: query } },
+        { property: <span class="str">'summary'</span>, rich_text:    { contains: query } },
+        { property: <span class="str">'tags'</span>,    multi_select: { contains: query } }
+      ]
+    },
+    page_size: <span class="key">5</span>  <span class="cm">// 上位5件</span>
+  };
+
+  <span class="kw">const</span> res = UrlFetchApp.<span class="fn">fetch</span>(
+    <span class="str">`https://api.notion.com/v1/databases/${dbId}/query`</span>,
+    {
+      method: <span class="str">'post'</span>,
+      headers: {
+        <span class="str">'Authorization'</span>:  <span class="str">`Bearer ${notionKey}`</span>,
+        <span class="str">'Notion-Version'</span>: <span class="str">'2022-06-28'</span>,
+        <span class="str">'Content-Type'</span>:   <span class="str">'application/json'</span>
+      },
+      payload: JSON.<span class="fn">stringify</span>(payload)
+    }
+  );
+
+  <span class="kw">const</span> data = JSON.<span class="fn">parse</span>(res.<span class="fn">getContentText</span>());
+  <span class="kw">if</span> (!data.results?.length) <span class="kw">return</span> <span class="str">'関連ドキュメントが見つかりませんでした。'</span>;
+
+  <span class="cm">// summary を連結して context を構築</span>
+  <span class="kw">return</span> data.results.<span class="fn">map</span>((page, i) => {
+    <span class="kw">const</span> title   = page.properties.title?.title?.[<span class="key">0</span>]?.plain_text ?? <span class="str">'無題'</span>;
+    <span class="kw">const</span> summary = page.properties.summary?.rich_text?.[<span class="key">0</span>]?.plain_text ?? <span class="str">'（要約なし）'</span>;
+    <span class="kw">const</span> url     = page.properties.source_url?.url ?? <span class="str">''</span>;
+    <span class="kw">return</span> <span class="str">`[${i+1}] ${title}\n${summary}${url ? <span class="str">`\n参照: ${url}`</span> : <span class="str">''</span>}`</span>;
+  }).<span class="fn">join</span>(<span class="str">'\n\n'</span>);
+}</code></pre>
+  </div>
+</div>
+
+<!-- ===== Gemini呼び出し ===== -->
+<div class="section" id="gemini-fn">
+  <div class="section-eye">Step 05</div>
+  <h2>Gemini呼び出し・RAGメイン処理</h2>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — Gemini + RAG</span></div>
+    <pre><code><span class="kw">function</span> <span class="fn">callGemini</span>(prompt) {
+  <span class="kw">const</span> apiKey = PropertiesService.<span class="fn">getScriptProperties</span>().<span class="fn">getProperty</span>(<span class="str">'GEMINI_API_KEY'</span>);
+  <span class="kw">const</span> url = <span class="str">`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`</span>;
+
+  <span class="kw">const</span> res = UrlFetchApp.<span class="fn">fetch</span>(url, {
+    method: <span class="str">'post'</span>,
+    contentType: <span class="str">'application/json'</span>,
+    payload: JSON.<span class="fn">stringify</span>({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: <span class="key">0.3</span> }  <span class="cm">// RAG用途は低めに</span>
+    })
+  });
+
+  <span class="kw">return</span> JSON.<span class="fn">parse</span>(res.<span class="fn">getContentText</span>())
+    .candidates?.[<span class="key">0</span>]?.content?.parts?.[<span class="key">0</span>]?.text ?? <span class="str">'回答を取得できませんでした。'</span>;
+}
+
+<span class="kw">function</span> <span class="fn">ragQuery</span>(query, dbKey) {
+  <span class="kw">const</span> context = <span class="fn">searchNotion</span>(query, dbKey);
+
+  <span class="kw">const</span> prompt = <span class="str">`以下のドキュメントを参考に、日本語で正確に回答してください。
+ドキュメントに情報がない場合はその旨を伝えてください。
+
+【参考ドキュメント】
+${context}
+
+【質問】
+${query}`</span>;
+
+  <span class="kw">return</span> <span class="fn">callGemini</span>(prompt);
+}
+
+<span class="cm">// WebApp エントリポイント</span>
+<span class="kw">function</span> <span class="fn">doPost</span>(e) {
+  <span class="kw">try</span> {
+    <span class="kw">const</span> { query, dbKey } = JSON.<span class="fn">parse</span>(e.postData.contents);
+    <span class="kw">return</span> ContentService
+      .<span class="fn">createTextOutput</span>(JSON.<span class="fn">stringify</span>({ answer: <span class="fn">ragQuery</span>(query, dbKey), status: <span class="str">'ok'</span> }))
+      .<span class="fn">setMimeType</span>(ContentService.MimeType.JSON);
+  } <span class="kw">catch</span> (err) {
+    <span class="kw">return</span> ContentService
+      .<span class="fn">createTextOutput</span>(JSON.<span class="fn">stringify</span>({ answer: <span class="str">`エラー: ${err.message}`</span>, status: <span class="str">'error'</span> }))
+      .<span class="fn">setMimeType</span>(ContentService.MimeType.JSON);
+  }
+}</code></pre>
+  </div>
+</div>
+
+<!-- ===== チャットUI ===== -->
+<div class="section" id="chat-ui">
+  <div class="section-eye">Step 06</div>
+  <h2>チャットUIの実装</h2>
+
+  <p><code>doGet()</code> でHTMLを返す。DBをドロップダウンで切り替えて質問できるシンプルな構成。</p>
+
+  <div class="callout callout-note">
+    <p><strong>ENDPOINTの設定について</strong></p>
+    <p>HTML内の <code>const ENDPOINT = ''</code> は、Step 07でデプロイ後にWebApp URLを貼り付けて再デプロイする。</p>
+  </div>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — doGet + HTML</span></div>
+    <pre><code><span class="kw">function</span> <span class="fn">doGet</span>() {
+  <span class="kw">return</span> HtmlService.<span class="fn">createHtmlOutput</span>(<span class="fn">getChatHtml</span>())
+    .<span class="fn">setTitle</span>(<span class="str">'RAG チャット'</span>);
+}
+
+<span class="kw">function</span> <span class="fn">getChatHtml</span>() {
+  <span class="kw">return</span> <span class="str">`&lt;!DOCTYPE html&gt;
+&lt;html lang="ja"&gt;
+&lt;head&gt;
+&lt;meta charset="UTF-8"&gt;
+&lt;style&gt;
+  body { font-family:sans-serif; max-width:720px; margin:0 auto; padding:20px; }
+  select,input { width:100%; padding:8px; margin:4px 0 12px; border:1px solid #ddd; border-radius:6px; }
+  button { padding:8px 20px; background:#0070f3; color:#fff; border:none; border-radius:6px; cursor:pointer; }
+  #chat { border:1px solid #ddd; border-radius:8px; height:400px; overflow-y:auto; padding:12px; margin-bottom:12px; }
+  .user { text-align:right; } .user span { background:#0070f3; color:#fff; }
+  .bot  span { background:#f0f0f0; color:#333; }
+  span.bubble { display:inline-block; padding:8px 12px; border-radius:10px; max-width:85%; white-space:pre-wrap; font-size:14px; }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;h2&gt;RAG チャット&lt;/h2&gt;
+&lt;select id="db"&gt;
+  &lt;option value="tool_docs"&gt;Tool Docs（Unity / Houdini / DX12）&lt;/option&gt;
+  &lt;option value="game_info"&gt;Game Info（ゲーム情報）&lt;/option&gt;
+  &lt;option value="research"&gt;Research（論文・技術記事）&lt;/option&gt;
+  &lt;option value="team_notes"&gt;Team Notes（ゼミ・議事録）&lt;/option&gt;
+&lt;/select&gt;
+&lt;div id="chat"&gt;&lt;/div&gt;
+&lt;input id="q" placeholder="質問を入力..." onkeydown="if(event.key==='Enter')send()"&gt;
+&lt;button onclick="send()"&gt;送信&lt;/button&gt;
+&lt;script&gt;
+const ENDPOINT = '';  // デプロイ後にWebApp URLを貼る
+function add(role,text){
+  const d=document.createElement('div');
+  d.className=role;
+  d.innerHTML='&lt;span class="bubble"&gt;'+text.replace(/&lt;/g,'&amp;lt;')+'&lt;/span&gt;';
+  document.getElementById('chat').appendChild(d);
+  document.getElementById('chat').scrollTop=9999;
+}
+async function send(){
+  const q=document.getElementById('q').value.trim();
+  const dbKey=document.getElementById('db').value;
+  if(!q)return;
+  document.getElementById('q').value='';
+  add('user',q); add('bot','考え中...');
+  const res=await fetch(ENDPOINT,{method:'POST',body:JSON.stringify({query:q,dbKey})});
+  const data=await res.json();
+  document.querySelector('.bot:last-child span').textContent=data.answer;
+}
+&lt;/script&gt;
+&lt;/body&gt;&lt;/html&gt;\`</span>;
+}</code></pre>
+  </div>
+</div>
+
+<!-- ===== 公開 ===== -->
+<div class="section" id="deploy">
+  <div class="section-eye">Step 07</div>
+  <h2>WebAppとして公開</h2>
+
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">デプロイ設定 <span class="badge badge-amber">GAS</span></div>
+        <div class="step-body">
+          <p>「デプロイ」→「新しいデプロイ」→ 種類:「ウェブアプリ」</p>
+          <div class="props">
+            <div class="props-row"><div class="name">次のユーザーとして実行</div><div></div><div class="desc">自分</div></div>
+            <div class="props-row"><div class="name">アクセスできるユーザー</div><div></div><div class="desc">自分のみ（外部公開する場合は変更）</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">WebApp URLをコピー</div>
+        <div class="step-body"><p>デプロイ完了後に表示されるURLを <code>getChatHtml()</code> 内の <code>ENDPOINT = ''</code> に貼り付ける</p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">3</div></div>
+      <div class="step-content">
+        <div class="step-title">再デプロイ</div>
+        <div class="step-body"><p>「デプロイを管理」→「編集」→ バージョン:「新しいバージョン」で保存</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== データ投入 ===== -->
+<div class="section" id="data">
+  <div class="section-eye">Step 08</div>
+  <h2>初期データ投入</h2>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">手動（Notion Web Clipper）</div>
+      <ul>
+        <li>Chrome拡張「Notion Web Clipper」を追加</li>
+        <li>保存したいページで拡張を起動</li>
+        <li>対象DBを選択して保存</li>
+        <li>保存後にsummaryを追記</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">summary生成プロンプト例</div>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px;">ページを保存後、以下をGemini/Claudeに渡す：</p>
+      <pre style="font-size:11px;margin-top:8px;"><code>以下を100字以内で要約してください。
+専門用語はそのまま残してください。
+
+[ページ本文]</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MCP連携 ===== -->
+<div class="section" id="mcp">
+  <div class="section-eye">Step 09</div>
+  <h2>Notion MCPとの連携確認</h2>
+
+  <p>Notion MCPがclaude.aiに接続済みであれば、GASを経由せずにClaude Codeから直接Notionを参照できる。</p>
+
+  <div class="callout callout-tip">
+    <p><strong>Claude Codeでの使用例（追加実装不要）</strong></p>
+    <p>「Notion の Tool Docs DB で "HoudiniのVEX wrangle" を検索して基本的な使い方をまとめてください」</p>
+  </div>
+
+  <div class="callout callout-tip">
+    <p><strong>ローカルRAGとの併用</strong></p>
+    <p>「ローカルRAGの tutorials namespace と NotionのTool Docs DBを両方参照して、Houdiniのボロノイ分割について教えてください」</p>
+  </div>
+</div>
+
+<!-- ===== トラブルシューティング ===== -->
+<div class="section" id="trouble">
+  <div class="section-eye">Troubleshooting</div>
+  <h2>トラブルシューティング</h2>
+
+  <h3>Notion APIが403を返す</h3>
+  <p>インテグレーションが各DBの「接続先」に追加されているか確認する。Notion DB → 右上「…」→「接続先」→ インテグレーションを追加。</p>
+
+  <h3>GASでエラーが出る</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">GAS エディタ — デバッグ</span></div>
+    <pre><code><span class="cm">// 関数を選択して「実行」→「実行ログ」でエラー確認</span>
+<span class="kw">function</span> <span class="fn">debugSearch</span>() {
+  Logger.<span class="fn">log</span>(<span class="fn">searchNotion</span>(<span class="str">'Unity'</span>, <span class="str">'tool_docs'</span>));
+}</code></pre>
+  </div>
+
+  <h3>Geminiの回答が的外れ</h3>
+  <p>summaryプロパティが空のページが多い場合に起きやすい。各ページにsummaryを追記すると精度が上がる。またクエリをより具体的にすること（「Unity」より「Unity HDRP シェーダーグラフ」）。</p>
+
+  <h3>WebAppにアクセスできない</h3>
+  <p>デプロイ時のアクセス権設定を確認。スクリプトプロパティに全キーが設定されているか確認。GASエディタで <code>doGet()</code> を直接実行してプレビューを確認する。</p>
+</div>
+
+</main>
+
+<footer>
+  <p>
+    Cloud RAG Setup Guide · Notion + GAS + Gemini ·
+    <a href="https://developers.notion.com/">Notion API</a> ·
+    <a href="https://ai.google.dev/gemini-api/docs">Gemini API</a>
+  </p>
+</footer>
+
+</body>
+</html>
