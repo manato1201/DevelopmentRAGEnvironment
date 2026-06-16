@@ -1,0 +1,15 @@
+# Obsidian vault（個人情報・チャット履歴など）はgit管理外
+localRAG/
+
+# 環境変数（APIキー等）
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
