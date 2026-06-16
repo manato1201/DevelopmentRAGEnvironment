@@ -112,6 +112,22 @@ vector_database = VectorDatabase(
 copy ..\DevelopmentRAGEnvironment\.env.example .env
 ```
 
+### Step 4 — main.py に Windows UTF-8 対応パッチを適用
+
+`src\main.py` を開き、ファイル先頭の `import sys` の直後（dotenv/argparse の `from` より前）に以下を追加：
+
+```python
+import io
+
+# Force UTF-8 for stdin/stdout on Windows (default is CP932, which corrupts Japanese)
+if hasattr(sys.stdin, 'buffer'):
+    sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
+```
+
+> **なぜ必要か:** Windows のデフォルトエンコーディングは CP932。MCP は stdin/stdout で JSON を読み書きするため、日本語クエリが文字化けして `TextEncodeInput must be Union[TextInputSequence, ...]` エラーになる。
+
 `.env` の内容（`YOUR_USERNAME` を自分のユーザー名に変更）：
 
 ```env
@@ -260,3 +276,36 @@ Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python auto_index.p
 Remove-Item -Recurse -Force localRAG\_rag_dashboard\.processed
 uv run python -m src.cli index
 ```
+
+### MCP 検索時に `KeyError: 'chunk_index'` が出る
+
+`vector_database.py` の `search()` が `chunk_index` をトップレベルに返していない旧バージョン。  
+`scripts/vector_database.py` を再コピーして確認：
+
+```python
+# src/vector_database.py の search() 内 results.append(...) に以下が含まれるか確認
+"chunk_index": meta.get("chunk_index", 0),
+```
+
+### MCP 検索時に `KeyError: 'document_id'` が出る
+
+`get_adjacent_chunks()` / `get_document_by_file_path()` が `document_id` を返していない旧バージョン。  
+最新の `scripts/vector_database.py` ではこれら両メソッドが `res["ids"]` を zip して `document_id` を含める実装になっている。
+
+### 日本語クエリが文字化け / `TextEncodeInput` エラー
+
+MCP サーバーが CP932 で stdin を読んでいる。`src\main.py` に UTF-8 パッチ（Step 4）が適用されているか確認。
+
+```
+# エラーメッセージ例
+TextEncodeInput must be Union[TextInputSequence, ...]
+received query: '繝輔か繝ｼ繝...'  ← 文字化けしている
+```
+
+### インデックス化後も MCP の検索結果が増えない
+
+ChromaDB の HNSW インデックスはメモリにロードされるため、別プロセスが upsert しても MCP サーバー側に反映されない。  
+**インデックス化後は必ず MCP サーバーを再起動する。**
+
+Claude Desktop: タスクトレイから完全終了 → 再起動  
+Claude Code: 接続を一度切断してから再接続

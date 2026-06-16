@@ -2,7 +2,20 @@
 
 **構成:** Notion + Google Apps Script + Gemini API  
 **所要時間:** 約60〜90分  
-**更新日:** 2026-06-10
+**更新日:** 2026-06-16
+
+> **Notion DB作成済み（2026-06-16）:** 4つのDBはすでにワークスペースに作成されています。Step 2 はスキップ可能。
+
+## Notion DB — 作成済みDB一覧
+
+| DB名 | database_id | URL |
+|------|-------------|-----|
+| Tool Docs DB | `249e442a-47dd-4a8d-95a8-8b856fb91ef6` | [開く](https://app.notion.com/p/249e442a47dd4a8d95a88b856fb91ef6) |
+| Game Info DB | `f201f73c-45dc-44cb-b8d7-a7be81b3644c` | [開く](https://app.notion.com/p/f201f73c45dc44cbb8d7a7be81b3644c) |
+| Research DB | `714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f` | [開く](https://app.notion.com/p/714d4d4a6a854aa1845c32dc3e1a2b1f) |
+| Team Notes DB | `f898bf03-8c9f-40e0-9e1b-a28432703d69` | [開く](https://app.notion.com/p/f898bf038c9f40e09e1ba28432703d69) |
+
+**親ページ:** [🗄️ Cloud RAG — ゲーム開発知識ベース](https://app.notion.com/p/38174fde7afd81eda23df9f7a7c19998)
 
 ---
 
@@ -99,10 +112,10 @@ https://www.notion.so/{workspace}/{database_id}?v=...
 |-------------|-----|
 | `NOTION_API_KEY` | Notionのインテグレーションキー |
 | `GEMINI_API_KEY` | Google AI Studioで発行したキー |
-| `DB_TOOL_DOCS` | Tool Docs DBのdatabase_id |
-| `DB_GAME_INFO` | Game Info DBのdatabase_id |
-| `DB_RESEARCH` | Research DBのdatabase_id |
-| `DB_TEAM_NOTES` | Team Notes DBのdatabase_id |
+| `DB_TOOL_DOCS` | `249e442a-47dd-4a8d-95a8-8b856fb91ef6` |
+| `DB_GAME_INFO` | `f201f73c-45dc-44cb-b8d7-a7be81b3644c` |
+| `DB_RESEARCH` | `714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f` |
+| `DB_TEAM_NOTES` | `f898bf03-8c9f-40e0-9e1b-a28432703d69` |
 
 > **Notionインテグレーションキーの発行:**
 > [notion.so/my-integrations](https://www.notion.so/my-integrations) → 「新しいインテグレーション」→ 各DBで「接続先」に追加
