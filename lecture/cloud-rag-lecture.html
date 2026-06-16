@@ -214,16 +214,21 @@ footer a{color:var(--accent);text-decoration:none;}
   <div class="section-eye">Step 01</div>
   <h2>Notion DBの作成</h2>
 
+  <div class="callout callout-tip">
+    <p><strong>✅ DB作成済み（2026-06-16）</strong></p>
+    <p>以下の4つのDBはすでにワークスペースに作成済みです。このセクションは参照用です。</p>
+  </div>
+
   <p>用途別に<strong>4つのDBを独立して作成</strong>する。<code>database_id</code>単位で検索するため、DB間の情報混合が物理的に防止される。</p>
 
   <div class="tbl-wrap">
     <table>
-      <thead><tr><th>DB名</th><th>内容</th><th>追加方法</th></tr></thead>
+      <thead><tr><th>DB名</th><th>内容</th><th>database_id</th></tr></thead>
       <tbody>
-        <tr><td><code>Tool Docs DB</code></td><td>Unity・Houdini・DX12・環境設定</td><td>手動 / スクリプト</td></tr>
-        <tr><td><code>Game Info DB</code></td><td>ゲーム仕様・共有ゲーム情報</td><td>手動</td></tr>
-        <tr><td><code>Research DB</code></td><td>論文・技術記事（手動精査済み）</td><td>手動 / スクリプト</td></tr>
-        <tr><td><code>Team Notes DB</code></td><td>ゼミ資料・議事録・方針</td><td>手動</td></tr>
+        <tr><td><code>Tool Docs DB</code></td><td>Unity・Houdini・DX12・環境設定</td><td><code>249e442a-47dd-4a8d-95a8-8b856fb91ef6</code></td></tr>
+        <tr><td><code>Game Info DB</code></td><td>ゲーム仕様・共有ゲーム情報</td><td><code>f201f73c-45dc-44cb-b8d7-a7be81b3644c</code></td></tr>
+        <tr><td><code>Research DB</code></td><td>論文・技術記事（手動精査済み）</td><td><code>714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f</code></td></tr>
+        <tr><td><code>Team Notes DB</code></td><td>ゼミ資料・議事録・方針</td><td><code>f898bf03-8c9f-40e0-9e1b-a28432703d69</code></td></tr>
       </tbody>
     </table>
   </div>
@@ -334,10 +339,10 @@ footer a{color:var(--accent);text-decoration:none;}
             <div class="props-row header"><div>キー名</div><div></div><div>値</div></div>
             <div class="props-row"><div class="name">NOTION_API_KEY</div><div></div><div class="desc">Notionインテグレーションキー（secret_...）</div></div>
             <div class="props-row"><div class="name">GEMINI_API_KEY</div><div></div><div class="desc">Google AI Studioで発行したキー</div></div>
-            <div class="props-row"><div class="name">DB_TOOL_DOCS</div><div></div><div class="desc">Tool Docs DBのdatabase_id</div></div>
-            <div class="props-row"><div class="name">DB_GAME_INFO</div><div></div><div class="desc">Game Info DBのdatabase_id</div></div>
-            <div class="props-row"><div class="name">DB_RESEARCH</div><div></div><div class="desc">Research DBのdatabase_id</div></div>
-            <div class="props-row"><div class="name">DB_TEAM_NOTES</div><div></div><div class="desc">Team Notes DBのdatabase_id</div></div>
+            <div class="props-row"><div class="name">DB_TOOL_DOCS</div><div></div><div class="desc"><code>249e442a-47dd-4a8d-95a8-8b856fb91ef6</code></div></div>
+            <div class="props-row"><div class="name">DB_GAME_INFO</div><div></div><div class="desc"><code>f201f73c-45dc-44cb-b8d7-a7be81b3644c</code></div></div>
+            <div class="props-row"><div class="name">DB_RESEARCH</div><div></div><div class="desc"><code>714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f</code></div></div>
+            <div class="props-row"><div class="name">DB_TEAM_NOTES</div><div></div><div class="desc"><code>f898bf03-8c9f-40e0-9e1b-a28432703d69</code></div></div>
           </div>
         </div>
       </div>

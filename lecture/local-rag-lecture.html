@@ -545,7 +545,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface); pa
     </div>
 
     <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div></div>
+      <div class="step-rail"><div class="step-badge">3</div><div class="step-line"></div></div>
       <div class="step-content">
         <div class="step-title">.env ファイルを作成 <span class="badge badge-purple">PowerShell</span></div>
         <div class="step-body">
@@ -566,6 +566,26 @@ EMBEDDING_MODEL=intfloat/multilingual-e5-large
 EMBEDDING_DIM=1024
 EMBEDDING_PREFIX_QUERY=query:
 EMBEDDING_PREFIX_EMBEDDING=passage:</code></pre>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">4</div></div>
+      <div class="step-content">
+        <div class="step-title">main.py に Windows UTF-8 対応パッチを適用 <span class="badge badge-red">Windows 必須</span></div>
+        <div class="step-body">
+          <p><code>src\main.py</code> を開き、<code>import sys</code> の直後（<code>from dotenv</code> より前）に以下を追加する：</p>
+          <pre><code><span class="kw">import</span> io
+
+<span class="cm"># Force UTF-8 for stdin/stdout on Windows (default is CP932, which corrupts Japanese)</span>
+<span class="kw">if</span> <span class="fn">hasattr</span>(sys.stdin, <span class="str">'buffer'</span>):
+    sys.stdin = io.<span class="fn">TextIOWrapper</span>(sys.stdin.buffer, encoding=<span class="str">'utf-8'</span>)
+<span class="kw">if</span> <span class="fn">hasattr</span>(sys.stdout, <span class="str">'buffer'</span>):
+    sys.stdout = io.<span class="fn">TextIOWrapper</span>(sys.stdout.buffer, encoding=<span class="str">'utf-8'</span>, line_buffering=<span class="val">True</span>)</code></pre>
+          <div class="callout callout-warn" style="margin-top:10px">
+            <p><strong>なぜ必要か？</strong><br>
+            Windows のデフォルトは CP932。MCP は stdin/stdout で JSON-RPC を通信するため、日本語クエリが文字化けして <code>TextEncodeInput must be Union[TextInputSequence, ...]</code> エラーになる。</p>
+          </div>
         </div>
       </div>
     </div>
@@ -832,6 +852,30 @@ expires: 2026-12-31  <span class="cm"># オプション</span>
     <li><code>_namespace_from_path()</code> が <code>SOURCE_DIR</code> 環境変数を読んで相対パスに変換しているはず</li>
     <li><code>.env</code> の <code>SOURCE_DIR</code> が設定されているか確認</li>
   </ul>
+
+  <h3>MCP 検索で <code>KeyError: 'chunk_index'</code> が出る</h3>
+  <p style="font-size:13px;color:var(--muted)"><code>vector_database.py</code> の <code>search()</code> が <code>chunk_index</code> をトップレベルに返していない旧バージョン。最新の <code>scripts/vector_database.py</code> を再コピーするか、以下を確認する。</p>
+  <pre><code><span class="cm"># src/vector_database.py の search() 内 results.append({...}) に含まれるか確認</span>
+<span class="str">"chunk_index"</span>: meta.get(<span class="str">"chunk_index"</span>, <span class="val">0</span>),</code></pre>
+
+  <h3>MCP 検索で <code>KeyError: 'document_id'</code> が出る</h3>
+  <p style="font-size:13px;color:var(--muted)"><code>get_adjacent_chunks()</code> / <code>get_document_by_file_path()</code> が <code>document_id</code> を返していない旧バージョン。最新版では <code>res["ids"]</code> を zip して <code>document_id</code> を含める実装になっている。</p>
+
+  <h3>日本語クエリが文字化け / <code>TextEncodeInput</code> エラー</h3>
+  <p style="font-size:13px;color:var(--muted)">MCP が CP932 で stdin を読んでいる。Step 3-4 の <code>main.py</code> UTF-8 パッチが適用されているか確認する。</p>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">エラー例（適用前）</span></div>
+    <pre><code>received query: <span class="str">'繝輔か繝ｼ繝...'</span>   <span class="cm">← 文字化けしている</span>
+TextEncodeInput must be Union[TextInputSequence, ...]</code></pre>
+  </div>
+
+  <h3>インデックス化後も MCP の検索結果が増えない（HNSW キャッシュ）</h3>
+  <p style="font-size:13px;color:var(--muted)">ChromaDB の HNSW インデックスはメモリにロードされる。別プロセスが upsert しても MCP サーバー側に即時反映されない。</p>
+  <div class="callout callout-warn">
+    <p><strong>インデックス化後は必ず MCP サーバーを再起動する。</strong><br>
+    Claude Desktop: タスクトレイから完全終了 → 再起動<br>
+    Claude Code: 接続を一度切断してから再接続</p>
+  </div>
 </div>
 
 </main>
