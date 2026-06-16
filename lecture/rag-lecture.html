@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG環境設計入門 — 実務家教員講義資料</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg2: #181c27;
+    --bg3: #1e2334;
+    --surface: #252b3b;
+    --border: #2e3550;
+    --text: #e2e8f0;
+    --muted: #8892a4;
+    --accent: #7c6af7;
+    --accent2: #4ea8de;
+    --teal: #2dd4bf;
+    --amber: #f59e0b;
+    --coral: #f87171;
+    --green: #4ade80;
+    --code-bg: #141720;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    --font-sans: 'Inter', 'Noto Sans JP', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.75;
+  }
+
+  /* HEADER */
+  header {
+    background: linear-gradient(135deg, #0f1117 0%, #1a1040 50%, #0f1117 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 64px 40px 48px;
+    position: relative;
+    overflow: hidden;
+  }
+  header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 40% at 70% 50%, rgba(124,106,247,0.12) 0%, transparent 70%);
+  }
+  .header-inner { max-width: 900px; margin: 0 auto; position: relative; }
+  .lecture-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid rgba(124,106,247,0.4);
+    padding: 4px 12px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+  }
+  header h1 {
+    font-size: clamp(28px, 5vw, 44px);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin-bottom: 16px;
+  }
+  header h1 span { color: var(--accent); }
+  .header-meta {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 24px;
+  }
+  .header-meta span { display: flex; align-items: center; gap: 6px; }
+
+  /* NAV */
+  nav {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 0 40px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  nav ul {
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    gap: 0;
+    list-style: none;
+    overflow-x: auto;
+  }
+  nav a {
+    display: block;
+    padding: 14px 16px;
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  nav a:hover { color: var(--text); border-color: var(--accent); }
+
+  /* MAIN */
+  main { max-width: 900px; margin: 0 auto; padding: 0 40px 80px; }
+
+  /* SECTION */
+  section { padding: 60px 0 0; }
+  .section-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  section > h2 {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  h3 {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--accent2);
+    margin: 36px 0 12px;
+  }
+
+  p { color: var(--text); margin-bottom: 16px; }
+  p.muted { color: var(--muted); font-size: 13px; }
+
+  /* CALLOUT */
+  .callout {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 20px 0;
+  }
+  .callout.tip { border-left-color: var(--teal); }
+  .callout.warn { border-left-color: var(--amber); }
+  .callout.important { border-left-color: var(--coral); }
+  .callout-title {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+    color: var(--accent);
+  }
+  .callout.tip .callout-title { color: var(--teal); }
+  .callout.warn .callout-title { color: var(--amber); }
+  .callout.important .callout-title { color: var(--coral); }
+  .callout p { margin: 0; font-size: 14px; }
+
+  /* CODE */
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    overflow-x: auto;
+    margin: 16px 0 24px;
+    position: relative;
+  }
+  pre code {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: #abb2bf;
+  }
+  .code-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    letter-spacing: 0.05em;
+  }
+  /* syntax highlight hints */
+  .kw { color: #c678dd; }
+  .fn { color: #61afef; }
+  .str { color: #98c379; }
+  .cm { color: #5c6370; font-style: italic; }
+  .num { color: #d19a66; }
+  .var { color: #e06c75; }
+
+  /* TABLE */
+  .table-wrap { overflow-x: auto; margin: 16px 0 24px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  th {
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 10px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  /* BADGE */
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  .badge-purple { background: rgba(124,106,247,0.15); color: var(--accent); border: 1px solid rgba(124,106,247,0.3); }
+  .badge-teal { background: rgba(45,212,191,0.12); color: var(--teal); border: 1px solid rgba(45,212,191,0.3); }
+  .badge-amber { background: rgba(245,158,11,0.12); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
+  .badge-coral { background: rgba(248,113,113,0.12); color: var(--coral); border: 1px solid rgba(248,113,113,0.3); }
+
+  /* STEP */
+  .steps { margin: 24px 0; }
+  .step {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 28px;
+    position: relative;
+  }
+  .step::before {
+    content: '';
+    position: absolute;
+    left: 18px;
+    top: 40px;
+    bottom: -28px;
+    width: 1px;
+    background: var(--border);
+  }
+  .step:last-child::before { display: none; }
+  .step-num {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(124,106,247,0.15);
+    border: 1px solid rgba(124,106,247,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .step-body h4 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    padding-top: 6px;
+  }
+  .step-body p { font-size: 14px; color: var(--muted); margin: 0; }
+
+  /* GRID */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+  }
+  .card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card p { font-size: 13px; color: var(--muted); margin: 0; }
+  .card ul { font-size: 13px; color: var(--muted); padding-left: 16px; }
+  .card li { margin-bottom: 4px; }
+
+  /* ARCHITECTURE DIAGRAM */
+  .arch {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px;
+    margin: 20px 0;
+    overflow-x: auto;
+  }
+  .arch pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+  }
+  .arch pre code {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  /* QUIZ */
+  .quiz {
+    background: var(--bg3);
+    border: 1px solid rgba(124,106,247,0.3);
+    border-radius: 10px;
+    padding: 24px;
+    margin: 32px 0;
+  }
+  .quiz-title {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .quiz h4 { font-size: 15px; margin-bottom: 12px; }
+  .quiz ol { padding-left: 20px; color: var(--muted); font-size: 14px; }
+  .quiz li { margin-bottom: 6px; }
+
+  /* FOOTER */
+  footer {
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    padding: 32px 40px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  /* DIVIDER */
+  hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+  a { color: var(--accent2); }
+
+  @media (max-width: 640px) {
+    header { padding: 40px 20px 32px; }
+    nav { padding: 0 20px; }
+    main { padding: 0 20px 60px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="lecture-tag">Lecture Note · RAG Engineering</div>
+    <h1>個人RAG環境の<span>設計と構築</span><br>ローカル×クラウドの使い分け</h1>
+    <p style="color:var(--muted);max-width:600px;margin-top:8px;">
+      情報爆発時代に「自分専用の知識データベース」をLLMと組み合わせてどう設計するか。
+      実務家教員の視点で、理論から実装まで一気に解説する。
+    </p>
+    <div class="header-meta">
+      <span>🎓 対象: 大学3〜4年生 / ゲームエンジニア志望</span>
+      <span>⏱ 所要時間: 約90分</span>
+      <span>📅 2026-06-10</span>
+    </div>
+  </div>
+</header>
+
+<nav>
+  <ul>
+    <li><a href="#intro">01 導入</a></li>
+    <li><a href="#what-is-rag">02 RAGとは</a></li>
+    <li><a href="#design-philosophy">03 設計思想</a></li>
+    <li><a href="#cloud-rag">04 クラウドRAG</a></li>
+    <li><a href="#local-rag">05 ローカルRAG</a></li>
+    <li><a href="#integration">06 統合設計</a></li>
+    <li><a href="#roadmap">07 実装計画</a></li>
+    <li><a href="#exercises">08 演習</a></li>
+  </ul>
+</nav>
+
+<main>
+
+<!-- ==================== 01 導入 ==================== -->
+<section id="intro">
+  <div class="section-label">01 · Introduction</div>
+  <h2>なぜ今、自前RAGを作るのか</h2>
+
+  <p>
+    AIツールが増えた結果、<strong>「AIに聞けば何でも答えてくれる」という幻想</strong>が生まれた。
+    しかし実務でぶつかる問題の大半は、汎用LLMが学習していない固有の情報に関係している。
+  </p>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">🔴 LLMだけでは解決できないこと</div>
+      <ul>
+        <li>自分のチャット履歴・過去のアウトプット</li>
+        <li>自分が作ったプロジェクトのドキュメント</li>
+        <li>研究室固有のツール設定・規約</li>
+        <li>学習カットオフ後の最新技術情報</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">🟢 RAGがあると解決できること</div>
+      <ul>
+        <li>「以前生成したチュートリアルと同じ形式で」</li>
+        <li>「うちのHoudini環境に合わせたコードで」</li>
+        <li>「先週の議事録を踏まえて提案して」</li>
+        <li>「この論文の内容を参考に実装して」</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout tip">
+    <div class="callout-title">実務家の視点</div>
+    <p>
+      ゲーム会社に入ると、社内Wikiやプロジェクトドキュメントが膨大に存在する。
+      それを素早く参照して実装に活かせるエンジニアは、それだけで生産性が2〜3倍違う。
+      自分のRAG環境を作れるということは、<strong>どんな職場でも即戦力になれる</strong>ということだ。
+    </p>
+  </div>
+</section>
+
+<!-- ==================== 02 RAGとは ==================== -->
+<section id="what-is-rag">
+  <div class="section-label">02 · What is RAG</div>
+  <h2>RAGの仕組みを理解する</h2>
+
+  <h3>RAG = Retrieval-Augmented Generation</h3>
+  <p>
+    LLMに質問するとき、<strong>関連ドキュメントを検索して一緒に渡す</strong>ことで、LLM固有の知識を超えた回答を得る技術。
+  </p>
+
+  <div class="arch">
+    <pre><code>
+  ┌─────────────────────────────────────────────────────┐
+  │                   RAG の流れ                        │
+  └─────────────────────────────────────────────────────┘
+
+  ① ユーザーが質問
+       "HoudiniでVEXを使ったボロノイ分割の実装方法は？"
+
+  ② 検索エンジンで関連ドキュメントを取得
+       Vector DB / Notion API → 上位5件のドキュメント
+
+  ③ プロンプトに context として注入
+       "以下のドキュメントを参考に回答してください:\n
+       [doc1]: Houdini VEX リファレンス...\n
+       [doc2]: 過去のチュートリアル生成結果...\n
+       \n質問: HoudiniでVEXを使ったボロノイ分割..."
+
+  ④ LLM が context を参考に回答を生成
+       → 自分の環境・過去の作業に即した具体的な回答
+    </code></pre>
+  </div>
+
+  <h3>2種類の検索方式</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>方式</th>
+          <th>仕組み</th>
+          <th>精度</th>
+          <th>コスト</th>
+          <th>本システムでの使用</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="badge badge-purple">ベクトル検索</span></td>
+          <td>文章を数値ベクトルに変換し、意味的な近さで検索</td>
+          <td>高（意味的マッチ）</td>
+          <td>Embedding生成が必要</td>
+          <td>ローカルRAG（pgvector）</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-teal">キーワード検索</span></td>
+          <td>テキストの完全一致・部分一致で検索</td>
+          <td>中（表記ゆれに弱い）</td>
+          <td>低・実装シンプル</td>
+          <td>クラウドRAG（Notion API）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">よくある誤解</div>
+    <p>
+      「ベクトル検索の方が絶対に良い」は正しくない。
+      Notion APIのキーワード検索でも、ドキュメントに適切なタグ・summaryが付いていれば十分実用的な精度が出る。
+      <strong>まず動くものを作って、精度が問題になってから改善するのが実務のセオリー。</strong>
+    </p>
+  </div>
+
+  <h3>参考実装: mcp-rag-server</h3>
+  <p>
+    今回のローカルRAGの基盤として使用する <a href="https://github.com/karaage0703/mcp-rag-server" target="_blank">mcp-rag-server</a>（松尾研究所）の特徴：
+  </p>
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title"><span class="badge badge-teal">強み</span></div>
+      <ul>
+        <li>LangChain非依存 → バージョン安定</li>
+        <li><code>multilingual-e5-large</code> で日本語対応</li>
+        <li>差分インデックス機能あり</li>
+        <li>CLI（管理）とMCP（検索）を分離</li>
+        <li>Dockerで環境を完全に封じ込め</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="badge badge-amber">改良点（本設計）</span></div>
+      <ul>
+        <li>namespace追加 → 用途別に分離</li>
+        <li>watchdog → 自動インデックス化</li>
+        <li>複数MCPホスト対応設定</li>
+        <li>Notion MCP との連携</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 03 設計思想 ==================== -->
+<section id="design-philosophy">
+  <div class="section-label">03 · Design Philosophy</div>
+  <h2>「何をどこに置くか」が全て</h2>
+
+  <p>
+    RAG設計で一番最初に決めるべきことは <strong>「情報の分類」</strong> だ。
+    ここを曖昧にすると、後から情報が混在して検索精度が落ち、最悪プライベートな情報が流出する。
+  </p>
+
+  <h3>分類基準: 共有できるか × 鮮度が重要か</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>情報の種類</th>
+          <th>共有</th>
+          <th>置き場所</th>
+          <th>理由</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>ツール仕様（Unity/Houdini/DX12）</td>
+          <td><span class="badge badge-teal">共有すべき</span></td>
+          <td>クラウド（Notion）</td>
+          <td>チームで参照、更新頻度低</td>
+        </tr>
+        <tr>
+          <td>ゲーム情報・共有設計書</td>
+          <td><span class="badge badge-teal">共有すべき</span></td>
+          <td>クラウド（Notion）</td>
+          <td>複数人で使用する前提</td>
+        </tr>
+        <tr>
+          <td>手動精査した技術記事・論文</td>
+          <td><span class="badge badge-teal">共有可能</span></td>
+          <td>クラウド（Notion）</td>
+          <td>品質担保済みのもの</td>
+        </tr>
+        <tr>
+          <td>チャット履歴・会話ログ</td>
+          <td><span class="badge badge-coral">共有NG</span></td>
+          <td>ローカル（pgvector）</td>
+          <td>試行錯誤・個人情報含む</td>
+        </tr>
+        <tr>
+          <td>チュートリアル生成結果</td>
+          <td><span class="badge badge-coral">共有NG</span></td>
+          <td>ローカル（pgvector）</td>
+          <td>個人の学習過程・未精査</td>
+        </tr>
+        <tr>
+          <td>Obsidianノート・個人進捗</td>
+          <td><span class="badge badge-coral">共有NG</span></td>
+          <td>ローカル（pgvector）</td>
+          <td>個人情報・草稿</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout important">
+    <div class="callout-title">設計原則</div>
+    <p>
+      <strong>「迷ったらローカル」</strong>が正しい。クラウドに置いたデータは取り消せないが、
+      ローカルに置いたデータはいつでもクラウドに移動できる。
+      保守的に設計して、必要になってから公開範囲を広げるのが実務の鉄則。
+    </p>
+  </div>
+</section>
+
+<!-- ==================== 04 クラウドRAG ==================== -->
+<section id="cloud-rag">
+  <div class="section-label">04 · Cloud RAG</div>
+  <h2>クラウドRAG: Notion + GAS + Gemini</h2>
+
+  <h3>なぜこの組み合わせか</h3>
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Notion を選ぶ理由</div>
+      <ul>
+        <li>公式REST APIがある（GASから直接操作可能）</li>
+        <li>Notion MCPが公式対応済み</li>
+        <li>Web Clipperで手動追加が楽</li>
+        <li><code>database_id</code>単位での検索で物理的に分離できる</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">GAS を選ぶ理由</div>
+      <ul>
+        <li>無料・サーバー管理不要</li>
+        <li>Googleアカウントだけで完結</li>
+        <li>WebApp・定期実行・フォームが全部できる</li>
+        <li>Notion API・Gemini APIの呼び出しも同一環境</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>DB設計: 4つのDBを完全分離</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>DB名</th><th>内容</th><th>追加方法</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>Tool Docs DB</code></td><td>Unity・Houdini・DX12・環境設定</td><td>手動 / スクリプト</td></tr>
+        <tr><td><code>Game Info DB</code></td><td>ゲーム仕様・共有ゲーム情報</td><td>手動</td></tr>
+        <tr><td><code>Research DB</code></td><td>論文・技術記事（手動精査済み）</td><td>手動 / スクリプト</td></tr>
+        <tr><td><code>Team Notes DB</code></td><td>ゼミ資料・議事録・方針</td><td>手動</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>各ページの共通メタデータ（重要）</h3>
+  <p>後でGASから検索したとき精度が変わる。特に <code>summary</code> は収集時点でGeminiに生成させておくこと。</p>
+
+  <div class="code-label">Notion ページプロパティ（全DB統一）</div>
+  <pre><code><span class="cm">// 各DBページに必ず付けるプロパティ</span>
+{
+  <span class="str">"title"</span>:        <span class="str">"ページタイトル"</span>,
+  <span class="str">"source_url"</span>:   <span class="str">"https://..."</span>,            <span class="cm">// 元URL</span>
+  <span class="str">"tags"</span>:          [<span class="str">"Unity"</span>, <span class="str">"Shader"</span>],   <span class="cm">// マルチセレクト</span>
+  <span class="str">"summary"</span>:       <span class="str">"AI生成の100字要約"</span>,      <span class="cm">// 検索精度の核</span>
+  <span class="str">"collected_at"</span>:  <span class="str">"2026-06-10"</span>,
+  <span class="str">"category"</span>:      <span class="str">"tool_docs"</span>             <span class="cm">// どのDBか</span>
+}</code></pre>
+
+  <div class="callout tip">
+    <div class="callout-title">なぜ summary が重要か</div>
+    <p>
+      Gemini APIへのリクエストはトークン数に比例してコストが上がる。
+      ページ本文をそのまま渡すと長すぎて精度も落ちる。
+      100字のsummaryを渡すことで<strong>コストを1/10以下に抑えながら精度を維持</strong>できる。
+    </p>
+  </div>
+
+  <h3>GAS RAGの実装フロー</h3>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>ユーザーが質問 + 対象DBを選択</h4>
+        <p>GAS WebAppのチャットUIで「Houdini関連を検索」など対象DBをドロップダウンで指定</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Notion APIで指定DB内を検索</h4>
+        <p><code>database_id</code> を指定することでDB間の混合が物理的に防止される</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>上位N件のsummaryでcontextを構築</h4>
+        <p>各ページのsummaryを連結してコンパクトなcontextを作る</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h4>Gemini APIに投げて回答取得</h4>
+        <p><code>gemini-2.0-flash</code> を使用。コスパ最良のモデル選択</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="code-label">GAS: RAGの核心部分</div>
+  <pre><code><span class="kw">function</span> <span class="fn">ragQuery</span>(query, dbKey) {
+  <span class="cm">// 1. 指定DBをNotionで検索</span>
+  <span class="kw">const</span> <span class="var">context</span> = <span class="fn">searchNotion</span>(query, NOTION_DBS[dbKey]);
+  
+  <span class="cm">// 2. プロンプト構築</span>
+  <span class="kw">const</span> <span class="var">prompt</span> = <span class="str">`以下のドキュメントを参考に、日本語で回答してください。
+
+【参考ドキュメント】
+${context}
+
+【質問】
+${query}`</span>;
+  
+  <span class="cm">// 3. Gemini API 呼び出し</span>
+  <span class="kw">const</span> <span class="var">res</span> = UrlFetchApp.<span class="fn">fetch</span>(
+    <span class="str">`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`</span>,
+    {
+      method: <span class="str">"post"</span>,
+      contentType: <span class="str">"application/json"</span>,
+      payload: JSON.<span class="fn">stringify</span>({
+        contents: [{ parts: [{ text: prompt }] }]
+      })
+    }
+  );
+  
+  <span class="kw">return</span> JSON.<span class="fn">parse</span>(res.<span class="fn">getContentText</span>())
+    .candidates[<span class="num">0</span>].content.parts[<span class="num">0</span>].text;
+}</code></pre>
+
+  <h3>ドキュメント追加の3パターン</h3>
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">🖱 手動（Notion UI / Web Clipper）</div>
+      <p>日常的な1件追加。ブラウザ拡張で閲覧ページを即Notionに保存。追加後にsummaryを手動or自動生成。</p>
+    </div>
+    <div class="card">
+      <div class="card-title">🐍 Pythonスクリプト → Notion API</div>
+      <p>まとめて追加・既存データ移行に使用。Research CollectorのRSS収集部分をそのまま流用し、出力先をNotebookLMからNotionに差し替えるだけ。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 05 ローカルRAG ==================== -->
+<section id="local-rag">
+  <div class="section-label">05 · Local RAG</div>
+  <h2>ローカルRAG: mcp-rag-server 改良版</h2>
+
+  <h3>セットアップ手順（mcp-rag-server）</h3>
+  <p>
+    <a href="https://zenn.dev/mkj/articles/30eeb69bf84b3f" target="_blank">解説記事</a>をベースに、
+    namespace設計と自動インデックス化を追加する。
+  </p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>リポジトリのクローン + uv環境セットアップ</h4>
+        <p>Pythonのパッケージ管理はuvを使用（pip より高速・依存解決が安定）</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Docker で pgvector を起動</h4>
+        <p>Docker Desktop を使えばコマンド1行。Claude Code起動時に自動起動する設定も可能</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>.env の設定</h4>
+        <p>DB接続情報・ソースディレクトリ・Embeddingモデルを設定。<code>SOURCE_DIR</code>をObsidian vaultに向ける</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h4>MCPホストに設定追加</h4>
+        <p>Claude Code / Cursor / Cline それぞれの設定ファイルに同じエントリを追加。サーバー自体は1つを使い回す</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="code-label">Docker: pgvector 起動</div>
+  <pre><code><span class="cm"># pgvectorコンテナを起動</span>
+docker run --name postgres-pgvector \
+  -e POSTGRES_PASSWORD=password \
+  -p 5432:5432 \
+  -d pgvector/pgvector:pg17
+
+<span class="cm"># RAG用DBを作成</span>
+docker exec -it postgres-pgvector \
+  psql -U postgres -c <span class="str">"CREATE DATABASE ragdb;"</span></code></pre>
+
+  <h3>namespace設計（用途別分離）</h3>
+  <p>pgvectorのテーブルに <code>namespace</code> カラムを追加し、検索時にフィルタする。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>namespace</th><th>内容</th><th>ソース</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>chat_logs</code></td><td>Claude等との会話ログ</td><td>自動エクスポート</td></tr>
+        <tr><td><code>tutorials</code></td><td>Houdiniチュートリアル生成結果</td><td>生成時に自動保存</td></tr>
+        <tr><td><code>personal_notes</code></td><td>Obsidianノート・個人進捗</td><td>Obsidian vault</td></tr>
+        <tr><td><code>private_docs</code></td><td>共有NG文書・草稿</td><td>手動追加</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="code-label">namespace指定での検索（SQL）</div>
+  <pre><code><span class="cm">-- personal_notes だけを対象に意味検索</span>
+<span class="kw">SELECT</span> content, metadata
+<span class="kw">FROM</span> documents
+<span class="kw">WHERE</span> namespace = <span class="str">'personal_notes'</span>
+<span class="kw">ORDER BY</span> embedding <-> query_embedding
+<span class="kw">LIMIT</span> <span class="num">5</span>;</code></pre>
+
+  <h3>自動インデックス化（watchdog）</h3>
+  <p>
+    現状はファイルを追加するたびに手動でCLIを叩く必要がある。
+    <code>watchdog</code> ライブラリでディレクトリを監視し、変更を自動検知してインデックスを更新する。
+  </p>
+
+  <div class="code-label">auto_index.py（常駐プロセス）</div>
+  <pre><code><span class="kw">from</span> watchdog.observers <span class="kw">import</span> Observer
+<span class="kw">from</span> watchdog.events <span class="kw">import</span> FileSystemEventHandler
+<span class="kw">import</span> subprocess, time
+
+<span class="kw">class</span> <span class="fn">IndexHandler</span>(FileSystemEventHandler):
+    <span class="kw">def</span> <span class="fn">on_modified</span>(self, event):
+        <span class="cm"># .md / .txt / .pdf の変更のみ対象</span>
+        <span class="kw">if</span> <span class="kw">not</span> event.is_directory <span class="kw">and</span> \
+           event.src_path.<span class="fn">endswith</span>((<span class="str">'.md'</span>, <span class="str">'.txt'</span>, <span class="str">'.pdf'</span>)):
+            print(<span class="str">f"変更検知: {event.src_path}"</span>)
+            subprocess.<span class="fn">run</span>([
+                <span class="str">"uv"</span>, <span class="str">"run"</span>, <span class="str">"python"</span>,
+                <span class="str">"-m"</span>, <span class="str">"src.main"</span>, <span class="str">"index"</span>
+            ])
+
+<span class="kw">if</span> __name__ == <span class="str">"__main__"</span>:
+    observer = <span class="fn">Observer</span>()
+    observer.<span class="fn">schedule</span>(
+        <span class="fn">IndexHandler</span>(),
+        path=<span class="str">"./data/source"</span>,   <span class="cm"># Obsidian vault を指定</span>
+        recursive=<span class="kw">True</span>
+    )
+    observer.<span class="fn">start</span>()
+    print(<span class="str">"監視開始..."</span>)
+    <span class="kw">try</span>:
+        <span class="kw">while True</span>:
+            time.<span class="fn">sleep</span>(<span class="num">1</span>)
+    <span class="kw">except</span> KeyboardInterrupt:
+        observer.<span class="fn">stop</span>()
+    observer.<span class="fn">join</span>()</code></pre>
+
+  <h3>複数MCPホストへの接続</h3>
+  <p>
+    mcp-rag-serverは特定のLLMに依存しない設計のため、<strong>設定ファイルにエントリを追加するだけ</strong>で
+    どのMCPホストからも同じサーバーを使い回せる。
+  </p>
+
+  <div class="code-label">Cursor: ~/.cursor/mcp.json</div>
+  <pre><code>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"mcp-rag-server"</span>: {
+      <span class="str">"command"</span>: <span class="str">"uv"</span>,
+      <span class="str">"args"</span>: [
+        <span class="str">"run"</span>, <span class="str">"--directory"</span>,
+        <span class="str">"/path/to/mcp-rag-server"</span>,
+        <span class="str">"python"</span>, <span class="str">"-m"</span>, <span class="str">"src.main"</span>
+      ]
+    }
+  }
+}</code></pre>
+
+  <div class="callout">
+    <div class="callout-title">将来: Remote MCP対応後</div>
+    <p>
+      claude.aiがRemote MCPに対応すれば、WebUI（claude.ai）からも同じローカルサーバーに接続できるようになる。
+      今の設計を維持していれば、その時点での変更はゼロ。
+    </p>
+  </div>
+</section>
+
+<!-- ==================== 06 統合設計 ==================== -->
+<section id="integration">
+  <div class="section-label">06 · Integration</div>
+  <h2>クラウド↔ローカルの統合設計</h2>
+
+  <h3>参照方向のルール</h3>
+
+  <div class="arch">
+    <pre><code>
+  ローカル → クラウド（Notion）: ✅ 読み取り専用で参照OK
+  クラウド → ローカル         : ❌ アクセス不可（意図的）
+
+  理由: クラウドからローカルに書き込む仕組みを作ると、
+        意図しないデータがローカルの個人情報と混在するリスクがある
+    </code></pre>
+  </div>
+
+  <h3>Notion MCP による統合（今すぐ使える）</h3>
+  <p>
+    Notion MCPはclaude.aiに既に接続済みのため、
+    <strong>追加実装なしでClaude CodeからNotionのDBを直接検索できる。</strong>
+  </p>
+
+  <div class="callout tip">
+    <div class="callout-title">実用例: Claude Codeでの使い方</div>
+    <p>
+      「HoudiniのVEXで昨日作ったチュートリアルの内容（ローカル: tutorials namespace）と、
+      公式SOPリファレンス（Notion: Tool Docs DB）を両方参照して、ボロノイ分割の実装コードを書いて」
+      <br><br>
+      → mcp-rag-server（ローカル）とNotion MCP（クラウド）を自動的に組み合わせて回答
+    </p>
+  </div>
+
+  <h3>将来拡張: Supabase Vector</h3>
+  <p>チームへの展開が必要になった時点で検討する。今は不要。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>フェーズ</th><th>構成</th><th>メリット</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>現在（個人）</td>
+          <td>Docker + pgvector（ローカル）</td>
+          <td>無料・シンプル・管理コストゼロ</td>
+        </tr>
+        <tr>
+          <td>将来（チーム）</td>
+          <td>Supabase Vector（クラウド）</td>
+          <td>複数人で同じVectorDBを参照・namespace分離維持</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ==================== 07 実装ロードマップ ==================== -->
+<section id="roadmap">
+  <div class="section-label">07 · Roadmap</div>
+  <h2>実装ロードマップ</h2>
+
+  <h3>Phase 1: クラウドRAG構築</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>NotionでDB4本を作成</h4>
+        <p>共通スキーマ（title / source_url / tags / summary / collected_at / category）を統一</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>GAS WebApp基本実装</h4>
+        <p>Notion検索 + Gemini呼び出し + シンプルなチャットUI（DBドロップダウン付き）</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>初期データ投入</h4>
+        <p>Web Clipper + Pythonスクリプトで既存の技術資料をNotionに移行</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>Phase 2: ローカルRAG改良</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>namespace設計をpgvectorに実装</h4>
+        <p>既存のmcp-rag-serverにnamespaceカラムを追加</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>watchdog自動インデックス化</h4>
+        <p>ObsidianをSOURCE_DIRに設定し、ノート保存と同時に自動インデックス更新</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>Cursor / Clineへの接続設定追加</h4>
+        <p>設定ファイルへのエントリ追加のみ。サーバー自体は変更不要</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>Phase 3: 統合・拡張</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>Claude CodeでNotion MCP + ローカルRAGの併用確認</h4>
+        <p>両ソースを参照した回答の精度・速度を検証</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>チャット履歴の自動取り込みパイプライン</h4>
+        <p>ClaudeのエクスポートデータをローカルRAGに自動ingestion</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 08 演習 ==================== -->
+<section id="exercises">
+  <div class="section-label">08 · Exercises</div>
+  <h2>演習問題</h2>
+
+  <div class="quiz">
+    <div class="quiz-title">Q1 · 基礎理解</div>
+    <h4>以下の情報を「クラウド（Notion）」か「ローカル（pgvector）」かに分類し、理由を答えよ。</h4>
+    <ol>
+      <li>DirectX12のAPIリファレンス</li>
+      <li>先週のゼミ議事録</li>
+      <li>昨日ClaudeとしたShaderのデバッグ会話</li>
+      <li>自分が作成した未公開のゲームデザイン草稿</li>
+      <li>Houdiniの公式ドキュメント</li>
+    </ol>
+  </div>
+
+  <div class="quiz">
+    <div class="quiz-title">Q2 · 設計</div>
+    <h4>GASのRAG実装で、複数のNotion DBに対してクエリを投げるとき、混合を防ぐには何を使うか。</h4>
+    <ol>
+      <li>tagで絞り込む</li>
+      <li>database_idを指定して検索する</li>
+      <li>Notionのページタイトルでフィルタする</li>
+      <li>クエリを分割して全DBに投げる</li>
+    </ol>
+  </div>
+
+  <div class="quiz">
+    <div class="quiz-title">Q3 · 応用</div>
+    <h4>mcp-rag-serverを「Cursor」でも使えるようにするために必要な作業を答えよ。また、このときサーバーのコードを変更する必要があるか？</h4>
+  </div>
+
+  <div class="quiz">
+    <div class="quiz-title">Q4 · 実装</div>
+    <h4>
+      GASのRAGチャットでGemini APIに渡す <code>summary</code> を、ページ本文（full text）に変えたとき
+      何が起きるか。トークン・コスト・精度の観点から説明せよ。
+    </h4>
+  </div>
+
+  <hr>
+  <h3>参考リソース</h3>
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">🔧 実装参考</div>
+      <ul>
+        <li><a href="https://github.com/karaage0703/mcp-rag-server">mcp-rag-server（GitHub）</a></li>
+        <li><a href="https://zenn.dev/mkj/articles/30eeb69bf84b3f">mcp-rag-server 解説記事</a></li>
+        <li><a href="https://manato1201.github.io/Research-Collector/">Research Collector</a></li>
+        <li><a href="https://github.com/manato1201/Research-Collector">Research Collector（GitHub）</a></li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">📚 APIドキュメント</div>
+      <ul>
+        <li><a href="https://developers.notion.com/">Notion API</a></li>
+        <li><a href="https://ai.google.dev/gemini-api/docs">Gemini API</a></li>
+        <li><a href="https://github.com/pgvector/pgvector">pgvector</a></li>
+        <li><a href="https://github.com/gorakhargosh/watchdog">watchdog（Python）</a></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p>RAG環境設計入門 · 松浦真聖 · 2026 · 
+  <a href="https://github.com/manato1201/Research-Collector">Research Collector</a> /
+  <a href="https://github.com/karaage0703/mcp-rag-server">mcp-rag-server</a>
+  </p>
+</footer>
+
+</body>
+</html>

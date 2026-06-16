@@ -1,22 +1,26 @@
-# ローカルRAG環境セットアップガイド
+# ローカルRAG環境セットアップガイド（ChromaDB版）
 
-**対象:** Windows 11 + WSL2 (Ubuntu) + Docker  
-**所要時間:** セットアップ約30分 / インデックス化4時間以上  
-**更新日:** 2026-06-10
+**対象:** Windows 11（WSL2・Docker不要）  
+**所要時間:** 約20分  
+**更新日:** 2026-06-16
+
+> **変更履歴:** 2026-06-16 — pgvector（Docker必須）からChromaDB（Dockerなし）に移行。  
+> 旧手順は `docs/local-rag-chromadb-migration.md` を参照。
 
 ---
 
 ## 目次
 
 1. [前提条件](#1-前提条件)
-2. [WSL2セットアップ](#2-wsl2セットアップ)
-3. [Dockerインストール](#3-dockerインストール)
-4. [pgvector起動](#4-pgvector起動)
-5. [mcp-rag-serverセットアップ](#5-mcp-rag-serverセットアップ)
-6. [Houdiniヘルプデータの配置](#6-houdiniヘルプデータの配置)
-7. [インデックス化](#7-インデックス化)
-8. [MCPサーバー設定](#8-mcpサーバー設定)
-9. [トラブルシューティング](#9-トラブルシューティング)
+2. [uv のインストール](#2-uv-のインストール)
+3. [mcp-rag-server セットアップ](#3-mcp-rag-server-セットアップ)
+4. [ChromaDB パッチの適用](#4-chromadb-パッチの適用)
+5. [Obsidian vault の設定](#5-obsidian-vault-の設定)
+6. [インデックス化](#6-インデックス化)
+7. [watchdog（自動インデックス化）の起動](#7-watchdog-の起動)
+8. [Claude Desktop への登録](#8-claude-desktop-への登録)
+9. [動作確認](#9-動作確認)
+10. [トラブルシューティング](#10-トラブルシューティング)
 
 ---
 
@@ -25,410 +29,234 @@
 | 項目 | 要件 |
 |------|------|
 | OS | Windows 11 |
-| Docker Desktop | 不要（WSL2内にDockerを直接インストール） |
-| Houdini | インストール済み（helpデータ取得のため） |
+| Docker | **不要** |
+| WSL2 | **不要** |
+| Python | uv が自動管理（3.12 を使用） |
 | Claude Desktop | インストール済み |
-| ディスク空き | 10GB以上推奨 |
+| Obsidian | インストール済み |
+| ディスク空き | 5GB 以上推奨 |
 
 ---
 
-## 2. WSL2セットアップ
+## 2. uv のインストール
 
-### Step 1 — Ubuntuをインストール
-
-PowerShellを**管理者権限**で起動して実行：
+PowerShell で実行：
 
 ```powershell
-wsl --install -d Ubuntu
+winget install --id=astral-sh.uv -e
 ```
 
-インストール完了後、Ubuntuが起動するのでユーザー名とパスワードを設定する。
-
-> **注意:** 再起動を求められた場合は再起動してからUbuntuを起動する。
-
-### Step 2 — systemdの有効化
-
-```bash
-sudo tee /etc/wsl.conf << 'EOF'
-[boot]
-systemd=true
-EOF
-```
-
-設定反映のためWSLを再起動：
+確認：
 
 ```powershell
-# PowerShellで実行
-wsl --shutdown
-```
-
-その後Ubuntuを再度起動する。
-
-### Step 3 — パッケージ更新
-
-```bash
-sudo apt update && sudo apt upgrade -y
+uv --version
 ```
 
 ---
 
-## 3. Dockerインストール
+## 3. mcp-rag-server セットアップ
 
-### Step 1 — 必要なパッケージを入れる
-
-```bash
-sudo apt install -y ca-certificates curl gnupg lsb-release
-```
-
-### Step 2 — Docker公式GPGキーを追加
-
-```bash
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo tee /etc/apt/keyrings/docker.asc > /dev/null
-sudo chmod a+r /etc/apt/keyrings/docker.asc
-```
-
-### Step 3 — Dockerリポジトリを追加
-
-```bash
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-  https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-```
-
-### Step 4 — Dockerをインストール
-
-```bash
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-```
-
-### Step 5 — sudoなしで使えるようにする
-
-```bash
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
-### Step 6 — 動作確認
-
-```bash
-docker --version
-docker run hello-world
-```
-
-`Hello from Docker!` が表示されれば成功。
-
----
-
-## 4. pgvector起動
-
-### Step 1 — コンテナ起動
-
-```bash
-docker run --name postgres-pgvector \
-  -e POSTGRES_PASSWORD=password \
-  -p 5432:5432 \
-  -d pgvector/pgvector:pg17
-```
-
-### Step 2 — データベース作成
-
-```bash
-docker exec -it postgres-pgvector \
-  psql -U postgres -c "CREATE DATABASE ragdb;"
-```
-
-### Step 3 — 確認
-
-```bash
-docker ps
-```
-
-`postgres-pgvector` が `Up` 状態であれば成功。
-
-> **Tips:** WSL再起動後にコンテナが停止している場合は `docker start postgres-pgvector` で再起動できる。
-
----
-
-## 5. mcp-rag-serverセットアップ
-
-### Step 1 — uvのインストール
-
-Ubuntuターミナルで実行：
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env
-```
-
-### Step 2 — リポジトリをクローン
-
-```bash
-cd ~
+```powershell
+cd C:\Users\YOUR_USERNAME\Desktop\GameDevelopment
 git clone https://github.com/karaage0703/mcp-rag-server
 cd mcp-rag-server
-uv sync
+
+# Python 3.12 で仮想環境を作成（sentencepiece の wheel 問題を回避）
+uv sync --python 3.12
+uv add chromadb watchdog pyyaml
 ```
 
-### Step 3 — .envファイルを作成
+> **注意:** `uv sync` のみだと Python 3.13 が選択され sentencepiece のビルドが失敗する。
+> 必ず `--python 3.12` を付けること。
 
-```bash
-tee .env << 'EOF'
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=password
-POSTGRES_DB=ragdb
+---
 
-SOURCE_DIR=./data/source
-PROCESSED_DIR=./data/processed
+## 4. ChromaDB パッチの適用
+
+### Step 1 — vector_database.py を差し替え
+
+```powershell
+copy ..\DevelopmentRAGEnvironment\scripts\vector_database.py src\vector_database.py
+```
+
+### Step 2 — rag_tools.py を編集
+
+`src\rag_tools.py` を開き、`create_rag_service_from_env` 関数内の PostgreSQL ブロックを以下に置き換える：
+
+**変更前:**
+```python
+vector_database = VectorDatabase(
+    {
+        "host":     os.environ.get("POSTGRES_HOST",     "localhost"),
+        "port":     os.environ.get("POSTGRES_PORT",     "5432"),
+        "user":     os.environ.get("POSTGRES_USER",     "postgres"),
+        "password": os.environ.get("POSTGRES_PASSWORD", "password"),
+        "database": os.environ.get("POSTGRES_DB",       "ragdb"),
+    }
+)
+```
+
+**変更後:**
+```python
+vector_database = VectorDatabase(
+    {
+        "chroma_path":   os.environ.get("CHROMA_PATH",   "./data/chroma"),
+        "embedding_dim": os.environ.get("EMBEDDING_DIM", "1024"),
+    }
+)
+```
+
+### Step 3 — .env を設定
+
+```powershell
+copy ..\DevelopmentRAGEnvironment\.env.example .env
+```
+
+`.env` の内容（`YOUR_USERNAME` を自分のユーザー名に変更）：
+
+```env
+CHROMA_PATH=./data/chroma
+
+SOURCE_DIR=C:\Users\YOUR_USERNAME\Desktop\GameDevelopment\DevelopmentRAGEnvironment\localRAG
+PROCESSED_DIR=C:\Users\YOUR_USERNAME\Desktop\GameDevelopment\DevelopmentRAGEnvironment\localRAG\_rag_dashboard\.processed
 
 EMBEDDING_MODEL=intfloat/multilingual-e5-large
 EMBEDDING_DIM=1024
-EMBEDDING_PREFIX_QUERY="query: "
-EMBEDDING_PREFIX_EMBEDDING="passage: "
-EOF
-```
-
-### Step 4 — 確認
-
-```bash
-cat .env
+EMBEDDING_PREFIX_QUERY=query:
+EMBEDDING_PREFIX_EMBEDDING=passage:
 ```
 
 ---
 
-## 6. Houdiniヘルプデータの配置
+## 5. Obsidian vault の設定
 
-### Step 1 — ソースディレクトリ作成【Ubuntu】
-
-```bash
-mkdir -p ~/mcp-rag-server/data/source
-```
-
-### Step 2 — Houdini helpのzipを探す【Windows】
-
-エクスプローラーで以下を開く（バージョン番号は環境に合わせて変更）：
+Obsidian を開き、`localRAG\` フォルダを vault として登録する。
 
 ```
-C:\Program Files\Side Effects Software\Houdini 21.0.506\houdini\help
+DevelopmentRAGEnvironment\localRAG\   ← Obsidian でこのフォルダを開く
+├── chat_logs\        ← namespace: chat_logs
+├── tutorials\        ← namespace: tutorials
+├── personal_notes\   ← namespace: personal_notes
+│   ├── progress\
+│   └── ideas\
+├── private_docs\     ← namespace: private_docs
+├── _rag_dashboard\   ← 管理専用（インデックス対象外）
+└── _templates\       ← テンプレート（インデックス対象外）
 ```
 
-### Step 3 — WSLのsourceフォルダへコピー【Windows】
+**テンプレートプラグインの設定:**
 
-エクスプローラーのアドレスバーに以下を貼り付けてアクセス：
-
-```
-\\wsl.localhost\Ubuntu\home\tk_render\mcp-rag-server\data\source
-```
-
-コピーするzipファイル（優先度順）：
-
-| ファイル名 | 内容 | 優先度 |
-|-----------|------|--------|
-| `nodes.zip` | ノードリファレンス | ★★★ 最重要 |
-| `expressions.zip` | 式・関数 | ★★★ |
-| `commands.zip` | HScriptコマンド | ★★★ |
-| `hapi.zip` | Houdini Engine API | ★★☆ |
-| `vex.zip` | VEXリファレンス | ★★☆ |
-| `basics.zip` | 基本操作 | ★☆☆ 余裕があれば |
-| `render.zip` | レンダリング | ★☆☆ 余裕があれば |
-| `network.zip` | ネットワーク操作 | ★☆☆ 余裕があれば |
-
-### Step 4 — 配置確認【Ubuntu】
-
-```bash
-ls ~/mcp-rag-server/data/source/
-```
-
-### Step 5 — zip展開スクリプトを実行【Ubuntu】
-
-```bash
-cd ~/mcp-rag-server
-cat > extract_zip.py << 'EOF'
-import os, zipfile
-
-def extract_zip_files(directory):
-    for filename in os.listdir(directory):
-        if filename.endswith(".zip"):
-            file_path = os.path.join(directory, filename)
-            output_path = os.path.join(directory, filename[:-4])
-            os.makedirs(output_path, exist_ok=True)
-            try:
-                with zipfile.ZipFile(file_path, 'r') as zf:
-                    zf.extractall(output_path)
-                os.remove(file_path)
-                print(f"展開完了: {filename}")
-            except Exception as e:
-                print(f"エラー: {filename} - {e}")
-
-extract_zip_files("data/source")
-EOF
-
-python3 extract_zip.py
-```
-
-### Step 6 — .txt以外を削除【Ubuntu】
-
-```bash
-cd ~/mcp-rag-server
-cat > delete_non_txt.py << 'EOF'
-import os
-
-def delete_non_txt_files(directory):
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if not file.endswith(".txt"):
-                try:
-                    os.remove(os.path.join(root, file))
-                    print(f"削除: {file}")
-                except Exception as e:
-                    print(f"エラー: {file} - {e}")
-
-delete_non_txt_files("data/source")
-EOF
-
-python3 delete_non_txt.py
-```
-
-### Step 7 — 削除後に確認【Ubuntu】
-
-```bash
-find data/source -name "*.txt" | wc -l
-```
-
-数百〜数千のtxtファイルが確認できれば成功。
+設定 → コアプラグイン → テンプレート: オン  
+設定 → テンプレート → テンプレートフォルダの場所: `_templates`
 
 ---
 
-## 7. インデックス化
+## 6. インデックス化
 
-> **注意:** 初回インデックス化は**4時間以上**かかる。時間に余裕があるときに実行すること。
-
-### インデックス化の実行【Ubuntu】
-
-バックグラウンド実行（ログをファイルに保存）：
-
-```bash
-cd ~/mcp-rag-server
-nohup uv run python -m src.cli index > index.log 2>&1 &
-echo "PID: $!"
+```powershell
+cd C:\Users\YOUR_USERNAME\Desktop\GameDevelopment\mcp-rag-server
+uv run python -m src.cli index
 ```
 
-### 進捗確認
-
-```bash
-tail -f ~/mcp-rag-server/index.log
+正常完了時のログ:
+```
+インデックス化が完了しました
+- 処理ファイル数: N
+- 総チャンク数: N
 ```
 
-処理済みファイル数の確認：
-
-```bash
-grep "INFO" ~/mcp-rag-server/index.log | wc -l
-```
+> **スキップされるフォルダ:** `_rag_dashboard\`・`_templates\`・`.processed\` は自動除外される。
 
 ---
 
-## 8. MCPサーバー設定
+## 7. watchdog の起動
 
-### Step 1 — MCPサーバーの動作確認【Ubuntu】
+```powershell
+copy ..\DevelopmentRAGEnvironment\scripts\auto_index.py .
 
-```bash
-cd ~/mcp-rag-server
-uv run python -m src.main
+# バックグラウンドで起動
+Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python auto_index.py"
 ```
 
-`Starting MCP server...` のような表示が出れば成功。`Ctrl+C` で停止。
+起動後は Obsidian でノートを保存するたびに自動インデックス化される。  
+`_rag_dashboard\index_status.md` と `namespace_map.md` が自動更新されることで確認できる。
 
-### Step 2 — Claude Desktopの設定ファイルを開く【Windows】
+---
 
-Everythingで以下を検索：
+## 8. Claude Desktop への登録
 
-```
-claude_desktop_config.json
-```
-
-### Step 3 — 設定ファイルを編集【Windows】
-
-`claude_desktop_config.json` を以下に書き換える（ユーザー名を自分のものに変更）：
+`claude_desktop_config.json`（Everythingで検索）を以下に書き換える：
 
 ```json
 {
   "mcpServers": {
     "mcp-rag-server": {
-      "command": "wsl",
+      "command": "uv",
       "args": [
-        "bash",
-        "-c",
-        "/home/tk_render/.local/bin/uv run --directory /home/tk_render/mcp-rag-server python -m src.main"
+        "run",
+        "--directory",
+        "C:\\Users\\YOUR_USERNAME\\Desktop\\GameDevelopment\\mcp-rag-server",
+        "python",
+        "-m",
+        "src.main"
       ]
     }
   }
 }
 ```
 
-> `tk_render` の部分を自分のUbuntuユーザー名に変更すること。
-
-### Step 4 — 動作確認【Claude Desktop】
-
-Claude Desktopを完全に再起動後、以下のプロンプトで確認：
-
-```
-mcp-rag-serverで "vellum solver" について検索して、
-パラメータ一覧と使い方を英語で検索し日本語で教えてください。
-```
-
-Claude Desktopの設定で `running` になっていれば完了。
+Claude Desktop を完全再起動後、設定画面で `running` になれば完了。
 
 ---
 
-## 9. トラブルシューティング
+## 9. 動作確認
 
-### Dockerコンテナが起動しない
+Claude Desktop または Claude Code で以下を実行：
 
-```bash
-# コンテナの状態確認
-docker ps -a
-
-# 停止中なら再起動
-docker start postgres-pgvector
-
-# ログ確認
-docker logs postgres-pgvector
+```
+mcp-rag-server でインデックス内のドキュメント数を確認して
 ```
 
-### uvコマンドが見つからない
-
-```bash
-source $HOME/.local/bin/env
-# または
-export PATH="$HOME/.local/bin:$PATH"
+```
+mcp-rag-server で「Houdini VEX」について検索して
 ```
 
-`.bashrc` に追記して永続化：
+---
 
-```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
+## 10. トラブルシューティング
+
+### sentencepiece のビルドが失敗する
+
+Python 3.13 では wheel がないためビルドが失敗する。
+
+```powershell
+uv sync --python 3.12
 ```
 
-### Claude DesktopでMCPがrunningにならない
+### `'NoneType' object has no attribute 'get_or_create_collection'`
 
-1. `claude_desktop_config.json` のユーザー名が正しいか確認
-2. Ubuntuで `uv run python -m src.main` が単体で動くか確認
-3. pgvectorコンテナが起動しているか `docker ps` で確認
-4. Claude Desktopを完全終了（タスクトレイから）して再起動
+`scripts/vector_database.py` が古い。再度コピーして `initialize_database()` が `self.connect()` を呼んでいるか確認。
 
-### インデックス化が止まった
+### ChromaDB のコレクション名エラー (`Got: C:\`)
 
-```bash
-# プロセス確認
-ps aux | grep "src.cli"
+`SOURCE_DIR` が `.env` に正しく設定されていない。絶対パスで設定されているか確認。
 
-# 再実行（差分インデックス化なので途中から再開される）
-cd ~/mcp-rag-server
-nohup uv run python -m src.cli index > index.log 2>&1 &
+### watchdog が反応しない
+
+```powershell
+# uv run 経由で起動されているか確認
+Get-Process python
+# 止まっていれば再起動
+Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python auto_index.py"
+```
+
+### インデックス化で `_rag_dashboard` が処理される
+
+`vector_database.py` のパッチが正しく適用されているか確認。  
+`_namespace_from_path` が `SOURCE_DIR` 環境変数を読んで相対パスに変換しているはず。
+
+```powershell
+# 処理済みキャッシュをクリアして再インデックス
+Remove-Item -Recurse -Force localRAG\_rag_dashboard\.processed
+uv run python -m src.cli index
 ```

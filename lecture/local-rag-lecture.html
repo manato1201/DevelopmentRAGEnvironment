@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ローカルRAG環境構築 — セットアップ講義資料</title>
+<title>ローカルRAG環境構築 — ChromaDB版セットアップ講義資料</title>
 <style>
 :root {
   --bg: #0d1117;
@@ -339,16 +339,16 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface); pa
 
 <header>
   <div class="header-inner">
-    <div class="eyebrow"><span class="dot"></span> Setup Guide · Local RAG</div>
-    <h1>ローカルRAG環境構築<br><span class="accent">WSL2 + Docker + mcp-rag-server</span></h1>
+    <div class="eyebrow"><span class="dot"></span> Setup Guide · Local RAG · ChromaDB版</div>
+    <h1>ローカルRAG環境構築<br><span class="accent">ChromaDB + Windows Native + mcp-rag-server</span></h1>
     <p class="header-desc">
-      Windows PCに自前のベクトル検索エンジンを立て、Claude CodeをはじめとするMCPホストから
-      プライベートドキュメントを参照できるようにする手順書。
+      Docker・WSL2不要。Windows PCにChromaDBベースのベクトル検索エンジンを立て、
+      Obsidian vaultと連携してプライベートドキュメントをClaude Desktopから参照できるようにする手順書。
     </p>
     <div class="meta-row">
-      <span>OS: Windows 11 + WSL2 (Ubuntu)</span>
-      <span>所要時間: セットアップ 30分 + インデックス化 4h+</span>
-      <span>Updated: 2026-06-10</span>
+      <span>OS: Windows 11（Nativeのみ — WSL2・Docker不要）</span>
+      <span>所要時間: セットアップ 約20分</span>
+      <span>Updated: 2026-06-16</span>
     </div>
   </div>
 </header>
@@ -356,12 +356,12 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface); pa
 <nav>
   <ul>
     <li><a href="#prereq">前提条件</a></li>
-    <li><a href="#wsl">WSL2</a></li>
-    <li><a href="#docker">Docker</a></li>
-    <li><a href="#pgvector">pgvector</a></li>
+    <li><a href="#uv">uv インストール</a></li>
     <li><a href="#mcp-rag">mcp-rag-server</a></li>
-    <li><a href="#houdini">Houdiniデータ</a></li>
+    <li><a href="#chromadb">ChromaDB パッチ</a></li>
+    <li><a href="#obsidian">Obsidian vault</a></li>
     <li><a href="#index">インデックス化</a></li>
+    <li><a href="#watchdog">watchdog</a></li>
     <li><a href="#mcp-config">MCP設定</a></li>
     <li><a href="#trouble">トラブルシューティング</a></li>
   </ul>
@@ -380,236 +380,71 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface); pa
       <ul>
         <li>Windows 11</li>
         <li>Claude Desktop インストール済み</li>
-        <li>Houdini インストール済み（helpデータ取得用）</li>
-        <li>ディスク空き 10GB以上</li>
+        <li>Obsidian インストール済み</li>
+        <li>ディスク空き 5GB 以上</li>
       </ul>
     </div>
     <div class="card">
-      <div class="card-title">不要なもの</div>
+      <div class="card-title">不要なもの（旧構成から削除）</div>
       <ul>
-        <li>Docker Desktop（WSL内に直接インストール）</li>
+        <li>WSL2 / Ubuntu</li>
+        <li>Docker Desktop</li>
+        <li>PostgreSQL / pgvector</li>
         <li>Python の別途インストール（uv が管理）</li>
-        <li>PostgreSQL のWindowsネイティブ版</li>
       </ul>
     </div>
   </div>
 
   <div class="callout callout-note">
-    <p><strong>なぜWSL2内にDockerを入れるのか</strong></p>
-    <p>Docker DesktopはGUI管理ツールとして便利だが、WSL2内でDockerエンジンを直接動かす方がリソース消費が少なく、mcp-rag-serverとの連携がシンプルになる。</p>
+    <p><strong>なぜ ChromaDB に移行したのか</strong></p>
+    <p>pgvector は Docker + WSL2 が必須でセットアップが複雑。ChromaDB はファイルベースのローカルDB（SQLite + HNSW）で動くため、Dockerなしで同等の検索精度が得られる。個人・小規模チームのプライベートRAGには最適。</p>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>比較項目</th><th>旧構成（pgvector）</th><th>新構成（ChromaDB）</th></tr></thead>
+      <tbody>
+        <tr><td>Docker</td><td class="pri-hi">必要</td><td class="ok">不要</td></tr>
+        <tr><td>WSL2</td><td class="pri-hi">必要</td><td class="ok">不要</td></tr>
+        <tr><td>セットアップ時間</td><td>1時間以上</td><td class="ok">約20分</td></tr>
+        <tr><td>検索精度</td><td>cosine similarity</td><td>cosine similarity（同等）</td></tr>
+        <tr><td>データ保存</td><td>PostgreSQL（コンテナ内）</td><td>ローカルフォルダ（./data/chroma）</td></tr>
+        <tr><td>Namespace</td><td>テーブル分離</td><td>Collection分離（Obsidianフォルダ対応）</td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
-<!-- ===== WSL2 ===== -->
-<div class="section" id="wsl">
+<!-- ===== uv インストール ===== -->
+<div class="section" id="uv">
   <div class="section-eye">Step 01</div>
-  <h2>WSL2セットアップ</h2>
+  <h2>uv インストール</h2>
+
+  <p>uv は Python の高速パッケージマネージャー。pip より依存解決が安定しており、Python バージョン管理も一括して行える。</p>
 
   <div class="step-group">
     <div class="step">
       <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">Ubuntuをインストール <span class="badge badge-purple">PowerShell（管理者）</span></div>
+        <div class="step-title">winget でインストール <span class="badge badge-purple">PowerShell</span></div>
         <div class="step-body">
-          <div class="code-wrap">
-            <div class="terminal">
-              <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — 管理者</span></div>
-              <pre><code><span class="prompt">PS></span> wsl --install -d Ubuntu</code></pre>
-            </div>
-          </div>
-          <p>インストール完了後、Ubuntuが起動するのでユーザー名とパスワードを設定する。再起動を求められた場合は再起動してから再度Ubuntuを起動する。</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">systemdの有効化 <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> sudo tee /etc/wsl.conf &lt;&lt; 'EOF'
-[boot]
-systemd=true
-EOF</code></pre>
-          </div>
-          <p>設定反映のためWSLを再起動する：</p>
           <div class="terminal">
             <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell</span></div>
-            <pre><code><span class="prompt">PS></span> wsl --shutdown</code></pre>
+            <pre><code><span class="prompt">PS></span> winget install --id=astral-sh.uv -e</code></pre>
           </div>
         </div>
       </div>
     </div>
 
     <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div></div>
+      <div class="step-rail"><div class="step-badge">2</div></div>
       <div class="step-content">
-        <div class="step-title">パッケージ更新 <span class="badge badge-blue">Ubuntu</span></div>
+        <div class="step-title">バージョン確認 <span class="badge badge-purple">PowerShell</span></div>
         <div class="step-body">
           <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> sudo apt update && sudo apt upgrade -y</code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== Docker ===== -->
-<div class="section" id="docker">
-  <div class="section-eye">Step 02</div>
-  <h2>Dockerインストール</h2>
-
-  <div class="step-group">
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">必要パッケージ <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> sudo apt install -y ca-certificates curl gnupg lsb-release</code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">Docker公式GPGキーを追加 <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> sudo install -m 0755 -d /etc/apt/keyrings
-<span class="prompt">$</span> curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-    | sudo tee /etc/apt/keyrings/docker.asc > /dev/null
-<span class="prompt">$</span> sudo chmod a+r /etc/apt/keyrings/docker.asc</code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">Dockerリポジトリを追加 <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> echo \
-  "deb [arch=$(dpkg --print-architecture) \
-  signed-by=/etc/apt/keyrings/docker.asc] \
-  https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null</code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">4</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">Dockerをインストール <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> sudo apt update
-<span class="prompt">$</span> sudo apt install -y docker-ce docker-ce-cli containerd.io \
-    docker-buildx-plugin docker-compose-plugin</code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">5</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">sudoなしで使えるようにする <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> sudo usermod -aG docker $USER
-<span class="prompt">$</span> newgrp docker</code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">6</div></div>
-      <div class="step-content">
-        <div class="step-title">動作確認 <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> docker --version
-<span class="out">Docker version 27.x.x ...</span>
-<span class="prompt">$</span> docker run hello-world
-<span class="out">Hello from Docker!</span>  <span class="cm">← これが出れば成功</span></code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== pgvector ===== -->
-<div class="section" id="pgvector">
-  <div class="section-eye">Step 03</div>
-  <h2>pgvector起動</h2>
-  <p style="font-size:13px;color:var(--muted)">PostgreSQL + pgvectorをDockerコンテナで起動する。ベクトル検索のデータストアになる。</p>
-
-  <div class="step-group">
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">コンテナ起動 <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> docker run --name postgres-pgvector \
-  -e POSTGRES_PASSWORD=password \
-  -p 5432:5432 \
-  -d pgvector/pgvector:pg17</code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">データベース作成 <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> docker exec -it postgres-pgvector \
-  psql -U postgres -c "CREATE DATABASE ragdb;"</code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div></div>
-      <div class="step-content">
-        <div class="step-title">確認 <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> docker ps
-<span class="out">CONTAINER ID   IMAGE                    STATUS
-a1b2c3d4e5f6   pgvector/pgvector:pg17   Up 2 minutes</span>
-<span class="cm">↑ Up と表示されていれば成功</span></code></pre>
-          </div>
-          <div class="callout callout-tip">
-            <p><strong>Tips</strong></p>
-            <p>WSL再起動後にコンテナが停止している場合は <code>docker start postgres-pgvector</code> で再起動できる。</p>
+            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell</span></div>
+            <pre><code><span class="prompt">PS></span> uv --version
+<span class="out">uv 0.x.x</span>  <span class="cm">← バージョンが表示されれば OK</span></code></pre>
           </div>
         </div>
       </div>
@@ -619,78 +454,38 @@ a1b2c3d4e5f6   pgvector/pgvector:pg17   Up 2 minutes</span>
 
 <!-- ===== mcp-rag-server ===== -->
 <div class="section" id="mcp-rag">
-  <div class="section-eye">Step 04</div>
-  <h2>mcp-rag-serverセットアップ</h2>
+  <div class="section-eye">Step 02</div>
+  <h2>mcp-rag-server セットアップ</h2>
 
   <div class="step-group">
     <div class="step">
       <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">uvのインストール <span class="badge badge-blue">Ubuntu</span></div>
+        <div class="step-title">リポジトリをクローン <span class="badge badge-purple">PowerShell</span></div>
         <div class="step-body">
           <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> curl -LsSf https://astral.sh/uv/install.sh | sh
-<span class="prompt">$</span> source $HOME/.local/bin/env</code></pre>
-          </div>
-          <p><code>uv</code> はPythonの高速パッケージマネージャー。pipより依存解決が安定している。</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">リポジトリをクローン <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> cd ~
-<span class="prompt">$</span> git clone https://github.com/karaage0703/mcp-rag-server
-<span class="prompt">$</span> cd mcp-rag-server
-<span class="prompt">$</span> uv sync</code></pre>
+            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell</span></div>
+            <pre><code><span class="prompt">PS></span> cd C:\Users\YOUR_USERNAME\Desktop\GameDevelopment
+<span class="prompt">PS></span> git clone https://github.com/karaage0703/mcp-rag-server
+<span class="prompt">PS></span> cd mcp-rag-server</code></pre>
           </div>
         </div>
       </div>
     </div>
 
     <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div><div class="step-line"></div></div>
+      <div class="step-rail"><div class="step-badge">2</div></div>
       <div class="step-content">
-        <div class="step-title">.envファイルを作成 <span class="badge badge-blue">Ubuntu</span></div>
+        <div class="step-title">依存関係インストール（Python 3.12 指定） <span class="badge badge-purple">PowerShell</span></div>
         <div class="step-body">
           <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu — ~/mcp-rag-server</span></div>
-            <pre><code><span class="prompt">$</span> tee .env &lt;&lt; 'EOF'
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=password
-POSTGRES_DB=ragdb
-
-SOURCE_DIR=./data/source
-PROCESSED_DIR=./data/processed
-
-EMBEDDING_MODEL=intfloat/multilingual-e5-large
-EMBEDDING_DIM=1024
-EMBEDDING_PREFIX_QUERY="query: "
-EMBEDDING_PREFIX_EMBEDDING="passage: "
-EOF</code></pre>
+            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
+            <pre><code><span class="prompt">PS></span> uv sync --python 3.12
+<span class="prompt">PS></span> uv add chromadb watchdog pyyaml</code></pre>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">4</div></div>
-      <div class="step-content">
-        <div class="step-title">確認 <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> cat .env
-<span class="out">POSTGRES_HOST=localhost
-...</span></code></pre>
+          <div class="callout callout-warn">
+            <p><strong>Python 3.12 を必ず指定すること</strong></p>
+            <p><code>uv sync</code> のみだと Python 3.13 が選択され、<code>sentencepiece</code> のビルドが CMake エラーで失敗する。3.12 には pre-built wheel があるためビルド不要。</p>
           </div>
         </div>
       </div>
@@ -698,26 +493,30 @@ EOF</code></pre>
   </div>
 </div>
 
-<!-- ===== Houdini ===== -->
-<div class="section" id="houdini">
-  <div class="section-eye">Step 05</div>
-  <h2>Houdiniヘルプデータの配置</h2>
+<!-- ===== ChromaDB パッチ ===== -->
+<div class="section" id="chromadb">
+  <div class="section-eye">Step 03</div>
+  <h2>ChromaDB パッチの適用</h2>
 
-  <div class="callout callout-note">
-    <p><strong>この工程について</strong></p>
-    <p>HoudiniのヘルプデータをローカルRAGのソースとして使う。zipをWSL側にコピーして展開し、.txtファイルのみ残す。</p>
-  </div>
+  <p style="font-size:13px;color:var(--muted)">mcp-rag-server の vector_database.py と rag_tools.py を ChromaDB 対応版に差し替える。</p>
 
   <div class="step-group">
     <div class="step">
       <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">ソースディレクトリ作成 <span class="badge badge-blue">Ubuntu</span></div>
+        <div class="step-title">vector_database.py を差し替え <span class="badge badge-purple">PowerShell</span></div>
         <div class="step-body">
           <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> mkdir -p ~/mcp-rag-server/data/source</code></pre>
+            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
+            <pre><code><span class="prompt">PS></span> copy ..\DevelopmentRAGEnvironment\scripts\vector_database.py src\vector_database.py</code></pre>
           </div>
+          <p>差し替えた <code>vector_database.py</code> の主な変更点：</p>
+          <ul style="font-size:12px;color:var(--muted);padding-left:18px;margin-top:6px">
+            <li>PostgreSQL 接続コードを全削除 → <code>chromadb.PersistentClient</code> に置き換え</li>
+            <li>Obsidian の最上位フォルダ名 → ChromaDB Collection 名（namespace）にマッピング</li>
+            <li><code>_rag_dashboard</code>、<code>_templates</code>、<code>.processed</code> フォルダを自動スキップ</li>
+            <li>cosine similarity（距離 → 類似度変換）対応</li>
+          </ul>
         </div>
       </div>
     </div>
@@ -725,84 +524,109 @@ EOF</code></pre>
     <div class="step">
       <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">Houdini helpのzipを探す <span class="badge badge-purple">Windows</span></div>
+        <div class="step-title">rag_tools.py を編集 <span class="badge badge-purple">テキストエディタ</span></div>
         <div class="step-body">
-          <p>エクスプローラーで以下を開く（バージョン番号は環境に合わせて変更）：</p>
-          <pre><code>C:\Program Files\Side Effects Software\Houdini 21.0.506\houdini\help</code></pre>
+          <p><code>src\rag_tools.py</code> を開き、<code>create_rag_service_from_env</code> 関数内を以下のように変更：</p>
+          <div class="code-label"><span class="win-tag">変更前</span></div>
+          <pre><code><span class="val">vector_database</span> = <span class="fn">VectorDatabase</span>({
+    <span class="str">"host"</span>:     os.environ.get(<span class="str">"POSTGRES_HOST"</span>,     <span class="str">"localhost"</span>),
+    <span class="str">"port"</span>:     os.environ.get(<span class="str">"POSTGRES_PORT"</span>,     <span class="str">"5432"</span>),
+    <span class="str">"user"</span>:     os.environ.get(<span class="str">"POSTGRES_USER"</span>,     <span class="str">"postgres"</span>),
+    <span class="str">"password"</span>: os.environ.get(<span class="str">"POSTGRES_PASSWORD"</span>, <span class="str">"password"</span>),
+    <span class="str">"database"</span>: os.environ.get(<span class="str">"POSTGRES_DB"</span>,       <span class="str">"ragdb"</span>),
+})</code></pre>
+          <div class="code-label" style="margin-top:10px"><span class="env-tag">変更後</span></div>
+          <pre><code><span class="val">vector_database</span> = <span class="fn">VectorDatabase</span>({
+    <span class="str">"chroma_path"</span>:   os.environ.get(<span class="str">"CHROMA_PATH"</span>,   <span class="str">"./data/chroma"</span>),
+    <span class="str">"embedding_dim"</span>: os.environ.get(<span class="str">"EMBEDDING_DIM"</span>, <span class="str">"1024"</span>),
+})</code></pre>
         </div>
       </div>
     </div>
 
     <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div><div class="step-line"></div></div>
+      <div class="step-rail"><div class="step-badge">3</div></div>
       <div class="step-content">
-        <div class="step-title">WSLのsourceフォルダへコピー <span class="badge badge-purple">Windows</span></div>
-        <div class="step-body">
-          <p>エクスプローラーのアドレスバーに以下を貼り付けてアクセス：</p>
-          <pre><code>\\wsl.localhost\Ubuntu\home\tk_render\mcp-rag-server\data\source</code></pre>
-          <p style="margin-top:10px">コピーするzipファイル：</p>
-          <div class="tbl-wrap">
-            <table>
-              <thead><tr><th>ファイル名</th><th>内容</th><th>優先度</th></tr></thead>
-              <tbody>
-                <tr><td><code>nodes.zip</code></td><td>ノードリファレンス</td><td class="pri-hi">★★★ 最重要</td></tr>
-                <tr><td><code>expressions.zip</code></td><td>式・関数</td><td class="pri-hi">★★★</td></tr>
-                <tr><td><code>commands.zip</code></td><td>HScriptコマンド</td><td class="pri-hi">★★★</td></tr>
-                <tr><td><code>hapi.zip</code></td><td>Houdini Engine API</td><td class="pri-md">★★☆</td></tr>
-                <tr><td><code>vex.zip</code></td><td>VEXリファレンス</td><td class="pri-md">★★☆</td></tr>
-                <tr><td><code>basics.zip</code></td><td>基本操作</td><td class="pri-lo">★☆☆ 余裕があれば</td></tr>
-                <tr><td><code>render.zip</code></td><td>レンダリング</td><td class="pri-lo">★☆☆ 余裕があれば</td></tr>
-                <tr><td><code>network.zip</code></td><td>ネットワーク操作</td><td class="pri-lo">★☆☆ 余裕があれば</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">4</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">zip展開 <span class="badge badge-blue">Ubuntu</span></div>
-        <div class="step-body">
-          <p><code>scripts/extract_zip.py</code> を実行する：</p>
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu — ~/mcp-rag-server</span></div>
-            <pre><code><span class="prompt">$</span> python3 scripts/extract_zip.py
-<span class="out">  ✓ 展開完了: nodes.zip
-  ✓ 展開完了: expressions.zip
-  ...</span></code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">5</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">.txt以外を削除 <span class="badge badge-blue">Ubuntu</span></div>
+        <div class="step-title">.env ファイルを作成 <span class="badge badge-purple">PowerShell</span></div>
         <div class="step-body">
           <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu — ~/mcp-rag-server</span></div>
-            <pre><code><span class="prompt">$</span> python3 scripts/delete_non_txt.py
-<span class="out">.txt以外のファイルを削除します...
-続行しますか？ (y/N): </span>y
-<span class="out">完了: 1842件削除 / 0件エラー</span></code></pre>
+            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
+            <pre><code><span class="prompt">PS></span> copy ..\DevelopmentRAGEnvironment\.env.example .env</code></pre>
           </div>
+          <p><code>.env</code> の内容（<code>YOUR_USERNAME</code> を自分のユーザー名に変更）：</p>
+          <pre><code><span class="cm"># ChromaDB データ保存先</span>
+CHROMA_PATH=./data/chroma
+
+<span class="cm"># Obsidian vault のパス</span>
+SOURCE_DIR=C:\Users\YOUR_USERNAME\Desktop\GameDevelopment\DevelopmentRAGEnvironment\localRAG
+PROCESSED_DIR=C:\Users\YOUR_USERNAME\Desktop\GameDevelopment\DevelopmentRAGEnvironment\localRAG\_rag_dashboard\.processed
+
+<span class="cm"># 埋め込みモデル（変更不要）</span>
+EMBEDDING_MODEL=intfloat/multilingual-e5-large
+EMBEDDING_DIM=1024
+EMBEDDING_PREFIX_QUERY=query:
+EMBEDDING_PREFIX_EMBEDDING=passage:</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Obsidian vault ===== -->
+<div class="section" id="obsidian">
+  <div class="section-eye">Step 04</div>
+  <h2>Obsidian vault の設定</h2>
+
+  <div class="callout callout-note">
+    <p><strong>Obsidian フォルダ構成 = ChromaDB namespace</strong></p>
+    <p>vault 内の最上位フォルダ名がそのまま ChromaDB の Collection 名（namespace）になる。<code>_</code> や <code>.</code> で始まるフォルダは管理用として自動スキップされる。</p>
+  </div>
+
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">vault フォルダ構成</div>
+        <div class="step-body">
+          <pre><code>DevelopmentRAGEnvironment\localRAG\   <span class="cm">← Obsidian で開くフォルダ</span>
+├── chat_logs\        <span class="cm">← namespace: chat_logs</span>
+├── tutorials\        <span class="cm">← namespace: tutorials</span>
+├── personal_notes\   <span class="cm">← namespace: personal_notes</span>
+│   ├── progress\
+│   └── ideas\
+├── private_docs\     <span class="cm">← namespace: private_docs</span>
+├── _rag_dashboard\   <span class="cm">← 管理専用（インデックス対象外）</span>
+│   ├── index_status.md
+│   ├── namespace_map.md
+│   └── .processed\
+└── _templates\       <span class="cm">← テンプレート（インデックス対象外）</span></code></pre>
         </div>
       </div>
     </div>
 
     <div class="step">
-      <div class="step-rail"><div class="step-badge">6</div></div>
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">確認 <span class="badge badge-blue">Ubuntu</span></div>
+        <div class="step-title">Obsidian でフォルダを開く <span class="badge badge-green">Obsidian</span></div>
         <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-            <pre><code><span class="prompt">$</span> find data/source -name "*.txt" | wc -l
-<span class="out">4823</span>   <span class="cm">← 数百〜数千あれば OK</span></code></pre>
-          </div>
+          <p>Obsidian を起動 → 「別のボルトを開く」→ フォルダを選択 → <code>localRAG\</code> を指定。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">3</div></div>
+      <div class="step-content">
+        <div class="step-title">テンプレートプラグインを有効化 <span class="badge badge-green">Obsidian</span></div>
+        <div class="step-body">
+          <p>設定 → コアプラグイン → テンプレート: オン</p>
+          <p>設定 → テンプレート → テンプレートフォルダの場所: <code>_templates</code></p>
+          <p>YAML フロントマターに以下を含めるとステータス管理が可能：</p>
+          <pre><code>---
+status: active   <span class="cm"># active / stale / archived</span>
+rag_indexed: false
+expires: 2026-12-31  <span class="cm"># オプション</span>
+---</code></pre>
         </div>
       </div>
     </div>
@@ -811,43 +635,47 @@ EOF</code></pre>
 
 <!-- ===== インデックス化 ===== -->
 <div class="section" id="index">
-  <div class="section-eye">Step 06</div>
+  <div class="section-eye">Step 05</div>
   <h2>インデックス化</h2>
 
-  <div class="callout callout-warn">
-    <p><strong>所要時間に注意</strong></p>
-    <p>初回インデックス化は<strong>4時間以上</strong>かかる。就寝前や外出前など、PCを長時間放置できるタイミングで実行すること。差分インデックス機能があるため、途中で止まっても再実行すれば続きから処理される。</p>
+  <div class="callout callout-tip">
+    <p><strong>旧構成との違い</strong></p>
+    <p>pgvector 版では 4 時間以上かかる初回インデックス化が必要だったが、ChromaDB 版は Obsidian vault が空のままインデックス化を実行でき（0件で正常終了）、ノートを追加するたびに差分インデックスすれば良い。</p>
   </div>
 
   <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu — ~/mcp-rag-server</span></div>
-    <pre><code><span class="cm"># バックグラウンド実行</span>
-<span class="prompt">$</span> nohup uv run python -m src.cli index > index.log 2>&1 &
-<span class="out">PID: 12345</span>
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
+    <pre><code><span class="prompt">PS></span> uv run python -m src.cli index
+<span class="out">インデックス化が完了しました
+- 処理ファイル数: 1
+- 総チャンク数: 8</span>   <span class="cm">← ファイルを追加後の例</span>
 
-<span class="cm"># 進捗確認</span>
-<span class="prompt">$</span> tail -f index.log
+<span class="cm"># 差分のみ更新する場合</span>
+<span class="prompt">PS></span> uv run python -m src.cli index --incremental</code></pre>
+  </div>
 
-<span class="cm"># 処理済みファイル数の確認</span>
-<span class="prompt">$</span> grep "INFO" ~/mcp-rag-server/index.log | wc -l</code></pre>
+  <div class="callout callout-note">
+    <p><strong>自動スキップされるフォルダ</strong></p>
+    <p><code>_rag_dashboard\</code>・<code>_templates\</code>・<code>.processed\</code> は <code>_namespace_from_path()</code> で自動除外される。手動での除外設定は不要。</p>
   </div>
 </div>
 
-<!-- ===== MCP設定 ===== -->
-<div class="section" id="mcp-config">
-  <div class="section-eye">Step 07</div>
-  <h2>MCPサーバー設定</h2>
+<!-- ===== watchdog ===== -->
+<div class="section" id="watchdog">
+  <div class="section-eye">Step 06</div>
+  <h2>watchdog（自動インデックス化）の起動</h2>
+
+  <p>Obsidian でノートを保存するたびに、<code>auto_index.py</code> が変更を検知して自動でインデックスを更新する。</p>
 
   <div class="step-group">
     <div class="step">
       <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">MCPサーバーの動作確認 <span class="badge badge-blue">Ubuntu</span></div>
+        <div class="step-title">スクリプトをコピー <span class="badge badge-purple">PowerShell</span></div>
         <div class="step-body">
           <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu — ~/mcp-rag-server</span></div>
-            <pre><code><span class="prompt">$</span> uv run python -m src.main
-<span class="out">Starting MCP server...</span>  <span class="cm">← この表示が出れば OK、Ctrl+C で止める</span></code></pre>
+            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
+            <pre><code><span class="prompt">PS></span> copy ..\DevelopmentRAGEnvironment\scripts\auto_index.py .</code></pre>
           </div>
         </div>
       </div>
@@ -856,50 +684,93 @@ EOF</code></pre>
     <div class="step">
       <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">Claude Desktopの設定ファイルを開く <span class="badge badge-purple">Windows</span></div>
+        <div class="step-title">バックグラウンドで起動 <span class="badge badge-purple">PowerShell</span></div>
         <div class="step-body">
-          <p>Everythingで以下を検索して開く：</p>
-          <pre><code>claude_desktop_config.json</code></pre>
+          <div class="terminal">
+            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
+            <pre><code><span class="prompt">PS></span> Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python auto_index.py"</code></pre>
+          </div>
+          <div class="callout callout-warn">
+            <p><strong><code>python auto_index.py</code> では起動しないこと</strong></p>
+            <p>uv の仮想環境外で実行すると <code>ModuleNotFoundError: No module named 'yaml'</code> が発生する。必ず <code>uv run</code> 経由で起動すること。</p>
+          </div>
         </div>
       </div>
     </div>
 
     <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div><div class="step-line"></div></div>
+      <div class="step-rail"><div class="step-badge">3</div></div>
       <div class="step-content">
-        <div class="step-title">設定ファイルを編集 <span class="badge badge-purple">Windows</span></div>
+        <div class="step-title">動作確認 <span class="badge badge-green">Obsidian</span></div>
         <div class="step-body">
-          <p>以下に書き換える。<code>tk_render</code> を自分のUbuntuユーザー名に変更すること：</p>
+          <p>Obsidian でノートを保存後、<code>_rag_dashboard\index_status.md</code> のタイムスタンプが更新されれば watchdog が正常に動作している。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MCP設定 ===== -->
+<div class="section" id="mcp-config">
+  <div class="section-eye">Step 07</div>
+  <h2>Claude Desktop への登録</h2>
+
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">設定ファイルを開く <span class="badge badge-purple">Windows</span></div>
+        <div class="step-body">
+          <p>Everything などで以下を検索して開く：</p>
+          <pre><code>claude_desktop_config.json</code></pre>
+          <p>通常のパス：</p>
+          <pre><code>C:\Users\YOUR_USERNAME\AppData\Roaming\Claude\claude_desktop_config.json</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">設定を書き換える <span class="badge badge-purple">テキストエディタ</span></div>
+        <div class="step-body">
+          <p><code>YOUR_USERNAME</code> を自分のユーザー名に変更する：</p>
           <div class="terminal">
             <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">claude_desktop_config.json</span></div>
             <pre><code>{
   <span class="str">"mcpServers"</span>: {
     <span class="str">"mcp-rag-server"</span>: {
-      <span class="str">"command"</span>: <span class="str">"wsl"</span>,
+      <span class="str">"command"</span>: <span class="str">"uv"</span>,
       <span class="str">"args"</span>: [
-        <span class="str">"bash"</span>,
-        <span class="str">"-c"</span>,
-        <span class="str">"/home/tk_render/.local/bin/uv run --directory /home/tk_render/mcp-rag-server python -m src.main"</span>
+        <span class="str">"run"</span>,
+        <span class="str">"--directory"</span>,
+        <span class="str">"C:\\Users\\YOUR_USERNAME\\Desktop\\GameDevelopment\\mcp-rag-server"</span>,
+        <span class="str">"python"</span>,
+        <span class="str">"-m"</span>,
+        <span class="str">"src.main"</span>
       ]
     }
   }
 }</code></pre>
+          </div>
+          <div class="callout callout-note">
+            <p><strong>旧構成との違い</strong></p>
+            <p>旧版は <code>"command": "wsl"</code> で WSL を経由していたが、新版は <code>"command": "uv"</code> で Windows ネイティブに直接起動できる。</p>
           </div>
         </div>
       </div>
     </div>
 
     <div class="step">
-      <div class="step-rail"><div class="step-badge">4</div></div>
+      <div class="step-rail"><div class="step-badge">3</div></div>
       <div class="step-content">
         <div class="step-title">動作確認 <span class="badge badge-green">Claude Desktop</span></div>
         <div class="step-body">
-          <p>Claude Desktopを完全再起動後、以下で確認：</p>
+          <p>Claude Desktop を完全再起動後、設定画面で <code>running</code> と表示されれば完了。</p>
           <div class="callout callout-tip">
             <p><strong>確認プロンプト</strong></p>
-            <p>mcp-rag-serverで "vellum solver" について検索して、パラメータ一覧と使い方を英語で検索し日本語で教えてください。</p>
+            <p>mcp-rag-server でインデックス内のドキュメント数を確認してください。</p>
           </div>
-          <p>Claude Desktopの設定で <code>running</code> になっていれば完了。</p>
         </div>
       </div>
     </div>
@@ -911,50 +782,65 @@ EOF</code></pre>
   <div class="section-eye">Troubleshooting</div>
   <h2>トラブルシューティング</h2>
 
-  <h3>Dockerコンテナが起動しない</h3>
+  <h3>sentencepiece のビルドが失敗する（CMake エラー）</h3>
+  <p style="font-size:13px;color:var(--muted)">Python 3.13 には sentencepiece の pre-built wheel がないためビルドが失敗する。</p>
   <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-    <pre><code><span class="prompt">$</span> docker ps -a          <span class="cm"># 状態確認</span>
-<span class="prompt">$</span> docker start postgres-pgvector  <span class="cm"># 再起動</span>
-<span class="prompt">$</span> docker logs postgres-pgvector   <span class="cm"># ログ確認</span></code></pre>
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell</span></div>
+    <pre><code><span class="prompt">PS></span> uv sync --python 3.12   <span class="cm"># Python バージョンを明示指定</span></code></pre>
   </div>
 
-  <h3>uvコマンドが見つからない</h3>
-  <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-    <pre><code><span class="prompt">$</span> source $HOME/.local/bin/env
-
-<span class="cm"># .bashrc に追記して永続化</span>
-<span class="prompt">$</span> echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-<span class="prompt">$</span> source ~/.bashrc</code></pre>
-  </div>
-
-  <h3>Claude DesktopでMCPがrunningにならない</h3>
+  <h3><code>'NoneType' object has no attribute 'get_or_create_collection'</code></h3>
+  <p style="font-size:13px;color:var(--muted)"><code>vector_database.py</code> の差し替えが正しく行われていない。</p>
   <ul class="checklist">
-    <li><code>claude_desktop_config.json</code> のユーザー名が正しいか確認</li>
-    <li>Ubuntuで <code>uv run python -m src.main</code> が単体で動くか確認</li>
-    <li>pgvectorコンテナが起動中か <code>docker ps</code> で確認</li>
-    <li>Claude Desktopをタスクトレイから完全終了して再起動</li>
+    <li><code>src\vector_database.py</code> が ChromaDB 版に差し替えられているか確認</li>
+    <li><code>initialize_database()</code> が <code>self.connect()</code> を呼んでいるか確認</li>
+    <li>再度コピー: <code>copy ..\DevelopmentRAGEnvironment\scripts\vector_database.py src\vector_database.py</code></li>
   </ul>
 
-  <h3>インデックス化が止まった</h3>
+  <h3>ChromaDB コレクション名エラー（<code>Got: C:\</code>）</h3>
+  <p style="font-size:13px;color:var(--muted)"><code>.env</code> の <code>SOURCE_DIR</code> が正しく設定されていない。</p>
+  <ul class="checklist">
+    <li><code>.env</code> の <code>SOURCE_DIR</code> が絶対パスで設定されているか確認</li>
+    <li>設定後は <code>.processed\</code> キャッシュを削除して再インデックス</li>
+  </ul>
   <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Ubuntu</span></div>
-    <pre><code><span class="prompt">$</span> ps aux | grep "src.cli"   <span class="cm"># プロセス確認</span>
-
-<span class="cm"># 再実行（差分なので途中から再開される）</span>
-<span class="prompt">$</span> cd ~/mcp-rag-server
-<span class="prompt">$</span> nohup uv run python -m src.cli index > index.log 2>&1 &</code></pre>
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell</span></div>
+    <pre><code><span class="prompt">PS></span> Remove-Item -Recurse -Force localRAG\_rag_dashboard\.processed
+<span class="prompt">PS></span> uv run python -m src.cli index</code></pre>
   </div>
+
+  <h3>watchdog が起動後すぐ終了する / yaml モジュールエラー</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell</span></div>
+    <pre><code><span class="cm"># NG — uv 仮想環境外で実行するとモジュールが見つからない</span>
+<span class="prompt">PS></span> python auto_index.py
+
+<span class="cm"># OK — uv run 経由で起動する</span>
+<span class="prompt">PS></span> Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python auto_index.py"</code></pre>
+  </div>
+
+  <h3>Claude Desktop で MCP が running にならない</h3>
+  <ul class="checklist">
+    <li><code>claude_desktop_config.json</code> のパスが正しいか確認（<code>\\</code> でエスケープ）</li>
+    <li>PowerShell で <code>uv run --directory "C:\...\mcp-rag-server" python -m src.main</code> が単体で動くか確認</li>
+    <li>Claude Desktop をタスクトレイから完全終了して再起動</li>
+  </ul>
+
+  <h3>インデックス化で <code>_rag_dashboard</code> が処理される</h3>
+  <ul class="checklist">
+    <li><code>vector_database.py</code> のパッチが正しく適用されているか確認</li>
+    <li><code>_namespace_from_path()</code> が <code>SOURCE_DIR</code> 環境変数を読んで相対パスに変換しているはず</li>
+    <li><code>.env</code> の <code>SOURCE_DIR</code> が設定されているか確認</li>
+  </ul>
 </div>
 
 </main>
 
 <footer>
   <p>
-    Local RAG Setup Guide · based on
+    Local RAG Setup Guide (ChromaDB版) · based on
     <a href="https://github.com/karaage0703/mcp-rag-server">mcp-rag-server</a> by karaage0703 ·
-    <a href="https://zenn.dev/mkj/articles/30eeb69bf84b3f">解説記事</a>
+    Updated 2026-06-16
   </p>
 </footer>
 
