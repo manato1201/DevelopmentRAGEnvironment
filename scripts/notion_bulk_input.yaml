@@ -1,0 +1,55 @@
+# notion_bulk_add.py への入力サンプル
+#
+# 使い方:
+#   uv run python scripts/notion_bulk_add.py --input scripts/notion_bulk_input.yaml --dry-run
+#   uv run python scripts/notion_bulk_add.py --input scripts/notion_bulk_input.yaml
+#
+# フィールド説明:
+#   title        : ページタイトル（必須）
+#   db           : 投入先DB（tool_docs / game_info / research / team_notes）
+#   tags         : タグ（Unity / Houdini / DX12 / C++ / Shader / VEX / Python / MCP / RAG / Environment）
+#   source_url   : 元記事URL（省略可）
+#   summary      : 100字要約（空にするとGeminiで自動生成）
+#   md_path      : ローカルMarkdownパス（summaryが空の場合に使用）
+#   collected_at : 追加日（省略すると今日）
+
+# ── Tool Docs DB ──────────────────────────────────────────────────────────────
+
+- title: "Houdini — VOP を使ったプロシージャルテクスチャ入門"
+  db: tool_docs
+  tags: ["Houdini", "Shader"]
+  source_url: ""
+  summary: "HoudiniのVOPネットワークでノイズ合成・グラジエントマッピングを用いたプロシージャルテクスチャを作成する手順を解説。"
+  collected_at: "2026-06-16"
+
+- title: "Unity — URPでのポストエフェクト実装ガイド"
+  db: tool_docs
+  tags: ["Unity", "Shader"]
+  source_url: ""
+  summary: "Unity URPのVolume Frameworkを使ったポストエフェクト（ブルーム、被写界深度、カラーグレーディング）の設定と自作フルスクリーンエフェクトの実装方法。"
+  collected_at: "2026-06-16"
+
+- title: "DX12 — Resource Barrier と同期の基礎"
+  db: tool_docs
+  tags: ["DX12", "C++"]
+  source_url: ""
+  summary: "DirectX 12のリソースバリアとGPU/CPU同期の仕組みを解説。ID3D12Fence、CommandQueue::Signal/Wait、フレームバッファの多重化パターンを説明。"
+  collected_at: "2026-06-16"
+
+# ── Game Info DB ──────────────────────────────────────────────────────────────
+
+- title: "ゲーム仕様書 — プロトタイプ v0.1"
+  db: game_info
+  tags: []
+  source_url: ""
+  summary: ""   # md_path を指定すると自動要約
+  md_path: ""   # 例: localRAG/personal_notes/game_spec.md
+
+# ── Research DB ───────────────────────────────────────────────────────────────
+
+- title: "論文メモ — Procedural Content Generation の最新動向"
+  db: research
+  tags: ["Python"]
+  source_url: ""
+  summary: "プロシージャルコンテンツ生成（PCG）の最新手法を調査。Wave Function CollapseやDiffusion Modelを用いたマップ生成の比較と実装コストの整理。"
+  collected_at: "2026-06-16"
