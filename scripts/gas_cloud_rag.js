@@ -12,7 +12,7 @@
  *    - DB_RESEARCH    : 714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f
  *    - DB_TEAM_NOTES  : f898bf03-8c9f-40e0-9e1b-a28432703d69
  * 4. 「デプロイ」→「新しいデプロイ」→ 種類: ウェブアプリ
- * 5. デプロイ後のURLを ENDPOINT 変数に貼り付けて再デプロイ
+ * 5. デプロイ → WebApp URL が自動で埋め込まれる（手動設定不要）
  */
 
 // ─────────────────────────────────────────────
@@ -166,7 +166,10 @@ function ragQuery(query, dbKey) {
 // ─────────────────────────────────────────────
 
 function doGet() {
-  return HtmlService.createHtmlOutput(getChatHtml())
+  // ScriptApp はサーバーサイドのみ利用可能。URL を文字列置換でHTMLに埋め込む。
+  const webAppUrl = ScriptApp.getService().getUrl();
+  const html = getChatHtml().replace('__ENDPOINT__', webAppUrl);
+  return HtmlService.createHtmlOutput(html)
     .setTitle('RAG チャット')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
@@ -234,7 +237,7 @@ function getChatHtml() {
 '  <button onclick="send()">送信</button>\n' +
 '</div>\n' +
 '<script>\n' +
-'const ENDPOINT = ScriptApp.getService().getUrl();\n' +
+'const ENDPOINT = \'__ENDPOINT__\';\n' +
 '\n' +
 'function addMsg(role, text) {\n' +
 '  const chat = document.getElementById(\'chat\');\n' +
