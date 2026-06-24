@@ -1,0 +1,434 @@
+"""
+rag_chatbot.py — Houdini 21+ Python Panel
+RAG チャットボット（Cloud / Local 切り替え対応）
+
+Houdini セットアップ:
+  1. Windows > Python Panel Editor で新規パネル作成
+  2. "Interface" タブにこのファイルの内容を貼り付け
+  3. onCreateInterface() を Entry Point に設定
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import threading
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QFont, QPalette
+from PySide6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+# ─── 設定ファイルパス ─────────────────────────────────────────────────────────────
+_CONFIG_PATH = Path.home() / ".houdini" / "rag_chatbot_config.json"
+_DEFAULT_CONFIG = {
+    "mode": "local",
+    "gas_url": "",
+    "local_port": 8766,
+    "local_bridge_dir": "",   # rag_local_bridge.py のあるディレクトリ
+}
+
+
+def _load_config() -> dict:
+    if _CONFIG_PATH.exists():
+        try:
+            with open(_CONFIG_PATH, encoding="utf-8") as f:
+                cfg = json.load(f)
+            return {**_DEFAULT_CONFIG, **cfg}
+        except Exception:
+            pass
+    return dict(_DEFAULT_CONFIG)
+
+
+def _save_config(cfg: dict) -> None:
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+# ─── RAG クライアント ─────────────────────────────────────────────────────────────
+def _post_json(url: str, body: dict, timeout: int = 60) -> dict:
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+def _get_json(url: str, timeout: int = 5) -> dict:
+    with urllib.request.urlopen(url, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+class RAGClient:
+    def __init__(self, cfg: dict) -> None:
+        self.cfg = cfg
+
+    def query(self, query: str, history: list[dict]) -> dict:
+        if self.cfg["mode"] == "cloud":
+            return _post_json(
+                self.cfg["gas_url"],
+                {"query": query, "dbKey": "all", "history": history},
+            )
+        else:
+            port = self.cfg["local_port"]
+            return _post_json(
+                f"http://localhost:{port}/query",
+                {"query": query, "history": history, "limit": 5},
+            )
+
+    def health(self) -> bool:
+        try:
+            if self.cfg["mode"] == "cloud":
+                with urllib.request.urlopen(self.cfg["gas_url"], timeout=5):
+                    return True
+            else:
+                data = _get_json(f"http://localhost:{self.cfg['local_port']}/health")
+                return data.get("status") == "ok"
+        except Exception:
+            return False
+
+
+# ─── バックグラウンドワーカー ─────────────────────────────────────────────────────
+class QueryWorker(QThread):
+    finished = Signal(dict)   # {"answer": str, "sources": list}
+    error    = Signal(str)
+
+    def __init__(self, client: RAGClient, query: str, history: list[dict]) -> None:
+        super().__init__()
+        self._client  = client
+        self._query   = query
+        self._history = history
+
+    def run(self) -> None:
+        try:
+            result = self._client.query(self._query, self._history)
+            self.finished.emit(result)
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
+class BridgeStartWorker(QThread):
+    started_ok = Signal()
+    failed     = Signal(str)
+
+    def __init__(self, cfg: dict) -> None:
+        super().__init__()
+        self._cfg = cfg
+
+    def run(self) -> None:
+        bridge_dir = self._cfg.get("local_bridge_dir", "")
+        if not bridge_dir:
+            self.failed.emit("local_bridge_dir が設定されていません（設定タブで指定してください）")
+            return
+        port = self._cfg["local_port"]
+        try:
+            subprocess.Popen(
+                ["python", "scripts/rag_local_bridge.py", f"--port={port}"],
+                cwd=bridge_dir,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            self.failed.emit("python が PATH に見つかりません")
+            return
+
+        # 起動待ち（最大 8 秒）
+        client = RAGClient(self._cfg)
+        import time
+        for _ in range(16):
+            time.sleep(0.5)
+            if client.health():
+                self.started_ok.emit()
+                return
+        self.failed.emit("ブリッジ起動タイムアウト")
+
+
+# ─── チャットバブル ───────────────────────────────────────────────────────────────
+class ChatBubble(QLabel):
+    def __init__(self, text: str, is_user: bool) -> None:
+        super().__init__(text)
+        self.setWordWrap(True)
+        self.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        bg = "#2a4a7f" if is_user else "#3a3a3a"
+        align = "right" if is_user else "left"
+        self.setStyleSheet(
+            f"background:{bg};border-radius:8px;padding:6px 10px;"
+            f"color:#eee;text-align:{align};"
+        )
+        if is_user:
+            self.setAlignment(Qt.AlignRight)
+
+
+# ─── メインパネル ─────────────────────────────────────────────────────────────────
+class RAGChatbotPanel(QWidget):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._cfg     = _load_config()
+        self._client  = RAGClient(self._cfg)
+        self._history: list[dict] = []
+        self._worker: QueryWorker | None  = None
+        self._bridge_worker: BridgeStartWorker | None = None
+
+        self._build_ui()
+        self._ensure_bridge()
+
+    # ── UI 構築 ────────────────────────────────────────────────────────────────
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(6, 6, 6, 6)
+        root.setSpacing(4)
+
+        tabs = QTabWidget()
+        tabs.addTab(self._build_chat_tab(), "Chat")
+        tabs.addTab(self._build_graph_tab(), "Graph")
+        tabs.addTab(self._build_settings_tab(), "Settings")
+        root.addWidget(tabs)
+
+        self._status = QLabel("")
+        self._status.setStyleSheet("color:#aaa;font-size:11px;")
+        root.addWidget(self._status)
+
+    def _build_chat_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setSpacing(4)
+
+        # モード切り替え
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("モード:"))
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItems(["local", "cloud"])
+        self._mode_combo.setCurrentText(self._cfg["mode"])
+        self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
+        mode_row.addWidget(self._mode_combo)
+        mode_row.addStretch()
+        layout.addLayout(mode_row)
+
+        # メッセージエリア
+        self._chat_scroll = QScrollArea()
+        self._chat_scroll.setWidgetResizable(True)
+        self._chat_inner = QWidget()
+        self._chat_layout = QVBoxLayout(self._chat_inner)
+        self._chat_layout.addStretch()
+        self._chat_scroll.setWidget(self._chat_inner)
+        layout.addWidget(self._chat_scroll, stretch=1)
+
+        # 入力
+        self._input = QTextEdit()
+        self._input.setFixedHeight(70)
+        self._input.setPlaceholderText("質問を入力（Ctrl+Enter で送信）")
+        layout.addWidget(self._input)
+
+        btn_row = QHBoxLayout()
+        self._send_btn = QPushButton("送信")
+        self._send_btn.clicked.connect(self._on_send)
+        clear_btn = QPushButton("クリア")
+        clear_btn.clicked.connect(self._on_clear)
+        btn_row.addStretch()
+        btn_row.addWidget(self._send_btn)
+        btn_row.addWidget(clear_btn)
+        layout.addLayout(btn_row)
+
+        # Ctrl+Enter
+        self._input.installEventFilter(self)
+        return w
+
+    def _build_graph_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        label = QLabel("Graph ビューは Phase 5 で実装予定です。\nRAG_Graph のデータをノード図で表示します。")
+        label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(label)
+        return w
+
+    def _build_settings_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setSpacing(8)
+
+        layout.addWidget(QLabel("Cloud RAG"))
+        self._gas_url_edit = QLineEdit(self._cfg.get("gas_url", ""))
+        self._gas_url_edit.setPlaceholderText("https://script.google.com/macros/s/...")
+        layout.addWidget(QLabel("GAS WebApp URL:"))
+        layout.addWidget(self._gas_url_edit)
+
+        layout.addWidget(QLabel("Local RAG"))
+        self._port_edit = QLineEdit(str(self._cfg.get("local_port", 8766)))
+        layout.addWidget(QLabel("Bridge Port:"))
+        layout.addWidget(self._port_edit)
+
+        self._bridge_dir_edit = QLineEdit(self._cfg.get("local_bridge_dir", ""))
+        self._bridge_dir_edit.setPlaceholderText("DevelopmentRAGEnvironment のパス")
+        layout.addWidget(QLabel("Bridge Directory:"))
+        layout.addWidget(self._bridge_dir_edit)
+
+        save_btn = QPushButton("設定を保存")
+        save_btn.clicked.connect(self._on_save_settings)
+        layout.addWidget(save_btn)
+
+        check_btn = QPushButton("接続確認")
+        check_btn.clicked.connect(self._on_check_health)
+        layout.addWidget(check_btn)
+
+        restart_btn = QPushButton("ブリッジ再起動")
+        restart_btn.clicked.connect(self._on_restart_bridge)
+        layout.addWidget(restart_btn)
+
+        note = QLabel(
+            "ANTHROPIC_API_KEY は Houdini 起動前に\n"
+            "OS 環境変数に設定してください。"
+        )
+        note.setStyleSheet("color:#f90;")
+        layout.addWidget(note)
+        layout.addStretch()
+        return w
+
+    # ── イベント ───────────────────────────────────────────────────────────────
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QKeyEvent
+        if obj is self._input and event.type() == QEvent.KeyPress:
+            ke = QKeyEvent(event)
+            if ke.key() == Qt.Key_Return and ke.modifiers() == Qt.ControlModifier:
+                self._on_send()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _on_mode_changed(self, mode: str) -> None:
+        self._cfg["mode"] = mode
+        _save_config(self._cfg)
+        self._client = RAGClient(self._cfg)
+        if mode == "local":
+            self._ensure_bridge()
+
+    def _on_send(self) -> None:
+        if self._worker and self._worker.isRunning():
+            return
+        query = self._input.toPlainText().strip()
+        if not query:
+            return
+
+        self._input.clear()
+        self._add_bubble(query, is_user=True)
+        self._history.append({"role": "user", "text": query})
+        self._set_status("応答中...")
+        self._send_btn.setEnabled(False)
+
+        self._worker = QueryWorker(self._client, query, self._history[-12:])
+        self._worker.finished.connect(self._on_query_done)
+        self._worker.error.connect(self._on_query_error)
+        self._worker.start()
+
+    def _on_query_done(self, result: dict) -> None:
+        answer = result.get("answer", "(空の回答)")
+        sources = result.get("sources", [])
+        self._add_bubble(answer, is_user=False)
+        self._history.append({"role": "assistant", "text": answer})
+        if sources:
+            titles = ", ".join(s.get("title", "") for s in sources)
+            self._set_status(f"参照: {titles}")
+        else:
+            self._set_status("")
+        self._send_btn.setEnabled(True)
+        self._scroll_to_bottom()
+
+    def _on_query_error(self, msg: str) -> None:
+        self._add_bubble(f"エラー: {msg}", is_user=False)
+        self._set_status(msg)
+        self._send_btn.setEnabled(True)
+
+    def _on_clear(self) -> None:
+        self._history.clear()
+        for i in reversed(range(self._chat_layout.count() - 1)):
+            item = self._chat_layout.itemAt(i)
+            if item and item.widget():
+                item.widget().deleteLater()
+        self._set_status("")
+
+    def _on_save_settings(self) -> None:
+        self._cfg["gas_url"]        = self._gas_url_edit.text().strip()
+        self._cfg["local_bridge_dir"] = self._bridge_dir_edit.text().strip()
+        try:
+            self._cfg["local_port"] = int(self._port_edit.text())
+        except ValueError:
+            pass
+        _save_config(self._cfg)
+        self._client = RAGClient(self._cfg)
+        self._set_status("設定を保存しました")
+
+    def _on_check_health(self) -> None:
+        ok = self._client.health()
+        self._set_status("接続OK" if ok else "接続失敗 — ブリッジが起動しているか確認してください")
+
+    def _on_restart_bridge(self) -> None:
+        self._ensure_bridge(force=True)
+
+    def _on_bridge_started(self) -> None:
+        self._set_status("ブリッジ接続済み")
+
+    def _on_bridge_failed(self, msg: str) -> None:
+        self._set_status(f"ブリッジ起動失敗: {msg}")
+
+    # ── ブリッジ自動起動 ───────────────────────────────────────────────────────
+    def _ensure_bridge(self, force: bool = False) -> None:
+        if self._cfg["mode"] != "local":
+            return
+        if not force and self._client.health():
+            self._set_status("ブリッジ接続済み")
+            return
+        self._set_status("ブリッジを起動中...")
+        self._bridge_worker = BridgeStartWorker(self._cfg)
+        self._bridge_worker.started_ok.connect(self._on_bridge_started)
+        self._bridge_worker.failed.connect(self._on_bridge_failed)
+        self._bridge_worker.start()
+
+    # ── UI ヘルパー ────────────────────────────────────────────────────────────
+    def _add_bubble(self, text: str, is_user: bool) -> None:
+        bubble = ChatBubble(text, is_user)
+        row = QHBoxLayout()
+        if is_user:
+            row.addStretch()
+            row.addWidget(bubble)
+        else:
+            row.addWidget(bubble)
+            row.addStretch()
+        # stretch の手前に挿入
+        insert_at = max(0, self._chat_layout.count() - 1)
+        self._chat_layout.insertLayout(insert_at, row)
+
+    def _scroll_to_bottom(self) -> None:
+        sb = self._chat_scroll.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def _set_status(self, text: str) -> None:
+        self._status.setText(text)
+
+
+# ─── Houdini エントリポイント ─────────────────────────────────────────────────────
+def onCreateInterface():
+    """Houdini の Python Panel エントリポイント"""
+    panel = RAGChatbotPanel()
+    return panel
