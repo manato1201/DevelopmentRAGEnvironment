@@ -41,8 +41,9 @@ namespace RAGChatbot
         private string _gasUrl   = "";
         private string _localPortStr = "8766";
 
-        // ── グラフデータ（Phase 5 で実装） ───────────────────────────────────────
-        private Vector2 _graphScroll;
+        // ── グラフビュー ──────────────────────────────────────────────────────────
+        private readonly RAGGraphView _graphView = new();
+        private bool _graphLoading;
 
         // ─────────────────────────────────────────────────────────────────────────
         [MenuItem("Window/RAG Chatbot")]
@@ -254,13 +255,80 @@ namespace RAGChatbot
             }
         }
 
-        // ── Graph タブ（Phase 5 スタブ） ──────────────────────────────────────
+        // ── Graph タブ ────────────────────────────────────────────────────────
         private void DrawGraphTab()
         {
-            EditorGUILayout.HelpBox(
-                "Graph ビューは Phase 5 で実装予定です。\n" +
-                "RAG_Graph シートのデータを D3.js 風に可視化します。",
-                MessageType.Info);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField("ドキュメント関係グラフ", EditorStyles.boldLabel);
+                GUILayout.FlexibleSpace();
+                using (new EditorGUI.DisabledScope(_graphLoading))
+                {
+                    if (GUILayout.Button(_graphLoading ? "読み込み中..." : "更新", GUILayout.Width(70)))
+                        _ = LoadGraphAsync();
+                }
+                if (GUILayout.Button("リセット", GUILayout.Width(60)))
+                {
+                    _graphView.SetData(null);
+                    Repaint();
+                }
+            }
+
+            // グラフキャンバス（残り領域すべて）
+            Rect graphRect = GUILayoutUtility.GetRect(0, 0,
+                GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
+            _graphView.Draw(graphRect, this);
+
+            // 選択ノード情報
+            string sel = _graphView.SelectedNodeId;
+            if (!string.IsNullOrEmpty(sel))
+            {
+                EditorGUILayout.HelpBox($"選択: {System.IO.Path.GetFileName(sel)}\n{sel}", MessageType.None);
+            }
+
+            // 操作説明
+            EditorGUILayout.LabelField(
+                "ドラッグ: パン  |  スクロール: ズーム  |  右クリック: リセット  |  クリック: 選択",
+                EditorStyles.centeredGreyMiniLabel);
+        }
+
+        private async Task LoadGraphAsync()
+        {
+            if (_mode != Mode.Local)
+            {
+                _statusText = "Graph ビューは現在 Local モードのみ対応しています";
+                Repaint();
+                return;
+            }
+
+            _graphLoading = true;
+            _statusText = "グラフデータ取得中...";
+            Repaint();
+
+            try
+            {
+                var req = UnityEngine.Networking.UnityWebRequest.Get(
+                    $"http://localhost:{ParsePort()}/graph");
+                req.timeout = 120;
+                var op = req.SendWebRequest();
+                while (!op.isDone) await Task.Yield();
+
+                if (req.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
+                    throw new Exception(req.error);
+
+                var data = JsonUtility.FromJson<RAGGraphData>(req.downloadHandler.text);
+                _graphView.SetData(data);
+                _statusText = $"グラフ読み込み完了: {data.nodes?.Length ?? 0} ノード / {data.edges?.Length ?? 0} エッジ";
+            }
+            catch (Exception ex)
+            {
+                _statusText = $"グラフ取得失敗: {ex.Message}";
+            }
+            finally
+            {
+                _graphLoading = false;
+                Repaint();
+            }
         }
 
         // ── Settings タブ ─────────────────────────────────────────────────────
