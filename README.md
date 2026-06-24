@@ -18,7 +18,8 @@
 ### ローカルRAG（mcp-rag-server）
 
 **→ 初回セットアップ: [docs/local-rag-setup.md](docs/local-rag-setup.md)**  
-**→ 別PCへの配布: [docs/distribution-guide.md](docs/distribution-guide.md)**
+**→ 別PCへの配布: [docs/distribution-guide.md](docs/distribution-guide.md)**  
+**→ 新規RAG追加方法: [lecture/new-rag-setup.html](lecture/new-rag-setup.html)**
 
 | 項目 | 内容 |
 |------|------|
@@ -35,7 +36,7 @@ cd mcp-rag-server
 
 # 2. 依存関係インストール（Python 3.12 固定）
 uv sync --python 3.12
-uv add chromadb watchdog pyyaml
+uv add chromadb watchdog pyyaml rank-bm25 sudachipy sudachidict-core
 
 # 3. ChromaDB パッチを適用
 copy ..\DevelopmentRAGEnvironment\scripts\vector_database.py src\vector_database.py
@@ -78,8 +79,10 @@ DevelopmentRAGEnvironment/
 │   └── obsidian-localrag-management.md  # Obsidian vault 管理
 │
 ├── lecture/
-│   ├── local-rag-lecture.html      # ローカルRAG 講義資料
-│   └── cloud-rag-lecture.html      # クラウドRAG 講義資料
+│   ├── local-rag-lecture.html      # ローカルRAG セットアップ講義
+│   ├── cloud-rag-lecture.html      # クラウドRAG 講義資料
+│   ├── localrag-internals.html     # LocalRAG 仕組み解説（処理フロー・アーキテクチャ）
+│   └── new-rag-setup.html          # 新規RAG追加ガイド（Namespace作成〜検索確認）
 │
 ├── scripts/
 │   ├── vector_database.py          # ChromaDB バックエンド（mcp-rag-server に適用）
@@ -98,6 +101,58 @@ DevelopmentRAGEnvironment/
     ├── _rag_dashboard/             # インデックス管理（除外対象）
     └── _templates/                 # テンプレート（除外対象）
 ```
+
+---
+
+## 新規RAGの追加方法
+
+新しいデータソース（Namespace）を追加するときの手順です。詳細は **[lecture/new-rag-setup.html](lecture/new-rag-setup.html)** を参照してください。
+
+### 5ステップの概要
+
+```powershell
+# 1. Namespaceフォルダを作成
+New-Item -ItemType Directory -Path "localRAG\your_namespace"
+
+# 2. トピック単位でMarkdownを作成（1ファイル = 1トピックが原則）
+# localRAG\your_namespace\topic_a.md を Obsidian / VSCode で編集
+
+# 3. rag_indexed: true を確認（全ファイル）
+Get-ChildItem -Path "localRAG\your_namespace" -Filter "*.md" -Recurse |
+  Select-String -Pattern "rag_indexed: false"
+
+# 4. インデックス化（mcp-rag-serverディレクトリで実行）
+cd ..\mcp-rag-server
+uv run python -m src.cli index          # 初回はフルインデックス
+uv run python -m src.cli index --incremental  # 2回目以降は差分のみ
+
+# 5. Claude Desktopで検索テスト（スコア83%以上が目安）
+```
+
+### Markdownテンプレート
+
+```markdown
+---
+title: ドキュメントタイトル
+tags:
+  - タグ1
+  - namespace名
+rag_indexed: true
+created: 2026-06-18
+updated: 2026-06-18
+---
+
+# タイトル
+
+本文...
+```
+
+### 精度向上のポイント
+
+- **1ファイル = 1トピック** — 複数トピックを1ファイルにまとめると検索スコアが均一化して精度が落ちる
+- **ファイルサイズ** — 本文800〜3,000文字（2〜8チャンク）が理想
+- **固有名詞を明示** — 略語のみでなく正式名称を本文に含める
+- **auto_index.py** — watchdogを起動しておくとファイル保存時に自動インデックスされる
 
 ---
 
@@ -154,6 +209,23 @@ uv run python scripts\notion_bulk_add.py --input scripts\notion_bulk_input.yaml
 
 `.env` に `NOTION_API_KEY` と `GEMINI_API_KEY` の設定が必要。
 
+### notion_to_corpus.py — Notion→Gemini Corpus 同期
+
+CloudRAGのベクトル検索エンジン。Notionの全ページをGemini Semantic Retrieval Corpusへ同期する。
+
+```powershell
+# 初回（コーパス作成 + 全件投入）
+uv run python scripts/notion_to_corpus.py --init
+
+# Notionにページを追加・編集したあと（差分のみ）
+uv run python scripts/notion_to_corpus.py --sync
+
+# テスト検索
+uv run python scripts/notion_to_corpus.py --query "柚子塩らーめん" --db afuri
+```
+
+初回実行後に表示される `GEMINI_CORPUS_NAME` をGASのスクリプトプロパティに追加する。
+
 ### gas_cloud_rag.js — GAS WebApp
 
 GAS エディタ（script.google.com）に貼り付けて使う。  
@@ -180,6 +252,7 @@ uv run python delete_non_txt.py
 - Windows 11 ネイティブ対応（WSL2不要）
 - `main.py` に Windows CP932→UTF-8 パッチ適用済み
 - `vector_database.py` に Obsidian vault ネームスペース対応・バグ修正3件
+- **ハイブリッド検索**: BM25（rank-bm25）+ SudachiPy形態素解析 + RRF（Reciprocal Rank Fusion）
 
 ---
 
