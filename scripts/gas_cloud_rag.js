@@ -560,10 +560,92 @@ function ragQuery(query, dbKey, history) {
 // WebApp エントリポイント
 // ─────────────────────────────────────────────
 
-function doGet() {
+function doGet(e) {
+  // ?action=graph でグラフ JSON を返す
+  if (e && e.parameter && e.parameter.action === 'graph') {
+    return ContentService
+      .createTextOutput(JSON.stringify(buildGraphData_()))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
   return HtmlService.createHtmlOutput(getChatHtml())
     .setTitle('RAG チャット')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ─────────────────────────────────────────────
+// グラフデータ構築（doGet?action=graph 用）
+// ─────────────────────────────────────────────
+
+/**
+ * RAG_Index シートから各ページ代表埋め込みを読み込み、
+ * コサイン類似度 top-3 エッジを算出して返す。
+ * CacheService に 30 分キャッシュ。
+ */
+function buildGraphData_() {
+  var GRAPH_CACHE_KEY = 'rag_graph_v1';
+  var GRAPH_CACHE_TTL = 1800;  // 30 分
+
+  var cache  = CacheService.getScriptCache();
+  var cached = cache.get(GRAPH_CACHE_KEY);
+  if (cached) return JSON.parse(cached);
+
+  var sheet = getSheet_();
+  var data  = sheet.getDataRange().getValues();
+
+  // 各 page_id の 0 番チャンク（page_id::0）を代表とする
+  var docs = {};
+  for (var i = 1; i < data.length; i++) {
+    var row    = data[i];
+    var cellId = String(row[0]);
+    if (!row[5]) continue;                        // embedding なし
+    if (cellId.split('::')[1] !== '0') continue; // 0 番チャンクのみ
+    var baseId = cellId.split('::')[0];
+    if (!docs[baseId]) {
+      docs[baseId] = {
+        id:    baseId,
+        label: String(row[2]),
+        db:    String(row[1]),
+        emb:   JSON.parse(row[5]),
+      };
+    }
+  }
+
+  var docList = Object.values(docs);
+
+  // コサイン類似度 top-3 エッジ（閾値 0.70）
+  var edges = [];
+  var seen  = {};
+  for (var i = 0; i < docList.length; i++) {
+    var scores = [];
+    for (var j = 0; j < docList.length; j++) {
+      if (i === j) continue;
+      scores.push({ j: j, score: cosineSimilarity_(docList[i].emb, docList[j].emb) });
+    }
+    scores.sort(function(a, b) { return b.score - a.score; });
+    for (var k = 0; k < Math.min(3, scores.length); k++) {
+      if (scores[k].score < 0.70) break;
+      var srcId = docList[i].id, tgtId = docList[scores[k].j].id;
+      var key   = srcId < tgtId ? srcId + '|' + tgtId : tgtId + '|' + srcId;
+      if (!seen[key]) {
+        seen[key] = true;
+        edges.push({ source: srcId, target: tgtId,
+                     score: Math.round(scores[k].score * 1000) / 1000 });
+      }
+    }
+  }
+
+  var result = {
+    nodes: docList.map(function(d) { return { id: d.id, label: d.label, db: d.db }; }),
+    edges: edges,
+    status: 'ok',
+  };
+
+  try {
+    var json = JSON.stringify(result);
+    if (json.length < 90000) cache.put(GRAPH_CACHE_KEY, json, GRAPH_CACHE_TTL);
+  } catch (err) { /* キャッシュサイズ超過は無視 */ }
+
+  return result;
 }
 
 function doPost(e) {
@@ -658,12 +740,29 @@ function getChatHtml() {
 '#sbtn:hover{background:var(--primary-dark)}\n' +
 '#sbtn:disabled{background:#c7d2fe;cursor:not-allowed}\n' +
 '.turn-badge{font-size:11px;color:var(--text-light);text-align:center;margin:-6px 0;opacity:.6}\n' +
+'.tab-bar{display:flex;gap:0;background:var(--white);border-bottom:1px solid var(--border);flex-shrink:0}\n' +
+'.tab-btn{flex:1;padding:9px 0;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--text-light);border-bottom:2px solid transparent;font-family:inherit;transition:all .15s}\n' +
+'.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary)}\n' +
+'.tab-btn:hover:not(.active){color:var(--text);background:#f8fafc}\n' +
+'#tab-chat{display:flex;flex-direction:column;flex:1;overflow:hidden}\n' +
+'#tab-graph{display:none;flex-direction:column;flex:1;overflow:hidden;background:#0f172a;color:#e2e8f0}\n' +
+'.graph-toolbar{padding:8px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #1e293b;flex-shrink:0}\n' +
+'.graph-toolbar button{padding:5px 14px;border:1px solid #334155;border-radius:8px;background:#1e293b;color:#e2e8f0;cursor:pointer;font-size:12px;font-family:inherit;transition:all .15s}\n' +
+'.graph-toolbar button:hover{background:#334155}\n' +
+'#graph-status{font-size:11px;color:#94a3b8;margin-left:4px}\n' +
+'#graph-svg{flex:1;width:100%;display:block}\n' +
+'#node-detail{padding:8px 14px;font-size:12px;color:#94a3b8;border-top:1px solid #1e293b;flex-shrink:0;min-height:36px}\n' +
 '</style>\n</head>\n<body>\n' +
 '<header>\n' +
 '  <div class="hicon">🔍</div>\n' +
 '  <div class="htext"><h1>RAG チャット</h1><p>Notion × Gemini ベクトル検索</p></div>\n' +
 '  <button id="clear-btn" onclick="clearChat()">🗑 会話をクリア</button>\n' +
 '</header>\n' +
+'<div class="tab-bar">\n' +
+'  <button class="tab-btn active" onclick="switchTab(\'chat\')">💬 チャット</button>\n' +
+'  <button class="tab-btn" id="graph-tab-btn" onclick="switchTab(\'graph\')">🕸 グラフ</button>\n' +
+'</div>\n' +
+'<div id="tab-chat">\n' +
 '<div class="dbwrap">\n' +
 '  <select id="db">\n' +
 '    <option value="all">🌐 全DB横断検索</option>\n' +
@@ -687,6 +786,17 @@ function getChatHtml() {
 '  <textarea id="q" placeholder="質問を入力... (Ctrl+Enter で送信)" rows="1"></textarea>\n' +
 '  <button id="sbtn" onclick="send()">↑</button>\n' +
 '</div>\n' +
+'</div>\n' +   // #tab-chat 閉じ
+'<div id="tab-graph">\n' +
+'  <div class="graph-toolbar">\n' +
+'    <button onclick="loadGraph()">更新</button>\n' +
+'    <button onclick="fitGraph()">全体</button>\n' +
+'    <span id="graph-status">「更新」を押してグラフを取得</span>\n' +
+'  </div>\n' +
+'  <svg id="graph-svg"></svg>\n' +
+'  <div id="node-detail">ノードをクリックして詳細を表示</div>\n' +
+'</div>\n' +
+'<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>\n' +
 '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>\n' +
 '<script>\n' +
 'if(typeof marked!=="undefined")marked.setOptions({breaks:true,gfm:true});\n' +
@@ -815,6 +925,92 @@ function getChatHtml() {
 '    })\n' +
 '    .ragQuery(q,dbKey,historySnapshot);\n' +
 '}\n' +
+'// ── タブ切り替え ─────────────────────────────────────────────────────────\n' +
+'function switchTab(tab){\n' +
+'  var isChat=(tab==="chat");\n' +
+'  document.getElementById("tab-chat").style.display=isChat?"flex":"none";\n' +
+'  document.getElementById("tab-graph").style.display=isChat?"none":"flex";\n' +
+'  document.querySelectorAll(".tab-btn").forEach(function(b){\n' +
+'    b.classList.toggle("active",b.textContent.includes(isChat?"チャット":"グラフ"));\n' +
+'  });\n' +
+'  if(!isChat && !window._graphLoaded) loadGraph();\n' +
+'}\n' +
+'\n' +
+'// ── グラフ描画（D3.js）─────────────────────────────────────────────────\n' +
+'var _graphSim=null;\n' +
+'var _graphLoaded=false;\n' +
+'var DB_COLORS={tool_docs:"#6366f1",game_info:"#10b981",research:"#f59e0b",team_notes:"#ef4444",afuri:"#f97316",braintq:"#8b5cf6",fourteen:"#06b6d4"};\n' +
+'\n' +
+'function loadGraph(){\n' +
+'  var status=document.getElementById("graph-status");\n' +
+'  status.textContent="グラフデータ取得中...";\n' +
+'  var url=location.href.split("?")[0]+"?action=graph";\n' +
+'  fetch(url)\n' +
+'    .then(function(r){return r.json();})\n' +
+'    .then(function(data){\n' +
+'      if(data.status!=="ok"&&!data.nodes){status.textContent="取得失敗";return;}\n' +
+'      renderGraph(data);\n' +
+'      _graphLoaded=true;\n' +
+'    })\n' +
+'    .catch(function(e){status.textContent="エラー: "+e.message;});\n' +
+'}\n' +
+'\n' +
+'function fitGraph(){\n' +
+'  if(_graphSim) window._d3svg&&window._d3svg.transition().call(window._d3zoom.transform,d3.zoomIdentity);\n' +
+'}\n' +
+'\n' +
+'function renderGraph(data){\n' +
+'  if(_graphSim){_graphSim.stop();}\n' +
+'  var svgEl=document.getElementById("graph-svg");\n' +
+'  var w=svgEl.clientWidth||600, h=svgEl.clientHeight||400;\n' +
+'  var svg=d3.select("#graph-svg").attr("width",w).attr("height",h);\n' +
+'  svg.selectAll("*").remove();\n' +
+'  window._d3svg=svg;\n' +
+'\n' +
+'  var g=svg.append("g");\n' +
+'  var zoom=d3.zoom().scaleExtent([0.1,6]).on("zoom",function(ev){g.attr("transform",ev.transform);});\n' +
+'  svg.call(zoom);\n' +
+'  window._d3zoom=zoom;\n' +
+'\n' +
+'  var nodes=data.nodes.map(function(d){return Object.assign({},d);});\n' +
+'  var links=data.edges.map(function(e){return{source:e.source,target:e.target,score:e.score};});\n' +
+'\n' +
+'  var link=g.append("g").selectAll("line").data(links).enter().append("line")\n' +
+'    .attr("stroke","#475569").attr("stroke-opacity",function(d){return 0.3+d.score*0.5;}).attr("stroke-width",1.5);\n' +
+'\n' +
+'  var node=g.append("g").selectAll("g").data(nodes).enter().append("g")\n' +
+'    .call(d3.drag().on("start",dragStart).on("drag",dragged).on("end",dragEnd))\n' +
+'    .on("click",function(ev,d){\n' +
+'      document.getElementById("node-detail").textContent=d.label+" | DB: "+d.db;\n' +
+'    });\n' +
+'\n' +
+'  node.append("circle").attr("r",12)\n' +
+'    .attr("fill",function(d){return DB_COLORS[d.db]||"#64748b";})\n' +
+'    .attr("stroke","#0f172a").attr("stroke-width",1.5)\n' +
+'    .on("mouseover",function(){d3.select(this).attr("r",16).attr("stroke","#fbbf24");})\n' +
+'    .on("mouseout", function(){d3.select(this).attr("r",12).attr("stroke","#0f172a");});\n' +
+'\n' +
+'  node.append("text").text(function(d){return d.label.length>12?d.label.slice(0,12)+"…":d.label;})\n' +
+'    .attr("x",15).attr("y",4).attr("font-size","10px").attr("fill","#cbd5e1");\n' +
+'\n' +
+'  _graphSim=d3.forceSimulation(nodes)\n' +
+'    .force("link",d3.forceLink(links).id(function(d){return d.id;}).distance(80).strength(function(d){return d.score;}))\n' +
+'    .force("charge",d3.forceManyBody().strength(-200))\n' +
+'    .force("center",d3.forceCenter(w/2,h/2))\n' +
+'    .force("collision",d3.forceCollide(18))\n' +
+'    .on("tick",function(){\n' +
+'      link.attr("x1",function(d){return d.source.x;}).attr("y1",function(d){return d.source.y;})\n' +
+'          .attr("x2",function(d){return d.target.x;}).attr("y2",function(d){return d.target.y;});\n' +
+'      node.attr("transform",function(d){return "translate("+d.x+","+d.y+")";});\n' +
+'    });\n' +
+'\n' +
+'  document.getElementById("graph-status").textContent=\n' +
+'    nodes.length+"ノード / "+links.length+"エッジ  ドラッグ:移動  ホイール:ズーム  クリック:詳細";\n' +
+'}\n' +
+'\n' +
+'function dragStart(ev,d){if(!ev.active)_graphSim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y;}\n' +
+'function dragged(ev,d){d.fx=ev.x;d.fy=ev.y;}\n' +
+'function dragEnd(ev,d){if(!ev.active)_graphSim.alphaTarget(0);d.fx=null;d.fy=null;}\n' +
 '</script>\n</body>\n</html>'
 }
 

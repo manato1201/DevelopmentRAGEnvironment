@@ -19,6 +19,15 @@ import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import sys as _sys
+import os as _os
+_sys.path.insert(0, _os.path.dirname(__file__))
+try:
+    from graph_view import RAGGraphWidget as _RAGGraphWidget
+    _GRAPH_AVAILABLE = True
+except ImportError:
+    _GRAPH_AVAILABLE = False
+
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QPalette
 from PySide6.QtWidgets import (
@@ -257,9 +266,16 @@ class RAGChatbotPanel(QWidget):
         return w
 
     def _build_graph_tab(self) -> QWidget:
+        if _GRAPH_AVAILABLE:
+            self._graph_widget = _RAGGraphWidget(port=self._cfg.get("local_port", 8766))
+            return self._graph_widget
+        # フォールバック: graph_view.py がインポートできない場合
         w = QWidget()
         layout = QVBoxLayout(w)
-        label = QLabel("Graph ビューは Phase 5 で実装予定です。\nRAG_Graph のデータをノード図で表示します。")
+        label = QLabel(
+            "graph_view.py が見つかりません。\n"
+            "houdini/python_panels/ に graph_view.py を配置してください。"
+        )
         label.setAlignment(Qt.AlignCenter)
         layout.addWidget(label)
         return w
