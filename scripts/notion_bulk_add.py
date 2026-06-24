@@ -49,6 +49,9 @@ DB_IDS = {
     "game_info":  os.environ.get("DB_GAME_INFO",  "f201f73c-45dc-44cb-b8d7-a7be81b3644c"),
     "research":   os.environ.get("DB_RESEARCH",   "714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f"),
     "team_notes": os.environ.get("DB_TEAM_NOTES", "f898bf03-8c9f-40e0-9e1b-a28432703d69"),
+    "afuri":      os.environ.get("DB_AFURI",      "a74822790ec34768bdef0917abae3e6f"),
+    "braintq":    os.environ.get("DB_BRAINTQ",    "847b7db0f29f4190bee9f7ae7dd15514"),
+    "fourteen":   os.environ.get("DB_FOURTEEN",   "475cf278492a45ac90cbe4b8f11df1f5"),
 }
 
 NOTION_HEADERS = {

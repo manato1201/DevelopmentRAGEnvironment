@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>クラウドRAG環境構築 — Notion + GAS + Gemini 講義資料</title>
+<title>クラウドRAG環境構築 v2 — Notion + GAS + Gemini 講義資料</title>
 <style>
 :root {
   --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --surface: #21262d;
@@ -111,6 +111,15 @@ tr:hover td{background:rgba(255,255,255,.02);}
 .props-row .desc{color:var(--muted);}
 .star{color:var(--amber);}
 
+/* PERF TABLE */
+.perf{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:14px 0;}
+.perf-row{display:grid;grid-template-columns:1fr 120px 120px;border-bottom:1px solid var(--border);font-size:12px;}
+.perf-row:last-child{border-bottom:none;}
+.perf-row.header{background:var(--surface);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
+.perf-row > div{padding:8px 12px;}
+.perf-old{color:var(--red);font-family:var(--mono);}
+.perf-new{color:var(--green);font-family:var(--mono);}
+
 a{color:var(--accent);}
 footer{background:var(--bg2);border-top:1px solid var(--border);padding:28px 40px;text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted);}
 footer a{color:var(--accent);text-decoration:none;}
@@ -121,13 +130,13 @@ footer a{color:var(--accent);text-decoration:none;}
 
 <header>
 <div class="header-inner">
-  <div class="eyebrow"><span class="eyebrow-dot"></span> Setup Guide · Cloud RAG</div>
-  <h1>クラウドRAG環境構築<br><span class="acc">Notion + GAS + Gemini API</span></h1>
-  <p class="header-desc">共有すべき技術情報をNotionに蓄積し、Google Apps Script経由でGeminiが参照する構成。サーバー管理不要・無料枠で動作する。</p>
+  <div class="eyebrow"><span class="eyebrow-dot"></span> Setup Guide · Cloud RAG v2</div>
+  <h1>クラウドRAG環境構築<br><span class="acc">Notion + GAS + Gemini Embedding + Sheets</span></h1>
+  <p class="header-desc">Notionを知識ベースとして、Google Sheetsにベクトルインデックスを構築し、Geminiがマルチターン対話で回答する構成。サーバー管理不要・並列同期・マルチユーザー対応。</p>
   <div class="meta-row">
-    <span>Notion / GAS / Gemini API</span>
+    <span>Notion / GAS / Gemini Embedding / Google Sheets</span>
     <span>所要時間: 約60〜90分</span>
-    <span>Updated: 2026-06-10</span>
+    <span>Updated: 2026-06-24</span>
   </div>
 </div>
 </header>
@@ -136,14 +145,14 @@ footer a{color:var(--accent);text-decoration:none;}
 <ul>
   <li><a href="#overview">全体像</a></li>
   <li><a href="#notion-db">Notion DB</a></li>
-  <li><a href="#gemini-key">Gemini API</a></li>
   <li><a href="#gas-setup">GASセットアップ</a></li>
-  <li><a href="#notion-fn">Notion検索</a></li>
-  <li><a href="#gemini-fn">Gemini呼び出し</a></li>
+  <li><a href="#vector-store">ベクトルストア</a></li>
+  <li><a href="#sync">同期処理</a></li>
+  <li><a href="#parallel">並列化</a></li>
+  <li><a href="#multiturn">マルチターン</a></li>
   <li><a href="#chat-ui">チャットUI</a></li>
   <li><a href="#deploy">公開</a></li>
   <li><a href="#data">データ投入</a></li>
-  <li><a href="#mcp">MCP連携</a></li>
   <li><a href="#trouble">トラブル</a></li>
 </ul>
 </nav>
@@ -153,38 +162,48 @@ footer a{color:var(--accent);text-decoration:none;}
 <!-- ===== 全体像 ===== -->
 <div class="section" id="overview">
   <div class="section-eye">Overview</div>
-  <h2>全体像とRAGの流れ</h2>
+  <h2>全体像とRAGの流れ（v2 ベクトル検索）</h2>
 
   <div class="arch">
     <pre><code>
-  [ユーザー（ブラウザ）]
-        │ 質問 + DB選択
-        ▼
-  [GAS WebApp]  ─────────────────────────────────┐
-        │                                         │
-        │ ① 指定DBをキーワード検索                │ doPost(e)
-        ▼                                         │
-  [Notion API]                                    │
-        │ 上位5件の summary を返す                │
-        ▼                                         │
-  [GAS: context 構築]                             │
-    "以下を参考に答えよ\n{summary×5}\n{質問}"    │
-        │                                         │
-        │ ② プロンプトを送信                      │
-        ▼                                         │
-  [Gemini API]                                    │
-        │ 回答テキスト                            │
-        ▼                                         │
-  [GAS WebApp] ───────────────────────────────────┘
-        │ JSON { answer: "..." }
-        ▼
-  [ユーザー（ブラウザ）]
+  ── データ投入フロー ──────────────────────────────────────────────────
+  Markdown ファイル
+    │  localrag_to_notion.py（移行スクリプト）
+    ▼
+  Notion（7DB）
+    │  syncNotionToSheets()  ←  fetchAll 並列: 7DB + N本文 + Embedding
+    ▼
+  Google Sheets「RAG_Index」
+  [page_id::chunk | db | title | text | last_edited | embedding(768次元)]
+    │
+    │  CacheService（6h TTL）にインデックスをキャッシュ
+
+  ── クエリフロー ─────────────────────────────────────────────────────
+  ユーザー（ブラウザ）
+    │  質問テキスト + DB選択 + 会話履歴
+    ▼
+  GAS WebApp（doGet / google.script.run）
+    │
+    ├─① クエリを Gemini Embedding でベクトル化（768次元）
+    │
+    ├─② Sheets インデックスとコサイン類似度計算 → 上位5チャンク
+    │     ※ キャッシュ HIT 時はシート読み込みをスキップ
+    │
+    ├─③ 参考チャンクを context として注入
+    │     + 過去3ターンの会話履歴を contents 配列に追加
+    │
+    ├─④ Gemini 2.5 Flash でマルチターン回答生成
+    │     system_instruction: 日本語・400字以内・箇条書き
+    │
+    └─⑤ { answer, sources } を返却
+    ▼
+  ブラウザ（マークダウンレンダリング・参照元表示・コピーボタン）
     </code></pre>
   </div>
 
   <div class="callout callout-note">
-    <p><strong>なぜGemini UIから直接呼べないのか</strong></p>
-    <p>gemini.google.com は外部のGASエンドポイントをツールとして登録する機能を持たない。GASでWebAppを立て、そこからGemini APIを呼ぶ構成（A方式）が実装量最小かつ保守コストゼロ。</p>
+    <p><strong>v1（キーワード検索）との違い</strong></p>
+    <p>v1はNotionにキーワードクエリを投げて summary を取得していた。v2は全ページ本文をEmbeddingでベクトル化しGoogle Sheetsに保存。クエリ時はコサイン類似度でチャンク単位検索するため、キーワードが含まれなくても意味的に近いドキュメントが取得できる。</p>
   </div>
 
   <div class="grid2">
@@ -194,7 +213,7 @@ footer a{color:var(--accent);text-decoration:none;}
         <li>Unity / Houdini / DX12 仕様書</li>
         <li>ゲーム情報・共有設計書</li>
         <li>手動精査した技術記事・論文</li>
-        <li>ゼミ資料・議事録</li>
+        <li>ゼミ資料・議事録・ブランド情報</li>
       </ul>
     </div>
     <div class="card">
@@ -207,28 +226,43 @@ footer a{color:var(--accent);text-decoration:none;}
       </ul>
     </div>
   </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>比較項目</th><th>LocalRAG</th><th>CloudRAG</th></tr></thead>
+      <tbody>
+        <tr><td>ベクトルDB</td><td>ChromaDB（ローカル）</td><td>Google Sheets（クラウド）</td></tr>
+        <tr><td>Embedding モデル</td><td>multilingual-e5-large（1024次元）</td><td>gemini-embedding-001（768次元）</td></tr>
+        <tr><td>検索方式</td><td>BM25 + ベクトル RRF ハイブリッド</td><td>コサイン類似度のみ</td></tr>
+        <tr><td>チャンク設定</td><td>500文字 / 100文字オーバーラップ</td><td>500文字 / 100文字オーバーラップ（同一）</td></tr>
+        <tr><td>上位取得数</td><td>5チャンク</td><td>5チャンク（同一）</td></tr>
+        <tr><td>マルチユーザー</td><td>不可（個人環境）</td><td>可能（WebApp 公開設定で対応）</td></tr>
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <!-- ===== Notion DB ===== -->
 <div class="section" id="notion-db">
   <div class="section-eye">Step 01</div>
-  <h2>Notion DBの作成</h2>
+  <h2>Notion DBの構成（7DB）</h2>
 
   <div class="callout callout-tip">
-    <p><strong>✅ DB作成済み（2026-06-16）</strong></p>
-    <p>以下の4つのDBはすでにワークスペースに作成済みです。このセクションは参照用です。</p>
+    <p><strong>✅ DB作成済み（2026-06-22）</strong></p>
+    <p>7つのDBはすでにワークスペースに作成されています。このセクションは参照用です。</p>
   </div>
-
-  <p>用途別に<strong>4つのDBを独立して作成</strong>する。<code>database_id</code>単位で検索するため、DB間の情報混合が物理的に防止される。</p>
 
   <div class="tbl-wrap">
     <table>
-      <thead><tr><th>DB名</th><th>内容</th><th>database_id</th></tr></thead>
+      <thead><tr><th>DB名（dbKey）</th><th>内容</th><th>database_id</th></tr></thead>
       <tbody>
-        <tr><td><code>Tool Docs DB</code></td><td>Unity・Houdini・DX12・環境設定</td><td><code>249e442a-47dd-4a8d-95a8-8b856fb91ef6</code></td></tr>
-        <tr><td><code>Game Info DB</code></td><td>ゲーム仕様・共有ゲーム情報</td><td><code>f201f73c-45dc-44cb-b8d7-a7be81b3644c</code></td></tr>
-        <tr><td><code>Research DB</code></td><td>論文・技術記事（手動精査済み）</td><td><code>714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f</code></td></tr>
-        <tr><td><code>Team Notes DB</code></td><td>ゼミ資料・議事録・方針</td><td><code>f898bf03-8c9f-40e0-9e1b-a28432703d69</code></td></tr>
+        <tr><td><code>tool_docs</code></td><td>Unity・Houdini・DX12・環境設定</td><td><code>249e442a-47dd-4a8d-95a8-8b856fb91ef6</code></td></tr>
+        <tr><td><code>game_info</code></td><td>ゲーム仕様・共有ゲーム情報</td><td><code>f201f73c-45dc-44cb-b8d7-a7be81b3644c</code></td></tr>
+        <tr><td><code>research</code></td><td>論文・技術記事（手動精査済み）</td><td><code>714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f</code></td></tr>
+        <tr><td><code>team_notes</code></td><td>ゼミ資料・議事録・方針</td><td><code>f898bf03-8c9f-40e0-9e1b-a28432703d69</code></td></tr>
+        <tr><td><code>afuri</code></td><td>阿夫利神社・AFURI情報</td><td><code>a74822790ec34768bdef0917abae3e6f</code></td></tr>
+        <tr><td><code>braintq</code></td><td>BrainTQゲーム仕様・ミニゲーム詳細</td><td><code>847b7db0f29f4190bee9f7ae7dd15514</code></td></tr>
+        <tr><td><code>fourteen</code></td><td>FORTEENゴルフブランド情報</td><td><code>475cf278492a45ac90cbe4b8f11df1f5</code></td></tr>
       </tbody>
     </table>
   </div>
@@ -249,83 +283,38 @@ footer a{color:var(--accent);text-decoration:none;}
       <div class="name">tags</div><div class="type">マルチセレクト</div><div class="desc">Unity / Houdini / RAG 等</div>
     </div>
     <div class="props-row">
-      <div class="name">summary <span class="star">★</span></div><div class="type">テキスト</div><div class="desc">AI生成の100字要約 ← 検索精度の核</div>
+      <div class="name">summary <span class="star">★</span></div><div class="type">テキスト</div><div class="desc">内容の要約（100〜200字）← ベクトル検索の起点</div>
     </div>
     <div class="props-row">
       <div class="name">collected_at</div><div class="type">日付</div><div class="desc">追加日</div>
-    </div>
-    <div class="props-row">
-      <div class="name">category</div><div class="type">セレクト</div><div class="desc">tool_docs / game_info / research / team_notes</div>
-    </div>
-  </div>
-
-  <div class="callout callout-tip">
-    <p><strong>summaryが重要な理由</strong></p>
-    <p>ページ本文をそのままGeminiに渡すとトークン数が増えコストが跳ね上がる。100字のsummaryを渡すことでコストを1/10以下に抑えながら精度を維持できる。追加時点でGeminiに生成させておくのがポイント。</p>
-  </div>
-
-  <h3>database_idの確認方法</h3>
-  <p>各DBのURLから取得する（GASのスクリプトプロパティに設定する）：</p>
-  <pre><code>https://www.notion.so/{workspace}/<span class="key">xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</span>?v=...
-                                   ← ここが database_id（32文字）</code></pre>
-</div>
-
-<!-- ===== Gemini API ===== -->
-<div class="section" id="gemini-key">
-  <div class="section-eye">Step 02</div>
-  <h2>Gemini APIキーの取得</h2>
-
-  <div class="step-group">
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">Google AI Studio にアクセス</div>
-        <div class="step-body"><p><a href="https://aistudio.google.com/">aistudio.google.com</a> にアクセスしてGoogleアカウントでログイン</p></div>
-      </div>
-    </div>
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">APIキーを発行</div>
-        <div class="step-body"><p>「Get API key」→「Create API key」→ 発行されたキーをメモ</p></div>
-      </div>
-    </div>
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div></div>
-      <div class="step-content">
-        <div class="step-title">コード内に直書きしない</div>
-        <div class="step-body">
-          <div class="callout callout-warn">
-            <p><strong>セキュリティ注意</strong></p>
-            <p>APIキーはGASのスクリプトプロパティに設定する。コード内に直書きするとリポジトリ公開時に漏洩する。</p>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </div>
 
 <!-- ===== GAS Setup ===== -->
 <div class="section" id="gas-setup">
-  <div class="section-eye">Step 03</div>
+  <div class="section-eye">Step 02</div>
   <h2>GASプロジェクトの作成と設定</h2>
 
   <div class="step-group">
     <div class="step">
       <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">スプレッドシートから作成 <span class="badge badge-amber">GAS</span></div>
+        <div class="step-title">スプレッドシートを新規作成 <span class="badge badge-amber">GAS</span></div>
         <div class="step-body">
           <p>Google スプレッドシートを新規作成 →「拡張機能」→「Apps Script」→ プロジェクト名を <code>cloud-rag-chatbot</code> に変更</p>
+          <p>スプレッドシートのURLから <code>SHEETS_ID</code> を取得する（後でスクリプトプロパティに設定）：</p>
+          <pre><code>https://docs.google.com/spreadsheets/d/<span class="key">XXXXXXXXXXXXXXXXX</span>/edit
+                                               ↑ これが SHEETS_ID</code></pre>
         </div>
       </div>
     </div>
     <div class="step">
       <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">Notionインテグレーションキーを発行 <span class="badge badge-blue">Notion</span></div>
+        <div class="step-title">コードを貼り付け <span class="badge badge-amber">GAS</span></div>
         <div class="step-body">
-          <p><a href="https://www.notion.so/my-integrations">notion.so/my-integrations</a> →「新しいインテグレーション」→ 各DBで「接続先」に追加</p>
+          <p>エディタの内容を全削除し、<code>scripts/gas_cloud_rag.js</code> の内容をそのまま貼り付け → Ctrl+S で保存</p>
         </div>
       </div>
     </div>
@@ -339,10 +328,14 @@ footer a{color:var(--accent);text-decoration:none;}
             <div class="props-row header"><div>キー名</div><div></div><div>値</div></div>
             <div class="props-row"><div class="name">NOTION_API_KEY</div><div></div><div class="desc">Notionインテグレーションキー（secret_...）</div></div>
             <div class="props-row"><div class="name">GEMINI_API_KEY</div><div></div><div class="desc">Google AI Studioで発行したキー</div></div>
+            <div class="props-row"><div class="name">SHEETS_ID <span class="star">★</span></div><div></div><div class="desc">ベクトルインデックス保存用スプレッドシートID</div></div>
             <div class="props-row"><div class="name">DB_TOOL_DOCS</div><div></div><div class="desc"><code>249e442a-47dd-4a8d-95a8-8b856fb91ef6</code></div></div>
             <div class="props-row"><div class="name">DB_GAME_INFO</div><div></div><div class="desc"><code>f201f73c-45dc-44cb-b8d7-a7be81b3644c</code></div></div>
             <div class="props-row"><div class="name">DB_RESEARCH</div><div></div><div class="desc"><code>714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f</code></div></div>
             <div class="props-row"><div class="name">DB_TEAM_NOTES</div><div></div><div class="desc"><code>f898bf03-8c9f-40e0-9e1b-a28432703d69</code></div></div>
+            <div class="props-row"><div class="name">DB_AFURI</div><div></div><div class="desc"><code>a74822790ec34768bdef0917abae3e6f</code></div></div>
+            <div class="props-row"><div class="name">DB_BRAINTQ</div><div></div><div class="desc"><code>847b7db0f29f4190bee9f7ae7dd15514</code></div></div>
+            <div class="props-row"><div class="name">DB_FOURTEEN</div><div></div><div class="desc"><code>475cf278492a45ac90cbe4b8f11df1f5</code></div></div>
           </div>
         </div>
       </div>
@@ -350,222 +343,352 @@ footer a{color:var(--accent);text-decoration:none;}
   </div>
 </div>
 
-<!-- ===== Notion検索 ===== -->
-<div class="section" id="notion-fn">
-  <div class="section-eye">Step 04</div>
-  <h2>Notion検索関数の実装</h2>
+<!-- ===== ベクトルストア ===== -->
+<div class="section" id="vector-store">
+  <div class="section-eye">Step 03</div>
+  <h2>ベクトルストア（Google Sheets + CacheService）</h2>
 
-  <p>GASエディタの <code>Code.gs</code> に実装する。<code>database_id</code>を指定して検索することで、DB間の混合を防ぐ。</p>
+  <p>全ページ本文を Gemini Embedding でベクトル化し、Google Sheets の <code>RAG_Index</code> シートに保存する。クエリ時はシートを全件メモリ展開してコサイン類似度を計算する。</p>
 
+  <h3>インデックスのスキーマ</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>列</th><th>内容</th><th>例</th></tr></thead>
+      <tbody>
+        <tr><td><code>page_id</code></td><td>ページID + チャンク番号</td><td><code>abc123::0</code>, <code>abc123::1</code></td></tr>
+        <tr><td><code>db</code></td><td>DBキー</td><td><code>braintq</code></td></tr>
+        <tr><td><code>title</code></td><td>ページタイトル</td><td><code>BrainTQ アプリ概要</code></td></tr>
+        <tr><td><code>text</code></td><td>チャンクテキスト（500字以内）</td><td>本文の断片</td></tr>
+        <tr><td><code>last_edited</code></td><td>Notion最終更新時刻</td><td>差分同期に使用</td></tr>
+        <tr><td><code>embedding</code></td><td>768次元ベクトル（JSON配列）</td><td><code>[0.012, -0.034, ...]</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>チャンク分割（LocalRAGと統一）</h3>
+  <p>LocalRAG（ChromaDB）と同じ設定でチャンク分割することで、両システムの情報量を揃える：</p>
   <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — Notion検索</span></div>
-    <pre><code><span class="cm">// DB識別キー → スクリプトプロパティキーのマップ</span>
-<span class="kw">const</span> DB_KEYS = {
-  tool_docs:  <span class="str">'DB_TOOL_DOCS'</span>,
-  game_info:  <span class="str">'DB_GAME_INFO'</span>,
-  research:   <span class="str">'DB_RESEARCH'</span>,
-  team_notes: <span class="str">'DB_TEAM_NOTES'</span>
-};
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — chunkText_</span></div>
+    <pre><code><span class="kw">function</span> <span class="fn">chunkText_</span>(text, size, overlap) {
+  size    = size    || <span class="key">350</span>;
+  overlap = overlap || <span class="key">70</span>;
+  <span class="kw">if</span> (!text || text.length &lt;= size) <span class="kw">return</span> text ? [text] : [];
+  <span class="kw">var</span> chunks = [], start = <span class="key">0</span>;
+  <span class="kw">while</span> (start &lt; text.length) {
+    chunks.push(text.substring(start, start + size));
+    <span class="kw">if</span> (start + size &gt;= text.length) <span class="kw">break</span>;
+    start += size - overlap;  <span class="cm">// オーバーラップ分だけ戻る</span>
+  }
+  <span class="kw">return</span> chunks;
+}
 
-<span class="kw">function</span> <span class="fn">searchNotion</span>(query, dbKey) {
-  <span class="kw">const</span> props  = PropertiesService.<span class="fn">getScriptProperties</span>();
-  <span class="kw">const</span> notionKey = props.<span class="fn">getProperty</span>(<span class="str">'NOTION_API_KEY'</span>);
-  <span class="kw">const</span> dbId   = props.<span class="fn">getProperty</span>(DB_KEYS[dbKey]);
+<span class="cm">// 呼び出し: LocalRAGに合わせて 500文字 / 100文字オーバーラップ</span>
+<span class="kw">var</span> chunks = <span class="fn">chunkText_</span>(full, <span class="key">500</span>, <span class="key">100</span>);</code></pre>
+  </div>
 
-  <span class="kw">const</span> payload = {
-    filter: {
-      or: [
-        { property: <span class="str">'title'</span>,   title:        { contains: query } },
-        { property: <span class="str">'summary'</span>, rich_text:    { contains: query } },
-        { property: <span class="str">'tags'</span>,    multi_select: { contains: query } }
-      ]
-    },
-    page_size: <span class="key">5</span>  <span class="cm">// 上位5件</span>
-  };
+  <h3>CacheServiceによるインデックスキャッシュ</h3>
+  <p>Sheetsの全行読み込みはリクエストごとに発生すると遅い。GASの <code>CacheService</code> を使い、インデックス全体を6時間キャッシュする。シートの上限100KBを超えるため90KB単位で分割保存する：</p>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — CacheService（90KB分割）</span></div>
+    <pre><code><span class="kw">var</span> IDX_CACHE_KEY = <span class="str">'rag_idx_v2'</span>;
+<span class="kw">var</span> CACHE_TTL     = <span class="key">21600</span>;   <span class="cm">// 6時間</span>
+<span class="kw">var</span> CACHE_CHUNK   = <span class="key">90000</span>;   <span class="cm">// 90KB/チャンク（上限100KB）</span>
 
-  <span class="kw">const</span> res = UrlFetchApp.<span class="fn">fetch</span>(
-    <span class="str">`https://api.notion.com/v1/databases/${dbId}/query`</span>,
-    {
-      method: <span class="str">'post'</span>,
-      headers: {
-        <span class="str">'Authorization'</span>:  <span class="str">`Bearer ${notionKey}`</span>,
-        <span class="str">'Notion-Version'</span>: <span class="str">'2022-06-28'</span>,
-        <span class="str">'Content-Type'</span>:   <span class="str">'application/json'</span>
-      },
-      payload: JSON.<span class="fn">stringify</span>(payload)
+<span class="kw">function</span> <span class="fn">saveIndexCache_</span>(idx) {
+  <span class="kw">var</span> cache = CacheService.<span class="fn">getScriptCache</span>();
+  <span class="kw">var</span> json  = JSON.<span class="fn">stringify</span>(idx);
+  <span class="kw">var</span> parts = {};
+  <span class="kw">var</span> n     = Math.<span class="fn">ceil</span>(json.length / CACHE_CHUNK);
+  <span class="kw">for</span> (<span class="kw">var</span> i = <span class="key">0</span>; i &lt; n; i++)
+    parts[IDX_CACHE_KEY + <span class="str">'_'</span> + i] = json.substring(i * CACHE_CHUNK, (i+<span class="key">1</span>) * CACHE_CHUNK);
+  parts[IDX_CACHE_KEY + <span class="str">'_n'</span>] = String(n);
+  cache.<span class="fn">putAll</span>(parts, CACHE_TTL);
+}
+
+<span class="kw">function</span> <span class="fn">loadIndex_</span>() {
+  <span class="kw">var</span> cache = CacheService.<span class="fn">getScriptCache</span>();
+  <span class="kw">var</span> n = parseInt(cache.<span class="fn">get</span>(IDX_CACHE_KEY + <span class="str">'_n'</span>) || <span class="str">'0'</span>, <span class="key">10</span>);
+  <span class="kw">if</span> (n &gt; <span class="key">0</span>) {
+    <span class="cm">/* キャッシュHIT: チャンクを結合してJSONパース */</span>
+    <span class="kw">var</span> keys = [];
+    <span class="kw">for</span> (<span class="kw">var</span> i = <span class="key">0</span>; i &lt; n; i++) keys.push(IDX_CACHE_KEY + <span class="str">'_'</span> + i);
+    <span class="kw">var</span> vals = cache.<span class="fn">getAll</span>(keys);
+    <span class="kw">var</span> json = <span class="str">''</span>, ok = <span class="kw">true</span>;
+    <span class="kw">for</span> (<span class="kw">var</span> i = <span class="key">0</span>; i &lt; n; i++) {
+      <span class="kw">if</span> (!vals[IDX_CACHE_KEY + <span class="str">'_'</span> + i]) { ok = <span class="kw">false</span>; <span class="kw">break</span>; }
+      json += vals[IDX_CACHE_KEY + <span class="str">'_'</span> + i];
     }
-  );
-
-  <span class="kw">const</span> data = JSON.<span class="fn">parse</span>(res.<span class="fn">getContentText</span>());
-  <span class="kw">if</span> (!data.results?.length) <span class="kw">return</span> <span class="str">'関連ドキュメントが見つかりませんでした。'</span>;
-
-  <span class="cm">// summary を連結して context を構築</span>
-  <span class="kw">return</span> data.results.<span class="fn">map</span>((page, i) => {
-    <span class="kw">const</span> title   = page.properties.title?.title?.[<span class="key">0</span>]?.plain_text ?? <span class="str">'無題'</span>;
-    <span class="kw">const</span> summary = page.properties.summary?.rich_text?.[<span class="key">0</span>]?.plain_text ?? <span class="str">'（要約なし）'</span>;
-    <span class="kw">const</span> url     = page.properties.source_url?.url ?? <span class="str">''</span>;
-    <span class="kw">return</span> <span class="str">`[${i+1}] ${title}\n${summary}${url ? <span class="str">`\n参照: ${url}`</span> : <span class="str">''</span>}`</span>;
-  }).<span class="fn">join</span>(<span class="str">'\n\n'</span>);
+    <span class="kw">if</span> (ok) <span class="kw">try</span> { <span class="kw">return</span> JSON.<span class="fn">parse</span>(json); } <span class="kw">catch</span>(e) {}
+  }
+  <span class="kw">return</span> <span class="fn">loadIndexFromSheet_</span>();  <span class="cm">// キャッシュMISS: シートから読む</span>
 }</code></pre>
   </div>
 </div>
 
-<!-- ===== Gemini呼び出し ===== -->
-<div class="section" id="gemini-fn">
-  <div class="section-eye">Step 05</div>
-  <h2>Gemini呼び出し・RAGメイン処理</h2>
+<!-- ===== 同期処理 ===== -->
+<div class="section" id="sync">
+  <div class="section-eye">Step 04</div>
+  <h2>同期処理（syncNotionToSheets）</h2>
+
+  <p>Notion の全ページを取得し、チャンク分割・Embedding生成・Sheets書き込みまでを一括処理する。差分同期（<code>last_edited_time</code> 比較）で変更ページのみ更新する。</p>
+
+  <div class="callout callout-tip">
+    <p><strong>初回実行</strong></p>
+    <p>GASエディタで <code>testEmbedding</code> を実行してEmbedding APIの疎通を確認してから <code>syncNotionToSheets</code> を実行する。初回は権限承認ダイアログが出る。</p>
+  </div>
 
   <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — Gemini + RAG</span></div>
-    <pre><code><span class="kw">function</span> <span class="fn">callGemini</span>(prompt) {
-  <span class="kw">const</span> apiKey = PropertiesService.<span class="fn">getScriptProperties</span>().<span class="fn">getProperty</span>(<span class="str">'GEMINI_API_KEY'</span>);
-  <span class="kw">const</span> url = <span class="str">`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`</span>;
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">GAS 実行ログ例</span></div>
+    <pre><code><span class="out">Phase1: 7DB を並列取得...</span>
+<span class="out">[tool_docs] 8ページ</span>
+<span class="out">[game_info] 12ページ</span>
+<span class="out">[braintq] 15ページ</span>
+<span class="out">[fourteen] 18ページ</span>
+<span class="out">...</span>
+<span class="out">更新対象: 3ページ  スキップ: 52ページ</span>
+<span class="out">Phase2: 3ページの本文を並列取得...</span>
+<span class="out">  [braintq] BrainTQアプリ概要 → 4チャンク</span>
+<span class="out">  [fourteen] FOURTEENアイアン → 6チャンク</span>
+<span class="out">  [afuri] 柚子塩らーめん → 2チャンク</span>
+<span class="out">完了  チャンク追加:12  スキップ(ページ):52  エラー:0</span>
+<span class="out">合計チャンク数: 183</span></code></pre>
+  </div>
 
-  <span class="kw">const</span> res = UrlFetchApp.<span class="fn">fetch</span>(url, {
-    method: <span class="str">'post'</span>,
+  <h3>ページ本文取得（fetchPageBody_）</h3>
+  <p>Notion API のブロックAPIを使い、ページ本文を最大200ブロック（8000文字）取得する：</p>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Notionブロックタイプ</th><th>取得</th></tr></thead>
+      <tbody>
+        <tr><td>paragraph / heading_1/2/3</td><td>✅</td></tr>
+        <tr><td>bulleted_list_item / numbered_list_item</td><td>✅</td></tr>
+        <tr><td>quote / callout / toggle</td><td>✅</td></tr>
+        <tr><td>code</td><td>✅（GameType enum 等も取得）</td></tr>
+        <tr><td>image / table_of_contents / divider 等</td><td>— スキップ</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== 並列化 ===== -->
+<div class="section" id="parallel">
+  <div class="section-eye">Architecture</div>
+  <h2>並列同期の実装（fetchAll）</h2>
+
+  <p>GAS の <code>UrlFetchApp.fetchAll()</code> は複数HTTPリクエストを並列発行できる。同期処理の3フェーズすべてで使用することで、大幅に高速化している。</p>
+
+  <div class="perf">
+    <div class="perf-row header">
+      <div>フェーズ</div><div>旧（直列）</div><div>新（並列）</div>
+    </div>
+    <div class="perf-row">
+      <div>DB ページ一覧取得（7DB）</div>
+      <div class="perf-old">7回×直列</div>
+      <div class="perf-new">fetchAll 1回</div>
+    </div>
+    <div class="perf-row">
+      <div>本文取得（更新ページN件）</div>
+      <div class="perf-old">N回×直列+sleep</div>
+      <div class="perf-new">fetchAll 1〜2回</div>
+    </div>
+    <div class="perf-row">
+      <div>Embedding生成（チャンクM件）</div>
+      <div class="perf-old">1件ずつ+sleep</div>
+      <div class="perf-new">fetchAll 10件バッチ</div>
+    </div>
+  </div>
+
+  <p>20ページ更新・60チャンクの場合: <span style="color:var(--red)">~22秒</span> → <span style="color:var(--green)">~2秒</span>（理論値）</p>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — Phase1 並列DB取得</span></div>
+    <pre><code><span class="cm">// Phase 1: 全DBのページ一覧を1回の fetchAll で並列取得</span>
+<span class="kw">var</span> listReqs = [];
+Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(<span class="kw">function</span>(key) {
+  <span class="kw">var</span> dbId = props.<span class="fn">getProperty</span>(DB_KEY_MAP[key]);
+  listReqs.push({
+    url:         <span class="str">'https://api.notion.com/v1/databases/'</span> + dbId + <span class="str">'/query'</span>,
+    method:      <span class="str">'post'</span>,
+    headers:     nHeaders,  <span class="cm">// getNotionHeaders_() を1回だけ呼んでおく</span>
     contentType: <span class="str">'application/json'</span>,
-    payload: JSON.<span class="fn">stringify</span>({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: <span class="key">0.3</span> }  <span class="cm">// RAG用途は低めに</span>
-    })
+    payload:     JSON.<span class="fn">stringify</span>({ page_size: <span class="key">100</span> }),
+    muteHttpExceptions: <span class="kw">true</span>,
   });
+});
+<span class="kw">var</span> listResps = UrlFetchApp.<span class="fn">fetchAll</span>(listReqs);  <span class="cm">// ← ここが並列</span>
 
-  <span class="kw">return</span> JSON.<span class="fn">parse</span>(res.<span class="fn">getContentText</span>())
-    .candidates?.[<span class="key">0</span>]?.content?.parts?.[<span class="key">0</span>]?.text ?? <span class="str">'回答を取得できませんでした。'</span>;
-}
-
-<span class="kw">function</span> <span class="fn">ragQuery</span>(query, dbKey) {
-  <span class="kw">const</span> context = <span class="fn">searchNotion</span>(query, dbKey);
-
-  <span class="kw">const</span> prompt = <span class="str">`以下のドキュメントを参考に、日本語で正確に回答してください。
-ドキュメントに情報がない場合はその旨を伝えてください。
-
-【参考ドキュメント】
-${context}
-
-【質問】
-${query}`</span>;
-
-  <span class="kw">return</span> <span class="fn">callGemini</span>(prompt);
-}
-
-<span class="cm">// WebApp エントリポイント</span>
-<span class="kw">function</span> <span class="fn">doPost</span>(e) {
-  <span class="kw">try</span> {
-    <span class="kw">const</span> { query, dbKey } = JSON.<span class="fn">parse</span>(e.postData.contents);
-    <span class="kw">return</span> ContentService
-      .<span class="fn">createTextOutput</span>(JSON.<span class="fn">stringify</span>({ answer: <span class="fn">ragQuery</span>(query, dbKey), status: <span class="str">'ok'</span> }))
-      .<span class="fn">setMimeType</span>(ContentService.MimeType.JSON);
-  } <span class="kw">catch</span> (err) {
-    <span class="kw">return</span> ContentService
-      .<span class="fn">createTextOutput</span>(JSON.<span class="fn">stringify</span>({ answer: <span class="str">`エラー: ${err.message}`</span>, status: <span class="str">'error'</span> }))
-      .<span class="fn">setMimeType</span>(ContentService.MimeType.JSON);
-  }
+<span class="cm">// Phase 3: Embedding を 10件バッチで並列取得</span>
+<span class="kw">var</span> BATCH_SIZE = <span class="key">10</span>;  <span class="cm">// Gemini レートリミット対策</span>
+<span class="kw">for</span> (<span class="kw">var</span> b = <span class="key">0</span>; b &lt; allChunks.length; b += BATCH_SIZE) {
+  <span class="kw">var</span> batch     = allChunks.slice(b, b + BATCH_SIZE);
+  <span class="kw">var</span> embedReqs = batch.<span class="fn">map</span>(<span class="kw">function</span>(c) { <span class="kw">return</span> { url: embedUrl, ... }; });
+  UrlFetchApp.<span class="fn">fetchAll</span>(embedReqs).<span class="fn">forEach</span>(<span class="kw">function</span>(res, j) {
+    <span class="kw">var</span> emb = JSON.<span class="fn">parse</span>(res.<span class="fn">getContentText</span>()).embedding.values;
+    newRows.push([c.page_id + <span class="str">'::' </span>+ c.k, c.db, c.title, c.text, c.last_edited, JSON.<span class="fn">stringify</span>(emb)]);
+  });
+  <span class="kw">if</span> (b + BATCH_SIZE &lt; allChunks.length) Utilities.<span class="fn">sleep</span>(<span class="key">200</span>);
 }</code></pre>
+  </div>
+
+  <div class="callout callout-note">
+    <p><strong>クエリ時は並列化不要</strong></p>
+    <p>検索時（<code>searchByEmbedding_</code>）はインデックスをメモリ展開してコサイン類似度を一括計算するため、DBごとに分ける処理がない。並列化の恩恵はSync処理のみ。</p>
+  </div>
+</div>
+
+<!-- ===== マルチターン ===== -->
+<div class="section" id="multiturn">
+  <div class="section-eye">Architecture</div>
+  <h2>マルチターン会話（ragQuery）</h2>
+
+  <p>Gemini API の <code>contents</code> 配列を使い、過去の会話履歴を含めてマルチターン対話を実現する。knowledge baseの注入は最初のuser/modelペアとして挿入する。</p>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — ragQuery（マルチターン）</span></div>
+    <pre><code><span class="kw">function</span> <span class="fn">ragQuery</span>(query, dbKey, history) {
+  history = history || [];
+
+  <span class="cm">// ① ベクトル検索で上位5チャンク取得</span>
+  <span class="kw">var</span> results = <span class="fn">searchByEmbedding_</span>(query, dbKey, <span class="key">5</span>);
+  <span class="kw">var</span> context = results.length === <span class="key">0</span>
+    ? <span class="str">'（関連ドキュメントが見つかりませんでした）'</span>
+    : results.<span class="fn">map</span>(<span class="kw">function</span>(r, i) {
+        <span class="kw">return</span> <span class="str">'### ['</span> + (i+<span class="key">1</span>) + <span class="str">'] '</span> + r.title + <span class="str">'\n'</span> + r.text;
+      }).<span class="fn">join</span>(<span class="str">'\n\n'</span>);
+
+  <span class="cm">// ② contents 配列を構築</span>
+  <span class="cm">//   [知識ベース注入(user/model)] + [会話履歴] + [今回の質問]</span>
+  <span class="kw">var</span> contents = [
+    { role: <span class="str">'user'</span>,  parts: [{ text: <span class="str">'以下の参考ドキュメントを確認しました。\n\n'</span> + context }] },
+    { role: <span class="str">'model'</span>, parts: [{ text: <span class="str">'参考ドキュメントを確認しました。ご質問にお答えします。'</span> }] },
+  ];
+
+  <span class="cm">// ③ 直近3往復（6メッセージ）を追加</span>
+  history.<span class="fn">slice</span>(-<span class="key">6</span>).<span class="fn">forEach</span>(<span class="kw">function</span>(h) {
+    contents.push({ role: h.role === <span class="str">'bot'</span> ? <span class="str">'model'</span> : <span class="str">'user'</span>, parts: [{ text: h.text }] });
+  });
+  contents.push({ role: <span class="str">'user'</span>, parts: [{ text: query }] });
+
+  <span class="cm">// ④ Gemini 呼び出し（system_instruction で回答スタイルを制御）</span>
+  <span class="kw">var</span> answer = <span class="fn">callGemini_</span>(contents);
+  <span class="kw">return</span> { answer: answer, sources: <span class="fn">deduplicateSources_</span>(results) };
+}
+
+<span class="kw">function</span> <span class="fn">callGemini_</span>(contents) {
+  <span class="kw">var</span> payload = JSON.<span class="fn">stringify</span>({
+    system_instruction: { parts: [{ text:
+      <span class="str">'あなたはゲーム開発チームの知識ベースを持つAIアシスタントです。\n'</span> +
+      <span class="str">'日本語で**簡潔に**回答してください（目安: 400文字以内）。\n'</span> +
+      <span class="str">'重要な点のみ箇条書き（-）または短い見出し（##）でまとめてください。'</span>
+    }]},
+    contents:          contents,
+    generationConfig:  { temperature: <span class="key">0.4</span>, maxOutputTokens: <span class="key">1024</span> },
+  });
+  <span class="cm">// ... Gemini API 呼び出し</span>
+}</code></pre>
+  </div>
+
+  <div class="callout callout-note">
+    <p><strong>トークン節約のポイント</strong></p>
+    <p>会話履歴は直近3往復（6メッセージ）のみ保持。本文テキストはチャンクを600字に絞る。<code>maxOutputTokens: 1024</code>で出力を制限。これにより入力4K・出力7Kまで増加していたトークンを大幅削減。</p>
   </div>
 </div>
 
 <!-- ===== チャットUI ===== -->
 <div class="section" id="chat-ui">
-  <div class="section-eye">Step 06</div>
+  <div class="section-eye">Step 05</div>
   <h2>チャットUIの実装</h2>
 
-  <p><code>doGet()</code> でHTMLを返す。DBをドロップダウンで切り替えて質問できるシンプルな構成。</p>
+  <p><code>doGet()</code> でHTMLを返す。<code>google.script.run</code> でサーバーサイドの <code>ragQuery</code> を呼び出す構成。非同期であるためAPIキーがブラウザに露出しない。</p>
 
-  <div class="callout callout-note">
-    <p><strong>ENDPOINTの設定について</strong></p>
-    <p>HTML内の <code>const ENDPOINT = ''</code> は、Step 07でデプロイ後にWebApp URLを貼り付けて再デプロイする。</p>
+  <h3>重要: window.history との変数名衝突</h3>
+  <div class="callout callout-warn">
+    <p><strong>⚠️ window.history バグ</strong></p>
+    <p>ブラウザのJSでは <code>var history = []</code> と書くと、ブラウザのNavigation History API（<code>window.history</code>）を上書きしてしまう。<code>history.slice()</code> が TypeError を投げ、<code>isSending=true</code> のままUIがロックされる。変数名は必ず <code>chatHistory</code> にすること。</p>
   </div>
 
   <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — doGet + HTML</span></div>
-    <pre><code><span class="kw">function</span> <span class="fn">doGet</span>() {
-  <span class="kw">return</span> HtmlService.<span class="fn">createHtmlOutput</span>(<span class="fn">getChatHtml</span>())
-    .<span class="fn">setTitle</span>(<span class="str">'RAG チャット'</span>);
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">HTML — 会話履歴変数（正しい命名）</span></div>
+    <pre><code><span class="cm">// ❌ NG: window.history と競合する</span>
+<span class="kw">var</span> history = [];
+
+<span class="cm">// ✅ OK: chatHistory に命名</span>
+<span class="kw">var</span> chatHistory = [];
+
+<span class="kw">function</span> <span class="fn">clearChat</span>() {
+  chatHistory = [];  <span class="cm">// ← chatHistory を使う</span>
+  <span class="cm">/* ... */</span>
 }
 
-<span class="kw">function</span> <span class="fn">getChatHtml</span>() {
-  <span class="kw">return</span> <span class="str">`&lt;!DOCTYPE html&gt;
-&lt;html lang="ja"&gt;
-&lt;head&gt;
-&lt;meta charset="UTF-8"&gt;
-&lt;style&gt;
-  body { font-family:sans-serif; max-width:720px; margin:0 auto; padding:20px; }
-  select,input { width:100%; padding:8px; margin:4px 0 12px; border:1px solid #ddd; border-radius:6px; }
-  button { padding:8px 20px; background:#0070f3; color:#fff; border:none; border-radius:6px; cursor:pointer; }
-  #chat { border:1px solid #ddd; border-radius:8px; height:400px; overflow-y:auto; padding:12px; margin-bottom:12px; }
-  .user { text-align:right; } .user span { background:#0070f3; color:#fff; }
-  .bot  span { background:#f0f0f0; color:#333; }
-  span.bubble { display:inline-block; padding:8px 12px; border-radius:10px; max-width:85%; white-space:pre-wrap; font-size:14px; }
-&lt;/style&gt;
-&lt;/head&gt;
-&lt;body&gt;
-&lt;h2&gt;RAG チャット&lt;/h2&gt;
-&lt;select id="db"&gt;
-  &lt;option value="tool_docs"&gt;Tool Docs（Unity / Houdini / DX12）&lt;/option&gt;
-  &lt;option value="game_info"&gt;Game Info（ゲーム情報）&lt;/option&gt;
-  &lt;option value="research"&gt;Research（論文・技術記事）&lt;/option&gt;
-  &lt;option value="team_notes"&gt;Team Notes（ゼミ・議事録）&lt;/option&gt;
-&lt;/select&gt;
-&lt;div id="chat"&gt;&lt;/div&gt;
-&lt;input id="q" placeholder="質問を入力..." onkeydown="if(event.key==='Enter')send()"&gt;
-&lt;button onclick="send()"&gt;送信&lt;/button&gt;
-&lt;script&gt;
-const ENDPOINT = '';  // デプロイ後にWebApp URLを貼る
-function add(role,text){
-  const d=document.createElement('div');
-  d.className=role;
-  d.innerHTML='&lt;span class="bubble"&gt;'+text.replace(/&lt;/g,'&amp;lt;')+'&lt;/span&gt;';
-  document.getElementById('chat').appendChild(d);
-  document.getElementById('chat').scrollTop=9999;
-}
-async function send(){
-  const q=document.getElementById('q').value.trim();
-  const dbKey=document.getElementById('db').value;
-  if(!q)return;
-  document.getElementById('q').value='';
-  add('user',q); add('bot','考え中...');
-  const res=await fetch(ENDPOINT,{method:'POST',body:JSON.stringify({query:q,dbKey})});
-  const data=await res.json();
-  document.querySelector('.bot:last-child span').textContent=data.answer;
-}
-&lt;/script&gt;
-&lt;/body&gt;&lt;/html&gt;\`</span>;
+<span class="kw">function</span> <span class="fn">send</span>() {
+  <span class="kw">var</span> historySnapshot = chatHistory.<span class="fn">slice</span>();  <span class="cm">// ← コピーして渡す</span>
+  google.script.run
+    .<span class="fn">withSuccessHandler</span>(<span class="kw">function</span>(result) {
+      chatHistory.<span class="fn">push</span>({ role: <span class="str">'user'</span>, text: q });
+      chatHistory.<span class="fn">push</span>({ role: <span class="str">'bot'</span>,  text: result.answer });
+    })
+    .<span class="fn">ragQuery</span>(q, dbKey, historySnapshot);
 }</code></pre>
+  </div>
+
+  <h3>UI機能一覧</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>機能</th><th>実装</th></tr></thead>
+      <tbody>
+        <tr><td>Markdown レンダリング</td><td>marked.js CDN で bot メッセージを変換</td></tr>
+        <tr><td>コピーボタン</td><td>bot メッセージ下部に自動追加</td></tr>
+        <tr><td>チャットクリア</td><td>右上ボタンで chatHistory と DOM をリセット</td></tr>
+        <tr><td>ターン区切り</td><td>2ターン目以降に「─ 続けて質問 ─」バッジを表示</td></tr>
+        <tr><td>参考情報ドロワー</td><td>各回答下にソースタイトル・DB名・スコア%を折りたたみ表示</td></tr>
+        <tr><td>Ctrl+Enter 送信</td><td>textarea で Ctrl+Enter を送信キーとして設定</td></tr>
+        <tr><td>自動リサイズ textarea</td><td>入力量に応じて高さが拡張（最大120px）</td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
 <!-- ===== 公開 ===== -->
 <div class="section" id="deploy">
-  <div class="section-eye">Step 07</div>
-  <h2>WebAppとして公開</h2>
+  <div class="section-eye">Step 06</div>
+  <h2>WebAppとして公開・マルチユーザー対応</h2>
 
   <div class="step-group">
     <div class="step">
       <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">デプロイ設定 <span class="badge badge-amber">GAS</span></div>
+        <div class="step-title">新しいデプロイ <span class="badge badge-amber">GAS</span></div>
         <div class="step-body">
           <p>「デプロイ」→「新しいデプロイ」→ 種類:「ウェブアプリ」</p>
-          <div class="props">
-            <div class="props-row"><div class="name">次のユーザーとして実行</div><div></div><div class="desc">自分</div></div>
-            <div class="props-row"><div class="name">アクセスできるユーザー</div><div></div><div class="desc">自分のみ（外部公開する場合は変更）</div></div>
-          </div>
         </div>
       </div>
     </div>
     <div class="step">
       <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">WebApp URLをコピー</div>
-        <div class="step-body"><p>デプロイ完了後に表示されるURLを <code>getChatHtml()</code> 内の <code>ENDPOINT = ''</code> に貼り付ける</p></div>
+        <div class="step-title">アクセス設定を選ぶ</div>
+        <div class="step-body">
+          <div class="props">
+            <div class="props-row header"><div>項目</div><div></div><div>設定値</div></div>
+            <div class="props-row"><div class="name">次のユーザーとして実行</div><div></div><div class="desc"><strong>自分</strong>（APIキーは Script Properties に格納されるため安全）</div></div>
+            <div class="props-row"><div class="name">アクセスできるユーザー（個人利用）</div><div></div><div class="desc">自分のみ</div></div>
+            <div class="props-row"><div class="name">アクセスできるユーザー（チーム共有）</div><div></div><div class="desc"><strong>全員</strong>（Googleアカウント不要にも設定可）</div></div>
+          </div>
+          <div class="callout callout-tip">
+            <p><strong>なぜ「実行: 自分」のままでよいか</strong></p>
+            <p>他ユーザーのリクエストもオーナーアカウントで処理される。NotionキーやGeminiキーは Script Properties に格納されており、他ユーザーには一切見えない。RAG用途では読み取り専用なので権限的にも問題ない。</p>
+          </div>
+        </div>
       </div>
     </div>
     <div class="step">
       <div class="step-rail"><div class="step-badge">3</div></div>
       <div class="step-content">
-        <div class="step-title">再デプロイ</div>
-        <div class="step-body"><p>「デプロイを管理」→「編集」→ バージョン:「新しいバージョン」で保存</p></div>
+        <div class="step-title">再デプロイ（コード変更後）</div>
+        <div class="step-body">
+          <p>「デプロイを管理」→ 鉛筆アイコン →「バージョン: 新バージョン」→ デプロイ</p>
+          <p>URLは変わらないため、共有済みのリンクもそのまま使える。</p>
+        </div>
       </div>
     </div>
   </div>
@@ -573,9 +696,56 @@ async function send(){
 
 <!-- ===== データ投入 ===== -->
 <div class="section" id="data">
-  <div class="section-eye">Step 08</div>
-  <h2>初期データ投入</h2>
+  <div class="section-eye">Step 07</div>
+  <h2>データ投入・LocalRAG→Notion移行</h2>
 
+  <h3>localrag_to_notion.py — 一括移行スクリプト</h3>
+  <p>ローカルの Markdown ファイルを Notion DB に一括移行するツール。テーブル・コードブロック・見出しをすべて対応するNotionブロックに変換する：</p>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — 移行実行</span></div>
+    <pre><code><span class="prompt">$</span> python scripts/localrag_to_notion.py `
+    --notion-key secret_xxx `
+    --db-id f201f73c-45dc-44cb-b8d7-a7be81b3644c `
+    localRAG/personal_notes/*.md
+
+<span class="out">処理: braintq_overview.md → ✅ 成功 (42ブロック)</span>
+<span class="out">処理: fourteen_irons.md   → ✅ 成功 (78ブロック)</span>
+<span class="out">処理: afuri.md            → ✅ 成功 (29ブロック)</span>
+<span class="out">完了: 17成功 / 0失敗</span></code></pre>
+  </div>
+
+  <h3>Markdown → Notionブロック変換マッピング</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Markdown</th><th>Notionブロック</th><th>備考</th></tr></thead>
+      <tbody>
+        <tr><td><code># ## ###</code></td><td>heading_1 / 2 / 3</td><td></td></tr>
+        <tr><td><code>- </code> 箇条書き</td><td>bulleted_list_item</td><td></td></tr>
+        <tr><td><code>1.</code> 番号付きリスト</td><td>numbered_list_item</td><td></td></tr>
+        <tr><td><code>```lang```</code> コードブロック</td><td>code（language自動変換）</td><td>csharp→c# など</td></tr>
+        <tr><td><code>| A | B |</code> テーブル行</td><td>paragraph「A / B」形式</td><td>separator行はスキップ</td></tr>
+        <tr><td>通常テキスト</td><td>paragraph</td><td></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Notion コード言語マッピング（厳格な allowlist 対応）</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">localrag_to_notion.py — 言語マッピング</span></div>
+    <pre><code><span class="cm"># Notionのcodeブロックはlanguageが厳格なallowlistで管理されている</span>
+_NOTION_LANG = {
+  <span class="str">"csharp"</span>: <span class="str">"c#"</span>,     <span class="str">"cs"</span>: <span class="str">"c#"</span>,       <span class="str">"c#"</span>: <span class="str">"c#"</span>,
+  <span class="str">"cpp"</span>:    <span class="str">"c++"</span>,    <span class="str">"c++"</span>: <span class="str">"c++"</span>,
+  <span class="str">"js"</span>:     <span class="str">"javascript"</span>, <span class="str">"ts"</span>: <span class="str">"typescript"</span>,
+  <span class="str">"py"</span>:     <span class="str">"python"</span>,  <span class="str">"sh"</span>: <span class="str">"shell"</span>,    <span class="str">"bash"</span>: <span class="str">"bash"</span>,
+  <span class="str">"json"</span>:   <span class="str">"json"</span>,    <span class="str">"yaml"</span>: <span class="str">"yaml"</span>,
+  <span class="str">""</span>:       <span class="str">"plain text"</span>,
+  <span class="cm"># ... 他多数</span>
+}</code></pre>
+  </div>
+
+  <h3>手動追加（Notion Web Clipper）</h3>
   <div class="grid2">
     <div class="card">
       <div class="card-title">手動（Notion Web Clipper）</div>
@@ -588,30 +758,16 @@ async function send(){
     </div>
     <div class="card">
       <div class="card-title">summary生成プロンプト例</div>
-      <p style="font-size:12px;color:var(--muted);margin-top:4px;">ページを保存後、以下をGemini/Claudeに渡す：</p>
-      <pre style="font-size:11px;margin-top:8px;"><code>以下を100字以内で要約してください。
+      <pre style="font-size:11px;margin-top:8px;"><code>以下を200字以内で要約してください。
 専門用語はそのまま残してください。
 
 [ページ本文]</code></pre>
     </div>
   </div>
-</div>
-
-<!-- ===== MCP連携 ===== -->
-<div class="section" id="mcp">
-  <div class="section-eye">Step 09</div>
-  <h2>Notion MCPとの連携確認</h2>
-
-  <p>Notion MCPがclaude.aiに接続済みであれば、GASを経由せずにClaude Codeから直接Notionを参照できる。</p>
 
   <div class="callout callout-tip">
-    <p><strong>Claude Codeでの使用例（追加実装不要）</strong></p>
-    <p>「Notion の Tool Docs DB で "HoudiniのVEX wrangle" を検索して基本的な使い方をまとめてください」</p>
-  </div>
-
-  <div class="callout callout-tip">
-    <p><strong>ローカルRAGとの併用</strong></p>
-    <p>「ローカルRAGの tutorials namespace と NotionのTool Docs DBを両方参照して、Houdiniのボロノイ分割について教えてください」</p>
+    <p><strong>データ追加後の更新手順</strong></p>
+    <p>NotionにページをCRUDしたら → GASエディタで <code>syncNotionToSheets</code> を実行 → 差分のみ更新される（並列化により高速）</p>
   </div>
 </div>
 
@@ -623,29 +779,43 @@ async function send(){
   <h3>Notion APIが403を返す</h3>
   <p>インテグレーションが各DBの「接続先」に追加されているか確認する。Notion DB → 右上「…」→「接続先」→ インテグレーションを追加。</p>
 
-  <h3>GASでエラーが出る</h3>
+  <h3>syncNotionToSheets がエラー</h3>
+  <p><code>SHEETS_ID</code> がスクリプトプロパティに設定されているか確認。スプレッドシートのURLからIDを正しくコピーしているか確認。</p>
   <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">GAS エディタ — デバッグ</span></div>
-    <pre><code><span class="cm">// 関数を選択して「実行」→「実行ログ」でエラー確認</span>
-<span class="kw">function</span> <span class="fn">debugSearch</span>() {
-  Logger.<span class="fn">log</span>(<span class="fn">searchNotion</span>(<span class="str">'Unity'</span>, <span class="str">'tool_docs'</span>));
-}</code></pre>
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">GAS — Embedding疎通確認</span></div>
+    <pre><code><span class="cm">// testEmbedding() を実行して確認</span>
+<span class="out">✅ embedding-001 OK  次元数: 768  先頭3値: 0.012,0.034,-0.011</span>
+
+<span class="cm">// ❌ の場合: GEMINI_API_KEY を確認する</span></code></pre>
   </div>
 
-  <h3>Geminiの回答が的外れ</h3>
-  <p>summaryプロパティが空のページが多い場合に起きやすい。各ページにsummaryを追記すると精度が上がる。またクエリをより具体的にすること（「Unity」より「Unity HDRP シェーダーグラフ」）。</p>
+  <h3>UIが「応答中」のまま固まる</h3>
+  <p><code>var history = []</code> が <code>window.history</code>（ブラウザの Navigation API）と競合している。<code>history.slice()</code> が TypeError を投げ、<code>isSending=true</code> のままUIがロックされる。</p>
+  <p>解決: <code>getChatHtml()</code> 内の変数名をすべて <code>chatHistory</code> に変更して再デプロイ（現行コードでは修正済み）。</p>
 
-  <h3>WebAppにアクセスできない</h3>
-  <p>デプロイ時のアクセス権設定を確認。スクリプトプロパティに全キーが設定されているか確認。GASエディタで <code>doGet()</code> を直接実行してプレビューを確認する。</p>
+  <h3>検索精度が低い / 関連ドキュメントが見つからない</h3>
+  <ul style="font-size:14px;padding-left:20px;margin-bottom:14px;">
+    <li>Notionページの <code>summary</code> プロパティに内容を追記する（空だと検索精度が落ちる）</li>
+    <li>固有名詞（BTQ-116、TC-8 等）をページタイトルや summary に明示する</li>
+    <li><code>syncNotionToSheets</code> を再実行してインデックスを最新化する</li>
+    <li><code>testSearch('質問文', 'braintq', 3)</code> で検索結果をログ確認する</li>
+  </ul>
+
+  <h3>同期が途中で止まる（タイムアウト）</h3>
+  <p>GASの実行時間制限（6分）を超えた場合。並列化で大幅改善済みだが、超過する場合は <code>DB_KEY_MAP</code> を一時的に絞って分割実行する。</p>
+
+  <h3>Notionコードブロックが 400エラー</h3>
+  <p><code>localrag_to_notion.py</code> でコード言語の指定が Notion allowlist に含まれない場合（例: <code>csharp</code> は無効、<code>c#</code> が正しい）。<code>_NOTION_LANG</code> マッピングで自動変換されるが、マッピング外の言語は <code>plain text</code> にフォールバックする。</p>
 </div>
 
 </main>
 
 <footer>
   <p>
-    Cloud RAG Setup Guide · Notion + GAS + Gemini ·
+    Cloud RAG Setup Guide v2 · Notion + GAS + Gemini Embedding + Sheets ·
     <a href="https://developers.notion.com/">Notion API</a> ·
-    <a href="https://ai.google.dev/gemini-api/docs">Gemini API</a>
+    <a href="https://ai.google.dev/gemini-api/docs">Gemini API</a> ·
+    <a href="https://developers.google.com/apps-script">Google Apps Script</a>
   </p>
 </footer>
 

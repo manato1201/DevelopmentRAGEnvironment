@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LocalRAG 仕組み解説 — ChromaDB × multilingual-e5-large</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --bg3: #1c2128;
+  --surface: #21262d;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #7d8590;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --amber: #d29922;
+  --red: #f85149;
+  --purple: #bc8cff;
+  --teal: #39d353;
+  --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  --sans: 'Inter', 'Noto Sans JP', system-ui, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.75; }
+
+/* HEADER */
+header {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 56px 40px 44px;
+}
+.header-inner { max-width: 860px; margin: 0 auto; }
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--green);
+  margin-bottom: 16px;
+}
+header h1 {
+  font-size: clamp(24px, 4.5vw, 40px);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  margin-bottom: 14px;
+}
+header h1 .accent { color: var(--accent); }
+.header-desc { color: var(--muted); max-width: 580px; font-size: 14px; margin-bottom: 24px; }
+.meta-row { display: flex; gap: 20px; flex-wrap: wrap; font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.meta-row span { display: flex; align-items: center; gap: 5px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); display: inline-block; }
+
+/* NAV */
+nav {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 0 40px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  overflow-x: auto;
+}
+nav ul { max-width: 860px; margin: 0 auto; display: flex; list-style: none; }
+nav a {
+  display: block;
+  padding: 12px 14px;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+nav a:hover { color: var(--text); border-color: var(--accent); }
+
+/* MAIN */
+main { max-width: 860px; margin: 0 auto; padding: 0 40px 80px; }
+
+/* SECTION */
+.section { padding: 52px 0 0; }
+.section-eye {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.section > h2 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+h3 { font-size: 15px; font-weight: 600; color: var(--accent); margin: 32px 0 10px; }
+p { color: var(--text); margin-bottom: 14px; font-size: 14px; }
+
+/* STEP BLOCKS */
+.step-group { margin: 20px 0; }
+.step {
+  display: flex;
+  gap: 0;
+  margin-bottom: 2px;
+  position: relative;
+}
+.step-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 40px;
+  flex-shrink: 0;
+}
+.step-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 10px;
+  position: relative;
+  z-index: 1;
+}
+.step-badge.green { color: var(--green); border-color: rgba(63,185,80,0.4); }
+.step-badge.purple { color: var(--purple); border-color: rgba(188,140,255,0.4); }
+.step-line {
+  width: 1px;
+  flex: 1;
+  background: var(--border);
+  margin-top: 4px;
+  min-height: 20px;
+}
+.step:last-child .step-line { display: none; }
+.step-content {
+  flex: 1;
+  padding: 8px 0 24px 12px;
+}
+.step-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-body { font-size: 13px; color: var(--muted); }
+.step-body p { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+
+/* CODE */
+.code-wrap { margin: 10px 0 6px; }
+.code-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.code-label .env-tag {
+  background: rgba(88,166,255,0.1);
+  border: 1px solid rgba(88,166,255,0.25);
+  color: var(--accent);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+.code-label .py-tag {
+  background: rgba(188,140,255,0.1);
+  border: 1px solid rgba(188,140,255,0.25);
+  color: var(--purple);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+pre {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 18px;
+  overflow-x: auto;
+  margin: 0;
+}
+pre code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #adbac7;
+}
+.kw { color: #f47067; }
+.str { color: #96d0ff; }
+.cm { color: #636e7b; font-style: italic; }
+.fn { color: #dcbdfb; }
+.val { color: #6cb6ff; }
+.ok { color: var(--green); }
+
+/* CALLOUT */
+.callout {
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 14px 0;
+  font-size: 13px;
+  border-left: 3px solid;
+}
+.callout-note { background: rgba(88,166,255,0.07); border-color: var(--accent); }
+.callout-warn { background: rgba(210,153,34,0.08); border-color: var(--amber); }
+.callout-tip  { background: rgba(63,185,80,0.07); border-color: var(--green); }
+.callout strong { font-weight: 600; }
+.callout p { margin: 0; color: var(--muted); }
+.callout p:first-child { color: var(--text); margin-bottom: 4px; }
+
+/* TABLE */
+.tbl-wrap { overflow-x: auto; margin: 14px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 8px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+
+/* BADGE */
+.badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+.badge-blue   { background: rgba(88,166,255,0.12);  color: var(--accent);  border: 1px solid rgba(88,166,255,0.25);  }
+.badge-green  { background: rgba(63,185,80,0.1);    color: var(--green);   border: 1px solid rgba(63,185,80,0.25);   }
+.badge-purple { background: rgba(188,140,255,0.1);  color: var(--purple);  border: 1px solid rgba(188,140,255,0.25); }
+.badge-amber  { background: rgba(210,153,34,0.1);   color: var(--amber);   border: 1px solid rgba(210,153,34,0.25);  }
+
+/* GRID */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 16px 0; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 16px 0; }
+.card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.card-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.card ul { font-size: 12px; color: var(--muted); padding-left: 14px; }
+.card li { margin-bottom: 4px; }
+.card p { font-size: 12px; color: var(--muted); margin-bottom: 0; }
+
+/* TERMINAL */
+.terminal {
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 14px 0;
+}
+.terminal-bar {
+  background: var(--surface);
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.t-dot { width: 10px; height: 10px; border-radius: 50%; }
+.t-red { background: #ff5f57; }
+.t-yellow { background: #febc2e; }
+.t-green { background: #28c840; }
+.terminal-label { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: 6px; }
+.terminal pre { background: none; border: none; border-radius: 0; padding: 16px 18px; }
+.terminal pre code { color: #adbac7; }
+.prompt { color: var(--green); }
+.out { color: var(--muted); }
+
+/* PIPELINE DIAGRAM */
+.pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 20px 0;
+}
+.pipe-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+.pipe-box {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  flex: 1;
+  font-size: 13px;
+}
+.pipe-box .pb-title {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pipe-box .pb-sub { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.pipe-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  color: var(--border);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.pipe-down {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
+  color: var(--border);
+  font-size: 18px;
+}
+.pipe-box.accent-blue { border-color: rgba(88,166,255,0.35); }
+.pipe-box.accent-green { border-color: rgba(63,185,80,0.35); }
+.pipe-box.accent-purple { border-color: rgba(188,140,255,0.35); }
+.pipe-box.accent-amber { border-color: rgba(210,153,34,0.35); }
+
+/* CHUNK VIS */
+.chunk-vis {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  margin: 16px 0;
+  flex-wrap: wrap;
+}
+.chunk-block {
+  background: rgba(88,166,255,0.12);
+  border: 1px solid rgba(88,166,255,0.3);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent);
+  position: relative;
+}
+.chunk-block .overlap {
+  background: rgba(188,140,255,0.15);
+  border: 1px solid rgba(188,140,255,0.3);
+  border-radius: 3px;
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 28px;
+}
+.chunk-block span { position: relative; z-index: 1; }
+
+/* FLOW DIAGRAM */
+.flow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.flow-node {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 12px;
+  text-align: center;
+  min-width: 110px;
+}
+.flow-node .fn-label { font-weight: 600; font-size: 12px; }
+.flow-node .fn-sub   { font-size: 10px; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
+.flow-arr {
+  font-size: 16px;
+  color: var(--border);
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+.flow-node.blue   { border-color: rgba(88,166,255,0.4);  }
+.flow-node.green  { border-color: rgba(63,185,80,0.4);   }
+.flow-node.purple { border-color: rgba(188,140,255,0.4); }
+.flow-node.amber  { border-color: rgba(210,153,34,0.4);  }
+
+/* HR */
+hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+
+/* FOOTER */
+footer {
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  padding: 28px 40px;
+  margin-top: 60px;
+}
+.footer-inner { max-width: 860px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.footer-inner p { margin: 0; font-size: 12px; color: var(--muted); }
+.footer-right { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="eyebrow">● LocalRAG Internals</div>
+    <h1>LocalRAGの<span class="accent">仕組み</span>解説</h1>
+    <p class="header-desc">ChromaDB + multilingual-e5-large + mcp-rag-server がどのようにドキュメントをインデックス化し、クエリに応答するかを解説します。</p>
+    <div class="meta-row">
+      <span><span class="dot"></span>ChromaDB (HNSW)</span>
+      <span>· intfloat/multilingual-e5-large</span>
+      <span>· chunk_size=500 / overlap=100</span>
+      <span>· MCP stdio</span>
+    </div>
+  </div>
+</header>
+
+<nav>
+  <ul>
+    <li><a href="#architecture">全体アーキテクチャ</a></li>
+    <li><a href="#index-pipeline">インデックスパイプライン</a></li>
+    <li><a href="#chunk">チャンク分割</a></li>
+    <li><a href="#embedding">エンベディング</a></li>
+    <li><a href="#search">検索パイプライン</a></li>
+    <li><a href="#namespace">Namespace</a></li>
+    <li><a href="#diff">差分インデックス</a></li>
+    <li><a href="#mcp">MCP通信</a></li>
+    <li><a href="#params">パラメータ一覧</a></li>
+  </ul>
+</nav>
+
+<main>
+
+<!-- ===== 全体アーキテクチャ ===== -->
+<section class="section" id="architecture">
+  <div class="section-eye">section 01</div>
+  <h2>全体アーキテクチャ</h2>
+
+  <p>LocalRAGは5つのコンポーネントが連携して動作します。Obsidian Vault内のMarkdownファイルを起点に、ChromaDBにベクトルとして格納し、MCP経由でClaude Desktopから検索できる構成です。</p>
+
+  <div class="pipeline">
+    <div class="pipe-row">
+      <div class="pipe-box accent-blue">
+        <div class="pb-title">📁 Obsidian Vault</div>
+        <div class="pb-sub">localRAG/personal_notes/*.md<br>localRAG/game_dev/*.md</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-box accent-purple">
+        <div class="pb-title">⚙️ document_processor.py</div>
+        <div class="pb-sub">ファイルスキャン・チャンク分割<br>差分検出 (SHA-256)</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-box accent-amber">
+        <div class="pb-title">🔢 embedding_generator.py</div>
+        <div class="pb-sub">multilingual-e5-large<br>1024次元ベクトル生成</div>
+      </div>
+    </div>
+    <div class="pipe-down">↓</div>
+    <div class="pipe-row">
+      <div class="pipe-box accent-green" style="flex:none; width:32%;">
+        <div class="pb-title">🗄️ ChromaDB</div>
+        <div class="pb-sub">./data/chroma/<br>HNSW インメモリインデックス</div>
+      </div>
+      <div class="pipe-arrow" style="flex:none;">←→</div>
+      <div class="pipe-box accent-purple" style="flex:none; width:28%;">
+        <div class="pb-title">🔌 mcp_server.py</div>
+        <div class="pb-sub">MCP (stdio)<br>search / index ツール</div>
+      </div>
+      <div class="pipe-arrow" style="flex:none;">→</div>
+      <div class="pipe-box accent-blue" style="flex:none; width:24%;">
+        <div class="pb-title">💬 Claude Desktop</div>
+        <div class="pb-sub">クエリ送信<br>チャンク受信</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">🐍 mcp-rag-server (manato1201フォーク)</div>
+      <ul>
+        <li>Windows 11ネイティブ動作（Docker不要）</li>
+        <li>CP932 → UTF-8パッチ適用済み</li>
+        <li>stdio経由でClaude Desktopと通信</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">⚡ watchdog / auto_index.py</div>
+      <ul>
+        <li>ファイル保存を監視して自動再インデックス</li>
+        <li>差分のみ処理（incremental=True）</li>
+        <li>バックグラウンドで常駐</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===== インデックスパイプライン ===== -->
+<section class="section" id="index-pipeline">
+  <div class="section-eye">section 02</div>
+  <h2>インデックスパイプライン</h2>
+
+  <p>ファイルをChromaDBに格納するまでの全工程です。<code>RAGService.index_documents()</code>が中心で、DocumentProcessor・EmbeddingGenerator・VectorDatabaseを順番に呼び出します。</p>
+
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail">
+        <div class="step-badge">1</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-content">
+        <div class="step-title">ディレクトリスキャン <span class="badge badge-purple">document_processor.py</span></div>
+        <div class="step-body">
+          <p><code>source_dir</code>配下を再帰的にスキャン。最上位フォルダ名がNamespace（ChromaDBコレクション名）になります。<code>_</code>または<code>.</code>で始まるフォルダは除外されます。</p>
+          <p>対応ファイル形式: <code>.md</code> / <code>.txt</code> / <code>.pptx</code> / <code>.docx</code> / <code>.pdf</code></p>
+          <div class="callout callout-note">
+            <p><strong>markitdown変換</strong></p>
+            <p>.pptx / .docx / .pdf はmicrosoft/markitdownで先にMarkdown変換してからチャンク分割されます。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-rail">
+        <div class="step-badge">2</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-content">
+        <div class="step-title">差分チェック <span class="badge badge-blue">incremental mode</span></div>
+        <div class="step-body">
+          <p>各ファイルに対してSHA-256ハッシュ・mtime・sizeを計算し、<code>file_registry.json</code>の記録と比較します。変更がなければスキップ。新規・変更ファイルのみ処理します。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-rail">
+        <div class="step-badge">3</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-content">
+        <div class="step-title">チャンク分割 <span class="badge badge-purple">split_into_chunks()</span></div>
+        <div class="step-body">
+          <p>テキストを<strong>500文字</strong>ずつに分割し、前後<strong>100文字</strong>のオーバーラップを持たせます。文の途中で切れないよう、<code>\n</code>または<code>。</code>を探して文境界で調整します。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-rail">
+        <div class="step-badge">4</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-content">
+        <div class="step-title">エンベディング生成 <span class="badge badge-amber">embedding_generator.py</span></div>
+        <div class="step-body">
+          <p>全チャンクテキストに <code>"passage: "</code> プレフィックスを付加し、<strong>intfloat/multilingual-e5-large</strong>モデルで1024次元ベクトルに変換。バッチ処理で効率化されています。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-rail">
+        <div class="step-badge green">5</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-content">
+        <div class="step-title">ChromaDB格納 <span class="badge badge-green">vector_database.py</span></div>
+        <div class="step-body">
+          <p><code>batch_insert_documents()</code>でチャンクテキスト・ベクトル・メタデータをまとめてChromaDBに書き込みます。ChromaDBは <code>./data/chroma/</code> にファイルとして永続化されます。HNSWインデックスはメモリ上で高速検索できる状態になります。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-label"><span class="py-tag">Python</span> rag_service.py — index_documents()</div>
+    <pre><code><span class="cm"># チャンク → エンベディング → DB挿入 の流れ</span>
+chunks = document_processor.<span class="fn">process_directory</span>(source_dir, ...)
+texts = [chunk[<span class="str">"content"</span>] <span class="kw">for</span> chunk <span class="kw">in</span> chunks]
+embeddings = embedding_generator.<span class="fn">generate_embeddings</span>(texts)   <span class="cm"># "passage: " prefix</span>
+
+<span class="kw">for</span> i, chunk <span class="kw">in</span> <span class="fn">enumerate</span>(chunks):
+    documents.<span class="fn">append</span>({
+        <span class="str">"document_id"</span>: chunk[<span class="str">"document_id"</span>],
+        <span class="str">"content"</span>:     chunk[<span class="str">"content"</span>],
+        <span class="str">"embedding"</span>:   embeddings[i],   <span class="cm"># 1024次元ベクトル</span>
+        <span class="str">"metadata"</span>:    { <span class="str">"file_name"</span>: ..., <span class="str">"directory_suffix"</span>: ... },
+    })
+
+vector_database.<span class="fn">batch_insert_documents</span>(documents)</code></pre>
+  </div>
+</section>
+
+<!-- ===== チャンク分割 ===== -->
+<section class="section" id="chunk">
+  <div class="section-eye">section 03</div>
+  <h2>チャンク分割の詳細</h2>
+
+  <p>ドキュメントを適切な大きさに切り出すのがRAG精度の根幹です。大きすぎると無関係な情報が混入し、小さすぎると文脈が失われます。</p>
+
+  <h3>分割アルゴリズム</h3>
+  <div class="code-wrap">
+    <div class="code-label"><span class="py-tag">Python</span> document_processor.py — split_into_chunks()</div>
+    <pre><code><span class="kw">def</span> <span class="fn">split_into_chunks</span>(self, text, chunk_size=<span class="val">500</span>, overlap=<span class="val">100</span>):
+    chunks = []
+    start = <span class="val">0</span>
+    <span class="kw">while</span> start &lt; len(text):
+        end = start + chunk_size
+        <span class="kw">if</span> end &lt; len(text):
+            <span class="cm"># 文境界を探す（改行 or 句点）</span>
+            next_newline = text.<span class="fn">find</span>(<span class="str">"\n"</span>, end)
+            next_period  = text.<span class="fn">find</span>(<span class="str">"。"</span>, end)
+            <span class="cm"># より近い方で切る（見つからなければchunk_sizeで強制分割）</span>
+            end = <span class="fn">min</span>(next_newline, next_period) + <span class="val">1</span>
+        chunks.<span class="fn">append</span>(text[start:end])
+        <span class="cm"># 次のチャンクはoverlap分だけ戻って開始</span>
+        start = end - overlap <span class="kw">if</span> end - overlap &gt; start <span class="kw">else</span> end</code></pre>
+  </div>
+
+  <h3>オーバーラップの効果</h3>
+  <p>隣接チャンク間で100文字を共有することで、チャンク境界をまたぐ文脈が失われません。検索ヒットしたチャンクの前後が自然に繋がります。</p>
+
+  <div class="chunk-vis">
+    <div class="chunk-block"><span>Chunk 0 (0〜500字)</span><div class="overlap"></div></div>
+    <div class="chunk-block"><span>Chunk 1 (400〜900字)</span><div class="overlap"></div></div>
+    <div class="chunk-block"><span>Chunk 2 (800〜1300字)</span><div class="overlap"></div></div>
+    <div class="chunk-block"><span>Chunk 3 (1200〜…)</span></div>
+  </div>
+  <p style="font-size:11px; color:var(--muted); margin-top:4px; font-family:var(--mono);">薄紫の領域がオーバーラップ部分（前後100字を共有）</p>
+
+  <h3>トピック単位ファイル分割の重要性</h3>
+  <div class="callout callout-warn">
+    <p><strong>1ファイルに複数トピックを混在させるとスコア差が消える</strong></p>
+    <p>例: 1ファイルにアイアン・ウェッジ・アパレル情報が混在 → 全チャンクが「FORTEENブランド」として均一にエンコードされ、スコアが81〜83%に団子状態になる。トピックごとにファイルを分割すると、チャンクが専門的な意味空間に集中し、スコア差が拡大して精度が向上します。</p>
+  </div>
+</section>
+
+<!-- ===== エンベディング ===== -->
+<section class="section" id="embedding">
+  <div class="section-eye">section 04</div>
+  <h2>エンベディング生成</h2>
+
+  <p>テキストを数値ベクトルに変換することで、「意味の近さ」を距離として計算できるようになります。このRAGでは <strong>intfloat/multilingual-e5-large</strong> を使用します。</p>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">📐 モデルスペック</div>
+      <ul>
+        <li>出力次元: <strong>1024次元</strong></li>
+        <li>日英バイリンガル対応</li>
+        <li>最大トークン長: 512 tokens</li>
+        <li>HuggingFace Hub から自動ダウンロード</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">🔑 必須プレフィックス</div>
+      <ul>
+        <li>ドキュメント: <code>"passage: " + text</code></li>
+        <li>クエリ:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>"query: " + text</code></li>
+        <li>付けないと精度が大幅低下</li>
+        <li>.env の EMBEDDING_PREFIX_* で制御</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>プレフィックスの使い分け</h3>
+  <div class="code-wrap">
+    <div class="code-label"><span class="py-tag">Python</span> embedding_generator.py</div>
+    <pre><code><span class="cm"># ドキュメントをインデックス化するとき</span>
+<span class="kw">def</span> <span class="fn">generate_embeddings</span>(self, texts):
+    prefixed = [<span class="str">"passage: "</span> + t <span class="kw">for</span> t <span class="kw">in</span> texts]   <span class="cm"># ← passage: プレフィックス</span>
+    <span class="kw">return</span> model.<span class="fn">encode</span>(prefixed, normalize_embeddings=<span class="val">True</span>)
+
+<span class="cm"># ユーザーのクエリを検索するとき</span>
+<span class="kw">def</span> <span class="fn">generate_search_embedding</span>(self, query):
+    prefixed = <span class="str">"query: "</span> + query                   <span class="cm"># ← query: プレフィックス</span>
+    <span class="kw">return</span> model.<span class="fn">encode</span>(prefixed, normalize_embeddings=<span class="val">True</span>)</code></pre>
+  </div>
+
+  <div class="callout callout-tip">
+    <p><strong>なぜプレフィックスが必要？</strong></p>
+    <p>e5シリーズはcontrastive learningで学習されており、「passage:」と「query:」の非対称な関係を学習しています。同じプレフィックスで両方を計算すると類似度が低下します。</p>
+  </div>
+</section>
+
+<!-- ===== 検索パイプライン ===== -->
+<section class="section" id="search">
+  <div class="section-eye">section 05</div>
+  <h2>検索パイプライン</h2>
+
+  <p>Claude Desktopからクエリが届いてから結果が返るまでの流れです。<code>RAGService.search()</code>が全工程を管理します。</p>
+
+  <div class="flow">
+    <div class="flow-node blue">
+      <div class="fn-label">クエリ受信</div>
+      <div class="fn-sub">MCP stdio</div>
+    </div>
+    <div class="flow-arr">→</div>
+    <div class="flow-node purple">
+      <div class="fn-label">query: 付加</div>
+      <div class="fn-sub">e5プレフィックス</div>
+    </div>
+    <div class="flow-arr">→</div>
+    <div class="flow-node amber">
+      <div class="fn-label">ベクトル化</div>
+      <div class="fn-sub">1024次元</div>
+    </div>
+    <div class="flow-arr">→</div>
+    <div class="flow-node green">
+      <div class="fn-label">HNSW検索</div>
+      <div class="fn-sub">ChromaDB</div>
+    </div>
+    <div class="flow-arr">→</div>
+    <div class="flow-node blue">
+      <div class="fn-label">チャンク返却</div>
+      <div class="fn-sub">similarity付き</div>
+    </div>
+  </div>
+
+  <h3>検索オプション</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>オプション</th><th>デフォルト</th><th>説明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>limit</code></td><td>5</td><td>返す検索結果の最大件数</td></tr>
+        <tr><td><code>with_context</code></td><td>False</td><td>ヒットしたチャンクの前後チャンクも取得する</td></tr>
+        <tr><td><code>context_size</code></td><td>1</td><td>前後に取得するチャンク数</td></tr>
+        <tr><td><code>full_document</code></td><td>False</td><td>ヒットしたファイルの全チャンクを返す</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>類似度スコアの見方</h3>
+  <div class="callout callout-note">
+    <p><strong>コサイン類似度（0〜1）</strong></p>
+    <p>ChromaDBはL2距離で検索し、<code>1 - (distance / 2)</code>でコサイン類似度に変換して返します。85%以上が「関連性が高い」の目安。80〜85%はノイズが混入し始めるゾーンです。トピック分割によりスコア差が広がり、精度が向上します。</p>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-label"><span class="py-tag">Python</span> rag_service.py — search()</div>
+    <pre><code><span class="kw">def</span> <span class="fn">search</span>(self, query, limit=<span class="val">5</span>, with_context=<span class="val">False</span>, ...):
+    <span class="cm"># 1. クエリを "query: " プレフィックス付きでベクトル化</span>
+    query_embedding = embedding_generator.<span class="fn">generate_search_embedding</span>(query)
+
+    <span class="cm"># 2. ChromaDBでHNSW近傍探索</span>
+    results = vector_database.<span class="fn">search</span>(query_embedding, limit)
+
+    <span class="cm"># 3. 前後チャンクを追加取得（with_context=True のとき）</span>
+    <span class="kw">if</span> with_context:
+        adjacent = vector_database.<span class="fn">get_adjacent_chunks</span>(file_path, chunk_index, ...)
+        results = <span class="fn">merge_and_sort</span>(results, adjacent)
+
+    <span class="kw">return</span> results  <span class="cm"># [{content, similarity, file_path, chunk_index}, ...]</span></code></pre>
+  </div>
+</section>
+
+<!-- ===== Namespace ===== -->
+<section class="section" id="namespace">
+  <div class="section-eye">section 06</div>
+  <h2>Namespaceシステム</h2>
+
+  <p>ChromaDBのコレクション（= 検索対象グループ）は、ソースディレクトリ直下の<strong>最上位フォルダ名</strong>が自動的に割り当てられます。</p>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>フォルダパス</th><th>Namespace（コレクション名）</th><th>備考</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>localRAG/personal_notes/</code></td><td><code>personal_notes</code></td><td>ゴルフ・個人メモ</td></tr>
+        <tr><td><code>localRAG/game_dev/</code></td><td><code>game_dev</code></td><td>BrainTQ開発資料</td></tr>
+        <tr><td><code>localRAG/_rag_dashboard/</code></td><td>—（除外）</td><td><code>_</code>プレフィックスで除外</td></tr>
+        <tr><td><code>localRAG/.obsidian/</code></td><td>—（除外）</td><td><code>.</code>プレフィックスで除外</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-note">
+    <p><strong>検索範囲の絞り込み</strong></p>
+    <p>MCPのsearchツール呼び出し時に <code>namespace</code> を指定することで、特定コレクションのみを検索できます。省略すると全コレクションを対象にします。</p>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-label"><span class="env-tag">MCP</span> 検索ツール呼び出し例</div>
+    <pre><code>{
+  <span class="str">"tool"</span>: <span class="str">"search"</span>,
+  <span class="str">"arguments"</span>: {
+    <span class="str">"query"</span>:     <span class="str">"フォーティーンのアイアン"</span>,
+    <span class="str">"namespace"</span>: <span class="str">"personal_notes"</span>,  <span class="cm">// ← 省略すると全コレクション</span>
+    <span class="str">"limit"</span>:     <span class="val">5</span>
+  }
+}</code></pre>
+  </div>
+</section>
+
+<!-- ===== 差分インデックス ===== -->
+<section class="section" id="diff">
+  <div class="section-eye">section 07</div>
+  <h2>差分インデックス（増分更新）</h2>
+
+  <p>毎回全ファイルを処理すると時間がかかります。<code>incremental=True</code>を指定すると変更ファイルのみを処理し、大幅に高速化できます。</p>
+
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail">
+        <div class="step-badge purple">A</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-content">
+        <div class="step-title">ファイル情報を計算</div>
+        <div class="step-body">
+          <p>対象ファイルの <strong>SHA-256ハッシュ</strong>・<strong>mtime（更新日時）</strong>・<strong>size（バイト数）</strong> を計算します。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail">
+        <div class="step-badge purple">B</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-content">
+        <div class="step-title">file_registry.json と照合</div>
+        <div class="step-body">
+          <p><code>data/file_registry.json</code>に前回インデックス時の情報が記録されています。3値がすべて一致したらスキップ。1つでも変わっていれば再処理します。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail">
+        <div class="step-badge green">C</div>
+      </div>
+      <div class="step-content">
+        <div class="step-title">変更ファイルのみ再インデックス</div>
+        <div class="step-body">
+          <p>旧チャンクをChromaDBから削除 → 新チャンクを生成して挿入 → file_registry.jsonを更新します。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-label"><span class="env-tag">.env</span> 差分インデックスの設定</div>
+    <pre><code><span class="cm"># scripts/index_documents.py 実行時のオプション</span>
+<span class="prompt">PS></span> python scripts/index_documents.py <span class="ok">--incremental</span>
+
+<span class="cm"># watchdog (auto_index.py) は常に incremental=True で動作</span></code></pre>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">🕐 フルインデックス</div>
+      <p>全ファイルを処理。初回セットアップ時や全再構築時に使用。342チャンクで約140秒。</p>
+    </div>
+    <div class="card">
+      <div class="card-title">⚡ 差分インデックス</div>
+      <p>変更ファイルのみ処理。1〜3ファイルなら数秒で完了。watchdogが自動実行。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== MCP通信 ===== -->
+<section class="section" id="mcp">
+  <div class="section-eye">section 08</div>
+  <h2>MCP通信とWindows対応</h2>
+
+  <p>Claude DesktopとmcpサーバーはModel Context Protocol (MCP) のstdio transport で通信します。プロセス間をstdin/stdoutで繋ぎ、JSON-RPC 2.0形式のメッセージをやり取りします。</p>
+
+  <div class="flow">
+    <div class="flow-node blue">
+      <div class="fn-label">Claude Desktop</div>
+      <div class="fn-sub">MCPクライアント</div>
+    </div>
+    <div class="flow-arr">⟵stdin/stdout⟶</div>
+    <div class="flow-node green">
+      <div class="fn-label">mcp_server.py</div>
+      <div class="fn-sub">MCPサーバー</div>
+    </div>
+    <div class="flow-arr">⟵API⟶</div>
+    <div class="flow-node purple">
+      <div class="fn-label">RAGService</div>
+      <div class="fn-sub">search / index</div>
+    </div>
+    <div class="flow-arr">⟵IO⟶</div>
+    <div class="flow-node amber">
+      <div class="fn-label">ChromaDB</div>
+      <div class="fn-sub">./data/chroma/</div>
+    </div>
+  </div>
+
+  <h3>Windows CP932問題とパッチ</h3>
+  <div class="callout callout-warn">
+    <p><strong>Windows標準の文字コードはCP932（Shift-JIS）</strong></p>
+    <p>Windowsのstdoutはデフォルトでcp932エンコードを使います。日本語文字やUnicode文字が含まれるJSONをstdoutに書くと文字化けしてMCPが壊れます。manato1201フォークではmain.pyにUTF-8強制パッチが当たっています。</p>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-label"><span class="py-tag">Python</span> main.py — UTF-8パッチ</div>
+    <pre><code><span class="kw">import</span> sys, io
+<span class="cm"># stdoutをUTF-8に強制（Windows CP932問題の回避）</span>
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding=<span class="str">"utf-8"</span>)
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding=<span class="str">"utf-8"</span>)</code></pre>
+  </div>
+
+  <h3>Claude Desktop側の設定</h3>
+  <div class="code-wrap">
+    <div class="code-label"><span class="env-tag">JSON</span> claude_desktop_config.json</div>
+    <pre><code>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"mcp-rag-server"</span>: {
+      <span class="str">"command"</span>: <span class="str">"python"</span>,
+      <span class="str">"args"</span>: [<span class="str">"C:/path/to/mcp-rag-server/main.py"</span>],
+      <span class="str">"env"</span>: {
+        <span class="str">"CHROMA_PERSIST_DIR"</span>: <span class="str">"C:/path/to/data/chroma"</span>,
+        <span class="str">"SOURCE_DIR"</span>:         <span class="str">"C:/path/to/localRAG"</span>,
+        <span class="str">"EMBEDDING_MODEL"</span>:    <span class="str">"intfloat/multilingual-e5-large"</span>,
+        <span class="str">"EMBEDDING_PREFIX_QUERY"</span>:     <span class="str">"query: "</span>,
+        <span class="str">"EMBEDDING_PREFIX_EMBEDDING"</span>: <span class="str">"passage: "</span>
+      }
+    }
+  }
+}</code></pre>
+  </div>
+</section>
+
+<!-- ===== パラメータ一覧 ===== -->
+<section class="section" id="params">
+  <div class="section-eye">section 09</div>
+  <h2>重要パラメータ一覧</h2>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>パラメータ</th><th>値</th><th>設定箇所</th><th>説明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>chunk_size</code></td>
+          <td><span class="badge badge-blue">500文字</span></td>
+          <td>index_documents呼び出し時</td>
+          <td>1チャンクの最大文字数。日本語500字 ≈ 300〜400トークン</td>
+        </tr>
+        <tr>
+          <td><code>chunk_overlap</code></td>
+          <td><span class="badge badge-blue">100文字</span></td>
+          <td>index_documents呼び出し時</td>
+          <td>隣接チャンク間の重複文字数</td>
+        </tr>
+        <tr>
+          <td><code>EMBEDDING_MODEL</code></td>
+          <td><span class="badge badge-purple">multilingual-e5-large</span></td>
+          <td>.env</td>
+          <td>HuggingFace Hub のモデルID</td>
+        </tr>
+        <tr>
+          <td><code>EMBEDDING_PREFIX_QUERY</code></td>
+          <td><span class="badge badge-amber">query: </span></td>
+          <td>.env</td>
+          <td>検索クエリに付けるプレフィックス</td>
+        </tr>
+        <tr>
+          <td><code>EMBEDDING_PREFIX_EMBEDDING</code></td>
+          <td><span class="badge badge-amber">passage: </span></td>
+          <td>.env</td>
+          <td>ドキュメントチャンクに付けるプレフィックス</td>
+        </tr>
+        <tr>
+          <td><code>CHROMA_PERSIST_DIR</code></td>
+          <td><span class="badge badge-green">./data/chroma</span></td>
+          <td>.env</td>
+          <td>ChromaDBの永続ファイル保存先</td>
+        </tr>
+        <tr>
+          <td><code>SOURCE_DIR</code></td>
+          <td><span class="badge badge-green">./localRAG</span></td>
+          <td>.env</td>
+          <td>インデックス対象のルートディレクトリ</td>
+        </tr>
+        <tr>
+          <td>ベクトル次元数</td>
+          <td><span class="badge badge-blue">1024</span></td>
+          <td>モデル固定</td>
+          <td>multilingual-e5-largeの出力次元</td>
+        </tr>
+        <tr>
+          <td>検索アルゴリズム</td>
+          <td><span class="badge badge-purple">HNSW</span></td>
+          <td>ChromaDB固定</td>
+          <td>Hierarchical Navigable Small World。高速近傍探索</td>
+        </tr>
+        <tr>
+          <td>類似度計算</td>
+          <td><span class="badge badge-blue">コサイン類似度</span></td>
+          <td>ChromaDB固定</td>
+          <td>L2距離から変換: 1 - (dist / 2)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>現在のインデックス状況</h3>
+  <div class="grid3">
+    <div class="card">
+      <div class="card-title" style="color:var(--green);">342</div>
+      <p>総チャンク数（2026-06-18時点）</p>
+    </div>
+    <div class="card">
+      <div class="card-title" style="color:var(--accent);">18ファイル</div>
+      <p>インデックス済みドキュメント（fourteen: 6, braintq: 10, 他: 2）</p>
+    </div>
+    <div class="card">
+      <div class="card-title" style="color:var(--purple);">2コレクション</div>
+      <p>personal_notes / game_dev（Namespace）</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <p>LocalRAG Internals — mcp-rag-server (manato1201)</p>
+    <div class="footer-right">ChromaDB × multilingual-e5-large × MCP</div>
+  </div>
+</footer>
+
+</body>
+</html>
