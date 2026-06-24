@@ -28,6 +28,7 @@ from pathlib import Path
 # ─── デフォルト設定 ─────────────────────────────────────────────────────────────
 DEFAULT_PORT = 8766
 DEFAULT_MCP_DIR = str(Path(__file__).parent.parent.parent / "mcp-rag-server")
+GRAPH_EXPORT_SCRIPT = Path(__file__).parent / "rag_graph_export.py"
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 SYSTEM_PROMPT = (
     "あなたはゲーム開発チームの知識ベースを持つ AI アシスタントです。"
@@ -244,8 +245,38 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "server": "mcp-rag-server",
                 "total_chunks": count,
             })
+        elif self.path == "/graph":
+            self._handle_graph()
         else:
             self._send_json(404, {"status": "error", "message": "Not found"})
+
+    def _handle_graph(self) -> None:
+        """ChromaDB グラフデータを返す（rag_graph_export.py を uv run で実行）"""
+        try:
+            result = subprocess.run(
+                [
+                    "uv", "run",
+                    "--directory", str(self.mcp.server_dir),
+                    "python", str(GRAPH_EXPORT_SCRIPT),
+                    str(self.mcp.server_dir),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+            if result.returncode != 0:
+                self._send_json(500, {
+                    "status": "error",
+                    "message": result.stderr.strip() or "graph export failed",
+                })
+                return
+            data = json.loads(result.stdout)
+            data["status"] = "ok"
+            self._send_json(200, data)
+        except subprocess.TimeoutExpired:
+            self._send_json(504, {"status": "error", "message": "graph export timed out"})
+        except Exception as exc:  # noqa: BLE001
+            self._send_json(500, {"status": "error", "message": str(exc)})
 
     # ── POST /query ──────────────────────────────────────────────────────────────
     def do_POST(self) -> None:
