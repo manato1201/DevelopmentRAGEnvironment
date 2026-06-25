@@ -1,32 +1,51 @@
 # RAG 環境構築ガイド — 必要環境・依存関係リスト
 
-> 対象: DevelopmentRAGEnvironment  
+> 対象: DevelopmentRAGEnvironment（ローカルRAG + クラウドRAG）  
 > 更新日: 2026-06-25  
 > OS: Windows 10/11（WSL2 も可）
 
 ---
 
-## 全体構成図
+## 全体構成図（二層構成）
 
 ```
-Windows 11
-│
-├── Python 3.13+  (DevelopmentRAGEnvironment)
-│   └── uv でパッケージ管理
-│
-├── Python 3.10+  (mcp-rag-server)
-│   ├── ChromaDB    ← ベクトルDB
-│   ├── sentence-transformers ← 埋め込み生成
-│   ├── markitdown  ← PDF/Word 変換
-│   └── sudachipy   ← 日本語形態素解析
-│
-├── rag_local_bridge.py  (HTTP :8766)
-│   ├── /admin  → 管理画面
-│   ├── /ui     → チャット画面
-│   └── /query  → Unity/Houdini からの検索 API
-│
-├── Anthropic API  (claude-haiku / claude-sonnet)
-└── localRAG/      (ドキュメント vault, gitignore)
+┌─────────────────────────────────────────────────────────┐
+│  【ローカルRAG層】  Windows 11 ローカル環境              │
+│                                                         │
+│  Python 3.13+  (DevelopmentRAGEnvironment)              │
+│  Python 3.10+  (mcp-rag-server)                        │
+│    ├── ChromaDB          ← ベクトルDB                   │
+│    ├── sentence-transformers ← 埋め込み生成             │
+│    ├── markitdown        ← PDF/Word 変換                │
+│    └── sudachipy         ← 日本語形態素解析             │
+│                                                         │
+│  rag_local_bridge.py  (HTTP :8766)                      │
+│    ├── /admin  → 管理画面                               │
+│    ├── /ui     → チャット画面                           │
+│    └── /query  → Unity/Houdini からの API              │
+│                                                         │
+│  Anthropic API  (claude-haiku / claude-sonnet)          │
+│  localRAG/      (ドキュメント vault, gitignore)         │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│  【クラウドRAG層】  Google / Notion サービス群           │
+│                                                         │
+│  Notion（7DB）                                          │
+│    ↓ GAS: syncNotionToSheets()                          │
+│  Google Sheets（RAG_Index）                             │
+│    ← 768次元ベクトルを保存・コサイン類似度検索          │
+│    ↓                                                    │
+│  Gemini gemini-embedding-001  ← 埋め込み生成            │
+│  Gemini gemini-2.5-flash      ← 回答生成                │
+│    ↓                                                    │
+│  GAS WebApp（チャットUI）                               │
+│    └── Unity / Houdini クライアントから接続可           │
+└─────────────────────────────────────────────────────────┘
+
+        Unity / Houdini エディタ
+          ├── Cloud モード → GAS WebApp URL へ HTTP
+          └── Local  モード → localhost:8766 へ HTTP
 ```
 
 ---
@@ -202,7 +221,132 @@ C:\Users\matuu\Desktop\GameDevelopment\
 
 ---
 
-## 6. 外部 API キー
+## 6. クラウドRAG 必要環境
+
+クラウドRAGはローカルへのインストール不要。**Googleアカウント + Notionアカウント + ブラウザだけで動作する。**
+
+### 6-1. 必要なアカウント・サービス
+
+| サービス | 料金 | 用途 |
+|---------|------|------|
+| **Notion** | 無料プランで可 | ドキュメントDB（7つのDB）|
+| **Google アカウント** | 無料 | GAS・Google Sheets・Gemini API |
+| **Google AI Studio** | 無料枠あり | Gemini API キー発行 |
+
+### 6-2. API キー（クラウドRAG用）
+
+| API | 設定場所 | 必須 | 用途 |
+|-----|---------|------|------|
+| **Gemini API キー** | GAS スクリプトプロパティ `GEMINI_API_KEY` | **必須** | 埋め込み生成（gemini-embedding-001）+ 回答生成（gemini-2.5-flash）|
+| **Notion Integration Token** | GAS スクリプトプロパティ `NOTION_API_KEY` | **必須** | Notion DB からページ取得 |
+
+> **注意**: クラウドRAGの API キーはコードに直書きせず、GAS の「スクリプトプロパティ」に設定する。
+
+### 6-3. Google Apps Script（GAS）
+
+インストール不要。[script.google.com](https://script.google.com) でブラウザ上に作成する。
+
+| 項目 | 内容 |
+|------|------|
+| 使用するファイル | `scripts/gas_cloud_rag.js`（リポジトリ内） |
+| 実行時間制限 | 6分/実行（GAS の制約） |
+| デプロイ形式 | **WebApp** として公開 |
+| 実行ユーザー | 自分（GASオーナー） |
+| アクセス権限 | 自分のみ / 全員（チーム公開時） |
+
+**スクリプトプロパティ一覧（GASに設定が必要な値）:**
+
+| プロパティ名 | 値 |
+|------------|-----|
+| `NOTION_API_KEY` | Notion Integration Token |
+| `GEMINI_API_KEY` | Google AI Studio で発行したキー |
+| `SHEETS_ID` | Google Sheets の ID（URLから取得） |
+| `DB_TOOL_DOCS` | `249e442a-47dd-4a8d-95a8-8b856fb91ef6` |
+| `DB_GAME_INFO` | `f201f73c-45dc-44cb-b8d7-a7be81b3644c` |
+| `DB_RESEARCH` | `714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f` |
+| `DB_TEAM_NOTES` | `f898bf03-8c9f-40e0-9e1b-a28432703d69` |
+| `DB_AFURI` | `a74822790ec34768bdef0917abae3e6f` |
+| `DB_BRAINTQ` | `847b7db0f29f4190bee9f7ae7dd15514` |
+| `DB_FOURTEEN` | `475cf278492a45ac90cbe4b8f11df1f5` |
+
+### 6-4. Google Sheets（ベクトルインデックス）
+
+インストール不要。[sheets.google.com](https://sheets.google.com) で新規作成するだけ。
+
+| 項目 | 内容 |
+|------|------|
+| シート名 | `RAG_Index`（GASが自動生成） |
+| 保存データ | `page_id / db / title / text / last_edited / embedding(768次元)` |
+| 容量目安 | 100ページ ≈ 数MB（無料枠で十分） |
+| 更新方法 | GASの `syncNotionToSheets()` を実行（差分同期） |
+
+### 6-5. Notion DB（作成済み）
+
+7つのDBはすでに作成済み。新規環境構築時は Notion Integration の「接続」を再設定するだけでよい。
+
+| DB名 | 用途 |
+|------|------|
+| Tool Docs DB | ツール・ライブラリドキュメント |
+| Game Info DB | ゲーム・プロジェクト情報 |
+| Research DB | 調査・論文メモ |
+| Team Notes DB | 議事録・チームメモ |
+| AFURI DB | 阿夫利神社関連 |
+| BrainTQ DB | BrainTQ関連 |
+| Fourteen DB | Fourteen関連 |
+
+**Notionページの必須プロパティ（検索精度に直結）:**
+
+| プロパティ | 種類 | 重要度 |
+|-----------|------|--------|
+| `title` | タイトル | 必須 |
+| `summary` | テキスト | **高**（空だと精度低下） |
+| `source_url` | URL | 任意 |
+| `tags` | マルチセレクト | 任意 |
+| `collected_at` | 日付 | 任意 |
+
+### 6-6. クライアント（Unity / Houdini）
+
+クラウドRAGは GAS WebApp URL に HTTP リクエストを送るだけなので、追加インストールは不要。
+
+**Unity クライアント:**
+
+```
+Assets/Editor/RAGChatbot/ フォルダをプロジェクトの Assets/Editor/ にコピー
+  ├── RAGChatbotWindow.cs
+  ├── CloudRAGClient.cs    ← GAS WebApp URL を設定
+  ├── LocalRAGClient.cs    ← localhost:8766 を使用
+  └── RAGGraphView.cs
+```
+
+設定: Unity エディタ → Window → RAG Chatbot → Settings タブ → GAS WebApp URL を入力
+
+**Houdini クライアント:**
+
+```
+houdini/python_panels/ の以下を %USERPROFILE%\Documents\houdiniXX.X\python_panels\ にコピー
+  ├── rag_chatbot.py
+  └── graph_view.py
+```
+
+設定: Python Panel Editor → パネルに貼り付け → Settings タブ → GAS URL + モード設定
+
+### 6-7. クラウドRAG セットアップ順序
+
+```
+1. Google AI Studio で Gemini API キーを取得
+2. Notion で Integration Token を取得（既存のものを流用可）
+3. Google Sheets を新規作成（空のまま）
+4. script.google.com でGASプロジェクトを作成し、gas_cloud_rag.js を貼り付け
+5. スクリプトプロパティに各キー・ID を設定
+6. GAS で testEmbedding() を実行して疎通確認
+7. GAS で syncNotionToSheets() を実行（初回同期、2〜5分）
+8. GAS で WebApp としてデプロイ → URL を取得
+9. Unity / Houdini のクライアントに URL を設定
+```
+
+---
+
+## 7. 外部 API キー（ローカルRAG用）
 
 | API | 環境変数名 | 必須 | 用途 | 取得先 |
 |-----|-----------|------|------|--------|
@@ -224,7 +368,7 @@ $env:ANTHROPIC_API_KEY = "sk-ant-..."
 
 ---
 
-## 7. データ・ストレージ
+## 8. データ・ストレージ
 
 | パス | 内容 | Git 管理 |
 |------|------|---------|
@@ -235,7 +379,7 @@ $env:ANTHROPIC_API_KEY = "sk-ant-..."
 
 ---
 
-## 8. オプションツール
+## 9. オプションツール
 
 | ツール | 用途 | 必要な場面 |
 |--------|------|-----------|
@@ -258,9 +402,9 @@ ollama pull phi4      # 軽量・高速
 
 ---
 
-## 9. 起動手順（チェックリスト）
+## 10. 起動手順（チェックリスト）
 
-### 初回セットアップ
+### ローカルRAG 初回セットアップ
 
 ```powershell
 # [1] mcp-rag-server の依存関係インストール
@@ -279,7 +423,7 @@ mkdir localRAG\tool_docs localRAG\research localRAG\team_notes localRAG\personal
 python scripts/auth_manager.py create-admin --name "Admin"
 ```
 
-### 通常起動
+### ローカルRAG 通常起動
 
 ```powershell
 # [1] 環境変数セット
@@ -293,7 +437,7 @@ python scripts/rag_local_bridge.py
 python scripts/auto_index.py
 ```
 
-### アクセス先
+### ローカルRAG アクセス先
 
 | URL | 用途 |
 |-----|------|
@@ -302,9 +446,32 @@ python scripts/auto_index.py
 | `http://localhost:8766/ui` | ユーザーチャット画面 |
 | `http://localhost:8766/query` | Unity/Houdini 向け API |
 
+### クラウドRAG セットアップ（初回）
+
+```
+1. Google AI Studio (aistudio.google.com) → Gemini API キーを取得
+2. Notion (notion.so/my-integrations) → Integration Token を取得
+3. Google Sheets (sheets.google.com) → 空のスプレッドシートを新規作成 → URLからSHEETS_IDをコピー
+4. Google Apps Script (script.google.com) → 新規プロジェクト → gas_cloud_rag.js を貼り付け
+5. GASのスクリプトプロパティに全キー・IDを設定（§6-3の表を参照）
+6. GASで testEmbedding() を実行 → ログに「次元数: 768」が出れば OK
+7. GASで syncNotionToSheets() を実行（2〜5分、初回は権限承認が必要）
+8. GASで「デプロイ」→「新しいデプロイ」→ ウェブアプリ → URL を取得
+9. Unity/Houdini クライアントの Settings タブに WebApp URL を入力
+```
+
+### クラウドRAG 更新手順（Notionに追記したとき）
+
+```
+GAS エディタ → syncNotionToSheets() を実行
+→ 変更ページのみ差分更新（変更なしのページはスキップ）
+```
+
 ---
 
-## 10. トラブルシューティング
+## 11. トラブルシューティング
+
+### ローカルRAG
 
 | 症状 | 原因 | 対処 |
 |------|------|------|
@@ -314,3 +481,14 @@ python scripts/auto_index.py
 | `401 Unauthorized` | API キー未設定 or 誤り | `auth_manager.py list` でユーザー確認 |
 | `503 mcp-rag-server が起動していません` | mcp-rag-server のプロセスが落ちた | ブリッジを再起動 |
 | RSS 収集でエラー | feedparser 未インストール | `pip install feedparser` |
+
+### クラウドRAG
+
+| 症状 | 原因 | 対処 |
+|------|------|------|
+| Notion 403エラー | Integration が DB の「接続」に追加されていない | 各DB → 右上「...」→「接続先」→ インテグレーション名を追加 |
+| `SHEETS_ID エラー` | スクリプトプロパティ未設定 | スプレッドシートURLから正しくIDをコピーして設定 |
+| Embedding エラー | Gemini APIキー不正 | `testEmbedding()` を実行して確認。キーを再発行 |
+| 同期タイムアウト（6分超） | ページ数が多い | DBを分けて分割実行。通常100ページ以下なら問題なし |
+| グラフが「データが空」 | RAG_Index が未構築 | `syncNotionToSheets()` を実行してインデックスを作成 |
+| チャットが「考え中...」のまま | `chatHistory` 変数の競合 | `gas_cloud_rag.js` の JS変数名が `history` になっていないか確認（`chatHistory` に統一） |
