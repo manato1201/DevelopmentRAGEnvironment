@@ -560,13 +560,12 @@ function ragQuery(query, dbKey, history) {
 // WebApp エントリポイント
 // ─────────────────────────────────────────────
 
+/** google.script.run から呼ぶための公開ラッパー（_付き関数は呼べないため） */
+function getGraphData() {
+  return buildGraphData_();
+}
+
 function doGet(e) {
-  // ?action=graph でグラフ JSON を返す
-  if (e && e.parameter && e.parameter.action === 'graph') {
-    return ContentService
-      .createTextOutput(JSON.stringify(buildGraphData_()))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
   return HtmlService.createHtmlOutput(getChatHtml())
     .setTitle('RAG チャット')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -944,15 +943,16 @@ function getChatHtml() {
 'function loadGraph(){\n' +
 '  var status=document.getElementById("graph-status");\n' +
 '  status.textContent="グラフデータ取得中...";\n' +
-'  var url=location.href.split("?")[0]+"?action=graph";\n' +
-'  fetch(url)\n' +
-'    .then(function(r){return r.json();})\n' +
-'    .then(function(data){\n' +
-'      if(data.status!=="ok"&&!data.nodes){status.textContent="取得失敗";return;}\n' +
+'  google.script.run\n' +
+'    .withSuccessHandler(function(data){\n' +
+'      if(!data||!data.nodes){status.textContent="データが空です";return;}\n' +
 '      renderGraph(data);\n' +
 '      _graphLoaded=true;\n' +
 '    })\n' +
-'    .catch(function(e){status.textContent="エラー: "+e.message;});\n' +
+'    .withFailureHandler(function(err){\n' +
+'      status.textContent="エラー: "+(err.message||String(err));\n' +
+'    })\n' +
+'    .getGraphData();\n' +
 '}\n' +
 '\n' +
 'function fitGraph(){\n' +
