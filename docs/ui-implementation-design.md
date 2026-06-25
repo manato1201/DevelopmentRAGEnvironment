@@ -1,767 +1,337 @@
 # UI実装設計ドキュメント
 
-**対象:** Unity / Houdini / Web / Desktop アプリ  
-**目的:** 各環境からCloudRAG（GAS + Gemini）およびLocalRAG（mcp-rag-server）を呼び出すUIの実装設計  
-**更新日:** 2026-06-10
+**対象:** Unity EditorWindow / Houdini Python Panel / GAS WebApp / ローカルブリッジ  
+**目的:** 実装済みの各コンポーネントの役割・構成・設計判断を説明する  
+**更新日:** 2026-06-25
+
+> このドキュメントは「これから作る設計案」ではなく「実際に動いているコードの説明書」です。
 
 ---
 
 ## 目次
 
 1. [全体方針](#1-全体方針)
-2. [Unity エディタ拡張](#2-unity-エディタ拡張)
-3. [Houdini Python UIパネル](#3-houdini-python-uiパネル)
-4. [Webアプリ（Vercel / GitHub Pages）](#4-webアプリ)
-5. [デスクトップアプリ（Electron / Tauri）](#5-デスクトップアプリ)
-6. [ラジアル / パイメニュー](#6-ラジアルパイメニュー)
-7. [共通: GAS WebApp呼び出し仕様](#7-共通-gas-webapp呼び出し仕様)
+2. [Unity EditorWindow](#2-unity-editorwindow)
+3. [Houdini Python Panel](#3-houdini-python-panel)
+4. [GAS WebApp グラフ機能](#4-gas-webapp-グラフ機能)
+5. [ローカルブリッジ](#5-ローカルブリッジ)
+6. [セキュリティ設計](#6-セキュリティ設計)
 
 ---
 
 ## 1. 全体方針
 
-### RAG参照先の使い分け
+### RAGには「クラウド版」と「ローカル版」の2種類がある
 
-| UI環境 | 参照RAG | 理由 |
-|--------|---------|------|
-| Unity エディタ | CloudRAG（GAS） | ツール仕様・Unity公式ドキュメント系 |
-| Houdini パネル | CloudRAG（GAS） | Houdiniリファレンス・共有ノウハウ |
-| Webアプリ | CloudRAG（GAS） | ブラウザからLocalRAGには直接届かない |
-| Desktop（Electron/Tauri） | LocalRAG（MCP） | 個人情報・チャット履歴・草稿参照 |
-| Claude Desktop | LocalRAG（MCP） | 既存のMCP設定でそのまま使用 |
+このシステムは、用途に応じてクラウドとローカルを切り替えられるように設計されています。
 
-### 共通アーキテクチャ（Cloud系）
+| モード | 接続先 | 主な用途 |
+|--------|--------|---------|
+| Cloud | GAS WebApp（Google のサーバー） | Notion に蓄積したゲーム開発ノウハウの検索 |
+| Local | localhost:8766（自分のPC） | ローカルの Markdown ドキュメント検索 |
+
+**切り替え方:** Unity / Houdini どちらの UI でも「Settings」タブからモードを切り替えられます。接続先が変わるだけで、質問の送り方・回答の受け取り方は同じです。
+
+### 共通アーキテクチャ
 
 ```
-各UI → HTTP POST → GAS WebApp → Notion検索 + Gemini API → 回答
+[ユーザーが質問を入力]
+        ↓
+  Unity / Houdini UI
+        ↓ HTTP POST（JSON）
+  ┌─────────────────────────────────┐
+  │ Cloud モード    │ Local モード   │
+  │ GAS WebApp      │ localhost:8766 │
+  │ （Google）      │ （ローカル）   │
+  └─────────────────────────────────┘
+        ↓
+  Gemini / Claude が回答を生成
+        ↓
+  UI に回答を表示
 ```
-
-GAS WebAppのURLとdbKeyを渡すだけで全UI共通で動作する。UIごとに実装方法が違うだけでロジックは同一。
 
 ---
 
-## 2. Unity エディタ拡張
+## 2. Unity EditorWindow
 
-### 概要
+Unity のエディタ拡張（Editor フォルダに置くスクリプト）として実装しています。Unity を使いながらエディタ上でそのまま RAG に質問できます。
 
-`EditorWindow` を使ってUnityエディタ内にチャットUIを実装する。Playモード中でも使えるよう `[ExecuteAlways]` の考慮は不要（EditorWindowはエディタ専用）。
-
-### ファイル構成
+### ファイル一覧と役割
 
 ```
-Assets/
-└── Editor/
-    └── RAGChatWindow/
-        ├── RAGChatWindow.cs      ← メインウィンドウ
-        ├── RAGClient.cs          ← GAS WebApp 呼び出し
-        └── RAGChatWindow.uss     ← UI Toolkit スタイル（任意）
+Assets/Editor/RAGChatbot/
+├── RAGMessage.cs          ← データの入れ物
+├── IRAGClient.cs          ← クライアントの設計図（インターフェース）
+├── CloudRAGClient.cs      ← Cloud モードの通信処理
+├── LocalRAGClient.cs      ← Local モードの通信処理
+├── RAGChatbotWindow.cs    ← メインウィンドウ（UI の親）
+├── RAGGraphData.cs        ← グラフ用データの入れ物
+└── RAGGraphView.cs        ← グラフ描画キャンバス
 ```
 
-### RAGChatWindow.cs
+---
+
+### RAGMessage.cs — データの入れ物
+
+チャット履歴・検索結果・API レスポンスを表す単純なデータクラスです。
+
+- `RAGMessage` — ひとつの発言（役割: user / assistant、本文テキスト）
+- `RAGSource` — 検索でヒットしたソースページ（タイトル・スコア・DB名）
+- `RAGResponse` — API からの返答全体（回答テキスト + ソース一覧）
+
+---
+
+### IRAGClient.cs — クライアントの設計図
+
+クラウドとローカルで実装が違っても、ウィンドウ側は同じコードで呼び出せるように「インターフェース」（約束事の一覧）を定義しています。
 
 ```csharp
-using UnityEngine;
-using UnityEditor;
-using System.Collections.Generic;
-
-public class RAGChatWindow : EditorWindow
+public interface IRAGClient
 {
-    // ===== 設定 =====
-    private const string GAS_ENDPOINT = "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec";
-
-    private static readonly string[] DB_LABELS = {
-        "Tool Docs（Unity / Houdini / DX12）",
-        "Game Info（ゲーム情報）",
-        "Research（論文・技術記事）",
-        "Team Notes（ゼミ・議事録）"
-    };
-    private static readonly string[] DB_KEYS = {
-        "tool_docs", "game_info", "research", "team_notes"
-    };
-
-    // ===== 状態 =====
-    private int _selectedDb = 0;
-    private string _inputText = "";
-    private Vector2 _scrollPos;
-    private readonly List<(string role, string text)> _messages = new();
-    private bool _isLoading = false;
-    private RAGClient _client;
-
-    [MenuItem("Tools/RAG Chat")]
-    public static void Open() => GetWindow<RAGChatWindow>("RAG Chat");
-
-    private void OnEnable()
-    {
-        _client = new RAGClient(GAS_ENDPOINT);
-    }
-
-    private void OnGUI()
-    {
-        // DB選択
-        EditorGUILayout.LabelField("参照DB", EditorStyles.boldLabel);
-        _selectedDb = EditorGUILayout.Popup(_selectedDb, DB_LABELS);
-        EditorGUILayout.Space(4);
-
-        // チャット履歴
-        float chatHeight = position.height - 120;
-        _scrollPos = EditorGUILayout.BeginScrollView(
-            _scrollPos,
-            GUILayout.Height(chatHeight)
-        );
-        foreach (var (role, text) in _messages)
-        {
-            var style = role == "user"
-                ? new GUIStyle(EditorStyles.helpBox) { alignment = TextAnchor.MiddleRight }
-                : new GUIStyle(EditorStyles.helpBox);
-            EditorGUILayout.LabelField($"[{role}] {text}", style);
-        }
-        EditorGUILayout.EndScrollView();
-
-        // 入力欄
-        EditorGUILayout.BeginHorizontal();
-        GUI.enabled = !_isLoading;
-        _inputText = EditorGUILayout.TextField(_inputText);
-
-        if (GUILayout.Button(_isLoading ? "..." : "送信", GUILayout.Width(60)))
-            SendQuery();
-
-        GUI.enabled = true;
-        EditorGUILayout.EndHorizontal();
-
-        // ローディング表示
-        if (_isLoading)
-            EditorGUILayout.LabelField("Geminiが考え中...", EditorStyles.centeredGreyMiniLabel);
-    }
-
-    private async void SendQuery()
-    {
-        if (string.IsNullOrWhiteSpace(_inputText) || _isLoading) return;
-
-        var query = _inputText.Trim();
-        _inputText = "";
-        _messages.Add(("user", query));
-        _isLoading = true;
-        Repaint();
-
-        var answer = await _client.QueryAsync(query, DB_KEYS[_selectedDb]);
-        _messages.Add(("assistant", answer));
-        _isLoading = false;
-        Repaint();
-    }
+    Task<RAGResponse> QueryAsync(string query, string dbKey);
+    Task<bool> HealthCheckAsync();
 }
 ```
 
-### RAGClient.cs
+**なぜインターフェースを使うか:** ウィンドウ側は「`QueryAsync` を呼べばいい」とだけ知っていればよく、相手がクラウドかローカルかを意識する必要がなくなります。モードを切り替えても `RAGChatbotWindow.cs` のコードを変える必要がありません。
 
-```csharp
-using System.Net.Http;
-using System.Text;
-using System.Threading.Tasks;
-using Newtonsoft.Json;
+---
 
-public class RAGClient
-{
-    private readonly string _endpoint;
-    private static readonly HttpClient Http = new();
+### CloudRAGClient.cs — クラウドへの通信処理
 
-    public RAGClient(string endpoint) => _endpoint = endpoint;
+GAS WebApp に HTTPS POST でリクエストを送り、回答を受け取ります。
 
-    public async Task<string> QueryAsync(string query, string dbKey)
-    {
-        try
-        {
-            var body = JsonConvert.SerializeObject(new { query, dbKey });
-            var content = new StringContent(body, Encoding.UTF8, "application/json");
-            var res = await Http.PostAsync(_endpoint, content);
-            var json = await res.Content.ReadAsStringAsync();
-            var data = JsonConvert.DeserializeObject<dynamic>(json);
-            return data?.answer ?? "回答を取得できませんでした";
-        }
-        catch (System.Exception e)
-        {
-            return $"エラー: {e.Message}";
-        }
-    }
-}
+- `UnityWebRequest` を使って HTTPS 通信（Unity 標準の HTTP クライアント）
+- リクエスト本文: `{ "query": "...", "dbKey": "..." }` の JSON 形式
+- レスポンスから `answer`（回答テキスト）と `sources`（参照ページ一覧）を取り出す
+
+---
+
+### LocalRAGClient.cs — ローカルブリッジへの通信処理
+
+`localhost:8766` で動いているローカルブリッジサーバーに HTTP POST を送ります。
+
+- `UnityWebRequest` を使って HTTP 通信（ローカルなので HTTPS 不要）
+- リクエスト先: `http://localhost:{port}/query`
+- ポート番号はデフォルト 8766（Settings タブで変更可能）
+
+---
+
+### RAGChatbotWindow.cs — メインウィンドウ
+
+IMGUI（Unity の古い UI システム）で作られたエディタウィンドウ本体です。3つのタブで構成されています。
+
+```
+[Chat タブ]    [Graph タブ]    [Settings タブ]
 ```
 
-### ラジアルメニューとの連携
+**主な処理:**
 
-```csharp
-// Scene View にホットキーでRAG Chatを開く
-[InitializeOnLoadMethod]
-static void RegisterSceneViewCallback()
-{
-    SceneView.duringSceneGui += sv => {
-        Event e = Event.current;
-        // Q キー長押しでウィンドウを開く
-        if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Q && e.shift)
-        {
-            RAGChatWindow.Open();
-            e.Use();
-        }
-    };
-}
+- `OnEnable()`: ウィンドウが開いたときに呼ばれる。Settings に保存されたモード・URL・ポートを読み込んで `IRAGClient` を生成する。また Local モードの場合はブリッジプロセスを自動起動する
+- `Chat タブ`: メッセージ入力欄・送信ボタン・会話履歴のスクロールビューを表示。`QueryAsync()` を呼んで非同期で回答を取得する
+- `Graph タブ`: `RAGGraphView.cs` を使ってグラフを描画する。「更新」ボタンでグラフデータを取得する
+- `Settings タブ`: GAS URL と通信ポートを入力欄で設定できる。値は `EditorPrefs`（Unity が管理するエディタ設定ファイル）に保存され、Unity を閉じても消えない
+
+---
+
+### RAGGraphData.cs — グラフ用データの入れ物
+
+グラフを描画するために必要なデータ構造を定義しています。
+
+- `GraphNode` — グラフ上の1点（ページ ID・タイトル・DB 名・座標）
+- `GraphEdge` — 2つのノードを結ぶ線（ノード ID ペア・類似度スコア）
+- `GraphData` — ノード一覧とエッジ一覧をまとめたもの（API レスポンスの形と対応）
+
+---
+
+### RAGGraphView.cs — グラフ描画キャンバス
+
+IMGUI の低レベル描画 API を直接使ってグラフを描画しています。グラフ描画ライブラリは使わず、すべて手書きです。
+
+**描画方法:**
+- エッジ（線）: `GL.LINES` で直線を描画。類似度スコアが高いほど不透明度が高い
+- ノード（点）: `EditorGUI.DrawRect` で矩形を描画（丸ではなく正方形）。DB の種類によって色を変えている
+
+**操作の実装:**
+- パン（画面全体を移動）: 背景をドラッグすると `_panOffset`（移動量）が更新される
+- ズーム: スクロールイベントで `_zoom`（倍率）を増減させ、描画時に座標に掛ける
+- ノード選択: クリック位置と各ノードの座標を比較して最も近いノードを選択状態にする
+
+---
+
+## 3. Houdini Python Panel
+
+Houdini の Python パネル（ドッキング可能なウィンドウ）として実装しています。PySide6（Python 用 GUI ライブラリ）を使っています。
+
+### ファイル一覧と役割
+
+```
+houdini/python_panels/
+├── rag_chatbot.py    ← メインパネル（Chat / Graph / Settings タブ）
+└── graph_view.py     ← グラフ描画キャンバス
 ```
 
 ---
 
-## 3. Houdini Python UIパネル
+### rag_chatbot.py — メインパネル
 
-### 概要
+Unity 版と同じく3タブ構成です。ただし Python の GUI なので実装方法が違います。
 
-Houdiniの `hou.ui.createDialog()` または `PySide2.QtWidgets` で独立したQDialogを作成する。HDKを使わずPure Pythonで実装できる。
-
-### ファイル構成
+**タブ構成:**
 
 ```
-$HOUDINI_USER_PREF_DIR/
-└── scripts/
-    └── python/
-        └── rag_chat/
-            ├── __init__.py
-            ├── panel.py          ← メインUI
-            ├── client.py         ← GAS WebApp 呼び出し
-            └── shelf_tool.py     ← シェルフボタン登録用
+[Chat タブ]    [Graph タブ]    [Settings タブ]
 ```
 
-### panel.py
+**QueryWorker（QThread）:**
 
-```python
-"""
-Houdini RAG Chat パネル
-起動: import rag_chat; rag_chat.show()
-"""
-import hou
-import urllib.request
-import urllib.parse
-import json
-import threading
-from PySide2 import QtWidgets, QtCore, QtGui
+Python の標準的な HTTP リクエストは「待っている間 UI が固まる」という問題があります。これを防ぐために `QThread`（別スレッドで処理を走らせる仕組み）を使って非同期でリクエストします。
 
-GAS_ENDPOINT = "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec"
-
-DB_OPTIONS = {
-    "Tool Docs（Houdini / Unity / DX12）": "tool_docs",
-    "Game Info（ゲーム情報）":              "game_info",
-    "Research（論文・技術記事）":           "research",
-    "Team Notes（ゼミ・議事録）":           "team_notes",
-}
-
-
-class RAGChatPanel(QtWidgets.QDialog):
-    answer_received = QtCore.Signal(str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent or hou.qt.mainWindow())
-        self.setWindowTitle("RAG Chat — Houdini")
-        self.setMinimumSize(480, 560)
-        self.setWindowFlags(
-            QtCore.Qt.Tool | QtCore.Qt.WindowStaysOnTopHint
-        )
-        self._build_ui()
-        self.answer_received.connect(self._on_answer)
-
-    def _build_ui(self):
-        layout = QtWidgets.QVBoxLayout(self)
-
-        # DB選択
-        db_row = QtWidgets.QHBoxLayout()
-        db_row.addWidget(QtWidgets.QLabel("参照DB:"))
-        self.db_combo = QtWidgets.QComboBox()
-        for label in DB_OPTIONS:
-            self.db_combo.addItem(label)
-        db_row.addWidget(self.db_combo)
-        layout.addLayout(db_row)
-
-        # チャット表示
-        self.chat_view = QtWidgets.QTextEdit()
-        self.chat_view.setReadOnly(True)
-        self.chat_view.setStyleSheet(
-            "background:#1a1a2e; color:#e0e0e0; font-size:13px;"
-        )
-        layout.addWidget(self.chat_view)
-
-        # 入力欄
-        input_row = QtWidgets.QHBoxLayout()
-        self.input_field = QtWidgets.QLineEdit()
-        self.input_field.setPlaceholderText("質問を入力... (Enter で送信)")
-        self.input_field.returnPressed.connect(self._send)
-        input_row.addWidget(self.input_field)
-
-        self.send_btn = QtWidgets.QPushButton("送信")
-        self.send_btn.clicked.connect(self._send)
-        self.send_btn.setFixedWidth(72)
-        input_row.addWidget(self.send_btn)
-        layout.addLayout(input_row)
-
-        # ステータス
-        self.status_label = QtWidgets.QLabel("")
-        self.status_label.setStyleSheet("color:#888; font-size:11px;")
-        layout.addWidget(self.status_label)
-
-    def _send(self):
-        query = self.input_field.text().strip()
-        if not query:
-            return
-        db_label = self.db_combo.currentText()
-        db_key = DB_OPTIONS[db_label]
-
-        self.input_field.clear()
-        self._append_chat("あなた", query, "#4ea8de")
-        self.send_btn.setEnabled(False)
-        self.status_label.setText("Geminiが考え中...")
-
-        # 別スレッドで HTTP リクエスト（UIをブロックしない）
-        threading.Thread(
-            target=self._fetch_answer,
-            args=(query, db_key),
-            daemon=True
-        ).start()
-
-    def _fetch_answer(self, query: str, db_key: str):
-        try:
-            payload = json.dumps({"query": query, "dbKey": db_key}).encode()
-            req = urllib.request.Request(
-                GAS_ENDPOINT,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=30) as res:
-                data = json.loads(res.read().decode())
-                self.answer_received.emit(data.get("answer", "回答なし"))
-        except Exception as e:
-            self.answer_received.emit(f"エラー: {e}")
-
-    def _on_answer(self, answer: str):
-        self._append_chat("RAG", answer, "#3fb950")
-        self.send_btn.setEnabled(True)
-        self.status_label.setText("")
-
-    def _append_chat(self, role: str, text: str, color: str):
-        self.chat_view.append(
-            f'<span style="color:{color};font-weight:bold;">[{role}]</span>'
-            f'<span style="color:#e0e0e0;"> {text}</span><br>'
-        )
-
-
-_panel_instance = None
-
-def show():
-    """シェルフボタンやホットキーから呼び出す"""
-    global _panel_instance
-    if _panel_instance is None or not _panel_instance.isVisible():
-        _panel_instance = RAGChatPanel()
-    _panel_instance.show()
-    _panel_instance.raise_()
-    _panel_instance.activateWindow()
+```
+ユーザーが送信ボタンを押す
+  ↓
+QueryWorker（別スレッド）が起動
+  ↓ 別スレッドで HTTP リクエスト送信・待機
+  ↓ 完了したらシグナルで結果を UI スレッドに通知
+UI スレッドが回答を表示（UI は固まらない）
 ```
 
-### シェルフへの登録
+**BridgeStartWorker（QThread）:**
 
-Houdiniのシェルフエディタで新規ツールを作成し、スクリプト欄に記入：
+Local モードを選択したとき、ローカルブリッジプロセスを自動起動します。起動処理も別スレッドで行うため、UI を妨げません。
 
-```python
-import rag_chat
-rag_chat.show()
-```
+**設定の保存先:**
 
-ホットキーは `Ctrl+Shift+R` を推奨。
+`%USERPROFILE%\.houdini\rag_chatbot_config.json` に JSON 形式で保存します。Unity の `EditorPrefs` に相当するものが Houdini にはないため、自前で JSON ファイルを読み書きしています。
 
 ---
 
-## 4. Webアプリ
+### graph_view.py — グラフ描画キャンバス
 
-### 概要
+PySide6 の `QGraphicsView` / `QGraphicsScene` を使ってグラフを描画しています。Unity 版よりもリッチな表現が可能です。
 
-Next.js（App Router）でチャットUIを実装し、Vercelにデプロイする。静的コンテンツのみの場合はGitHub Pagesも可。
+**主なクラス:**
 
-### 技術スタック
+- `NodeItem`（QGraphicsEllipseItem の拡張）: グラフ上のひとつのページを表す円形ノード。DB の種類によって色が変わる。マウスホバーで拡大・クリックで詳細表示
+- `EdgeItem`（QGraphicsLineItem の拡張）: 2ノード間の類似度を表す線。スコアが高いほど線が濃く（不透明度が高く）なる
+- `RAGGraphView`（QGraphicsView の拡張）: ノードとエッジをまとめたキャンバス全体。マウスドラッグでパン、ホイールでズームを実装している
 
-| 項目 | 選択 | 理由 |
-|------|------|------|
-| フレームワーク | Next.js 14（App Router） | Vercelとの親和性 |
-| デプロイ | Vercel | 無料・CI/CD自動 |
-| スタイル | Tailwind CSS | セットアップが最速 |
-| HTTP | fetch（組み込み） | 依存なし |
+**グラフデータの取得:**
 
-### ファイル構成
-
-```
-rag-web/
-├── app/
-│   ├── layout.tsx
-│   ├── page.tsx              ← チャットページ
-│   └── api/
-│       └── chat/
-│           └── route.ts      ← GAS WebApp プロキシ
-├── components/
-│   └── ChatWindow.tsx
-└── lib/
-    └── rag-client.ts
-```
-
-### app/api/chat/route.ts（GASプロキシ）
-
-```typescript
-// GAS WebApp を直接クライアントから叩くと CORS エラーになる場合があるため
-// Next.js のAPI Routeをプロキシとして使う
-import { NextRequest, NextResponse } from 'next/server'
-
-const GAS_ENDPOINT = process.env.GAS_ENDPOINT!
-
-export async function POST(req: NextRequest) {
-  const body = await req.json()
-  try {
-    const res = await fetch(GAS_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const data = await res.json()
-    return NextResponse.json(data)
-  } catch (e) {
-    return NextResponse.json({ answer: `エラー: ${e}`, status: 'error' }, { status: 500 })
-  }
-}
-```
-
-### components/ChatWindow.tsx
-
-```typescript
-'use client'
-import { useState, useRef, useEffect } from 'react'
-
-const DB_OPTIONS = [
-  { label: 'Tool Docs（Unity / Houdini / DX12）', value: 'tool_docs' },
-  { label: 'Game Info（ゲーム情報）',              value: 'game_info' },
-  { label: 'Research（論文・技術記事）',           value: 'research' },
-  { label: 'Team Notes（ゼミ・議事録）',           value: 'team_notes' },
-]
-
-type Message = { role: 'user' | 'assistant'; text: string }
-
-export default function ChatWindow() {
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [dbKey, setDbKey] = useState('tool_docs')
-  const [loading, setLoading] = useState(false)
-  const bottomRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  const send = async () => {
-    if (!input.trim() || loading) return
-    const query = input.trim()
-    setInput('')
-    setMessages(prev => [...prev, { role: 'user', text: query }])
-    setLoading(true)
-
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, dbKey }),
-    })
-    const data = await res.json()
-    setMessages(prev => [...prev, { role: 'assistant', text: data.answer }])
-    setLoading(false)
-  }
-
-  return (
-    <div className="flex flex-col h-screen max-w-2xl mx-auto p-4">
-      <select
-        value={dbKey}
-        onChange={e => setDbKey(e.target.value)}
-        className="mb-3 p-2 rounded border text-sm"
-      >
-        {DB_OPTIONS.map(o => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-
-      <div className="flex-1 overflow-y-auto space-y-3 mb-3">
-        {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[80%] px-3 py-2 rounded-xl text-sm whitespace-pre-wrap
-              ${m.role === 'user'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-800'}`}>
-              {m.text}
-            </div>
-          </div>
-        ))}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-gray-100 px-3 py-2 rounded-xl text-sm text-gray-400">
-              考え中...
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="flex gap-2">
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-          placeholder="質問を入力..."
-          className="flex-1 px-3 py-2 rounded border text-sm"
-        />
-        <button
-          onClick={send}
-          disabled={loading}
-          className="px-4 py-2 bg-blue-600 text-white rounded text-sm disabled:opacity-50"
-        >
-          送信
-        </button>
-      </div>
-    </div>
-  )
-}
-```
-
-### Vercelへのデプロイ
-
-```bash
-# プロジェクト作成
-npx create-next-app@latest rag-web --typescript --tailwind --app
-
-# 環境変数を .env.local に設定
-echo "GAS_ENDPOINT=https://script.google.com/macros/s/YOUR_ID/exec" > .env.local
-
-# Vercel CLIでデプロイ
-npx vercel --prod
-```
-
-Vercelの環境変数に `GAS_ENDPOINT` を設定すること。
+`GraphFetchWorker`（QThread）が `/graph` エンドポイントに非同期でリクエストを送り、受け取ったデータを `NodeItem` / `EdgeItem` として描画します。
 
 ---
 
-## 5. デスクトップアプリ
+## 4. GAS WebApp グラフ機能
 
-### 概要
+GAS（Google Apps Script）側でグラフデータを計算して返す機能です。`scripts/gas_cloud_rag.js` に実装されています。
 
-LocalRAG（mcp-rag-server）を直接呼び出したい場合はElectronまたはTauriで実装する。Node.js（Electron）またはRust（Tauri）のバックエンドからWSL2のMCPサーバーにアクセスできる。
+### buildGraphData_() — グラフデータ計算の本体
 
-### Electron vs Tauri 比較
+「`_`（アンダースコア）がついた関数」は GAS の内部関数で、ブラウザから直接呼び出せません（後述の `getGraphData()` 経由で呼ぶ）。
 
-| 項目 | Electron | Tauri |
-|------|----------|-------|
-| 言語 | Node.js + HTML/CSS/JS | Rust + HTML/CSS/JS |
-| バンドルサイズ | 大（100MB超） | 小（数MB） |
-| パフォーマンス | 普通 | 高速 |
-| 実装難易度 | 低（JS全部） | 中（Rust部分） |
-| 推奨ケース | 速く作りたい | 本番品質・軽量化 |
-
-ゲームエンジニア的には**Tauri推奨**。Rustの学習コストはあるがバイナリが小さく配布しやすい。
-
-### Tauri: ディレクトリ構成
+**処理の流れ:**
 
 ```
-rag-desktop/
-├── src-tauri/
-│   ├── src/
-│   │   ├── main.rs          ← エントリポイント
-│   │   └── rag.rs           ← MCP / GAS 呼び出しロジック
-│   └── tauri.conf.json
-└── src/                     ← フロントエンド（同じChrome UIを流用可）
-    ├── index.html
-    ├── main.ts
-    └── ChatWindow.svelte     ← または React
+1. RAG_Index シートを開く
+2. 各ページの「代表埋め込み」を取得
+     └─ page_id::0 チャンク（ページを分割した最初のかたまり）のベクトルを使用
+3. 全ページ間でコサイン類似度を計算
+4. スコアが 0.70 以上のペアを「エッジ（線）候補」とし、上位 3 件を残す
+5. 結果を JSON に変換して返す
 ```
 
-### src-tauri/src/rag.rs（GAS呼び出し）
+**コサイン類似度 0.70 という閾値について:** 実験的に決めた値です。低すぎると関係のないページにも線が引かれてグラフが複雑になり、高すぎると線がほとんど引かれません。
 
-```rust
-use serde::{Deserialize, Serialize};
-use tauri::command;
-
-#[derive(Serialize)]
-struct RagRequest {
-    query: String,
-    db_key: String,
-}
-
-#[derive(Deserialize)]
-struct RagResponse {
-    answer: String,
-}
-
-#[command]
-pub async fn query_cloud_rag(query: String, db_key: String) -> Result<String, String> {
-    let client = reqwest::Client::new();
-    let endpoint = "https://script.google.com/macros/s/YOUR_ID/exec";
-
-    let res = client
-        .post(endpoint)
-        .json(&RagRequest { query, db_key })
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let data: RagResponse = res.json().await.map_err(|e| e.to_string())?;
-    Ok(data.answer)
-}
-
-// LocalRAG呼び出し（WSL2のMCPサーバーにSSEで接続）
-#[command]
-pub async fn query_local_rag(query: String, namespace: String) -> Result<String, String> {
-    // mcp-rag-server のCLI検索機能を直接呼び出す
-    let output = tokio::process::Command::new("wsl")
-        .args([
-            "bash", "-c",
-            &format!(
-                "/home/tk_render/.local/bin/uv run --directory /home/tk_render/mcp-rag-server \
-                 python -m src.cli search --query '{}' --namespace '{}'",
-                query.replace("'", "\\'"),
-                namespace
-            )
-        ])
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-}
-```
-
-### Electron: 最速実装（既存WebコードをそのままElectronで包む）
+### getGraphData() — 公開ラッパー
 
 ```javascript
-// main.js（Electronメインプロセス）
-const { app, BrowserWindow } = require('electron')
-const path = require('path')
-
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 480,
-    height: 640,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
-    }
-  })
-  // Webアプリを内包 or VercelのURLを読み込む
-  win.loadFile('src/index.html')
+function getGraphData() {
+    return buildGraphData_();
 }
-
-app.whenReady().then(createWindow)
 ```
+
+GAS では `google.script.run` でブラウザから呼び出せる関数名に `_` をつけられないため、`_` なしのラッパー関数を用意しています。
+
+### CacheService による高速化
+
+グラフデータは計算コストが高いため、GAS の `CacheService` を使って計算結果を **30分間キャッシュ** しています。
+
+```
+初回: 計算（30秒〜1分） → キャッシュに保存
+2回目以降（30分以内）: キャッシュから即返却（数秒）
+30分後: キャッシュ期限切れ → 再計算
+```
+
+### WebApp 側の D3.js グラフ描画
+
+GAS の WebApp（ブラウザで開くチャット画面）にもグラフタブが実装されています。`D3.js`（JavaScriptのグラフ描画ライブラリ）の `force simulation`（物理シミュレーション）でノードを自動配置しています。
+
+- **force simulation:** ノード同士が反発し、エッジで繋がったノードは引き合う「バネ」のような力をシミュレートして、自然な配置を自動計算します
+- **操作:** ドラッグでノード移動、ホイールでズーム、ノードクリックで詳細表示
 
 ---
 
-## 6. ラジアル / パイメニュー
+## 5. ローカルブリッジ
 
-### 設計方針
+`scripts/rag_local_bridge.py` として実装されています。Python の `FastAPI` フレームワークで動く軽量なサーバーです。
 
-各UI環境に対して「よく使う操作を素早く実行できる」ためのラジアルメニューを実装する。
+**なぜブリッジが必要か:** `mcp-rag-server`（ローカルの検索エンジン）は「stdio JSON-RPC」という通信方式を使っており、Unity や Houdini の UI から直接呼び出せません。ブリッジがその変換役を担います。
 
-### Unity: Scene Viewでのラジアルメニュー
-
-```csharp
-// RadialMenu.cs（EditorWindow内）
-public class RadialMenu : EditorWindow
-{
-    private static readonly (string label, System.Action action)[] ITEMS = {
-        ("RAG Chat", () => RAGChatWindow.Open()),
-        ("Tool Docs検索", () => OpenWithDB("tool_docs")),
-        ("Game Info検索", () => OpenWithDB("game_info")),
-        ("Research検索", () => OpenWithDB("research")),
-    };
-
-    // 右クリック長押しで表示
-    // Q + 右クリックで呼び出し
-}
+```
+Unity / Houdini
+  ↓ HTTP POST（Unity / Houdini が話せる言語）
+rag_local_bridge.py（localhost:8766）
+  ↓ stdio JSON-RPC（mcp-rag-server が話せる言語）
+mcp-rag-server（ローカル検索エンジン）
 ```
 
-### Houdini: Pythonラジアルメニュー
+### 提供するエンドポイント一覧
 
-```python
-# radial_menu.py
-# シェルフに登録して右クリックメニューに追加
+| エンドポイント | 処理内容 |
+|--------------|---------|
+| `GET /health` | ブリッジが生きているかチェック。mcp-rag-server のドキュメント数も返す |
+| `POST /query` | 質問を受け取り、mcp-rag-server で検索 → Claude Haiku が回答を生成 → JSON で返す |
+| `GET /graph` | rag_graph_export.py をサブプロセスとして実行し、グラフ JSON を返す |
 
-import hou
-from PySide2 import QtWidgets
+### MCPClient クラス
 
-def show_radial_menu():
-    menu = QtWidgets.QMenu()
-    menu.addAction("RAG Chat を開く",     lambda: __import__('rag_chat').show())
-    menu.addAction("Tool Docs を検索",    lambda: quick_search("tool_docs"))
-    menu.addAction("Houdini ノード検索",  lambda: quick_search("tool_docs", preset="houdini node"))
-    menu.exec_(QtGui.QCursor.pos())
+mcp-rag-server を **stdio JSON-RPC** でラップするクラスです。
 
-def quick_search(db_key, preset=""):
-    import rag_chat
-    panel = rag_chat.show()
-    if preset:
-        panel.input_field.setText(preset)
-```
+- mcp-rag-server を子プロセスとして起動し、標準入出力（stdin / stdout）でやり取りする
+- リクエストを JSON-RPC 形式に組み立てて書き込み、レスポンスを読み取ってパースする
+- `GET /health` は mcp-rag-server に `tools/list` を送ってプロセスの生存を確認する
 
-### Web: フローティングアクションボタン（FAB）
+### rag_graph_export.py の呼び出し
 
-Webアプリではラジアルメニューの代わりにFABパターンが自然。
-
-```typescript
-// FABMenu.tsx
-const FAB_ITEMS = [
-  { label: 'Tool Docs', db: 'tool_docs', shortcut: '1' },
-  { label: 'Research',  db: 'research',  shortcut: '2' },
-  { label: 'Game Info', db: 'game_info', shortcut: '3' },
-]
-// 右下固定ボタン → クリックでDB切り替え + フォーカス
-```
+`GET /graph` は `rag_graph_export.py` を `uv run` でサブプロセス実行して結果を受け取ります。直接インポートせずサブプロセスにしている理由は、依存関係の分離（ブリッジとグラフ計算のライブラリ環境を分ける）です。
 
 ---
 
-## 7. 共通: GAS WebApp呼び出し仕様
+## 6. セキュリティ設計
 
-全UI環境から同一のインターフェースでGASを呼び出す。
+### 秘密情報の保存ルール
 
-### リクエスト仕様
+| 情報の種類 | 保存場所 | 補足 |
+|-----------|---------|------|
+| Anthropic API キー | 環境変数のみ（`ANTHROPIC_API_KEY`） | コードに絶対書かない |
+| Gemini API キー | GAS スクリプトプロパティのみ | GAS の設定画面から登録 |
+| Notion API キー | GAS スクリプトプロパティのみ | 同上 |
+| GAS WebApp URL | Unity: EditorPrefs / Houdini: JSON ファイル | 半公開情報。URL を知っていれば誰でも叩ける |
+| ローカルブリッジのポート番号 | コードのデフォルト値（8766） | ローカルネットワーク内のみ到達可能 |
 
-```
-POST https://script.google.com/macros/s/{DEPLOYMENT_ID}/exec
+### .env ファイルを使わない理由
 
-Content-Type: application/json
+このプロジェクトでは `.env` ファイルを使用しません。`.env` ファイルは誤って Git にコミットされるリスクがあるためです。API キーはすべて OS の環境変数（システム設定から登録）または GAS のスクリプトプロパティに保存します。
 
-{
-  "query": "HoudiniのVEX wrangleの使い方",
-  "dbKey": "tool_docs"
-}
-```
+### GAS WebApp URL のアクセス制御
 
-### レスポンス仕様
+GAS WebApp のデプロイ設定で「アクセスできるユーザー」を制限できます。
 
-```json
-{
-  "answer": "VEX wrangleは...",
-  "status": "ok"
-}
-```
+| 設定値 | 説明 |
+|--------|------|
+| 自分のみ | Google ログイン必須。個人利用向け |
+| 全員（Googleアカウント必要） | チームメンバーに共有する場合 |
+| 全員（Googleアカウント不要） | 公開する場合。URL を知れば誰でも使える |
 
-エラー時：
-
-```json
-{
-  "answer": "エラー: ...",
-  "status": "error"
-}
-```
-
-### dbKeyの値
-
-| dbKey | 参照DB |
-|-------|--------|
-| `tool_docs` | Tool Docs DB |
-| `game_info` | Game Info DB |
-| `research` | Research DB |
-| `team_notes` | Team Notes DB |
-
-### タイムアウト設定
-
-GASの処理時間（Notion検索 + Gemini API）は通常3〜8秒かかる。各UIのHTTPクライアントは**30秒**のタイムアウトを設定すること。
+Unity / Houdini クライアントはリクエスト時に認証トークンを送らないため、現状は「全員（Googleアカウント不要）」相当で運用しています。

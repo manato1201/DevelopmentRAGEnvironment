@@ -3,821 +3,1507 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>クラウドRAG環境構築 v2 — Notion + GAS + Gemini 講義資料</title>
+<title>AI 搭載ゲーム開発ツール — RAG システム完全解説</title>
 <style>
 :root {
   --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --surface: #21262d;
   --border: #30363d; --text: #e6edf3; --muted: #7d8590;
   --accent: #58a6ff; --green: #3fb950; --amber: #d29922;
-  --red: #f85149; --purple: #bc8cff; --teal: #2ea043;
+  --red: #f85149; --purple: #bc8cff; --teal: #2ea043; --cyan: #39c5cf;
   --mono: 'JetBrains Mono','Cascadia Code','Fira Code','Consolas',monospace;
   --sans: 'Inter','Noto Sans JP',system-ui,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.75;}
 
-header{background:var(--bg2);border-bottom:1px solid var(--border);padding:56px 40px 44px;}
-.header-inner{max-width:860px;margin:0 auto;}
+/* ===== HEADER ===== */
+header{background:linear-gradient(135deg,var(--bg2) 0%,#0d1f35 100%);border-bottom:1px solid var(--border);padding:60px 40px 50px;position:relative;overflow:hidden;}
+header::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 60% 80% at 70% -10%,rgba(88,166,255,.08) 0%,transparent 60%);}
+.header-inner{max-width:900px;margin:0 auto;position:relative;}
 .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);margin-bottom:16px;display:flex;align-items:center;gap:8px;}
-.eyebrow-dot{width:6px;height:6px;border-radius:50%;background:var(--amber);}
-header h1{font-size:clamp(22px,4vw,38px);font-weight:600;line-height:1.25;letter-spacing:-.02em;margin-bottom:14px;}
+.eyebrow-dot{width:6px;height:6px;border-radius:50%;background:var(--amber);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+header h1{font-size:clamp(22px,4vw,42px);font-weight:700;line-height:1.2;letter-spacing:-.03em;margin-bottom:16px;}
 header h1 .acc{color:var(--amber);}
-.header-desc{color:var(--muted);max-width:560px;font-size:14px;margin-bottom:24px;}
+header h1 .acc2{color:var(--accent);}
+.header-desc{color:var(--muted);max-width:600px;font-size:14.5px;margin-bottom:28px;line-height:1.8;}
 .meta-row{display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:var(--muted);font-family:var(--mono);}
+.meta-tag{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:3px 10px;}
 
+/* ===== NAV ===== */
 nav{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 40px;position:sticky;top:0;z-index:50;overflow-x:auto;}
-nav ul{max-width:860px;margin:0 auto;display:flex;list-style:none;}
-nav a{display:block;padding:12px 13px;font-size:12px;font-family:var(--mono);color:var(--muted);text-decoration:none;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;}
+nav ul{max-width:900px;margin:0 auto;display:flex;list-style:none;}
+nav a{display:block;padding:12px 11px;font-size:11.5px;font-family:var(--mono);color:var(--muted);text-decoration:none;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;}
 nav a:hover{color:var(--text);border-color:var(--amber);}
 
-main{max-width:860px;margin:0 auto;padding:0 40px 80px;}
+/* ===== MAIN ===== */
+main{max-width:900px;margin:0 auto;padding:0 40px 100px;}
 
-.section{padding:52px 0 0;}
-.section-eye{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);margin-bottom:6px;}
-.section>h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid var(--border);}
-h3{font-size:15px;font-weight:600;color:var(--amber);margin:32px 0 10px;}
+/* ===== SECTION ===== */
+.section{padding:60px 0 0;}
+.section-eye{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin-bottom:8px;}
+.section>h2{font-size:24px;font-weight:700;letter-spacing:-.015em;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border);}
+h3{font-size:15px;font-weight:600;color:var(--amber);margin:36px 0 12px;}
+h4{font-size:13px;font-weight:600;color:var(--cyan);margin:20px 0 8px;}
 p{color:var(--text);margin-bottom:14px;font-size:14px;}
+ul.body-list{font-size:14px;padding-left:22px;margin-bottom:14px;}
+ul.body-list li{margin-bottom:6px;color:var(--text);}
 
-/* STEP */
-.step-group{margin:20px 0;}
+/* ===== STEP ===== */
+.step-group{margin:24px 0;}
 .step{display:flex;gap:0;margin-bottom:2px;position:relative;}
-.step-rail{display:flex;flex-direction:column;align-items:center;width:40px;flex-shrink:0;}
-.step-badge{width:28px;height:28px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--amber);flex-shrink:0;margin-top:10px;position:relative;z-index:1;}
+.step-rail{display:flex;flex-direction:column;align-items:center;width:44px;flex-shrink:0;}
+.step-badge{width:30px;height:30px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:700;color:var(--amber);flex-shrink:0;margin-top:10px;position:relative;z-index:1;}
 .step-line{width:1px;flex:1;background:var(--border);margin-top:4px;min-height:20px;}
 .step:last-child .step-line{display:none;}
-.step-content{flex:1;padding:8px 0 24px 12px;}
-.step-title{font-size:14px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-.step-body{font-size:13px;color:var(--muted);}
-.step-body p{font-size:13px;color:var(--muted);margin-bottom:8px;}
+.step-content{flex:1;padding:8px 0 28px 12px;}
+.step-title{font-size:14.5px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.step-body{font-size:13.5px;color:var(--muted);}
+.step-body p{font-size:13.5px;color:var(--muted);margin-bottom:8px;}
 
-/* CODE */
-pre{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:14px 18px;overflow-x:auto;margin:8px 0;}
-pre code{font-family:var(--mono);font-size:12.5px;line-height:1.65;color:#adbac7;}
-code{font-family:var(--mono);font-size:12px;background:var(--surface);padding:1px 5px;border-radius:3px;border:1px solid var(--border);}
-.kw{color:#f47067;} .str{color:#96d0ff;} .cm{color:#636e7b;font-style:italic;} .fn{color:#dcbdfb;} .key{color:#6cb6ff;} .ok{color:var(--green);}
+/* ===== CODE ===== */
+pre{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:16px 20px;overflow-x:auto;margin:10px 0;}
+pre code{font-family:var(--mono);font-size:12.5px;line-height:1.7;color:#adbac7;}
+code{font-family:var(--mono);font-size:12px;background:var(--surface);padding:1px 6px;border-radius:3px;border:1px solid var(--border);}
+.kw{color:#f47067;} .str{color:#96d0ff;} .cm{color:#636e7b;font-style:italic;}
+.fn{color:#dcbdfb;} .key{color:#6cb6ff;} .ok{color:var(--green);} .num{color:#f69d50;}
 
-/* TERMINAL */
-.terminal{background:#0d1117;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:10px 0;}
-.terminal-bar{background:var(--surface);padding:8px 14px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border);}
-.t-dot{width:10px;height:10px;border-radius:50%;}
+/* ===== TERMINAL ===== */
+.terminal{background:#080d12;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin:12px 0;}
+.terminal-bar{background:var(--surface);padding:9px 14px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border);}
+.t-dot{width:11px;height:11px;border-radius:50%;}
 .t-red{background:#ff5f57;} .t-yellow{background:#febc2e;} .t-green{background:#28c840;}
-.terminal-label{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:6px;}
-.terminal pre{background:none;border:none;border-radius:0;padding:16px 18px;margin:0;}
-.prompt{color:var(--green);} .out{color:var(--muted);}
+.terminal-label{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px;}
+.terminal pre{background:none;border:none;border-radius:0;padding:18px 20px;margin:0;}
+.prompt{color:var(--green);} .out{color:#7d8590;}
 
-/* BADGE */
-.badge{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;font-weight:500;}
+/* ===== BADGE ===== */
+.badge{display:inline-flex;align-items:center;font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600;gap:4px;}
 .badge-amber{background:rgba(210,153,34,.12);color:var(--amber);border:1px solid rgba(210,153,34,.3);}
 .badge-blue{background:rgba(88,166,255,.12);color:var(--accent);border:1px solid rgba(88,166,255,.3);}
 .badge-purple{background:rgba(188,140,255,.12);color:var(--purple);border:1px solid rgba(188,140,255,.3);}
 .badge-green{background:rgba(63,185,80,.1);color:var(--green);border:1px solid rgba(63,185,80,.25);}
+.badge-cyan{background:rgba(57,197,207,.1);color:var(--cyan);border:1px solid rgba(57,197,207,.25);}
+.badge-red{background:rgba(248,81,73,.1);color:var(--red);border:1px solid rgba(248,81,73,.25);}
 
-/* CALLOUT */
-.callout{border-radius:6px;padding:12px 16px;margin:14px 0;font-size:13px;border-left:3px solid;}
+/* ===== CALLOUT ===== */
+.callout{border-radius:8px;padding:14px 18px;margin:16px 0;font-size:13.5px;border-left:3px solid;}
 .callout-note{background:rgba(88,166,255,.07);border-color:var(--accent);}
 .callout-warn{background:rgba(210,153,34,.08);border-color:var(--amber);}
 .callout-tip{background:rgba(63,185,80,.07);border-color:var(--green);}
+.callout-key{background:rgba(188,140,255,.07);border-color:var(--purple);}
 .callout p{margin:0;color:var(--muted);}
-.callout p:first-child{color:var(--text);margin-bottom:4px;}
+.callout p:first-child{color:var(--text);margin-bottom:5px;font-weight:600;}
 
-/* TABLE */
-.tbl-wrap{overflow-x:auto;margin:14px 0;}
+/* ===== TABLE ===== */
+.tbl-wrap{overflow-x:auto;margin:16px 0;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
-th{background:var(--surface);color:var(--muted);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);}
-td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top;}
+th{background:var(--surface);color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;padding:9px 14px;text-align:left;border-bottom:1px solid var(--border);}
+td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;font-size:13px;}
 tr:last-child td{border-bottom:none;}
 tr:hover td{background:rgba(255,255,255,.02);}
 
-/* ARCH BOX */
-.arch{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin:14px 0;overflow-x:auto;}
+/* ===== ARCH BOX ===== */
+.arch{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:22px 26px;margin:16px 0;overflow-x:auto;}
 .arch pre{background:none;border:none;padding:0;margin:0;}
-.arch pre code{font-size:12px;color:var(--muted);}
+.arch pre code{font-size:12.5px;color:#8b949e;line-height:1.8;}
 
-/* GRID */
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:14px 0;}
-.card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:16px;}
-.card-title{font-size:13px;font-weight:600;margin-bottom:8px;}
-.card ul{font-size:12px;color:var(--muted);padding-left:14px;}
+/* ===== GRID ===== */
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin:16px 0;}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:16px 0;}
+.card{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:18px;}
+.card-icon{font-size:22px;margin-bottom:10px;}
+.card-title{font-size:13.5px;font-weight:700;margin-bottom:8px;color:var(--text);}
+.card-subtitle{font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:8px;}
+.card ul{font-size:12.5px;color:var(--muted);padding-left:16px;}
 .card li{margin-bottom:4px;}
+.card p{font-size:13px;color:var(--muted);margin-bottom:0;}
 
-/* PROPS TABLE */
-.props{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:14px 0;}
-.props-row{display:grid;grid-template-columns:180px 100px 1fr;border-bottom:1px solid var(--border);font-size:12px;}
+/* ===== PROPS TABLE ===== */
+.props{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:16px 0;}
+.props-row{display:grid;grid-template-columns:190px 110px 1fr;border-bottom:1px solid var(--border);font-size:12.5px;}
 .props-row:last-child{border-bottom:none;}
 .props-row.header{background:var(--surface);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
-.props-row > div{padding:8px 12px;}
+.props-row > div{padding:9px 13px;}
 .props-row .name{font-family:var(--mono);color:var(--accent);}
 .props-row .type{color:var(--purple);}
 .props-row .desc{color:var(--muted);}
-.star{color:var(--amber);}
 
-/* PERF TABLE */
-.perf{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:14px 0;}
-.perf-row{display:grid;grid-template-columns:1fr 120px 120px;border-bottom:1px solid var(--border);font-size:12px;}
+/* ===== PERF TABLE ===== */
+.perf{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:16px 0;}
+.perf-row{display:grid;grid-template-columns:1fr 130px 130px;border-bottom:1px solid var(--border);font-size:13px;}
 .perf-row:last-child{border-bottom:none;}
 .perf-row.header{background:var(--surface);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
-.perf-row > div{padding:8px 12px;}
+.perf-row > div{padding:9px 13px;}
 .perf-old{color:var(--red);font-family:var(--mono);}
 .perf-new{color:var(--green);font-family:var(--mono);}
 
+/* ===== VISUAL BOX ===== */
+.visual-box{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:24px;margin:16px 0;text-align:center;}
+.visual-box canvas{display:block;margin:0 auto;}
+
+/* ===== CONCEPT FLOW ===== */
+.concept-flow{display:flex;align-items:center;gap:0;margin:18px 0;flex-wrap:wrap;}
+.cf-node{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 18px;font-size:13px;font-weight:600;text-align:center;min-width:110px;}
+.cf-node.highlight{border-color:var(--accent);background:rgba(88,166,255,.06);}
+.cf-arrow{color:var(--muted);font-family:var(--mono);font-size:18px;padding:0 8px;flex-shrink:0;}
+.cf-label{font-size:11px;color:var(--muted);font-family:var(--mono);display:block;margin-top:4px;}
+
+/* ===== PHASE LIST ===== */
+.phase-list{list-style:none;padding:0;margin:14px 0;}
+.phase-item{display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid var(--border);font-size:13.5px;}
+.phase-item:last-child{border-bottom:none;}
+.phase-num{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--amber);background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.2);border-radius:4px;padding:3px 8px;white-space:nowrap;flex-shrink:0;margin-top:1px;}
+.phase-title{font-weight:600;color:var(--text);margin-bottom:2px;}
+.phase-desc{color:var(--muted);font-size:12.5px;}
+
+/* ===== ANIMATION CANVAS ===== */
+#cosine-canvas{border-radius:8px;background:var(--bg);}
+
+/* ===== ACCORDION ===== */
+details{background:var(--bg3);border:1px solid var(--border);border-radius:8px;margin:10px 0;overflow:hidden;}
+details[open]{border-color:rgba(88,166,255,.35);}
+summary{padding:14px 18px;font-size:14px;font-weight:600;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;user-select:none;}
+summary::-webkit-details-marker{display:none;}
+summary::after{content:'›';font-size:18px;color:var(--muted);transition:transform .2s;}
+details[open] summary::after{transform:rotate(90deg);}
+.details-body{padding:0 18px 18px;font-size:13.5px;color:var(--muted);}
+.details-body p{color:var(--muted);font-size:13.5px;}
+
+/* ===== HIGHLIGHT METRIC ===== */
+.metric-row{display:flex;gap:16px;flex-wrap:wrap;margin:16px 0;}
+.metric{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:16px 20px;flex:1;min-width:140px;}
+.metric-value{font-family:var(--mono);font-size:28px;font-weight:700;margin-bottom:4px;}
+.metric-label{font-size:11.5px;color:var(--muted);}
+.metric-green .metric-value{color:var(--green);}
+.metric-amber .metric-value{color:var(--amber);}
+.metric-blue .metric-value{color:var(--accent);}
+.metric-purple .metric-value{color:var(--purple);}
+
+/* ===== DIFF ROW ===== */
+.diff-row{display:flex;gap:14px;margin:16px 0;flex-wrap:wrap;}
+.diff-col{flex:1;min-width:200px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:16px;}
+.diff-col-title{font-size:12px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;}
+.diff-col ul{font-size:13px;color:var(--text);padding-left:16px;}
+.diff-col li{margin-bottom:5px;}
+
+/* ===== MISC ===== */
 a{color:var(--accent);}
-footer{background:var(--bg2);border-top:1px solid var(--border);padding:28px 40px;text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted);}
+.star{color:var(--amber);}
+footer{background:var(--bg2);border-top:1px solid var(--border);padding:30px 40px;text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted);margin-top:40px;}
 footer a{color:var(--accent);text-decoration:none;}
-@media(max-width:640px){header,nav{padding-left:20px;padding-right:20px;}main{padding:0 20px 60px;}}
+@media(max-width:640px){
+  header,nav{padding-left:20px;padding-right:20px;}
+  main{padding:0 20px 60px;}
+  .props-row{grid-template-columns:140px 80px 1fr;}
+  .perf-row{grid-template-columns:1fr 90px 90px;}
+  .diff-row{flex-direction:column;}
+  .concept-flow{flex-direction:column;align-items:flex-start;}
+}
 </style>
 </head>
 <body>
 
+<!-- ===== HEADER ===== -->
 <header>
 <div class="header-inner">
-  <div class="eyebrow"><span class="eyebrow-dot"></span> Setup Guide · Cloud RAG v2</div>
-  <h1>クラウドRAG環境構築<br><span class="acc">Notion + GAS + Gemini Embedding + Sheets</span></h1>
-  <p class="header-desc">Notionを知識ベースとして、Google Sheetsにベクトルインデックスを構築し、Geminiがマルチターン対話で回答する構成。サーバー管理不要・並列同期・マルチユーザー対応。</p>
+  <div class="eyebrow"><span class="eyebrow-dot"></span> Lecture Slides · Game AI Engineering</div>
+  <h1>AI 搭載ゲーム開発ツール<br>
+    <span class="acc">RAG システム</span> <span class="acc2">完全解説</span>
+  </h1>
+  <p class="header-desc">
+    Notion・Google Apps Script・Gemini・ChromaDB・Unity・Houdini を組み合わせて構築した
+    「ゲーム開発専用 AI 検索エンジン」の設計・仕組みを、大学生向けに一から解説します。
+  </p>
   <div class="meta-row">
-    <span>Notion / GAS / Gemini Embedding / Google Sheets</span>
-    <span>所要時間: 約60〜90分</span>
-    <span>Updated: 2026-06-24</span>
+    <span class="meta-tag">対象: CS 専攻大学生・非エンジニア</span>
+    <span class="meta-tag">Unity / Houdini ユーザー向け</span>
+    <span class="meta-tag">Updated: 2026-06-25</span>
+    <span class="meta-tag">Phase 1〜8 完全版</span>
   </div>
 </div>
 </header>
 
+<!-- ===== NAV ===== -->
 <nav>
 <ul>
-  <li><a href="#overview">全体像</a></li>
-  <li><a href="#notion-db">Notion DB</a></li>
-  <li><a href="#gas-setup">GASセットアップ</a></li>
-  <li><a href="#vector-store">ベクトルストア</a></li>
-  <li><a href="#sync">同期処理</a></li>
-  <li><a href="#parallel">並列化</a></li>
-  <li><a href="#multiturn">マルチターン</a></li>
-  <li><a href="#chat-ui">チャットUI</a></li>
-  <li><a href="#deploy">公開</a></li>
-  <li><a href="#data">データ投入</a></li>
-  <li><a href="#trouble">トラブル</a></li>
+  <li><a href="#ch1">第1章: RAGとは</a></li>
+  <li><a href="#ch2">第2章: 全体像</a></li>
+  <li><a href="#ch3">第3章: Cloud RAG</a></li>
+  <li><a href="#ch4">第4章: Local RAG</a></li>
+  <li><a href="#ch5">第5章: グラフビュー</a></li>
+  <li><a href="#ch6">第6章: Unity統合</a></li>
+  <li><a href="#ch7">第7章: Houdini統合</a></li>
+  <li><a href="#ch8">第8章: セキュリティ</a></li>
+  <li><a href="#ch9">第9章: まとめ</a></li>
 </ul>
 </nav>
 
 <main>
 
-<!-- ===== 全体像 ===== -->
-<div class="section" id="overview">
-  <div class="section-eye">Overview</div>
-  <h2>全体像とRAGの流れ（v2 ベクトル検索）</h2>
+<!-- =========================================================
+     第1章: RAG とは何か
+     ========================================================= -->
+<div class="section" id="ch1">
+  <div class="section-eye">Chapter 01</div>
+  <h2>RAG とは何か — AI が「本を見ながら答える」仕組み</h2>
+
+  <p>
+    RAG（Retrieval-Augmented Generation、検索拡張生成）は、AI が質問に答えるときに
+    あらかじめ用意した<strong>知識データベース</strong>を検索してから回答を生成する手法です。
+    「参考書を見ながら試験に答えていい」方式と考えてください。
+  </p>
+
+  <h3>ChatGPT との違い</h3>
+  <div class="diff-row">
+    <div class="diff-col">
+      <div class="diff-col-title" style="color:var(--red)">通常の ChatGPT</div>
+      <ul>
+        <li>学習済みの知識のみで回答</li>
+        <li>知識のカットオフ日以降は知らない</li>
+        <li>自社・個人の非公開情報は一切知らない</li>
+        <li>「幻覚（ハルシネーション）」で嘘をつく</li>
+      </ul>
+    </div>
+    <div class="diff-col" style="border-color:rgba(88,166,255,.35)">
+      <div class="diff-col-title" style="color:var(--accent)">RAG システム</div>
+      <ul>
+        <li>独自ドキュメントから検索して回答</li>
+        <li>データを追加すればリアルタイムに更新可能</li>
+        <li>Notion に書いた社内仕様書も参照できる</li>
+        <li>「根拠」となるドキュメントを提示できる</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>RAG の 4 ステップ</h3>
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">ドキュメントをベクトル化して保存 <span class="badge badge-amber">インデックス構築</span></div>
+        <div class="step-body">
+          <p>Notion のページや Markdown ファイルを AI に渡すと、各文章が <strong>「数値の配列（ベクトル）」</strong> に変換されてデータベースに保存されます。これを <strong>インデックス構築</strong> と呼びます。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">質問もベクトル化 <span class="badge badge-blue">クエリ</span></div>
+        <div class="step-body">
+          <p>「Unity でカメラを揺らすには？」という質問も同じ方法でベクトルに変換します。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">3</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">最も「似ている」ドキュメントを取得 <span class="badge badge-green">Retrieval（検索）</span></div>
+        <div class="step-body">
+          <p>質問ベクトルとドキュメントベクトルを比較し、<strong>コサイン類似度</strong>（後述）で上位 5 件を取得します。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">4</div></div>
+      <div class="step-content">
+        <div class="step-title">LLM に「文脈 + 質問」を渡して回答生成 <span class="badge badge-purple">Generation（生成）</span></div>
+        <div class="step-body">
+          <p>取得したドキュメントを「参考情報」として Gemini などの LLM に渡し、根拠のある回答を生成させます。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3>ベクトル（数値の配列）とは？</h3>
+  <p>
+    「意味」を数値で表す考え方です。例えば <code>multilingual-e5-large</code> モデルは
+    文章を <strong>1024 個の数値</strong>（1024 次元ベクトル）に変換します。
+    意味が似ている文章は、ベクトル空間で近い位置に配置されます。
+  </p>
 
   <div class="arch">
     <pre><code>
-  ── データ投入フロー ──────────────────────────────────────────────────
-  Markdown ファイル
-    │  localrag_to_notion.py（移行スクリプト）
-    ▼
-  Notion（7DB）
-    │  syncNotionToSheets()  ←  fetchAll 並列: 7DB + N本文 + Embedding
-    ▼
-  Google Sheets「RAG_Index」
-  [page_id::chunk | db | title | text | last_edited | embedding(768次元)]
-    │
-    │  CacheService（6h TTL）にインデックスをキャッシュ
-
-  ── クエリフロー ─────────────────────────────────────────────────────
-  ユーザー（ブラウザ）
-    │  質問テキスト + DB選択 + 会話履歴
-    ▼
-  GAS WebApp（doGet / google.script.run）
-    │
-    ├─① クエリを Gemini Embedding でベクトル化（768次元）
-    │
-    ├─② Sheets インデックスとコサイン類似度計算 → 上位5チャンク
-    │     ※ キャッシュ HIT 時はシート読み込みをスキップ
-    │
-    ├─③ 参考チャンクを context として注入
-    │     + 過去3ターンの会話履歴を contents 配列に追加
-    │
-    ├─④ Gemini 2.5 Flash でマルチターン回答生成
-    │     system_instruction: 日本語・400字以内・箇条書き
-    │
-    └─⑤ { answer, sources } を返却
-    ▼
-  ブラウザ（マークダウンレンダリング・参照元表示・コピーボタン）
+  「Unity でシェーダーを書く方法」 → [0.021, -0.043, 0.187, ..., 0.032]  (1024次元)
+  「HLSL でグラフィクスプログラミング」 → [0.019, -0.040, 0.183, ..., 0.031]  ← 近い！
+  「ラーメンのレシピ」              → [0.891,  0.231, -0.045, ..., 0.442]  ← 遠い
     </code></pre>
   </div>
 
-  <div class="callout callout-note">
-    <p><strong>v1（キーワード検索）との違い</strong></p>
-    <p>v1はNotionにキーワードクエリを投げて summary を取得していた。v2は全ページ本文をEmbeddingでベクトル化しGoogle Sheetsに保存。クエリ時はコサイン類似度でチャンク単位検索するため、キーワードが含まれなくても意味的に近いドキュメントが取得できる。</p>
+  <h3>コサイン類似度 — 「角度」で似ているかを測る</h3>
+  <p>
+    2 つのベクトルの方向が揃っているほど（角度が小さいほど）「意味が似ている」と判断します。
+    コサイン類似度は <code>-1.0〜+1.0</code> の値で、1.0 に近いほど意味が一致します。
+  </p>
+
+  <div class="visual-box">
+    <canvas id="cosine-canvas" width="540" height="240"></canvas>
+    <p style="margin-top:12px;font-size:12px;color:var(--muted);">↑ ベクトルAとBの角度が小さい（コサイン類似度が高い）ほど「意味が似ている」</p>
   </div>
 
-  <div class="grid2">
-    <div class="card">
-      <div class="card-title">クラウドRAGに入れるもの</div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>コサイン類似度</th><th>意味</th><th>このシステムでの扱い</th></tr></thead>
+      <tbody>
+        <tr><td><code>0.90〜1.00</code></td><td>ほぼ同じ意味</td><td>トップヒット</td></tr>
+        <tr><td><code>0.75〜0.90</code></td><td>かなり関連あり</td><td>上位5件に含まれる</td></tr>
+        <tr><td><code>0.70〜0.75</code></td><td>関連あり</td><td>グラフビューの「エッジ」として表示</td></tr>
+        <tr><td><code>0.70未満</code></td><td>あまり関連なし</td><td>検索結果に含めない</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-key">
+    <p>数学的な定義</p>
+    <p>コサイン類似度 = cos(θ) = (A · B) / (|A| × |B|)。ドット積を各ベクトルの長さで割ったもの。ベクトルの長さ（大きさ）ではなく「向き」だけを比較するため、文章の長さが異なっても公平に比較できます。</p>
+  </div>
+</div>
+
+<!-- =========================================================
+     第2章: このプロジェクトの全体像
+     ========================================================= -->
+<div class="section" id="ch2">
+  <div class="section-eye">Chapter 02</div>
+  <h2>このプロジェクトの全体像 — 2 層 RAG アーキテクチャ</h2>
+
+  <p>
+    このシステムは <strong>Cloud RAG</strong>（クラウド側）と <strong>Local RAG</strong>（ローカル側）の
+    2 層で構成されています。Unity エディタや Houdini から、どちらの RAG にも接続できます。
+  </p>
+
+  <div class="metric-row">
+    <div class="metric metric-blue">
+      <div class="metric-value">2</div>
+      <div class="metric-label">RAG 層（Cloud + Local）</div>
+    </div>
+    <div class="metric metric-amber">
+      <div class="metric-value">7</div>
+      <div class="metric-label">Notion データベース</div>
+    </div>
+    <div class="metric metric-green">
+      <div class="metric-value">768+</div>
+      <div class="metric-label">1024 次元ベクトル</div>
+    </div>
+    <div class="metric metric-purple">
+      <div class="metric-value">8</div>
+      <div class="metric-label">実装フェーズ</div>
+    </div>
+  </div>
+
+  <h3>なぜ 2 つに分けるのか？</h3>
+  <div class="diff-row">
+    <div class="diff-col">
+      <div class="diff-col-title" style="color:var(--accent)">☁️ Cloud RAG</div>
       <ul>
+        <li>Notion に書いた<strong>チーム共有</strong>ドキュメント</li>
         <li>Unity / Houdini / DX12 仕様書</li>
-        <li>ゲーム情報・共有設計書</li>
-        <li>手動精査した技術記事・論文</li>
-        <li>ゼミ資料・議事録・ブランド情報</li>
+        <li>ゲーム設計書・研究メモ</li>
+        <li>チームメンバー全員がアクセス可能</li>
+        <li>サーバー不要（GAS で動く）</li>
       </ul>
     </div>
-    <div class="card">
-      <div class="card-title">ローカルRAGに入れるもの</div>
+    <div class="diff-col">
+      <div class="diff-col-title" style="color:var(--green)">💻 Local RAG</div>
       <ul>
-        <li>チャット履歴・会話ログ</li>
-        <li>チュートリアル生成結果</li>
-        <li>Obsidianノート・個人進捗</li>
-        <li>共有NG文書・草稿</li>
+        <li>個人の Obsidian ノート・進捗メモ</li>
+        <li>チャット履歴・チュートリアル生成結果</li>
+        <li>共有 NG な草稿・機密情報</li>
+        <li>自分のマシンにだけ保存</li>
+        <li>インターネット接続不要で動作</li>
       </ul>
     </div>
   </div>
 
+  <h3>ASCII アーキテクチャ図</h3>
+  <div class="arch">
+    <pre><code>
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                    RAG 環境 完全版 アーキテクチャ                        │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ☁️ CLOUD LAYER
+  ┌──────────────┐    syncNotionToSheets()     ┌──────────────────────────┐
+  │  Notion      │ ─── fetchAll 並列同期 ───→  │  Google Sheets           │
+  │  7 DB        │                              │  RAG_Index               │
+  │  (共有情報)  │    Gemini Embedding API      │  [chunk | 768次元ベクトル]│
+  └──────────────┘                              └───────────┬──────────────┘
+                                                            │ コサイン類似度検索
+                                                ┌───────────▼──────────────┐
+                                                │  GAS WebApp              │
+                                                │  ragQuery()              │
+                                                │  Gemini 2.5 Flash        │
+                                                └───────────┬──────────────┘
+                                                            │
+  💻 LOCAL LAYER                                            │
+  ┌──────────────┐    rag_local_bridge.py      ┌───────────▼──────────────┐
+  │  ChromaDB    │ ─────── stdio JSON-RPC ───→ │  mcp-rag-server          │
+  │  (個人情報)  │    multilingual-e5-large     │  Claude Haiku            │
+  │  1024次元    │    1024次元埋め込み           └───────────┬──────────────┘
+  └──────────────┘                                          │
+                                                            │ HTTP / JSON
+                          ┌─────────────────────────────────┘
+                          │
+                ┌─────────▼──────────────────┐
+                │  🎮 Unity Editor           │
+                │  RAG Assistant Window      │
+                │  Chat / Graph / Settings   │
+                └────────────────────────────┘
+                          │
+                ┌─────────▼──────────────────┐
+                │  🌀 Houdini Python Panel   │
+                │  PySide6 / Qt6             │
+                │  Chat / Graph / Settings   │
+                └────────────────────────────┘
+    </code></pre>
+  </div>
+
+  <h3>技術スタック一覧</h3>
   <div class="tbl-wrap">
     <table>
-      <thead><tr><th>比較項目</th><th>LocalRAG</th><th>CloudRAG</th></tr></thead>
+      <thead><tr><th>レイヤ</th><th>技術</th><th>役割</th></tr></thead>
       <tbody>
-        <tr><td>ベクトルDB</td><td>ChromaDB（ローカル）</td><td>Google Sheets（クラウド）</td></tr>
-        <tr><td>Embedding モデル</td><td>multilingual-e5-large（1024次元）</td><td>gemini-embedding-001（768次元）</td></tr>
-        <tr><td>検索方式</td><td>BM25 + ベクトル RRF ハイブリッド</td><td>コサイン類似度のみ</td></tr>
-        <tr><td>チャンク設定</td><td>500文字 / 100文字オーバーラップ</td><td>500文字 / 100文字オーバーラップ（同一）</td></tr>
-        <tr><td>上位取得数</td><td>5チャンク</td><td>5チャンク（同一）</td></tr>
-        <tr><td>マルチユーザー</td><td>不可（個人環境）</td><td>可能（WebApp 公開設定で対応）</td></tr>
+        <tr><td><span class="badge badge-blue">Cloud</span></td><td>Notion（7 DB）</td><td>知識ベースとしてのドキュメント管理</td></tr>
+        <tr><td><span class="badge badge-blue">Cloud</span></td><td>Google Apps Script</td><td>サーバーレス処理・WebApp ホスティング</td></tr>
+        <tr><td><span class="badge badge-blue">Cloud</span></td><td>Gemini Embedding 001</td><td>768 次元ベクトル生成</td></tr>
+        <tr><td><span class="badge badge-blue">Cloud</span></td><td>Gemini 2.5 Flash</td><td>回答生成 LLM</td></tr>
+        <tr><td><span class="badge badge-blue">Cloud</span></td><td>Google Sheets</td><td>ベクトルインデックス保存</td></tr>
+        <tr><td><span class="badge badge-green">Local</span></td><td>ChromaDB</td><td>ローカルベクトルデータベース</td></tr>
+        <tr><td><span class="badge badge-green">Local</span></td><td>multilingual-e5-large</td><td>1024 次元多言語埋め込みモデル</td></tr>
+        <tr><td><span class="badge badge-green">Local</span></td><td>Claude Haiku</td><td>ローカル RAG 回答生成</td></tr>
+        <tr><td><span class="badge badge-green">Local</span></td><td>rag_local_bridge.py</td><td>FastAPI なし・標準ライブラリのみの HTTP サーバー</td></tr>
+        <tr><td><span class="badge badge-amber">Client</span></td><td>Unity C# (IMGUI)</td><td>エディタ拡張・チャット・グラフ UI</td></tr>
+        <tr><td><span class="badge badge-amber">Client</span></td><td>Houdini Python / PySide6</td><td>ゲームDCC ツール統合</td></tr>
+        <tr><td><span class="badge badge-purple">Graph</span></td><td>D3.js / GL.LINES</td><td>ドキュメント関係グラフ可視化</td></tr>
       </tbody>
     </table>
   </div>
 </div>
 
-<!-- ===== Notion DB ===== -->
-<div class="section" id="notion-db">
-  <div class="section-eye">Step 01</div>
-  <h2>Notion DBの構成（7DB）</h2>
+<!-- =========================================================
+     第3章: Cloud RAG の仕組み
+     ========================================================= -->
+<div class="section" id="ch3">
+  <div class="section-eye">Chapter 03</div>
+  <h2>Cloud RAG の仕組み — Notion → GAS → Gemini</h2>
 
-  <div class="callout callout-tip">
-    <p><strong>✅ DB作成済み（2026-06-22）</strong></p>
-    <p>7つのDBはすでにワークスペースに作成されています。このセクションは参照用です。</p>
+  <p>
+    Cloud RAG はサーバー（VPS や AWS など）を一切使わず、<strong>Google Apps Script（GAS）</strong>
+    の上だけで動きます。Notion の 7 つのデータベースを知識ソースとして、
+    Google Sheets にベクトルインデックスを構築します。
+  </p>
+
+  <h3>データフロー：インデックス構築</h3>
+  <div class="concept-flow">
+    <div class="cf-node">Notion<br><span class="cf-label">7 DB・ページ本文</span></div>
+    <div class="cf-arrow">→</div>
+    <div class="cf-node">チャンク分割<br><span class="cf-label">500字 / 100字重複</span></div>
+    <div class="cf-arrow">→</div>
+    <div class="cf-node highlight">Gemini Embedding<br><span class="cf-label">768 次元化</span></div>
+    <div class="cf-arrow">→</div>
+    <div class="cf-node">Google Sheets<br><span class="cf-label">RAG_Index</span></div>
   </div>
 
+  <h3>Notion 7 データベース構成</h3>
   <div class="tbl-wrap">
     <table>
-      <thead><tr><th>DB名（dbKey）</th><th>内容</th><th>database_id</th></tr></thead>
+      <thead><tr><th>DB キー</th><th>内容</th></tr></thead>
       <tbody>
-        <tr><td><code>tool_docs</code></td><td>Unity・Houdini・DX12・環境設定</td><td><code>249e442a-47dd-4a8d-95a8-8b856fb91ef6</code></td></tr>
-        <tr><td><code>game_info</code></td><td>ゲーム仕様・共有ゲーム情報</td><td><code>f201f73c-45dc-44cb-b8d7-a7be81b3644c</code></td></tr>
-        <tr><td><code>research</code></td><td>論文・技術記事（手動精査済み）</td><td><code>714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f</code></td></tr>
-        <tr><td><code>team_notes</code></td><td>ゼミ資料・議事録・方針</td><td><code>f898bf03-8c9f-40e0-9e1b-a28432703d69</code></td></tr>
-        <tr><td><code>afuri</code></td><td>阿夫利神社・AFURI情報</td><td><code>a74822790ec34768bdef0917abae3e6f</code></td></tr>
-        <tr><td><code>braintq</code></td><td>BrainTQゲーム仕様・ミニゲーム詳細</td><td><code>847b7db0f29f4190bee9f7ae7dd15514</code></td></tr>
-        <tr><td><code>fourteen</code></td><td>FORTEENゴルフブランド情報</td><td><code>475cf278492a45ac90cbe4b8f11df1f5</code></td></tr>
+        <tr><td><code>tool_docs</code></td><td>Unity・Houdini・DX12・開発環境設定ドキュメント</td></tr>
+        <tr><td><code>game_info</code></td><td>ゲーム仕様書・共有ゲーム設計情報</td></tr>
+        <tr><td><code>research</code></td><td>論文・技術記事（手動精査済み）</td></tr>
+        <tr><td><code>team_notes</code></td><td>ゼミ資料・議事録・チーム方針</td></tr>
+        <tr><td><code>afuri</code></td><td>阿夫利神社・AFURI ブランド情報</td></tr>
+        <tr><td><code>braintq</code></td><td>BrainTQ ゲーム仕様・ミニゲーム詳細</td></tr>
+        <tr><td><code>fourteen</code></td><td>FOURTEEN ゴルフブランド情報</td></tr>
       </tbody>
     </table>
   </div>
 
-  <h3>共通スキーマ（全DBで統一）</h3>
+  <h3>埋め込み（Embedding）とは</h3>
+  <p>
+    テキストを <strong>高次元の数値ベクトル</strong> に変換する処理です。
+    このプロジェクトでは <code>gemini-embedding-001</code> を使い、入力文章を <strong>768 次元</strong>のベクトルに変換します。
+    768 個の数値が文章の「意味の座標」として機能します。
+  </p>
 
-  <div class="props">
-    <div class="props-row header">
-      <div>プロパティ名</div><div>種類</div><div>説明</div>
-    </div>
-    <div class="props-row">
-      <div class="name">title</div><div class="type">タイトル</div><div class="desc">ページタイトル（デフォルト）</div>
-    </div>
-    <div class="props-row">
-      <div class="name">source_url</div><div class="type">URL</div><div class="desc">元記事・ドキュメントのURL</div>
-    </div>
-    <div class="props-row">
-      <div class="name">tags</div><div class="type">マルチセレクト</div><div class="desc">Unity / Houdini / RAG 等</div>
-    </div>
-    <div class="props-row">
-      <div class="name">summary <span class="star">★</span></div><div class="type">テキスト</div><div class="desc">内容の要約（100〜200字）← ベクトル検索の起点</div>
-    </div>
-    <div class="props-row">
-      <div class="name">collected_at</div><div class="type">日付</div><div class="desc">追加日</div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== GAS Setup ===== -->
-<div class="section" id="gas-setup">
-  <div class="section-eye">Step 02</div>
-  <h2>GASプロジェクトの作成と設定</h2>
-
-  <div class="step-group">
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">スプレッドシートを新規作成 <span class="badge badge-amber">GAS</span></div>
-        <div class="step-body">
-          <p>Google スプレッドシートを新規作成 →「拡張機能」→「Apps Script」→ プロジェクト名を <code>cloud-rag-chatbot</code> に変更</p>
-          <p>スプレッドシートのURLから <code>SHEETS_ID</code> を取得する（後でスクリプトプロパティに設定）：</p>
-          <pre><code>https://docs.google.com/spreadsheets/d/<span class="key">XXXXXXXXXXXXXXXXX</span>/edit
-                                               ↑ これが SHEETS_ID</code></pre>
-        </div>
-      </div>
-    </div>
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">コードを貼り付け <span class="badge badge-amber">GAS</span></div>
-        <div class="step-body">
-          <p>エディタの内容を全削除し、<code>scripts/gas_cloud_rag.js</code> の内容をそのまま貼り付け → Ctrl+S で保存</p>
-        </div>
-      </div>
-    </div>
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div></div>
-      <div class="step-content">
-        <div class="step-title">スクリプトプロパティを設定 <span class="badge badge-amber">GAS</span></div>
-        <div class="step-body">
-          <p>「プロジェクトの設定」→「スクリプトプロパティ」に追加：</p>
-          <div class="props">
-            <div class="props-row header"><div>キー名</div><div></div><div>値</div></div>
-            <div class="props-row"><div class="name">NOTION_API_KEY</div><div></div><div class="desc">Notionインテグレーションキー（secret_...）</div></div>
-            <div class="props-row"><div class="name">GEMINI_API_KEY</div><div></div><div class="desc">Google AI Studioで発行したキー</div></div>
-            <div class="props-row"><div class="name">SHEETS_ID <span class="star">★</span></div><div></div><div class="desc">ベクトルインデックス保存用スプレッドシートID</div></div>
-            <div class="props-row"><div class="name">DB_TOOL_DOCS</div><div></div><div class="desc"><code>249e442a-47dd-4a8d-95a8-8b856fb91ef6</code></div></div>
-            <div class="props-row"><div class="name">DB_GAME_INFO</div><div></div><div class="desc"><code>f201f73c-45dc-44cb-b8d7-a7be81b3644c</code></div></div>
-            <div class="props-row"><div class="name">DB_RESEARCH</div><div></div><div class="desc"><code>714d4d4a-6a85-4aa1-845c-32dc3e1a2b1f</code></div></div>
-            <div class="props-row"><div class="name">DB_TEAM_NOTES</div><div></div><div class="desc"><code>f898bf03-8c9f-40e0-9e1b-a28432703d69</code></div></div>
-            <div class="props-row"><div class="name">DB_AFURI</div><div></div><div class="desc"><code>a74822790ec34768bdef0917abae3e6f</code></div></div>
-            <div class="props-row"><div class="name">DB_BRAINTQ</div><div></div><div class="desc"><code>847b7db0f29f4190bee9f7ae7dd15514</code></div></div>
-            <div class="props-row"><div class="name">DB_FOURTEEN</div><div></div><div class="desc"><code>475cf278492a45ac90cbe4b8f11df1f5</code></div></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== ベクトルストア ===== -->
-<div class="section" id="vector-store">
-  <div class="section-eye">Step 03</div>
-  <h2>ベクトルストア（Google Sheets + CacheService）</h2>
-
-  <p>全ページ本文を Gemini Embedding でベクトル化し、Google Sheets の <code>RAG_Index</code> シートに保存する。クエリ時はシートを全件メモリ展開してコサイン類似度を計算する。</p>
-
-  <h3>インデックスのスキーマ</h3>
-  <div class="tbl-wrap">
-    <table>
-      <thead><tr><th>列</th><th>内容</th><th>例</th></tr></thead>
-      <tbody>
-        <tr><td><code>page_id</code></td><td>ページID + チャンク番号</td><td><code>abc123::0</code>, <code>abc123::1</code></td></tr>
-        <tr><td><code>db</code></td><td>DBキー</td><td><code>braintq</code></td></tr>
-        <tr><td><code>title</code></td><td>ページタイトル</td><td><code>BrainTQ アプリ概要</code></td></tr>
-        <tr><td><code>text</code></td><td>チャンクテキスト（500字以内）</td><td>本文の断片</td></tr>
-        <tr><td><code>last_edited</code></td><td>Notion最終更新時刻</td><td>差分同期に使用</td></tr>
-        <tr><td><code>embedding</code></td><td>768次元ベクトル（JSON配列）</td><td><code>[0.012, -0.034, ...]</code></td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>チャンク分割（LocalRAGと統一）</h3>
-  <p>LocalRAG（ChromaDB）と同じ設定でチャンク分割することで、両システムの情報量を揃える：</p>
   <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — chunkText_</span></div>
-    <pre><code><span class="kw">function</span> <span class="fn">chunkText_</span>(text, size, overlap) {
-  size    = size    || <span class="key">350</span>;
-  overlap = overlap || <span class="key">70</span>;
-  <span class="kw">if</span> (!text || text.length &lt;= size) <span class="kw">return</span> text ? [text] : [];
-  <span class="kw">var</span> chunks = [], start = <span class="key">0</span>;
-  <span class="kw">while</span> (start &lt; text.length) {
-    chunks.push(text.substring(start, start + size));
-    <span class="kw">if</span> (start + size &gt;= text.length) <span class="kw">break</span>;
-    start += size - overlap;  <span class="cm">// オーバーラップ分だけ戻る</span>
-  }
-  <span class="kw">return</span> chunks;
-}
-
-<span class="cm">// 呼び出し: LocalRAGに合わせて 500文字 / 100文字オーバーラップ</span>
-<span class="kw">var</span> chunks = <span class="fn">chunkText_</span>(full, <span class="key">500</span>, <span class="key">100</span>);</code></pre>
-  </div>
-
-  <h3>CacheServiceによるインデックスキャッシュ</h3>
-  <p>Sheetsの全行読み込みはリクエストごとに発生すると遅い。GASの <code>CacheService</code> を使い、インデックス全体を6時間キャッシュする。シートの上限100KBを超えるため90KB単位で分割保存する：</p>
-  <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — CacheService（90KB分割）</span></div>
-    <pre><code><span class="kw">var</span> IDX_CACHE_KEY = <span class="str">'rag_idx_v2'</span>;
-<span class="kw">var</span> CACHE_TTL     = <span class="key">21600</span>;   <span class="cm">// 6時間</span>
-<span class="kw">var</span> CACHE_CHUNK   = <span class="key">90000</span>;   <span class="cm">// 90KB/チャンク（上限100KB）</span>
-
-<span class="kw">function</span> <span class="fn">saveIndexCache_</span>(idx) {
-  <span class="kw">var</span> cache = CacheService.<span class="fn">getScriptCache</span>();
-  <span class="kw">var</span> json  = JSON.<span class="fn">stringify</span>(idx);
-  <span class="kw">var</span> parts = {};
-  <span class="kw">var</span> n     = Math.<span class="fn">ceil</span>(json.length / CACHE_CHUNK);
-  <span class="kw">for</span> (<span class="kw">var</span> i = <span class="key">0</span>; i &lt; n; i++)
-    parts[IDX_CACHE_KEY + <span class="str">'_'</span> + i] = json.substring(i * CACHE_CHUNK, (i+<span class="key">1</span>) * CACHE_CHUNK);
-  parts[IDX_CACHE_KEY + <span class="str">'_n'</span>] = String(n);
-  cache.<span class="fn">putAll</span>(parts, CACHE_TTL);
-}
-
-<span class="kw">function</span> <span class="fn">loadIndex_</span>() {
-  <span class="kw">var</span> cache = CacheService.<span class="fn">getScriptCache</span>();
-  <span class="kw">var</span> n = parseInt(cache.<span class="fn">get</span>(IDX_CACHE_KEY + <span class="str">'_n'</span>) || <span class="str">'0'</span>, <span class="key">10</span>);
-  <span class="kw">if</span> (n &gt; <span class="key">0</span>) {
-    <span class="cm">/* キャッシュHIT: チャンクを結合してJSONパース */</span>
-    <span class="kw">var</span> keys = [];
-    <span class="kw">for</span> (<span class="kw">var</span> i = <span class="key">0</span>; i &lt; n; i++) keys.push(IDX_CACHE_KEY + <span class="str">'_'</span> + i);
-    <span class="kw">var</span> vals = cache.<span class="fn">getAll</span>(keys);
-    <span class="kw">var</span> json = <span class="str">''</span>, ok = <span class="kw">true</span>;
-    <span class="kw">for</span> (<span class="kw">var</span> i = <span class="key">0</span>; i &lt; n; i++) {
-      <span class="kw">if</span> (!vals[IDX_CACHE_KEY + <span class="str">'_'</span> + i]) { ok = <span class="kw">false</span>; <span class="kw">break</span>; }
-      json += vals[IDX_CACHE_KEY + <span class="str">'_'</span> + i];
-    }
-    <span class="kw">if</span> (ok) <span class="kw">try</span> { <span class="kw">return</span> JSON.<span class="fn">parse</span>(json); } <span class="kw">catch</span>(e) {}
-  }
-  <span class="kw">return</span> <span class="fn">loadIndexFromSheet_</span>();  <span class="cm">// キャッシュMISS: シートから読む</span>
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">GAS — Gemini Embedding API 呼び出し</span></div>
+    <pre><code><span class="cm">// gemini-embedding-001 に文章を渡して 768次元ベクトルを取得</span>
+<span class="kw">function</span> <span class="fn">getEmbedding_</span>(text) {
+  <span class="kw">var</span> url = <span class="str">'https://generativelanguage.googleapis.com/v1beta/models/'</span>
+          + <span class="str">'gemini-embedding-001:embedContent?key='</span> + GEMINI_KEY;
+  <span class="kw">var</span> res = UrlFetchApp.<span class="fn">fetch</span>(url, {
+    method: <span class="str">'post'</span>,
+    contentType: <span class="str">'application/json'</span>,
+    payload: JSON.<span class="fn">stringify</span>({
+      model: <span class="str">'models/gemini-embedding-001'</span>,
+      content: { parts: [{ text: text }] }
+    })
+  });
+  <span class="kw">return</span> JSON.<span class="fn">parse</span>(res.<span class="fn">getContentText</span>()).embedding.values;
+  <span class="cm">// → [0.012, -0.034, 0.187, ..., 0.041]  768個の数値配列</span>
 }</code></pre>
   </div>
-</div>
 
-<!-- ===== 同期処理 ===== -->
-<div class="section" id="sync">
-  <div class="section-eye">Step 04</div>
-  <h2>同期処理（syncNotionToSheets）</h2>
+  <h3>チャンク分割 — なぜ文章を細かく切るのか</h3>
+  <p>
+    LLM の入力には <strong>トークン制限</strong>があります。また、長い文章をそのままベクトル化すると
+    「意味が薄まり」検索精度が下がります。そのため文章を適切なサイズに分割（チャンク）して
+    インデックスに登録します。
+  </p>
 
-  <p>Notion の全ページを取得し、チャンク分割・Embedding生成・Sheets書き込みまでを一括処理する。差分同期（<code>last_edited_time</code> 比較）で変更ページのみ更新する。</p>
-
-  <div class="callout callout-tip">
-    <p><strong>初回実行</strong></p>
-    <p>GASエディタで <code>testEmbedding</code> を実行してEmbedding APIの疎通を確認してから <code>syncNotionToSheets</code> を実行する。初回は権限承認ダイアログが出る。</p>
+  <div class="callout callout-note">
+    <p>このシステムのチャンク設定</p>
+    <p>
+      チャンクサイズ: <strong>500 文字</strong>（約 3〜4 センテンス）<br>
+      オーバーラップ: <strong>100 文字</strong>（前のチャンクの末尾 100 文字を次のチャンク冒頭にも含める）<br>
+      → 文章が途中で切れても前後の文脈が繋がる。Cloud RAG と Local RAG で同一設定を使用。
+    </p>
   </div>
 
-  <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">GAS 実行ログ例</span></div>
-    <pre><code><span class="out">Phase1: 7DB を並列取得...</span>
-<span class="out">[tool_docs] 8ページ</span>
-<span class="out">[game_info] 12ページ</span>
-<span class="out">[braintq] 15ページ</span>
-<span class="out">[fourteen] 18ページ</span>
-<span class="out">...</span>
-<span class="out">更新対象: 3ページ  スキップ: 52ページ</span>
-<span class="out">Phase2: 3ページの本文を並列取得...</span>
-<span class="out">  [braintq] BrainTQアプリ概要 → 4チャンク</span>
-<span class="out">  [fourteen] FOURTEENアイアン → 6チャンク</span>
-<span class="out">  [afuri] 柚子塩らーめん → 2チャンク</span>
-<span class="out">完了  チャンク追加:12  スキップ(ページ):52  エラー:0</span>
-<span class="out">合計チャンク数: 183</span></code></pre>
+  <div class="arch">
+    <pre><code>
+  元文章: 「AAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNNOOOppp...（800文字）」
+
+  チャンク1: AAABBBCCCDDDEEEFFFGGG...（500文字）
+  チャンク2:       DDDEEEFFF...（オーバーラップ100文字から開始・次の500文字）
+  チャンク3:             GGG...
+
+  → 境界部分も検索でヒットするように重複させる
+    </code></pre>
   </div>
 
-  <h3>ページ本文取得（fetchPageBody_）</h3>
-  <p>Notion API のブロックAPIを使い、ページ本文を最大200ブロック（8000文字）取得する：</p>
-  <div class="tbl-wrap">
-    <table>
-      <thead><tr><th>Notionブロックタイプ</th><th>取得</th></tr></thead>
-      <tbody>
-        <tr><td>paragraph / heading_1/2/3</td><td>✅</td></tr>
-        <tr><td>bulleted_list_item / numbered_list_item</td><td>✅</td></tr>
-        <tr><td>quote / callout / toggle</td><td>✅</td></tr>
-        <tr><td>code</td><td>✅（GameType enum 等も取得）</td></tr>
-        <tr><td>image / table_of_contents / divider 等</td><td>— スキップ</td></tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- ===== 並列化 ===== -->
-<div class="section" id="parallel">
-  <div class="section-eye">Architecture</div>
-  <h2>並列同期の実装（fetchAll）</h2>
-
-  <p>GAS の <code>UrlFetchApp.fetchAll()</code> は複数HTTPリクエストを並列発行できる。同期処理の3フェーズすべてで使用することで、大幅に高速化している。</p>
+  <h3>並列同期（fetchAll）— 旧 22 秒 → 新 2 秒</h3>
+  <p>
+    GAS の <code>UrlFetchApp.fetchAll()</code> は複数の HTTP リクエストを
+    <strong>同時並列</strong>で発行できます。従来の直列処理と比較して劇的に高速化できます。
+  </p>
 
   <div class="perf">
     <div class="perf-row header">
-      <div>フェーズ</div><div>旧（直列）</div><div>新（並列）</div>
+      <div>同期フェーズ</div><div>旧（直列）</div><div>新（並列）</div>
     </div>
     <div class="perf-row">
-      <div>DB ページ一覧取得（7DB）</div>
-      <div class="perf-old">7回×直列</div>
+      <div>7 DB のページ一覧取得</div>
+      <div class="perf-old">7回 × 直列</div>
       <div class="perf-new">fetchAll 1回</div>
     </div>
     <div class="perf-row">
-      <div>本文取得（更新ページN件）</div>
-      <div class="perf-old">N回×直列+sleep</div>
+      <div>更新ページの本文取得（N件）</div>
+      <div class="perf-old">N回 × 直列 + sleep</div>
       <div class="perf-new">fetchAll 1〜2回</div>
     </div>
     <div class="perf-row">
-      <div>Embedding生成（チャンクM件）</div>
-      <div class="perf-old">1件ずつ+sleep</div>
-      <div class="perf-new">fetchAll 10件バッチ</div>
+      <div>Embedding 生成（チャンク M 件）</div>
+      <div class="perf-old">1件ずつ + sleep</div>
+      <div class="perf-new">10件バッチ並列</div>
     </div>
   </div>
 
-  <p>20ページ更新・60チャンクの場合: <span style="color:var(--red)">~22秒</span> → <span style="color:var(--green)">~2秒</span>（理論値）</p>
+  <p style="margin-top:10px;">20ページ更新・60チャンクの実測: <span style="color:var(--red);font-weight:700;">約 22 秒</span> → <span style="color:var(--green);font-weight:700;">約 2 秒</span></p>
 
   <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — Phase1 並列DB取得</span></div>
-    <pre><code><span class="cm">// Phase 1: 全DBのページ一覧を1回の fetchAll で並列取得</span>
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">GAS — Phase 1: 全 DB を 1 回の fetchAll で並列取得</span></div>
+    <pre><code><span class="cm">// リクエストを配列に積んで…</span>
 <span class="kw">var</span> listReqs = [];
 Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(<span class="kw">function</span>(key) {
-  <span class="kw">var</span> dbId = props.<span class="fn">getProperty</span>(DB_KEY_MAP[key]);
   listReqs.push({
-    url:         <span class="str">'https://api.notion.com/v1/databases/'</span> + dbId + <span class="str">'/query'</span>,
-    method:      <span class="str">'post'</span>,
-    headers:     nHeaders,  <span class="cm">// getNotionHeaders_() を1回だけ呼んでおく</span>
-    contentType: <span class="str">'application/json'</span>,
-    payload:     JSON.<span class="fn">stringify</span>({ page_size: <span class="key">100</span> }),
+    url:     <span class="str">'https://api.notion.com/v1/databases/'</span> + dbId + <span class="str">'/query'</span>,
+    method:  <span class="str">'post'</span>,
+    headers: nHeaders,
+    payload: JSON.<span class="fn">stringify</span>({ page_size: <span class="num">100</span> }),
     muteHttpExceptions: <span class="kw">true</span>,
   });
 });
-<span class="kw">var</span> listResps = UrlFetchApp.<span class="fn">fetchAll</span>(listReqs);  <span class="cm">// ← ここが並列</span>
 
-<span class="cm">// Phase 3: Embedding を 10件バッチで並列取得</span>
-<span class="kw">var</span> BATCH_SIZE = <span class="key">10</span>;  <span class="cm">// Gemini レートリミット対策</span>
-<span class="kw">for</span> (<span class="kw">var</span> b = <span class="key">0</span>; b &lt; allChunks.length; b += BATCH_SIZE) {
-  <span class="kw">var</span> batch     = allChunks.slice(b, b + BATCH_SIZE);
-  <span class="kw">var</span> embedReqs = batch.<span class="fn">map</span>(<span class="kw">function</span>(c) { <span class="kw">return</span> { url: embedUrl, ... }; });
-  UrlFetchApp.<span class="fn">fetchAll</span>(embedReqs).<span class="fn">forEach</span>(<span class="kw">function</span>(res, j) {
-    <span class="kw">var</span> emb = JSON.<span class="fn">parse</span>(res.<span class="fn">getContentText</span>()).embedding.values;
-    newRows.push([c.page_id + <span class="str">'::' </span>+ c.k, c.db, c.title, c.text, c.last_edited, JSON.<span class="fn">stringify</span>(emb)]);
-  });
-  <span class="kw">if</span> (b + BATCH_SIZE &lt; allChunks.length) Utilities.<span class="fn">sleep</span>(<span class="key">200</span>);
-}</code></pre>
+<span class="cm">// ← これが 1 行で 7 DB を並列取得</span>
+<span class="kw">var</span> listResps = UrlFetchApp.<span class="fn">fetchAll</span>(listReqs);</code></pre>
   </div>
+
+  <h3>マルチターン対話 — 会話の文脈を保持する</h3>
+  <p>
+    通常の RAG は「1 問 1 答」ですが、このシステムは <strong>直近 3 往復（6 メッセージ）</strong>の
+    会話履歴を Gemini の <code>contents</code> 配列に追加することで、
+    前の質問を踏まえた連続対話ができます。
+  </p>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">GAS — ragQuery: contents 配列の構造</span></div>
+    <pre><code><span class="cm">// contents 配列の構造（Gemini マルチターン）</span>
+<span class="kw">var</span> contents = [
+  <span class="cm">// ① まず参考ドキュメントを「知識注入」として渡す</span>
+  { role: <span class="str">'user'</span>,  parts: [{ text: <span class="str">'以下の参考ドキュメントを確認してください:\n\n'</span> + context }] },
+  { role: <span class="str">'model'</span>, parts: [{ text: <span class="str">'参考ドキュメントを確認しました。'</span> }] },
+
+  <span class="cm">// ② 過去 3 往復の会話履歴を追加（最大 6 メッセージ）</span>
+  <span class="cm">// { role: 'user',  ... },</span>
+  <span class="cm">// { role: 'model', ... },</span>
+  <span class="cm">// ... × 3回分</span>
+
+  <span class="cm">// ③ 今回の質問を最後に追加</span>
+  { role: <span class="str">'user'</span>, parts: [{ text: query }] }
+];</code></pre>
+  </div>
+</div>
+
+<!-- =========================================================
+     第4章: Local RAG の仕組み
+     ========================================================= -->
+<div class="section" id="ch4">
+  <div class="section-eye">Chapter 04</div>
+  <h2>Local RAG の仕組み — ChromaDB + Claude Haiku</h2>
+
+  <p>
+    Local RAG はインターネットに接続せず、<strong>自分のマシンだけで動く</strong> RAG システムです。
+    個人情報やプライベートなメモを安全に検索できます。
+  </p>
+
+  <h3>mcp-rag-server とは</h3>
+  <p>
+    <code>mcp-rag-server</code> は <strong>MCP（Model Context Protocol）</strong> サーバーです。
+    JSON-RPC over stdio という通信方式で Claude Desktop と接続し、
+    「ドキュメントを検索する」ツールを Claude に提供します。
+  </p>
 
   <div class="callout callout-note">
-    <p><strong>クエリ時は並列化不要</strong></p>
-    <p>検索時（<code>searchByEmbedding_</code>）はインデックスをメモリ展開してコサイン類似度を一括計算するため、DBごとに分ける処理がない。並列化の恩恵はSync処理のみ。</p>
-  </div>
-</div>
-
-<!-- ===== マルチターン ===== -->
-<div class="section" id="multiturn">
-  <div class="section-eye">Architecture</div>
-  <h2>マルチターン会話（ragQuery）</h2>
-
-  <p>Gemini API の <code>contents</code> 配列を使い、過去の会話履歴を含めてマルチターン対話を実現する。knowledge baseの注入は最初のuser/modelペアとして挿入する。</p>
-
-  <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Code.gs — ragQuery（マルチターン）</span></div>
-    <pre><code><span class="kw">function</span> <span class="fn">ragQuery</span>(query, dbKey, history) {
-  history = history || [];
-
-  <span class="cm">// ① ベクトル検索で上位5チャンク取得</span>
-  <span class="kw">var</span> results = <span class="fn">searchByEmbedding_</span>(query, dbKey, <span class="key">5</span>);
-  <span class="kw">var</span> context = results.length === <span class="key">0</span>
-    ? <span class="str">'（関連ドキュメントが見つかりませんでした）'</span>
-    : results.<span class="fn">map</span>(<span class="kw">function</span>(r, i) {
-        <span class="kw">return</span> <span class="str">'### ['</span> + (i+<span class="key">1</span>) + <span class="str">'] '</span> + r.title + <span class="str">'\n'</span> + r.text;
-      }).<span class="fn">join</span>(<span class="str">'\n\n'</span>);
-
-  <span class="cm">// ② contents 配列を構築</span>
-  <span class="cm">//   [知識ベース注入(user/model)] + [会話履歴] + [今回の質問]</span>
-  <span class="kw">var</span> contents = [
-    { role: <span class="str">'user'</span>,  parts: [{ text: <span class="str">'以下の参考ドキュメントを確認しました。\n\n'</span> + context }] },
-    { role: <span class="str">'model'</span>, parts: [{ text: <span class="str">'参考ドキュメントを確認しました。ご質問にお答えします。'</span> }] },
-  ];
-
-  <span class="cm">// ③ 直近3往復（6メッセージ）を追加</span>
-  history.<span class="fn">slice</span>(-<span class="key">6</span>).<span class="fn">forEach</span>(<span class="kw">function</span>(h) {
-    contents.push({ role: h.role === <span class="str">'bot'</span> ? <span class="str">'model'</span> : <span class="str">'user'</span>, parts: [{ text: h.text }] });
-  });
-  contents.push({ role: <span class="str">'user'</span>, parts: [{ text: query }] });
-
-  <span class="cm">// ④ Gemini 呼び出し（system_instruction で回答スタイルを制御）</span>
-  <span class="kw">var</span> answer = <span class="fn">callGemini_</span>(contents);
-  <span class="kw">return</span> { answer: answer, sources: <span class="fn">deduplicateSources_</span>(results) };
-}
-
-<span class="kw">function</span> <span class="fn">callGemini_</span>(contents) {
-  <span class="kw">var</span> payload = JSON.<span class="fn">stringify</span>({
-    system_instruction: { parts: [{ text:
-      <span class="str">'あなたはゲーム開発チームの知識ベースを持つAIアシスタントです。\n'</span> +
-      <span class="str">'日本語で**簡潔に**回答してください（目安: 400文字以内）。\n'</span> +
-      <span class="str">'重要な点のみ箇条書き（-）または短い見出し（##）でまとめてください。'</span>
-    }]},
-    contents:          contents,
-    generationConfig:  { temperature: <span class="key">0.4</span>, maxOutputTokens: <span class="key">1024</span> },
-  });
-  <span class="cm">// ... Gemini API 呼び出し</span>
-}</code></pre>
+    <p>MCP とは？</p>
+    <p>Anthropic が策定したオープンプロトコルで、LLM（Claude など）に外部ツールを接続する標準的な方法です。「Claude にデータベース検索能力を追加する」ための仕組みと考えてください。stdio（標準入出力）経由で JSON を送受信します。</p>
   </div>
 
-  <div class="callout callout-note">
-    <p><strong>トークン節約のポイント</strong></p>
-    <p>会話履歴は直近3往復（6メッセージ）のみ保持。本文テキストはチャンクを600字に絞る。<code>maxOutputTokens: 1024</code>で出力を制限。これにより入力4K・出力7Kまで増加していたトークンを大幅削減。</p>
-  </div>
-</div>
+  <h3>ChromaDB — ローカルのベクトルデータベース</h3>
+  <p>
+    ChromaDB は Python で書かれたオープンソースのベクトルデータベースです。
+    インストールするだけでローカルでベクトル検索が使えます。
+    ファイルとして保存されるため、Docker 不要・サーバー不要で動作します。
+  </p>
 
-<!-- ===== チャットUI ===== -->
-<div class="section" id="chat-ui">
-  <div class="section-eye">Step 05</div>
-  <h2>チャットUIの実装</h2>
-
-  <p><code>doGet()</code> でHTMLを返す。<code>google.script.run</code> でサーバーサイドの <code>ragQuery</code> を呼び出す構成。非同期であるためAPIキーがブラウザに露出しない。</p>
-
-  <h3>重要: window.history との変数名衝突</h3>
-  <div class="callout callout-warn">
-    <p><strong>⚠️ window.history バグ</strong></p>
-    <p>ブラウザのJSでは <code>var history = []</code> と書くと、ブラウザのNavigation History API（<code>window.history</code>）を上書きしてしまう。<code>history.slice()</code> が TypeError を投げ、<code>isSending=true</code> のままUIがロックされる。変数名は必ず <code>chatHistory</code> にすること。</p>
-  </div>
-
-  <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">HTML — 会話履歴変数（正しい命名）</span></div>
-    <pre><code><span class="cm">// ❌ NG: window.history と競合する</span>
-<span class="kw">var</span> history = [];
-
-<span class="cm">// ✅ OK: chatHistory に命名</span>
-<span class="kw">var</span> chatHistory = [];
-
-<span class="kw">function</span> <span class="fn">clearChat</span>() {
-  chatHistory = [];  <span class="cm">// ← chatHistory を使う</span>
-  <span class="cm">/* ... */</span>
-}
-
-<span class="kw">function</span> <span class="fn">send</span>() {
-  <span class="kw">var</span> historySnapshot = chatHistory.<span class="fn">slice</span>();  <span class="cm">// ← コピーして渡す</span>
-  google.script.run
-    .<span class="fn">withSuccessHandler</span>(<span class="kw">function</span>(result) {
-      chatHistory.<span class="fn">push</span>({ role: <span class="str">'user'</span>, text: q });
-      chatHistory.<span class="fn">push</span>({ role: <span class="str">'bot'</span>,  text: result.answer });
-    })
-    .<span class="fn">ragQuery</span>(q, dbKey, historySnapshot);
-}</code></pre>
-  </div>
-
-  <h3>UI機能一覧</h3>
-  <div class="tbl-wrap">
-    <table>
-      <thead><tr><th>機能</th><th>実装</th></tr></thead>
-      <tbody>
-        <tr><td>Markdown レンダリング</td><td>marked.js CDN で bot メッセージを変換</td></tr>
-        <tr><td>コピーボタン</td><td>bot メッセージ下部に自動追加</td></tr>
-        <tr><td>チャットクリア</td><td>右上ボタンで chatHistory と DOM をリセット</td></tr>
-        <tr><td>ターン区切り</td><td>2ターン目以降に「─ 続けて質問 ─」バッジを表示</td></tr>
-        <tr><td>参考情報ドロワー</td><td>各回答下にソースタイトル・DB名・スコア%を折りたたみ表示</td></tr>
-        <tr><td>Ctrl+Enter 送信</td><td>textarea で Ctrl+Enter を送信キーとして設定</td></tr>
-        <tr><td>自動リサイズ textarea</td><td>入力量に応じて高さが拡張（最大120px）</td></tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- ===== 公開 ===== -->
-<div class="section" id="deploy">
-  <div class="section-eye">Step 06</div>
-  <h2>WebAppとして公開・マルチユーザー対応</h2>
-
-  <div class="step-group">
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">新しいデプロイ <span class="badge badge-amber">GAS</span></div>
-        <div class="step-body">
-          <p>「デプロイ」→「新しいデプロイ」→ 種類:「ウェブアプリ」</p>
-        </div>
-      </div>
-    </div>
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">アクセス設定を選ぶ</div>
-        <div class="step-body">
-          <div class="props">
-            <div class="props-row header"><div>項目</div><div></div><div>設定値</div></div>
-            <div class="props-row"><div class="name">次のユーザーとして実行</div><div></div><div class="desc"><strong>自分</strong>（APIキーは Script Properties に格納されるため安全）</div></div>
-            <div class="props-row"><div class="name">アクセスできるユーザー（個人利用）</div><div></div><div class="desc">自分のみ</div></div>
-            <div class="props-row"><div class="name">アクセスできるユーザー（チーム共有）</div><div></div><div class="desc"><strong>全員</strong>（Googleアカウント不要にも設定可）</div></div>
-          </div>
-          <div class="callout callout-tip">
-            <p><strong>なぜ「実行: 自分」のままでよいか</strong></p>
-            <p>他ユーザーのリクエストもオーナーアカウントで処理される。NotionキーやGeminiキーは Script Properties に格納されており、他ユーザーには一切見えない。RAG用途では読み取り専用なので権限的にも問題ない。</p>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div></div>
-      <div class="step-content">
-        <div class="step-title">再デプロイ（コード変更後）</div>
-        <div class="step-body">
-          <p>「デプロイを管理」→ 鉛筆アイコン →「バージョン: 新バージョン」→ デプロイ</p>
-          <p>URLは変わらないため、共有済みのリンクもそのまま使える。</p>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== データ投入 ===== -->
-<div class="section" id="data">
-  <div class="section-eye">Step 07</div>
-  <h2>データ投入・LocalRAG→Notion移行</h2>
-
-  <h3>localrag_to_notion.py — 一括移行スクリプト</h3>
-  <p>ローカルの Markdown ファイルを Notion DB に一括移行するツール。テーブル・コードブロック・見出しをすべて対応するNotionブロックに変換する：</p>
-
-  <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — 移行実行</span></div>
-    <pre><code><span class="prompt">$</span> python scripts/localrag_to_notion.py `
-    --notion-key secret_xxx `
-    --db-id f201f73c-45dc-44cb-b8d7-a7be81b3644c `
-    localRAG/personal_notes/*.md
-
-<span class="out">処理: braintq_overview.md → ✅ 成功 (42ブロック)</span>
-<span class="out">処理: fourteen_irons.md   → ✅ 成功 (78ブロック)</span>
-<span class="out">処理: afuri.md            → ✅ 成功 (29ブロック)</span>
-<span class="out">完了: 17成功 / 0失敗</span></code></pre>
-  </div>
-
-  <h3>Markdown → Notionブロック変換マッピング</h3>
-  <div class="tbl-wrap">
-    <table>
-      <thead><tr><th>Markdown</th><th>Notionブロック</th><th>備考</th></tr></thead>
-      <tbody>
-        <tr><td><code># ## ###</code></td><td>heading_1 / 2 / 3</td><td></td></tr>
-        <tr><td><code>- </code> 箇条書き</td><td>bulleted_list_item</td><td></td></tr>
-        <tr><td><code>1.</code> 番号付きリスト</td><td>numbered_list_item</td><td></td></tr>
-        <tr><td><code>```lang```</code> コードブロック</td><td>code（language自動変換）</td><td>csharp→c# など</td></tr>
-        <tr><td><code>| A | B |</code> テーブル行</td><td>paragraph「A / B」形式</td><td>separator行はスキップ</td></tr>
-        <tr><td>通常テキスト</td><td>paragraph</td><td></td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>Notion コード言語マッピング（厳格な allowlist 対応）</h3>
-  <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">localrag_to_notion.py — 言語マッピング</span></div>
-    <pre><code><span class="cm"># Notionのcodeブロックはlanguageが厳格なallowlistで管理されている</span>
-_NOTION_LANG = {
-  <span class="str">"csharp"</span>: <span class="str">"c#"</span>,     <span class="str">"cs"</span>: <span class="str">"c#"</span>,       <span class="str">"c#"</span>: <span class="str">"c#"</span>,
-  <span class="str">"cpp"</span>:    <span class="str">"c++"</span>,    <span class="str">"c++"</span>: <span class="str">"c++"</span>,
-  <span class="str">"js"</span>:     <span class="str">"javascript"</span>, <span class="str">"ts"</span>: <span class="str">"typescript"</span>,
-  <span class="str">"py"</span>:     <span class="str">"python"</span>,  <span class="str">"sh"</span>: <span class="str">"shell"</span>,    <span class="str">"bash"</span>: <span class="str">"bash"</span>,
-  <span class="str">"json"</span>:   <span class="str">"json"</span>,    <span class="str">"yaml"</span>: <span class="str">"yaml"</span>,
-  <span class="str">""</span>:       <span class="str">"plain text"</span>,
-  <span class="cm"># ... 他多数</span>
-}</code></pre>
-  </div>
-
-  <h3>手動追加（Notion Web Clipper）</h3>
   <div class="grid2">
     <div class="card">
-      <div class="card-title">手動（Notion Web Clipper）</div>
+      <div class="card-title">ChromaDB の特徴</div>
       <ul>
-        <li>Chrome拡張「Notion Web Clipper」を追加</li>
-        <li>保存したいページで拡張を起動</li>
-        <li>対象DBを選択して保存</li>
-        <li>保存後にsummaryを追記</li>
+        <li>pip install chromadb だけでOK</li>
+        <li>ファイルシステムに永続化</li>
+        <li>Python API から直接操作</li>
+        <li>BM25 + ベクトル RRF ハイブリッド検索</li>
+        <li>メタデータフィルタリング対応</li>
       </ul>
     </div>
     <div class="card">
-      <div class="card-title">summary生成プロンプト例</div>
-      <pre style="font-size:11px;margin-top:8px;"><code>以下を200字以内で要約してください。
-専門用語はそのまま残してください。
-
-[ページ本文]</code></pre>
+      <div class="card-title">multilingual-e5-large</div>
+      <ul>
+        <li>Microsoft 製の多言語埋め込みモデル</li>
+        <li>日本語に強い（Multilingual）</li>
+        <li>1024 次元ベクトルを生成</li>
+        <li>ローカル実行可能（API 不要）</li>
+        <li>SentenceTransformers 経由で使用</li>
+      </ul>
     </div>
   </div>
 
+  <h3>rag_local_bridge.py — FastAPI なしの HTTP サーバー</h3>
+  <p>
+    Unity や Houdini から Local RAG に接続するための <strong>HTTP ブリッジサーバー</strong>です。
+    FastAPI などのフレームワークを使わず、Python 標準ライブラリの
+    <code>http.server</code> だけで実装されています。
+  </p>
+
   <div class="callout callout-tip">
-    <p><strong>データ追加後の更新手順</strong></p>
-    <p>NotionにページをCRUDしたら → GASエディタで <code>syncNotionToSheets</code> を実行 → 差分のみ更新される（並列化により高速）</p>
+    <p>なぜ標準ライブラリだけで書いたのか？</p>
+    <p>追加 pip install が不要になるため、チームメンバーの環境セットアップが簡単になります。FastAPI は高機能ですが、依存関係の衝突リスクがあります。RAG ブリッジに必要な 3 エンドポイントは標準ライブラリで十分実装できます。</p>
+  </div>
+
+  <h3>3 つのエンドポイント</h3>
+  <div class="props">
+    <div class="props-row header">
+      <div>エンドポイント</div><div>メソッド</div><div>説明</div>
+    </div>
+    <div class="props-row">
+      <div class="name">/health</div><div class="type">GET</div>
+      <div class="desc">ブリッジサーバーの生存確認。Unity/Houdini の起動時チェックに使用</div>
+    </div>
+    <div class="props-row">
+      <div class="name">/query</div><div class="type">POST</div>
+      <div class="desc">テキストクエリを受け取り、ChromaDB 検索 → Claude Haiku 回答生成 → JSON 返却</div>
+    </div>
+    <div class="props-row">
+      <div class="name">/graph</div><div class="type">GET</div>
+      <div class="desc">ChromaDB 内の全ドキュメントのコサイン類似度グラフデータを返却（グラフビュー用）</div>
+    </div>
+  </div>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">rag_local_bridge.py — /query エンドポイント処理フロー</span></div>
+    <pre><code><span class="cm"># /query エンドポイントの処理（簡略版）</span>
+<span class="kw">def</span> <span class="fn">handle_query</span>(body):
+    query_text = body[<span class="str">'query'</span>]
+
+    <span class="cm"># 1. mcp-rag-server に検索を依頼（JSON-RPC over stdio）</span>
+    results = mcp_search(query_text, n_results=<span class="num">5</span>)
+
+    <span class="cm"># 2. 取得したドキュメントを文脈として組み立て</span>
+    context = <span class="str">'\n\n'</span>.join([r[<span class="str">'text'</span>] <span class="kw">for</span> r <span class="kw">in</span> results])
+
+    <span class="cm"># 3. Claude Haiku で回答生成</span>
+    answer = anthropic_client.messages.create(
+        model=<span class="str">'claude-haiku-4-5'</span>,
+        messages=[{
+            <span class="str">'role'</span>: <span class="str">'user'</span>,
+            <span class="str">'content'</span>: <span class="str">f'参考情報:\n{context}\n\n質問: {query_text}'</span>
+        }]
+    ).content[<span class="num">0</span>].text
+
+    <span class="kw">return</span> { <span class="str">'answer'</span>: answer, <span class="str">'sources'</span>: results }</code></pre>
   </div>
 </div>
 
-<!-- ===== トラブルシューティング ===== -->
-<div class="section" id="trouble">
-  <div class="section-eye">Troubleshooting</div>
-  <h2>トラブルシューティング</h2>
+<!-- =========================================================
+     第5章: グラフビュー
+     ========================================================= -->
+<div class="section" id="ch5">
+  <div class="section-eye">Chapter 05</div>
+  <h2>グラフビュー — ドキュメント間の「隠れた関係」を可視化</h2>
 
-  <h3>Notion APIが403を返す</h3>
-  <p>インテグレーションが各DBの「接続先」に追加されているか確認する。Notion DB → 右上「…」→「接続先」→ インテグレーションを追加。</p>
+  <p>
+    ドキュメントが増えると「どの文書が関連しているか」がわかりにくくなります。
+    グラフビューは <strong>コサイン類似度が 0.70 以上のドキュメント同士をエッジ（線）で結ぶ</strong>
+    ことで、知識の繋がりをネットワーク図として可視化します。
+  </p>
 
-  <h3>syncNotionToSheets がエラー</h3>
-  <p><code>SHEETS_ID</code> がスクリプトプロパティに設定されているか確認。スプレッドシートのURLからIDを正しくコピーしているか確認。</p>
-  <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">GAS — Embedding疎通確認</span></div>
-    <pre><code><span class="cm">// testEmbedding() を実行して確認</span>
-<span class="out">✅ embedding-001 OK  次元数: 768  先頭3値: 0.012,0.034,-0.011</span>
-
-<span class="cm">// ❌ の場合: GEMINI_API_KEY を確認する</span></code></pre>
+  <h3>なぜグラフが必要か</h3>
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">テキスト検索の限界</div>
+      <p>「BrainTQ の AI 設計」を検索しても、「強化学習の実装」という別ページとの関連が見えない。</p>
+    </div>
+    <div class="card">
+      <div class="card-title">グラフビューの価値</div>
+      <p>コサイン類似度 0.70 以上のページが自動的にエッジで結ばれるため「意味的に近い文書群」が一目でわかる。</p>
+    </div>
   </div>
 
-  <h3>UIが「応答中」のまま固まる</h3>
-  <p><code>var history = []</code> が <code>window.history</code>（ブラウザの Navigation API）と競合している。<code>history.slice()</code> が TypeError を投げ、<code>isSending=true</code> のままUIがロックされる。</p>
-  <p>解決: <code>getChatHtml()</code> 内の変数名をすべて <code>chatHistory</code> に変更して再デプロイ（現行コードでは修正済み）。</p>
+  <h3>コサイン類似度 0.70 のエッジ定義</h3>
+  <div class="arch">
+    <pre><code>
+  全ドキュメントペアのコサイン類似度を計算:
 
-  <h3>検索精度が低い / 関連ドキュメントが見つからない</h3>
-  <ul style="font-size:14px;padding-left:20px;margin-bottom:14px;">
-    <li>Notionページの <code>summary</code> プロパティに内容を追記する（空だと検索精度が落ちる）</li>
-    <li>固有名詞（BTQ-116、TC-8 等）をページタイトルや summary に明示する</li>
-    <li><code>syncNotionToSheets</code> を再実行してインデックスを最新化する</li>
-    <li><code>testSearch('質問文', 'braintq', 3)</code> で検索結果をログ確認する</li>
+  doc_A × doc_B → similarity = 0.83  ✅ エッジを張る
+  doc_A × doc_C → similarity = 0.71  ✅ エッジを張る
+  doc_A × doc_D → similarity = 0.65  ❌ エッジを張らない（閾値 0.70 未満）
+
+  閾値を下げすぎると → ほぼ全ノードが繋がり「地図」にならない
+  閾値を上げすぎると → 孤立ノードが増え「孤島」だらけになる
+  0.70 は実験的に最も「意味のある関係」が見える値として採用
+    </code></pre>
+  </div>
+
+  <h3>Spring レイアウト（力学モデル配置）</h3>
+  <p>
+    ノードの配置は <strong>バネ-電荷モデル（Force-Directed Layout）</strong> を使います。
+    繋がっているノード同士はバネで引き合い、繋がっていないノードは電荷で反発し合うことで、
+    自然に「クラスター（塊）」が形成されます。
+  </p>
+
+  <div class="callout callout-note">
+    <p>物理シミュレーションによる自動配置</p>
+    <p>人間が手動でノードを配置する必要がありません。「意味的に似たドキュメント群」が自動的に近くに集まります。これが Spring Layout（力学モデル）の特徴です。Networkx の spring_layout() が同じアルゴリズムを使用しています。</p>
+  </div>
+
+  <h3>グラフビューの実装: 4 レイヤ</h3>
+  <div class="grid2">
+    <div class="card">
+      <div class="card-icon">☁️</div>
+      <div class="card-title">Cloud 側: D3.js</div>
+      <div class="card-subtitle">GAS /graph エンドポイント → ブラウザ</div>
+      <ul>
+        <li>GAS が全チャンクのコサイン類似度を計算</li>
+        <li>ノード・エッジデータを JSON で返す</li>
+        <li>D3.js force simulation でリアルタイムアニメーション</li>
+        <li>ノードをドラッグで移動可能</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-icon">💻</div>
+      <div class="card-title">Local 側: rag_graph_export.py</div>
+      <div class="card-subtitle">ChromaDB → Spring Layout → JSON</div>
+      <ul>
+        <li>ChromaDB から全ドキュメントのベクトルを取得</li>
+        <li>numpy でコサイン類似度行列を計算</li>
+        <li>NetworkX spring_layout でノード座標を算出</li>
+        <li>/graph エンドポイントで返却</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-icon">🎮</div>
+      <div class="card-title">Unity 側: IMGUI + GL</div>
+      <div class="card-subtitle">EditorWindow の GL グラフキャンバス</div>
+      <ul>
+        <li>HTTP GET /graph でノード・エッジ取得</li>
+        <li>GL.LINES でエッジを描画</li>
+        <li>IMGUI Button でノードを表示</li>
+        <li>選択ノードの詳細パネルを表示</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-icon">🌀</div>
+      <div class="card-title">Houdini 側: QGraphicsView</div>
+      <div class="card-subtitle">PySide6 の Qt グラフィクスシーン</div>
+      <ul>
+        <li>QGraphicsEllipseItem でノードを描画</li>
+        <li>QGraphicsLineItem でエッジを描画</li>
+        <li>マウスホバーでツールチップ表示</li>
+        <li>ノードクリックで詳細パネルを更新</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">rag_graph_export.py — コサイン類似度行列の計算</span></div>
+    <pre><code><span class="kw">import</span> numpy <span class="kw">as</span> np
+
+<span class="kw">def</span> <span class="fn">build_graph</span>(embeddings, titles, threshold=<span class="num">0.70</span>):
+    <span class="cm"># numpy で一括計算（ループなし・高速）</span>
+    norms = np.linalg.<span class="fn">norm</span>(embeddings, axis=<span class="num">1</span>, keepdims=<span class="kw">True</span>)
+    normalized = embeddings / (norms + <span class="num">1e-10</span>)
+
+    <span class="cm"># 全ペアのコサイン類似度行列（N×N）を一気に計算</span>
+    sim_matrix = normalized @ normalized.T  <span class="cm"># ドット積 = コサイン類似度</span>
+
+    edges = []
+    n = len(titles)
+    <span class="kw">for</span> i <span class="kw">in</span> range(n):
+        <span class="kw">for</span> j <span class="kw">in</span> range(i + <span class="num">1</span>, n):
+            <span class="kw">if</span> sim_matrix[i, j] >= threshold:
+                edges.<span class="fn">append</span>({
+                    <span class="str">'source'</span>: i, <span class="str">'target'</span>: j,
+                    <span class="str">'similarity'</span>: float(sim_matrix[i, j])
+                })
+    <span class="kw">return</span> edges</code></pre>
+  </div>
+</div>
+
+<!-- =========================================================
+     第6章: Unity 統合
+     ========================================================= -->
+<div class="section" id="ch6">
+  <div class="section-eye">Chapter 06</div>
+  <h2>Unity 統合 — エディタ拡張でゲーム開発者が直接 AI に質問</h2>
+
+  <p>
+    Unity の <strong>EditorWindow</strong> を拡張し、Unity エディタの中から直接 RAG システムに
+    質問できる「RAG Assistant」ウィンドウを実装しました。
+  </p>
+
+  <h3>EditorWindow とは</h3>
+  <p>
+    Unity エディタの「ウィンドウ」メニューに自分のパネルを追加できる仕組みです。
+    <code>UnityEditor.EditorWindow</code> を継承し、<code>OnGUI()</code> に UI を書くだけで
+    独自ウィンドウが作れます。ゲームを実行しなくても常に使えます。
+  </p>
+
+  <h3>IRAGClient インターフェース — 疎結合設計</h3>
+  <p>
+    Cloud RAG と Local RAG を <strong>同じインターフェース</strong>で切り替えられる設計です。
+    Settings タブで URL を変えるだけで、同じ UI から異なる RAG に接続できます。
+  </p>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">C# — IRAGClient インターフェース</span></div>
+    <pre><code><span class="cm">// 共通インターフェース</span>
+<span class="kw">public interface</span> <span class="fn">IRAGClient</span>
+{
+    Task&lt;RAGResponse&gt; <span class="fn">QueryAsync</span>(string query, string dbKey);
+    Task&lt;GraphData&gt;   <span class="fn">GetGraphAsync</span>();
+}
+
+<span class="cm">// Cloud RAG 実装（GAS WebApp に HTTP リクエスト）</span>
+<span class="kw">public class</span> <span class="fn">CloudRAGClient</span> : IRAGClient
+{
+    <span class="kw">private</span> string _gasUrl;  <span class="cm">// EditorPrefs から取得</span>
+    <span class="kw">public async</span> Task&lt;RAGResponse&gt; <span class="fn">QueryAsync</span>(string query, string dbKey) { ... }
+}
+
+<span class="cm">// Local RAG 実装（rag_local_bridge.py に HTTP リクエスト）</span>
+<span class="kw">public class</span> <span class="fn">LocalRAGClient</span> : IRAGClient
+{
+    <span class="kw">private</span> string _bridgeUrl = <span class="str">"http://localhost:8765"</span>;
+    <span class="kw">public async</span> Task&lt;RAGResponse&gt; <span class="fn">QueryAsync</span>(string query, string dbKey) { ... }
+}</code></pre>
+  </div>
+
+  <h3>3 つのタブ構成</h3>
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge" style="background:rgba(88,166,255,.15);border-color:rgba(88,166,255,.4);color:var(--accent);">💬</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">Chat タブ <span class="badge badge-blue">非同期クエリ</span></div>
+        <div class="step-body">
+          <p><code>async/await</code> を使い非同期でクエリを送信します。<code>await QueryAsync()</code> している間も Unity エディタが固まらない（メインスレッドをブロックしない）設計です。マルチターン対話に対応し、会話履歴をメモリ上に保持します。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge" style="background:rgba(63,185,80,.12);border-color:rgba(63,185,80,.35);color:var(--green);">🕸</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">Graph タブ <span class="badge badge-green">GL グラフキャンバス</span></div>
+        <div class="step-body">
+          <p>Unity の <code>GL</code> クラス（OpenGL 相当）で直接線を描画します。<code>GL.LINES</code> でエッジを、<code>IMGUI Button</code> でノードを表示し、ノードをクリックするとドキュメントの詳細が表示されます。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge" style="background:rgba(210,153,34,.12);border-color:rgba(210,153,34,.35);color:var(--amber);">⚙️</div></div>
+      <div class="step-content">
+        <div class="step-title">Settings タブ <span class="badge badge-amber">EditorPrefs</span></div>
+        <div class="step-body">
+          <p>GAS URL やブリッジポートなどの設定を <code>EditorPrefs</code>（Unity エディタの設定ストレージ）に保存します。プロジェクトの Git リポジトリには含まれないため、API キーや URL が外部に漏れません。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3>ブリッジ自動起動</h3>
+  <p>
+    <code>OnEnable()</code>（ウィンドウが開いたとき）に <code>/health</code> エンドポイントを叩き、
+    ブリッジが起動していなければ <code>Process.Start()</code> で Python プロセスを自動起動します。
+  </p>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">C# — OnEnable: ブリッジ自動起動</span></div>
+    <pre><code><span class="kw">private async void</span> <span class="fn">OnEnable</span>()
+{
+    <span class="kw">try</span>
+    {
+        <span class="cm">// /health で生存確認</span>
+        <span class="kw">var</span> res = <span class="kw">await</span> _httpClient.<span class="fn">GetAsync</span>(<span class="str">"http://localhost:8765/health"</span>);
+        _bridgeRunning = res.IsSuccessStatusCode;
+    }
+    <span class="kw">catch</span>
+    {
+        <span class="cm">// 起動していなければ Python プロセスを起動</span>
+        System.Diagnostics.Process.<span class="fn">Start</span>(<span class="kw">new</span> ProcessStartInfo {
+            FileName  = <span class="str">"python"</span>,
+            Arguments = <span class="str">"rag_local_bridge.py"</span>,
+            UseShellExecute = <span class="kw">false</span>,
+            CreateNoWindow  = <span class="kw">true</span>,
+        });
+        _bridgeRunning = <span class="kw">true</span>;
+    }
+}</code></pre>
+  </div>
+</div>
+
+<!-- =========================================================
+     第7章: Houdini 統合
+     ========================================================= -->
+<div class="section" id="ch7">
+  <div class="section-eye">Chapter 07</div>
+  <h2>Houdini 統合 — Python Panel で DCC ツールに AI を統合</h2>
+
+  <p>
+    SideFX Houdini の <strong>Python Panel</strong> 機能を使い、Houdini 内から直接
+    RAG システムに質問できる UI を実装しました。3D アート・VFX ワークフローで
+    ドキュメントを参照しながら作業できます。
+  </p>
+
+  <h3>Python Panel とは</h3>
+  <p>
+    Houdini のペイン（パネル）として Python で書いた GUI を埋め込める仕組みです。
+    Houdini の PythonPanel Editor で作成し、任意の Qt ウィジェットを配置できます。
+    3D ビューポートと並べて表示できるため、作業中のシーンを確認しながら質問できます。
+  </p>
+
+  <h3>PySide6 / Qt6 の役割</h3>
+  <p>
+    Houdini 19.5 以降は <strong>PySide6</strong>（Qt6 の Python バインディング）を内蔵しています。
+    QWidget・QVBoxLayout・QPushButton などの Qt コンポーネントで
+    本格的な UI を Python だけで構築できます。
+  </p>
+
+  <div class="grid3">
+    <div class="card">
+      <div class="card-title">QThread</div>
+      <p>バックグラウンドスレッドで HTTP 通信。UI（メインスレッド）が応答なしにならない。</p>
+    </div>
+    <div class="card">
+      <div class="card-title">QGraphicsView</div>
+      <p>グラフビュー描画エンジン。2D シーンを管理するキャンバスとして機能。</p>
+    </div>
+    <div class="card">
+      <div class="card-title">QGraphicsEllipseItem</div>
+      <p>各ドキュメントノードを楕円（円）として描画。クリック・ホバーイベント対応。</p>
+    </div>
+  </div>
+
+  <h3>QThread でバックグラウンド通信</h3>
+  <p>
+    Python の <code>requests.post()</code> は同期処理のため、メインスレッドで呼ぶと
+    <strong>Houdini 全体が固まります</strong>。QThread にオフロードすることで
+    AI が回答を生成している間も Houdini を操作できます。
+  </p>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Python — QThread でバックグラウンド HTTP 通信</span></div>
+    <pre><code><span class="kw">from</span> PySide6.QtCore <span class="kw">import</span> QThread, Signal
+
+<span class="kw">class</span> <span class="fn">QueryWorker</span>(QThread):
+    finished = <span class="fn">Signal</span>(dict)   <span class="cm"># 完了時にメインスレッドへ通知</span>
+    error    = <span class="fn">Signal</span>(str)
+
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, url, payload):
+        <span class="kw">super</span>().__init__()
+        self.url, self.payload = url, payload
+
+    <span class="kw">def</span> <span class="fn">run</span>(self):
+        <span class="cm"># ← このメソッドはバックグラウンドスレッドで実行される</span>
+        <span class="kw">try</span>:
+            res = requests.<span class="fn">post</span>(self.url, json=self.payload, timeout=<span class="num">60</span>)
+            self.finished.<span class="fn">emit</span>(res.<span class="fn">json</span>())
+        <span class="kw">except</span> Exception <span class="kw">as</span> e:
+            self.error.<span class="fn">emit</span>(str(e))
+
+<span class="cm"># メインスレッドで Worker を起動</span>
+self._worker = <span class="fn">QueryWorker</span>(url, payload)
+self._worker.finished.<span class="fn">connect</span>(self.<span class="fn">on_query_done</span>)  <span class="cm"># シグナル接続</span>
+self._worker.<span class="fn">start</span>()  <span class="cm"># バックグラウンドで HTTP 通信を開始</span></code></pre>
+  </div>
+
+  <h3>設定の JSON 保存</h3>
+  <p>
+    Unity が <code>EditorPrefs</code> を使う一方、Houdini 側は設定を
+    <strong>JSON ファイル</strong>（<code>~/.houdini_rag_settings.json</code>）に保存します。
+    Houdini 内部ではレジストリやグローバル設定 API がないため、
+    JSON ファイルが最もシンプルで移植性の高い方法です。
+  </p>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">Python — JSON 設定の読み書き</span></div>
+    <pre><code><span class="kw">import</span> json, pathlib
+
+SETTINGS_PATH = pathlib.Path.<span class="fn">home</span>() / <span class="str">'.houdini_rag_settings.json'</span>
+
+<span class="kw">def</span> <span class="fn">load_settings</span>():
+    <span class="kw">if</span> SETTINGS_PATH.<span class="fn">exists</span>():
+        <span class="kw">return</span> json.<span class="fn">loads</span>(SETTINGS_PATH.<span class="fn">read_text</span>())
+    <span class="kw">return</span> { <span class="str">'bridge_url'</span>: <span class="str">'http://localhost:8765'</span>, <span class="str">'gas_url'</span>: <span class="str">''</span> }
+
+<span class="kw">def</span> <span class="fn">save_settings</span>(cfg):
+    SETTINGS_PATH.<span class="fn">write_text</span>(json.<span class="fn">dumps</span>(cfg, ensure_ascii=<span class="kw">False</span>, indent=<span class="num">2</span>))</code></pre>
+  </div>
+</div>
+
+<!-- =========================================================
+     第8章: セキュリティ設計
+     ========================================================= -->
+<div class="section" id="ch8">
+  <div class="section-eye">Chapter 08</div>
+  <h2>セキュリティ設計 — API キーを絶対に漏らさないために</h2>
+
+  <p>
+    API キー（Notion・Gemini・Anthropic）は一度 GitHub に Push してしまうと
+    <strong>ボットに即座に取得され、不正利用される</strong>リスクがあります。
+    このシステムでは複数の層でキーを保護しています。
+  </p>
+
+  <div class="callout callout-warn">
+    <p>なぜコードに直接書いてはいけないか</p>
+    <p>
+      API キーをソースコードに書くと → git commit → GitHub Push の瞬間に世界中に公開されます。
+      GitHub は定期的にキーのパターンをスキャンし、Gemini や Anthropic に自動通報する仕組みもあります。
+      ただし、それより早くボットがスキャンしてキーを悪用するケースが多いです。
+    </p>
+  </div>
+
+  <h3>レイヤ別のキー保管場所</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>API キー</th><th>保管場所</th><th>理由</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>NOTION_API_KEY<br>GEMINI_API_KEY</td>
+          <td>GAS スクリプトプロパティ</td>
+          <td>GAS のサーバーサイドに閉じており、ブラウザや Git には一切出ない</td>
+        </tr>
+        <tr>
+          <td>GAS WebApp URL</td>
+          <td>Unity EditorPrefs<br>Houdini JSON（~/.houdini_rag_settings.json）</td>
+          <td>Gitリポジトリに含まれないユーザーローカル領域に保存</td>
+        </tr>
+        <tr>
+          <td>ANTHROPIC_API_KEY</td>
+          <td>OS 環境変数（<code>$env:ANTHROPIC_API_KEY</code>）</td>
+          <td>プロセス環境変数はコードに書かれず、Git に含まれない</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>環境変数での管理方法</h3>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — 環境変数の設定（セッション永続）</span></div>
+    <pre><code><span class="cm"># 現在のセッションのみ（再起動で消える）</span>
+<span class="prompt">$</span> $env:ANTHROPIC_API_KEY = "sk-ant-xxxxxxxxxxxx"
+
+<span class="cm"># ユーザープロファイルに永続保存（再起動後も有効）</span>
+<span class="prompt">$</span> [Environment]::SetEnvironmentVariable(
+    "ANTHROPIC_API_KEY", "sk-ant-xxxxxxxxxxxx",
+    "User"
+  )
+
+<span class="cm"># Python コードで取得</span>
+<span class="out">import os</span>
+<span class="out">api_key = os.environ["ANTHROPIC_API_KEY"]  # コードに直接書かない</span></code></pre>
+  </div>
+
+  <h3>.env ファイルを使わない理由</h3>
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title" style="color:var(--red)">❌ .env ファイルの問題</div>
+      <ul>
+        <li><code>.gitignore</code> への追記を忘れると即 Push される</li>
+        <li>チームメンバーへの配布が困難</li>
+        <li>複数プロジェクトで同じキーを使いにくい</li>
+        <li>CI/CD 環境では使えない</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title" style="color:var(--green)">✅ OS 環境変数のメリット</div>
+      <ul>
+        <li>Git リポジトリに絶対含まれない</li>
+        <li>OS レベルで暗号化されて保存</li>
+        <li>全プロジェクトで共有できる</li>
+        <li>CI/CD（GitHub Actions の Secrets）と同じ考え方</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>GAS URL の Git 除外</h3>
+  <p>
+    GAS の WebApp URL はそれ自体がエンドポイントのため、
+    公開すると誰でも GAS 関数を呼び出せてしまいます（Notion への読み取り権限を悪用される恐れ）。
+    <code>EditorPrefs</code> は Unity のレジストリストレージに保存され、<code>Assets/</code> フォルダ外のため
+    Git の管理対象に含まれません。
+  </p>
+
+  <div class="callout callout-tip">
+    <p>GAS のアクセス制御</p>
+    <p>
+      GAS WebApp を「アクセスできるユーザー: 自分のみ」に設定すると、
+      Google アカウントでの認証が必要になるため、URL が漏れても他者は使えません。
+      チームで共有する場合は「ドメイン内のユーザー」に限定するか、
+      URL をランダムなトークンで保護する方法が推奨されます。
+    </p>
+  </div>
+</div>
+
+<!-- =========================================================
+     第9章: まとめと展望
+     ========================================================= -->
+<div class="section" id="ch9">
+  <div class="section-eye">Chapter 09</div>
+  <h2>まとめと展望 — Phase 1〜8 完全版</h2>
+
+  <h3>実装フェーズ一覧</h3>
+  <ul class="phase-list">
+    <li class="phase-item">
+      <span class="phase-num">Phase 1</span>
+      <div>
+        <div class="phase-title">Cloud RAG 基盤構築</div>
+        <div class="phase-desc">Notion 7 DB 設計・GAS プロジェクト作成・Gemini Embedding 統合・Google Sheets インデックス構築</div>
+      </div>
+    </li>
+    <li class="phase-item">
+      <span class="phase-num">Phase 2</span>
+      <div>
+        <div class="phase-title">並列同期・パフォーマンス最適化</div>
+        <div class="phase-desc">fetchAll による並列化・CacheService キャッシュ・差分同期・22秒→2秒の高速化</div>
+      </div>
+    </li>
+    <li class="phase-item">
+      <span class="phase-num">Phase 3</span>
+      <div>
+        <div class="phase-title">マルチターン対話・チャット UI</div>
+        <div class="phase-desc">Gemini contents 配列によるマルチターン実装・GAS WebApp UI・marked.js レンダリング</div>
+      </div>
+    </li>
+    <li class="phase-item">
+      <span class="phase-num">Phase 4</span>
+      <div>
+        <div class="phase-title">Local RAG 基盤構築</div>
+        <div class="phase-desc">ChromaDB セットアップ・multilingual-e5-large 統合・mcp-rag-server 設定・Claude Haiku 回答生成</div>
+      </div>
+    </li>
+    <li class="phase-item">
+      <span class="phase-num">Phase 5</span>
+      <div>
+        <div class="phase-title">Unity エディタ統合</div>
+        <div class="phase-desc">EditorWindow 実装・IRAGClient インターフェース・Chat タブ・async/await 非同期通信</div>
+      </div>
+    </li>
+    <li class="phase-item">
+      <span class="phase-num">Phase 6</span>
+      <div>
+        <div class="phase-title">Unity グラフビュー</div>
+        <div class="phase-desc">Graph タブ・GL.LINES エッジ描画・/graph エンドポイント実装・Spring Layout 座標計算</div>
+      </div>
+    </li>
+    <li class="phase-item">
+      <span class="phase-num">Phase 7</span>
+      <div>
+        <div class="phase-title">Houdini グラフビュー</div>
+        <div class="phase-desc">Python Panel・PySide6 UI・QGraphicsView グラフ・QThread バックグラウンド通信</div>
+      </div>
+    </li>
+    <li class="phase-item">
+      <span class="phase-num">Phase 8</span>
+      <div>
+        <div class="phase-title">GAS グラフデータ API</div>
+        <div class="phase-desc">Cloud RAG 側の /graph エンドポイント・D3.js force simulation・ブラウザグラフビュー</div>
+      </div>
+    </li>
   </ul>
 
-  <h3>同期が途中で止まる（タイムアウト）</h3>
-  <p>GASの実行時間制限（6分）を超えた場合。並列化で大幅改善済みだが、超過する場合は <code>DB_KEY_MAP</code> を一時的に絞って分割実行する。</p>
+  <h3>学んだ技術スタック（俯瞰）</h3>
+  <div class="grid3">
+    <div class="card">
+      <div class="card-title">AI / ML</div>
+      <ul>
+        <li>RAG アーキテクチャ設計</li>
+        <li>ベクトル埋め込み（768 / 1024 次元）</li>
+        <li>コサイン類似度検索</li>
+        <li>マルチターン対話設計</li>
+        <li>チャンク分割戦略</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">バックエンド</div>
+      <ul>
+        <li>GAS（サーバーレス）</li>
+        <li>Google Sheets をベクトル DB として活用</li>
+        <li>HTTP ブリッジ（標準ライブラリ）</li>
+        <li>JSON-RPC over stdio（MCP）</li>
+        <li>ChromaDB ベクトルストア</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">クライアント</div>
+      <ul>
+        <li>Unity C# IMGUI・GL</li>
+        <li>async/await 非同期</li>
+        <li>Houdini Python Panel</li>
+        <li>PySide6 / Qt6 UI</li>
+        <li>D3.js force simulation</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">グラフ理論</div>
+      <ul>
+        <li>Spring Layout（力学モデル）</li>
+        <li>NetworkX グラフ処理</li>
+        <li>numpy 行列演算</li>
+        <li>コサイン類似度行列</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">セキュリティ</div>
+      <ul>
+        <li>環境変数キー管理</li>
+        <li>GAS スクリプトプロパティ</li>
+        <li>EditorPrefs での分離</li>
+        <li>Git 除外設計</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">DevOps / 設計</div>
+      <ul>
+        <li>インターフェース設計（疎結合）</li>
+        <li>CacheService 最適化</li>
+        <li>差分同期アルゴリズム</li>
+        <li>fetchAll 並列化</li>
+      </ul>
+    </div>
+  </div>
 
-  <h3>Notionコードブロックが 400エラー</h3>
-  <p><code>localrag_to_notion.py</code> でコード言語の指定が Notion allowlist に含まれない場合（例: <code>csharp</code> は無効、<code>c#</code> が正しい）。<code>_NOTION_LANG</code> マッピングで自動変換されるが、マッピング外の言語は <code>plain text</code> にフォールバックする。</p>
+  <h3>今後の拡張可能性</h3>
+  <details>
+    <summary>リアルタイム同期（Webhook）</summary>
+    <div class="details-body">
+      <p>現在は手動で <code>syncNotionToSheets()</code> を実行して同期します。Notion の Webhook 機能を使えば、ページを書いた瞬間に自動でインデックスが更新される「リアルタイム RAG」を実現できます。GAS のタイムトリガー（1時間ごと）を設定することで半自動化も可能です。</p>
+    </div>
+  </details>
+  <details>
+    <summary>ハイブリッド検索（BM25 + ベクトル）</summary>
+    <div class="details-body">
+      <p>Cloud RAG 側は現在コサイン類似度のみです。Local RAG（ChromaDB）が採用している BM25 + ベクトル RRF ハイブリッド検索を Cloud RAG にも適用することで、キーワード検索と意味検索を組み合わせた高精度検索が実現できます。特に固有名詞（型番・関数名）の検索精度が向上します。</p>
+    </div>
+  </details>
+  <details>
+    <summary>RAG-Fusion（複数クエリ展開）</summary>
+    <div class="details-body">
+      <p>1 つの質問から複数の「言い換えクエリ」を自動生成し、各クエリで検索して結果をマージする手法です。「Unity でシェーダーが動かない」という質問から「HLSL コンパイルエラー」「Material PropertyBlock 設定」など複数の角度で検索することで、検索の抜け漏れを減らせます。</p>
+    </div>
+  </details>
+  <details>
+    <summary>Streaming 回答生成</summary>
+    <div class="details-body">
+      <p>現在は回答が全文生成されてから表示されます。Gemini / Claude の Streaming API を使えば、回答を文字単位でリアルタイムに表示できます（ChatGPT と同じ体験）。Unity IMGUI は <code>Repaint()</code> を繰り返すことで部分的に実装可能です。</p>
+    </div>
+  </details>
+  <details>
+    <summary>Obsidian ← → Notion 自動同期</summary>
+    <div class="details-body">
+      <p>現在は <code>localrag_to_notion.py</code> で手動移行します。Obsidian の Markdown ファイル変更を監視し、差分を自動で Notion に Push するデーモンを作れば、Obsidian でメモを書くだけで Cloud RAG に自動登録されるフローが実現します。</p>
+    </div>
+  </details>
+  <details>
+    <summary>マルチモーダル検索（画像・動画）</summary>
+    <div class="details-body">
+      <p>Gemini はテキストと画像を同時に処理できます。Unity のスクリーンショットや Houdini のレンダリング結果を質問に添付し「このシェーダーの問題を教えて」と聞けるマルチモーダル RAG への拡張が技術的に可能です。</p>
+    </div>
+  </details>
+
+  <div class="callout callout-tip">
+    <p>このシステムを作って学んだこと</p>
+    <p>
+      「AI を使う」から「AI を組み込んだシステムを設計する」へのシフトが重要です。
+      RAG は単なる API 呼び出しではなく、<strong>データ設計・検索アルゴリズム・UX・セキュリティ</strong>
+      が絡み合ったシステム設計の問題です。ゲーム開発の設計思想（インターフェース設計・非同期処理・
+      パフォーマンス最適化）が AI システム構築にそのまま活きることも実感できました。
+    </p>
+  </div>
 </div>
 
 </main>
 
 <footer>
   <p>
-    Cloud RAG Setup Guide v2 · Notion + GAS + Gemini Embedding + Sheets ·
+    AI 搭載ゲーム開発ツール — RAG システム完全解説 · Phase 1〜8 ·
     <a href="https://developers.notion.com/">Notion API</a> ·
     <a href="https://ai.google.dev/gemini-api/docs">Gemini API</a> ·
-    <a href="https://developers.google.com/apps-script">Google Apps Script</a>
+    <a href="https://docs.trychroma.com/">ChromaDB</a> ·
+    <a href="https://docs.anthropic.com/">Claude API</a> ·
+    Updated: 2026-06-25
   </p>
 </footer>
+
+<!-- ===== コサイン類似度アニメーション ===== -->
+<script>
+(function() {
+  var canvas = document.getElementById('cosine-canvas');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width, H = canvas.height;
+  var cx = W * 0.38, cy = H * 0.55;
+  var r = Math.min(W, H) * 0.32;
+
+  // アニメーション用パラメータ
+  var t = 0;
+  var baseAngle = -Math.PI * 0.15;  // ベクトルA固定角度
+
+  function drawArrow(fromX, fromY, toX, toY, color, label) {
+    var dx = toX - fromX, dy = toY - fromY;
+    var len = Math.sqrt(dx*dx + dy*dy);
+    var ux = dx/len, uy = dy/len;
+    var headLen = 12;
+
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // 矢頭
+    ctx.beginPath();
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - headLen*ux + headLen*0.4*uy, toY - headLen*uy - headLen*0.4*ux);
+    ctx.lineTo(toX - headLen*ux - headLen*0.4*uy, toY - headLen*uy + headLen*0.4*ux);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    // ラベル
+    if (label) {
+      ctx.fillStyle = color;
+      ctx.font = 'bold 13px "JetBrains Mono", monospace';
+      ctx.fillText(label, toX + 8, toY + 4);
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // 背景
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, W, H);
+
+    // 円弧（単位円）
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.strokeStyle = '#21262d';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 軸
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx-r-15, cy); ctx.lineTo(cx+r+15, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, cy-r-15); ctx.lineTo(cx, cy+r+15); ctx.stroke();
+    ctx.fillStyle = '#636e7b'; ctx.font = '11px monospace';
+    ctx.fillText('x', cx+r+18, cy+4);
+    ctx.fillText('y', cx+4, cy-r-12);
+
+    // ベクトルA（固定）
+    var aAngle = baseAngle;
+    var ax = cx + r*Math.cos(aAngle), ay = cy + r*Math.sin(aAngle);
+    drawArrow(cx, cy, ax, ay, '#58a6ff', 'A');
+
+    // ベクトルB（アニメーション）
+    var bAngle = aAngle + Math.sin(t * 0.015) * 0.9 + 0.05;
+    var bx = cx + r*Math.cos(bAngle), by = cy + r*Math.sin(bAngle);
+    drawArrow(cx, cy, bx, by, '#3fb950', 'B');
+
+    // 角度θの円弧
+    var minA = Math.min(aAngle, bAngle), maxA = Math.max(aAngle, bAngle);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r*0.22, minA, maxA);
+    ctx.strokeStyle = '#d29922';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // θラベル
+    var midA = (aAngle + bAngle) / 2;
+    ctx.fillStyle = '#d29922';
+    ctx.font = 'italic bold 14px serif';
+    ctx.fillText('θ', cx + r*0.28*Math.cos(midA) - 4, cy + r*0.28*Math.sin(midA) + 5);
+
+    // コサイン類似度の値を表示
+    var cosVal = Math.cos(bAngle - aAngle);
+    ctx.fillStyle = '#e6edf3';
+    ctx.font = '13px "JetBrains Mono", monospace';
+    ctx.fillText('cos(θ) = ' + cosVal.toFixed(3), W*0.62, H*0.28);
+
+    var label = cosVal > 0.85 ? '非常に似ている' : cosVal > 0.70 ? '関連あり' : cosVal > 0.4 ? '少し関連' : 'ほぼ無関係';
+    var labelColor = cosVal > 0.85 ? '#3fb950' : cosVal > 0.70 ? '#58a6ff' : cosVal > 0.4 ? '#d29922' : '#f85149';
+    ctx.fillStyle = labelColor;
+    ctx.font = 'bold 12px "Noto Sans JP", sans-serif';
+    ctx.fillText('→ ' + label, W*0.62, H*0.42);
+
+    // 凡例
+    ctx.fillStyle = '#58a6ff'; ctx.fillRect(W*0.62, H*0.60, 12, 3);
+    ctx.fillStyle = '#8b949e'; ctx.font = '11px monospace';
+    ctx.fillText('ベクトル A（固定）', W*0.62+16, H*0.63);
+    ctx.fillStyle = '#3fb950'; ctx.fillRect(W*0.62, H*0.70, 12, 3);
+    ctx.fillStyle = '#8b949e';
+    ctx.fillText('ベクトル B（可動）', W*0.62+16, H*0.73);
+
+    t++;
+    requestAnimationFrame(draw);
+  }
+
+  draw();
+})();
+</script>
 
 </body>
 </html>

@@ -2,7 +2,7 @@
 
 **構成:** Notion + Google Apps Script + Gemini gemini-embedding-001 + Google Sheets  
 **所要時間:** 約60〜90分  
-**更新日:** 2026-06-24
+**更新日:** 2026-06-25
 
 > **Notion DB作成済み（2026-06-22）:** 7つのDBはすでにワークスペースに作成されています。Step 2 はスキップ可能。
 
@@ -52,6 +52,10 @@ Gemini gemini-embedding-001  ←→  gemini-2.5-flash（回答生成）
 8. [WebAppとして公開](#8-webappとして公開)
 9. [Notionにページを追加したあとの更新方法](#9-notionにページを追加したあとの更新方法)
 10. [トラブルシューティング](#10-トラブルシューティング)
+11. [LocalRAG → Notion 移行ツール](#11-localrag--notion-移行ツール)
+12. [グラフビューの使い方](#12-グラフビューの使い方)
+13. [Unity クライアントのセットアップ](#13-unity-クライアントのセットアップ)
+14. [Houdini クライアントのセットアップ](#14-houdini-クライアントのセットアップ)
 
 ---
 
@@ -281,6 +285,14 @@ GASの実行時間制限（6分）を超えた場合。対応策：
 
 対処: JS変数名を `chatHistory` に統一すること（現行コードでは修正済み）。
 
+### グラフビューで「エラー: データが空です」と表示される
+
+Google Sheets の `RAG_Index` シートにデータが入っているか確認する。データが空の場合は §7 の手順で `syncNotionToSheets` を実行してインデックスを構築する。
+
+### グラフビューの描画が遅い
+
+初回表示時は `buildGraphData_()` がシート上の全埋め込みベクトルを読み込み、ページ間のコサイン類似度（ベクトルの「方向の近さ」を数値化したもの）を計算するため、30秒〜1分かかる場合がある。計算が終わると GAS の CacheService に30分間キャッシュされるため、2回目以降は数秒で表示される。
+
 ---
 
 ## 11. LocalRAG → Notion 移行ツール
@@ -312,3 +324,137 @@ csharp → c#    cpp → c++    js → javascript    py → python    sh → she
 ```
 
 **冪等性:** 同名ページが既存の場合は自動アーカイブしてから再作成（重複なし）。
+
+---
+
+## 12. グラフビューの使い方
+
+グラフビューは、RAG_Index に登録されたページ同士の「意味的な近さ」を視覚化する機能です。似た内容のページが近くに配置されるため、知識ベースの全体構造を一目で把握できます。
+
+### 12.1 グラフを表示する
+
+1. WebApp の URL をブラウザで開く
+2. 画面上部の「グラフ」タブをクリックする
+3. 「更新」ボタンを押す
+
+「更新」ボタンを押すと、ブラウザから `google.script.run.getGraphData()` が呼ばれ、GAS 側でグラフデータが計算されて返ってきます。
+
+### 12.2 内部でどう動いているか（読み飛ばし可）
+
+```
+ブラウザ（更新ボタン）
+  ↓ google.script.run.getGraphData()
+GAS: buildGraphData_()
+  ├─ RAG_Index シートから各ページの代表埋め込みを読み込む
+  │    └─ page_id::0 チャンク（ページ先頭部分のベクトル）を使用
+  ├─ ページ間のコサイン類似度を計算
+  │    └─ スコアが 0.70 以上のペアを上位3件エッジ（線）として追加
+  └─ CacheService に結果を30分間保存
+ブラウザ
+  └─ D3.js の force simulation でノード（点）を自動配置
+       └─ 近いノードほど引き合う力が働く
+```
+
+**コサイン類似度とは:** 2つのベクトルの「向きの近さ」を -1〜1 の値で表したもの。1.0 に近いほど内容が似ていて、0に近いほど無関係です。ここでは 0.70 以上を「関連あり」とみなして線を引いています。
+
+### 12.3 グラフの操作方法
+
+| 操作 | 動作 |
+|------|------|
+| ノード（丸）をクリック | そのページの詳細情報を表示 |
+| ノードをドラッグ | ノードを手動で移動 |
+| マウスホイール | ズームイン / ズームアウト |
+| 背景をドラッグ | キャンバス全体をパン（スクロール） |
+
+---
+
+## 13. Unity クライアントのセットアップ
+
+Unity エディタ内からRAGに質問できるチャットウィンドウの導入手順です。
+
+### 13.1 ファイルのコピー
+
+リポジトリの `Assets/Editor/RAGChatbot/` フォルダを、Unity プロジェクトの `Assets/Editor/` の中にコピーします。
+
+```
+（リポジトリ）
+Assets/Editor/RAGChatbot/
+  ├── RAGChatbotWindow.cs
+  ├── RAGMessage.cs
+  ├── IRAGClient.cs
+  ├── CloudRAGClient.cs
+  ├── LocalRAGClient.cs
+  ├── RAGGraphData.cs
+  └── RAGGraphView.cs
+
+      ↓ コピー先
+
+（Unity プロジェクト）
+Assets/Editor/RAGChatbot/  ← ここに貼り付ける
+```
+
+### 13.2 ウィンドウを開く
+
+Unity エディタのメニューバーから **Window → RAG Chatbot** を選択します。
+
+### 13.3 GAS URL の設定
+
+1. ウィンドウ内の「Settings」タブを開く
+2. 「GAS WebApp URL」欄に §8 で取得した WebApp の URL を貼り付ける
+3. URL は Unity の `EditorPrefs`（エディタ設定の保存領域）に自動保存されるため、次回以降の入力は不要
+
+### 13.4 クラウドモードで使う
+
+1. 「Settings」タブの「モード」を **Cloud** に設定する
+2. 「Chat」タブに移動して質問を入力する
+3. GAS 経由で Gemini が回答を返してくれる
+
+> **ローカルモードについて:** モードを「Local」にすると、`localhost:8766` で動作するローカルブリッジサーバー経由でクエリを実行します。詳細は `docs/local-rag-bridge.md` を参照してください。
+
+---
+
+## 14. Houdini クライアントのセットアップ
+
+Houdini の Python パネルとして RAG チャット UI を追加する手順です。
+
+### 14.1 ファイルのコピー
+
+リポジトリの `houdini/python_panels/` にある以下の2ファイルを、Houdini のユーザー設定フォルダにコピーします。
+
+```
+（コピー元）
+houdini/python_panels/
+  ├── rag_chatbot.py   ← メインパネル
+  └── graph_view.py    ← グラフ表示パネル
+
+（コピー先）
+%USERPROFILE%\Documents\houdiniXX.X\python_panels\
+                        ↑ XX.X は使用中のバージョン番号（例: houdini20.5）
+```
+
+**コピー先フォルダが存在しない場合:** `%USERPROFILE%\Documents\` の中に `houdiniXX.X\python_panels\` フォルダを手動で作成してください。
+
+### 14.2 パネルの登録
+
+1. Houdini を起動する
+2. メニューバーから **Windows → Python Panel Editor** を開く
+3. 左上の「New Panel」ボタンをクリックして新規パネルを作成する
+4. パネル名を `RAG Chatbot` に設定する
+5. エディタ欄の内容を全削除し、`rag_chatbot.py` の内容をそのまま貼り付ける
+6. 「Entry Point」の項目を `onCreateInterface` に設定する
+7. 「Accept」または「Apply」ボタンで保存する
+
+> **Entry Point とは:** Houdini がパネルを初期化するときに最初に呼び出す関数名のことです。`onCreateInterface` を指定することで、Houdini がパネルを表示する際に UI の構築処理が自動的に実行されます。
+
+### 14.3 GAS URL の設定
+
+1. パネルを開いて「Settings」タブに移動する
+2. 「GAS WebApp URL」欄に §8 で取得した WebApp の URL を入力する
+3. 「モード」を `cloud` に設定する
+4. 設定は `%USERPROFILE%\.houdini\rag_chatbot_config.json` に自動保存される
+
+### 14.4 動作確認
+
+「Chat」タブで質問を入力して「送信」を押し、回答が返ってくれば設定完了です。
+
+> **グラフビューについて:** 「Graph」タブを開くと、知識ベースのページ関係グラフが表示されます。初回描画には30秒〜1分かかる場合があります（§12 参照）。
