@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ライセンス・利用規約 コンプライアンスガイド</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --bg2: #1e293b;
+    --bg3: #334155;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --accent: #6366f1;
+    --accent2: #818cf8;
+    --green: #22c55e;
+    --yellow: #f59e0b;
+    --red: #ef4444;
+    --border: #334155;
+    --code-bg: #0f172a;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 15px; line-height: 1.7; }
+
+  header {
+    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e3a5f 100%);
+    padding: 48px 32px 40px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 2rem; font-weight: 700; color: #fff; margin-bottom: 10px; }
+  header p { color: #c7d2fe; font-size: 0.95rem; }
+  .badge {
+    display: inline-block; margin-top: 14px; padding: 4px 14px;
+    background: rgba(99,102,241,0.2); border: 1px solid var(--accent);
+    border-radius: 20px; color: var(--accent2); font-size: 0.85rem;
+  }
+
+  .container { max-width: 960px; margin: 0 auto; padding: 40px 20px; }
+
+  .note {
+    background: var(--bg2); border-left: 4px solid var(--yellow);
+    border-radius: var(--radius); padding: 14px 18px; margin-bottom: 32px;
+    color: var(--text-muted); font-size: 0.9rem;
+  }
+
+  h2 {
+    font-size: 1.35rem; font-weight: 700; color: #fff;
+    border-bottom: 2px solid var(--accent); padding-bottom: 8px;
+    margin: 40px 0 20px;
+  }
+  h3 { font-size: 1.05rem; font-weight: 600; color: var(--accent2); margin: 22px 0 10px; }
+  p { color: var(--text); margin-bottom: 12px; }
+
+  /* ── サマリーテーブル ── */
+  .summary-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 0.88rem; }
+  .summary-table th {
+    background: var(--bg3); color: var(--text-muted); font-weight: 600;
+    padding: 10px 12px; text-align: left; border-bottom: 2px solid var(--border);
+  }
+  .summary-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  .summary-table tr:hover td { background: rgba(255,255,255,0.03); }
+
+  .risk-low  { color: var(--green);  font-weight: 700; }
+  .risk-mid  { color: var(--yellow); font-weight: 700; }
+  .risk-high { color: var(--red);    font-weight: 700; }
+  .ok   { color: var(--green); }
+  .warn { color: var(--yellow); }
+  .ng   { color: var(--red); }
+
+  /* ── ツールカード ── */
+  .tool-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 24px; margin-bottom: 20px;
+  }
+  .tool-header { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+  .tool-name { font-size: 1.1rem; font-weight: 700; color: #fff; }
+  .license-badge {
+    padding: 3px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700;
+  }
+  .license-mit    { background: rgba(34,197,94,0.15);  color: var(--green);  border: 1px solid var(--green); }
+  .license-apache { background: rgba(99,102,241,0.15); color: var(--accent2); border: 1px solid var(--accent); }
+  .license-lgpl   { background: rgba(245,158,11,0.15); color: var(--yellow); border: 1px solid var(--yellow); }
+  .license-prop   { background: rgba(239,68,68,0.15);  color: var(--red);    border: 1px solid var(--red); }
+  .license-tos    { background: rgba(148,163,184,0.15); color: var(--text-muted); border: 1px solid var(--border); }
+
+  .tag-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .tag {
+    padding: 3px 12px; border-radius: 20px; font-size: 0.82rem;
+    background: var(--bg3); color: var(--text-muted);
+  }
+  .tag.ok   { background: rgba(34,197,94,0.1);  color: var(--green); }
+  .tag.warn { background: rgba(245,158,11,0.1); color: var(--yellow); }
+  .tag.ng   { background: rgba(239,68,68,0.1);  color: var(--red); }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.88rem; }
+  table th { background: var(--bg3); color: var(--text-muted); padding: 8px 12px; text-align: left; }
+  table td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+
+  code {
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: 5px; padding: 1px 6px; font-size: 0.88em;
+    font-family: 'Cascadia Code', 'Consolas', monospace; color: #a5f3fc;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; overflow-x: auto; font-size: 0.87em; font-family: 'Cascadia Code', 'Consolas', monospace;
+    color: #a5f3fc; margin: 12px 0;
+  }
+
+  /* ── チェックリスト ── */
+  .checklist { list-style: none; padding: 0; }
+  .checklist li {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    font-size: 0.93rem;
+  }
+  .checklist li:last-child { border-bottom: none; }
+  .check-box {
+    width: 20px; height: 20px; border: 2px solid var(--border);
+    border-radius: 4px; flex-shrink: 0; margin-top: 2px;
+  }
+  .priority-high .check-box { border-color: var(--red); }
+  .priority-mid  .check-box { border-color: var(--yellow); }
+
+  .section-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden; margin-bottom: 20px;
+  }
+  .section-card-header {
+    background: var(--bg3); padding: 12px 18px;
+    font-weight: 700; font-size: 0.95rem; color: var(--text-muted);
+  }
+  .section-card-body { padding: 4px 0; }
+
+  .conclusion-box {
+    background: linear-gradient(135deg, rgba(34,197,94,0.1), rgba(99,102,241,0.1));
+    border: 1px solid rgba(34,197,94,0.3); border-radius: var(--radius);
+    padding: 24px; margin-top: 40px; text-align: center;
+  }
+  .conclusion-box .big { font-size: 1.4rem; font-weight: 700; color: var(--green); margin-bottom: 10px; }
+  .conclusion-box p { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
+
+  footer {
+    text-align: center; color: var(--text-muted); font-size: 0.82rem;
+    padding: 32px; border-top: 1px solid var(--border); margin-top: 60px;
+  }
+
+  @media (max-width: 640px) {
+    header h1 { font-size: 1.4rem; }
+    .summary-table { font-size: 0.78rem; }
+    table { font-size: 0.78rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ライセンス・利用規約 コンプライアンスガイド</h1>
+  <p>DevelopmentRAGEnvironment — 商用導入時の確認資料</p>
+  <div class="badge">更新日: 2026-06-25</div>
+</header>
+
+<div class="container">
+
+  <div class="note">
+    ⚠️ 本資料は技術者が把握すべき概要を整理したものです。最終的な法的判断は弁護士にご確認ください。
+  </div>
+
+  <!-- ── サマリー ── -->
+  <h2>判定サマリー</h2>
+  <table class="summary-table">
+    <tr>
+      <th>ツール</th>
+      <th>ライセンス</th>
+      <th>商用</th>
+      <th>改造</th>
+      <th>ソース開示</th>
+      <th>上限</th>
+      <th>リスク</th>
+    </tr>
+    <tr><td>mcp-rag-server</td><td>MIT</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>MCP SDK (Anthropic)</td><td>MIT</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>ChromaDB</td><td>Apache 2.0</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>multilingual-e5-large</td><td>MIT</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>sentence-transformers</td><td>Apache 2.0</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>sudachipy / sudachidict</td><td>Apache 2.0</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>markitdown (Microsoft)</td><td>MIT</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>D3.js</td><td>ISC</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>uv</td><td>MIT / Apache 2.0</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>numpy</td><td>BSD 3-Clause</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>PySide6</td><td>LGPL v3</td><td class="ok">○</td><td class="warn">△</td><td class="warn">改変部のみ</td><td class="ok">なし</td><td class="risk-mid">中</td></tr>
+    <tr><td>Houdini (SideFX)</td><td>独自有償</td><td class="warn">要確認</td><td class="ng">✗</td><td>—</td><td class="ng">売上上限あり</td><td class="risk-high">高</td></tr>
+    <tr><td>Unity</td><td>独自有償</td><td class="warn">要確認</td><td class="ng">✗</td><td>—</td><td class="warn">売上規模で変化</td><td class="risk-mid">中</td></tr>
+    <tr><td>Claude API (Anthropic)</td><td>利用規約</td><td class="ok">○</td><td>—</td><td>—</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>Gemini API (Google)</td><td>利用規約</td><td class="ok">○</td><td>—</td><td>—</td><td class="warn">環境選択重要</td><td class="risk-mid">中</td></tr>
+    <tr><td>Notion API</td><td>利用規約</td><td class="ok">○</td><td>—</td><td>—</td><td class="warn">レート制限あり</td><td class="risk-low">低</td></tr>
+  </table>
+
+  <!-- ── mcp-rag-server ── -->
+  <h2>ツール別詳細</h2>
+
+  <div class="tool-card">
+    <div class="tool-header">
+      <span class="tool-name">mcp-rag-server</span>
+      <span class="license-badge license-mit">MIT</span>
+    </div>
+    <div class="tag-grid">
+      <span class="tag ok">商用利用 ○</span>
+      <span class="tag ok">改造 ○</span>
+      <span class="tag ok">ソース開示不要</span>
+      <span class="tag ok">ユーザー上限なし</span>
+    </div>
+    <pre>MIT License
+Copyright (c) 2025 karaage
+
+配布時のみ: この著作権表示・LICENSEファイルの同梱が必要</pre>
+    <p>内部ツールとして使うだけなら著作権表示の義務もなし。商用製品への組み込み・改造・再販もすべて可能。</p>
+    <h3>依存パッケージ（すべて許容的ライセンス）</h3>
+    <table>
+      <tr><th>パッケージ</th><th>ライセンス</th><th>コピーレフト</th></tr>
+      <tr><td>sentence-transformers</td><td>Apache 2.0</td><td class="ok">なし</td></tr>
+      <tr><td>chromadb</td><td>Apache 2.0</td><td class="ok">なし</td></tr>
+      <tr><td>markitdown (Microsoft)</td><td>MIT</td><td class="ok">なし</td></tr>
+      <tr><td>sudachipy / sudachidict-core</td><td>Apache 2.0</td><td class="ok">なし</td></tr>
+      <tr><td>rank-bm25</td><td>Apache 2.0</td><td class="ok">なし</td></tr>
+      <tr><td>numpy</td><td>BSD 3-Clause</td><td class="ok">なし</td></tr>
+      <tr><td>python-dotenv</td><td>BSD 3-Clause</td><td class="ok">なし</td></tr>
+      <tr><td>mcp (Anthropic MCP SDK)</td><td>MIT</td><td class="ok">なし</td></tr>
+      <tr><td>pydantic</td><td>MIT</td><td class="ok">なし</td></tr>
+      <tr><td>watchdog</td><td>Apache 2.0</td><td class="ok">なし</td></tr>
+    </table>
+    <p style="margin-top:12px; color: var(--green); font-weight:600;">⟹ GPL/AGPL 含むパッケージはゼロ。ソース開示義務は一切発生しない。</p>
+  </div>
+
+  <div class="tool-card">
+    <div class="tool-header">
+      <span class="tool-name">MCP SDK（Anthropic）</span>
+      <span class="license-badge license-mit">MIT</span>
+    </div>
+    <div class="tag-grid">
+      <span class="tag ok">商用利用 ○</span>
+      <span class="tag ok">改造 ○</span>
+      <span class="tag ok">ソース開示不要</span>
+    </div>
+    <pre>MIT License
+Copyright (c) 2024 Anthropic, PBC</pre>
+    <p>mcp-rag-server が内部で使う <code>mcp[cli]</code> ライブラリ。MIT なので完全に自由に使える。</p>
+  </div>
+
+  <div class="tool-card">
+    <div class="tool-header">
+      <span class="tool-name">PySide6（Houdini パネルで使用）</span>
+      <span class="license-badge license-lgpl">LGPL v3</span>
+    </div>
+    <div class="tag-grid">
+      <span class="tag ok">商用利用 ○</span>
+      <span class="tag warn">改造時は開示必要</span>
+      <span class="tag ok">通常の import は開示不要</span>
+    </div>
+    <h3>条件の整理</h3>
+    <table>
+      <tr><th>使い方</th><th>ソース開示義務</th></tr>
+      <tr><td>通常の import（Houdini パネル）</td><td class="ok">不要</td></tr>
+      <tr><td>PySide6 本体を改変して配布</td><td class="warn">改変部のみ開示必要</td></tr>
+      <tr><td>社内ツールとして使う（配布なし）</td><td class="ok">不要</td></tr>
+    </table>
+    <h3>外部配布時の表示例</h3>
+    <pre>This software uses PySide6, licensed under LGPL v3.
+https://www.qt.io/licensing/</pre>
+  </div>
+
+  <div class="tool-card">
+    <div class="tool-header">
+      <span class="tool-name">Houdini（SideFX）</span>
+      <span class="license-badge license-prop">独自有償</span>
+    </div>
+    <div class="tag-grid">
+      <span class="tag ng">Apprentice は商用不可</span>
+      <span class="tag warn">Indie は売上上限 $100K/年</span>
+      <span class="tag ok">Core/FX は商用可</span>
+    </div>
+    <table>
+      <tr><th>ライセンス</th><th>概算費用</th><th>商用利用</th><th>売上上限</th></tr>
+      <tr><td>Apprentice</td><td>無料</td><td class="ng">不可</td><td>—</td></tr>
+      <tr><td>Indie</td><td>約 $269/年</td><td class="warn">条件付き</td><td class="warn">$100,000 USD/年未満</td></tr>
+      <tr><td>Core</td><td>約 $1,995/年</td><td class="ok">可</td><td class="ok">制限なし</td></tr>
+      <tr><td>FX</td><td>約 $4,495/年</td><td class="ok">可</td><td class="ok">制限なし</td></tr>
+    </table>
+    <p style="color:var(--red); font-weight:700; margin-top:12px;">⚠️ 現在 Apprentice を使用している場合、商用化前に必ず有償ライセンスへ移行してください。</p>
+  </div>
+
+  <div class="tool-card">
+    <div class="tool-header">
+      <span class="tool-name">Unity</span>
+      <span class="license-badge license-prop">独自有償（売上規模依存）</span>
+    </div>
+    <div class="tag-grid">
+      <span class="tag ok">Personal: 年収 $10万未満は無料</span>
+      <span class="tag warn">Pro: 年約 $2,040/席</span>
+    </div>
+    <h3>今回の用途について</h3>
+    <p>RAG Chatbot（<code>RAGChatbotWindow.cs</code>）は Unity <strong>Editor</strong> 上で動く開発者向けツール。エンドユーザーへ配布するランタイムではないため、<strong>Unity Runtime Fee の対象外</strong>。ただし組織の収益規模によって Pro ライセンスが必要。</p>
+  </div>
+
+  <div class="tool-card">
+    <div class="tool-header">
+      <span class="tool-name">Claude API（Anthropic）</span>
+      <span class="license-badge license-tos">利用規約ベース</span>
+    </div>
+    <div class="tag-grid">
+      <span class="tag ok">商用利用 ○</span>
+      <span class="tag ok">API データは学習に使われない</span>
+      <span class="tag ok">ユーザー上限なし</span>
+      <span class="tag warn">DPA 締結を推奨</span>
+    </div>
+    <table>
+      <tr><th>項目</th><th>内容</th></tr>
+      <tr><td>料金</td><td>トークン従量課金（ユーザー数制限なし）</td></tr>
+      <tr><td>データ学習</td><td class="ok">API 経由データはモデル学習に使用されない</td></tr>
+      <tr><td>DPA</td><td>Enterprise プランで締結可能</td></tr>
+      <tr><td>禁止事項</td><td>有害コンテンツ生成・利用規約違反</td></tr>
+    </table>
+  </div>
+
+  <div class="tool-card">
+    <div class="tool-header">
+      <span class="tool-name">Gemini API（Google）</span>
+      <span class="license-badge license-tos">利用規約ベース</span>
+    </div>
+    <div class="tag-grid">
+      <span class="tag ng">AI Studio: データ学習の可能性あり</span>
+      <span class="tag ok">Vertex AI: 学習に使われない</span>
+    </div>
+    <table>
+      <tr><th>環境</th><th>料金</th><th>データ学習</th><th>SLA</th><th>推奨</th></tr>
+      <tr><td>Google AI Studio（無料枠）</td><td>無料</td><td class="ng">使われる可能性あり</td><td>なし</td><td class="warn">開発・検証のみ</td></tr>
+      <tr><td>Vertex AI（有料）</td><td>従量課金</td><td class="ok">使われない</td><td>あり</td><td class="ok">商用推奨</td></tr>
+    </table>
+    <p style="color:var(--yellow); margin-top:12px; font-weight:600;">⚠️ 商用化時は Vertex AI 経由の Gemini に切り替えてください。</p>
+  </div>
+
+  <div class="tool-card">
+    <div class="tool-header">
+      <span class="tool-name">Notion API</span>
+      <span class="license-badge license-tos">利用規約ベース</span>
+    </div>
+    <div class="tag-grid">
+      <span class="tag ok">商用利用 ○</span>
+      <span class="tag warn">レート制限: 1,000 req/min</span>
+      <span class="tag warn">機密情報は Business プラン以上推奨</span>
+    </div>
+    <table>
+      <tr><th>プラン</th><th>DPA</th><th>SSO</th><th>API レート</th></tr>
+      <tr><td>Free / Plus</td><td class="ng">なし</td><td class="ng">なし</td><td>1,000 req/min</td></tr>
+      <tr><td>Business</td><td class="ok">可</td><td class="ok">可</td><td>1,000 req/min</td></tr>
+      <tr><td>Enterprise</td><td class="ok">可</td><td class="ok">可</td><td>カスタム</td></tr>
+    </table>
+  </div>
+
+  <!-- ── チェックリスト ── -->
+  <h2>商用化チェックリスト</h2>
+
+  <div class="section-card">
+    <div class="section-card-header" style="color: var(--red);">🔴 必須対応（リリース前に完了）</div>
+    <div class="section-card-body">
+      <ul class="checklist">
+        <li class="priority-high">
+          <div class="check-box"></div>
+          <div><strong>Houdini ライセンス確認</strong>: Apprentice → Indie/Core/FX へ移行。売上見込みで適切なプランを選択。</div>
+        </li>
+        <li class="priority-high">
+          <div class="check-box"></div>
+          <div><strong>Gemini を Vertex AI 経由に移行</strong>: 現行の Google AI Studio 経由はデータ保護の観点でリスクあり。</div>
+        </li>
+        <li class="priority-high">
+          <div class="check-box"></div>
+          <div><strong>Unity ライセンス確認</strong>: 組織の年間売上・調達額が $10万 USD 超なら Pro ライセンスが必要。</div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="section-card">
+    <div class="section-card-header" style="color: var(--yellow);">🟡 推奨対応（規模拡大時）</div>
+    <div class="section-card-body">
+      <ul class="checklist">
+        <li class="priority-mid">
+          <div class="check-box"></div>
+          <div><strong>Anthropic と DPA 締結</strong>: 個人情報・機密情報を API に送る場合は Enterprise プランで契約。</div>
+        </li>
+        <li class="priority-mid">
+          <div class="check-box"></div>
+          <div><strong>Google Cloud DPA 締結</strong>: Vertex AI 移行後に GCP の DPA も締結する。</div>
+        </li>
+        <li class="priority-mid">
+          <div class="check-box"></div>
+          <div><strong>Notion Business/Enterprise 移行</strong>: Notion に機密データを置く場合は DPA 締結のため Business 以上へ。</div>
+        </li>
+        <li class="priority-mid">
+          <div class="check-box"></div>
+          <div><strong>Qt 商用ライセンス検討</strong>: 外部配布製品で PySide6 の LGPL 義務を完全に回避したい場合に有効。</div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ── ソース開示まとめ ── -->
+  <h2>「ソース開示が必要になる」ケース整理</h2>
+
+  <table>
+    <tr><th>条件</th><th>発生するか</th><th>理由</th></tr>
+    <tr>
+      <td>GPL ライセンスのパッケージを使う</td>
+      <td class="ok">発生しない</td>
+      <td>本システムに GPL パッケージなし</td>
+    </tr>
+    <tr>
+      <td>AGPL ライセンスのパッケージを使う</td>
+      <td class="ok">発生しない</td>
+      <td>AGPL パッケージなし</td>
+    </tr>
+    <tr>
+      <td>PySide6 を<strong>改変せず</strong>使う（通常）</td>
+      <td class="ok">発生しない</td>
+      <td>LGPL の動的リンク免除に該当</td>
+    </tr>
+    <tr>
+      <td>PySide6 本体を<strong>改変して</strong>配布する</td>
+      <td class="warn">改変部のみ発生</td>
+      <td>LGPL v3 の要件</td>
+    </tr>
+    <tr>
+      <td>MIT/Apache 2.0 のコードを改変する</td>
+      <td class="ok">発生しない</td>
+      <td>コピーレフトではない</td>
+    </tr>
+  </table>
+
+  <!-- ── 配布時の著作権表示 ── -->
+  <h2>配布時の著作権表示（必要な場合）</h2>
+  <p>ソフトウェアを外部に配布・販売する場合、以下を <code>NOTICES</code> ファイルか製品のライセンス画面に含めてください。</p>
+  <pre>This product includes the following open-source software:
+
+mcp-rag-server
+  MIT License - Copyright (c) 2025 karaage
+
+MCP SDK
+  MIT License - Copyright (c) 2024 Anthropic, PBC
+
+ChromaDB
+  Apache License 2.0 - Copyright (c) 2022 Chroma
+
+sentence-transformers
+  Apache License 2.0
+
+sudachipy / SudachiDict
+  Apache License 2.0 - Copyright (c) 2019 Works Applications Co., Ltd.
+
+PySide6
+  LGPL v3 - The Qt Company
+  https://www.qt.io/licensing/
+
+D3.js
+  ISC License - Copyright (c) 2010-2023 Mike Bostock</pre>
+
+  <!-- ── 結論 ── -->
+  <div class="conclusion-box">
+    <div class="big">✅ OSS スタックは商用利用に問題なし</div>
+    <p>
+      mcp-rag-server・ChromaDB・MCP SDK・multilingual-e5-large などコア技術はすべて MIT / Apache 2.0。<br>
+      <strong>自社コードのソース開示が義務になるケースは現在の構成では発生しない。</strong><br><br>
+      要対応は <strong>Houdini の有償ライセンス移行</strong> と <strong>Gemini の Vertex AI 移行</strong> の2点が最優先。
+    </p>
+  </div>
+
+</div>
+
+<footer>
+  DevelopmentRAGEnvironment — ライセンス・利用規約コンプライアンスガイド | 2026-06-25<br>
+  ※ 本資料は参考情報です。法的判断は専門家にご相談ください。
+</footer>
+
+</body>
+</html>
