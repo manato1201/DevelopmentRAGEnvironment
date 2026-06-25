@@ -1,65 +1,83 @@
-# RAG Environment
+# ゲーム開発 RAG 環境
 
-ローカル・クラウド両対応のRAG（Retrieval-Augmented Generation）環境のセットアップドキュメント・スクリプト集です。
+**更新日:** 2026-06-25
 
-## 概要
+---
 
-| 種別 | 構成 | 用途 |
-|------|------|------|
-| **ローカルRAG** | ChromaDB + mcp-rag-server（Docker・WSL2不要） | チャット履歴・個人メモ・進捗など共有NGな情報 |
-| **クラウドRAG** | Notion + GAS + Gemini API | ツール仕様・ゲーム情報・技術記事など共有すべき情報 |
+## RAG とは？
 
-2つはセットで使うことを前提に設計されており、Claude Code / Claude Desktop からローカルと Notion の両方を同時に参照できます。
+**RAG（Retrieval-Augmented Generation）** とは、AI に質問するとき、あらかじめ自分たちのドキュメントを検索して関連情報を見つけ、それを添えて回答させる仕組みです。  
+「AI が自分のチームのドキュメントを参照しながら答えてくれる」と思えば OK です。
+
+---
+
+## このプロジェクトで作ったもの
+
+ゲーム開発チーム向けに、2 種類の RAG 環境と、Unity・Houdini から使えるチャット UI を一から構築しました。
+
+| 機能 | 概要 |
+|------|------|
+| **クラウド RAG** | Notion（ドキュメント管理）＋ Gemini AI（回答生成）をクラウドで動かす |
+| **ローカル RAG** | 個人メモ・チャット履歴など外に出せない情報をローカル PC で管理 |
+| **Unity 連携** | Unity 6 のエディタ内にチャット UI・グラフビューを組み込み |
+| **Houdini 連携** | Houdini 21+ のパネルにチャット UI・グラフビューを組み込み |
+| **グラフビュー** | ドキュメント間の関係をネットワーク図として可視化 |
+| **HTTP ブリッジ** | Unity/Houdini からローカル RAG に繋ぐ中継サーバー |
 
 ---
 
 ## クイックスタート
 
-### ローカルRAG（mcp-rag-server）
+### クラウド RAG を使いたい
 
-**→ 初回セットアップ: [docs/local-rag-setup.md](docs/local-rag-setup.md)**  
-**→ 別PCへの配布: [docs/distribution-guide.md](docs/distribution-guide.md)**  
-**→ 新規RAG追加方法: [lecture/new-rag-setup.html](lecture/new-rag-setup.html)**
+1. Notion に 7 つのデータベースを作成する
+2. `scripts/gas_cloud_rag.js` を Google Apps Script に貼り付けてデプロイ
+3. Unity または Houdini の Settings タブで GAS WebApp の URL を設定する
 
-| 項目 | 内容 |
-|------|------|
-| OS | Windows 11（Docker・WSL2不要） |
-| Python | uv が自動管理（**3.12 必須**） |
-| ベクトルDB | ChromaDB（ローカルファイル） |
-| 埋め込みモデル | `intfloat/multilingual-e5-large`（約1.2GB） |
-| 所要時間 | セットアップ約30分 + 初回モデルDL |
+詳細 → [docs/cloud-rag-setup.md](docs/cloud-rag-setup.md)
+
+### ローカル RAG を使いたい
 
 ```powershell
-# 1. フォークをクローン
+# 1. mcp-rag-server をクローン・セットアップ
 git clone https://github.com/manato1201/mcp-rag-server
 cd mcp-rag-server
-
-# 2. 依存関係インストール（Python 3.12 固定）
 uv sync --python 3.12
-uv add chromadb watchdog pyyaml rank-bm25 sudachipy sudachidict-core
 
-# 3. ChromaDB パッチを適用
-copy ..\DevelopmentRAGEnvironment\scripts\vector_database.py src\vector_database.py
-# rag_tools.py・main.py の編集は local-rag-setup.md を参照
+# 2. ローカル HTTP ブリッジを起動（Unity/Houdini と繋ぐ）
+cd ..\DevelopmentRAGEnvironment
+uv run python scripts\rag_local_bridge.py
+# → localhost:8766 で待機開始
 
-# 4. .env を設定
-copy ..\DevelopmentRAGEnvironment\.env.example .env
-# YOUR_USERNAME を自分のユーザー名に変更
-
-# 5. インデックス化
+# 3. ドキュメントをインデックス化
+cd ..\mcp-rag-server
 uv run python -m src.cli index
 ```
 
-### クラウドRAG（Notion + GAS + Gemini）
+詳細 → [docs/local-rag-setup.md](docs/local-rag-setup.md)
 
-**→ [docs/cloud-rag-setup.md](docs/cloud-rag-setup.md)**
+### Unity から使いたい
 
-| 項目 | 内容 |
-|------|------|
-| Notion DB | 4DB作成済み（Tool Docs / Game Info / Research / Team Notes） |
-| GASコード | `scripts/gas_cloud_rag.js` |
-| 一括投入ツール | `scripts/notion_bulk_add.py` |
-| 所要時間 | 約60〜90分（GASデプロイ含む） |
+1. `Assets/Editor/RAGChatbot/` フォルダをプロジェクトにコピー
+2. Unity メニュー → **RAG → RAG Chatbot** を開く
+3. Settings タブで接続先（Cloud / Local）を設定
+
+### Houdini から使いたい
+
+1. `houdini/python_panels/rag_chatbot.py` と `graph_view.py` を Houdini の Python Panels フォルダにコピー
+2. Houdini の **Python Panel** メニューから RAG Chatbot を追加
+
+### グラフ JSON を手動で生成したい
+
+```powershell
+# ChromaDB からドキュメントのグラフデータを生成
+uv run python scripts\rag_graph_export.py
+# → graph_data.json が生成される
+```
+
+### 新しいドキュメントを追加したい
+
+詳細 → [lecture/new-rag-setup.html](lecture/new-rag-setup.html)
 
 ---
 
@@ -68,198 +86,111 @@ uv run python -m src.cli index
 ```
 DevelopmentRAGEnvironment/
 ├── README.md
-├── .env.example                    # 環境変数テンプレート
+├── .env.example                        # 環境変数テンプレート
 │
-├── docs/
-│   ├── local-rag-setup.md          # ローカルRAG セットアップ詳細
-│   ├── distribution-guide.md       # 配布・導入手順（別PCへの展開）
-│   ├── cloud-rag-setup.md          # クラウドRAG セットアップ
-│   ├── local-rag-chromadb-migration.md  # pgvector→ChromaDB 移行記録
-│   ├── rag-system-design.md        # システム設計（全体像）
-│   └── obsidian-localrag-management.md  # Obsidian vault 管理
+├── Assets/                             # Unity プロジェクトファイル
+│   └── Editor/
+│       └── RAGChatbot/
+│           ├── IRAGClient.cs           # Cloud/Local 切り替えインターフェース
+│           ├── CloudRAGClient.cs       # GAS WebApp へ HTTPS 接続するクライアント
+│           ├── LocalRAGClient.cs       # localhost:8766 へ HTTP 接続するクライアント
+│           ├── RAGChatbotWindow.cs     # Chat / Graph / Settings の 3 タブ EditorWindow
+│           ├── RAGGraphView.cs         # IMGUI Painter2D によるグラフ描画
+│           ├── RAGGraphData.cs         # グラフ JSON のデータ構造定義
+│           └── RAGMessage.cs           # チャットメッセージのデータ構造定義
 │
-├── lecture/
-│   ├── local-rag-lecture.html      # ローカルRAG セットアップ講義
-│   ├── cloud-rag-lecture.html      # クラウドRAG 講義資料
-│   ├── localrag-internals.html     # LocalRAG 仕組み解説（処理フロー・アーキテクチャ）
-│   └── new-rag-setup.html          # 新規RAG追加ガイド（Namespace作成〜検索確認）
+├── houdini/                            # Houdini プロジェクトファイル
+│   └── python_panels/
+│       ├── rag_chatbot.py              # PySide6 製チャットパネル（Chat / Settings タブ）
+│       └── graph_view.py              # QGraphicsView によるグラフビュー
 │
-├── scripts/
-│   ├── vector_database.py          # ChromaDB バックエンド（mcp-rag-server に適用）
-│   ├── auto_index.py               # watchdog 自動インデックス化スクリプト
-│   ├── gas_cloud_rag.js            # GAS WebApp コード（Notion + Gemini チャット）
-│   ├── notion_bulk_add.py          # Notion DB への一括データ投入
-│   ├── notion_bulk_input.yaml      # notion_bulk_add.py の入力サンプル
-│   ├── extract_zip.py              # Houdini help zip 展開スクリプト
-│   └── delete_non_txt.py           # .txt 以外削除スクリプト
+├── scripts/                            # ユーティリティスクリプト
+│   ├── rag_local_bridge.py             # ★ ローカル HTTP ブリッジ（Unity/Houdini → mcp-rag-server）
+│   ├── rag_graph_export.py             # ★ ChromaDB からグラフ JSON を生成
+│   ├── vector_database.py              # ChromaDB バックエンド（mcp-rag-server に適用）
+│   ├── auto_index.py                   # watchdog による自動インデックス化
+│   ├── gas_cloud_rag.js                # GAS WebApp コード（Notion + Gemini チャット）
+│   ├── notion_bulk_add.py              # Notion DB への一括データ投入
+│   ├── notion_bulk_input.yaml          # notion_bulk_add.py の入力サンプル
+│   ├── notion_to_corpus.py             # Notion → Gemini Corpus 同期
+│   ├── extract_zip.py                  # Houdini ヘルプ zip 展開
+│   └── delete_non_txt.py              # .txt 以外のファイルを削除
 │
-└── localRAG/                       # Obsidian vault（インデックス対象）
-    ├── personal_notes/             # 個人メモ・調査ノート
-    ├── tutorials/                  # チュートリアル生成結果
-    ├── chat_logs/                  # チャット履歴
-    ├── private_docs/               # 共有不可ドキュメント
-    ├── _rag_dashboard/             # インデックス管理（除外対象）
-    └── _templates/                 # テンプレート（除外対象）
+├── docs/                               # 設計・セットアップドキュメント
+│   ├── rag-system-design.md            # システム設計（全体像）← 本ドキュメントの詳細版
+│   ├── local-rag-setup.md              # ローカル RAG セットアップ詳細
+│   ├── cloud-rag-setup.md              # クラウド RAG セットアップ
+│   ├── distribution-guide.md           # 別 PC への配布・導入手順
+│   ├── local-rag-chromadb-migration.md # pgvector → ChromaDB 移行記録
+│   └── obsidian-localrag-management.md # Obsidian vault 管理ガイド
+│
+├── lecture/                            # チュートリアル・講義資料（HTML）
+│   ├── local-rag-lecture.html
+│   ├── cloud-rag-lecture.html
+│   ├── localrag-internals.html
+│   └── new-rag-setup.html
+│
+└── localRAG/                           # Obsidian vault（インデックス対象のドキュメント置き場）
+    ├── personal_notes/                 # 個人メモ・調査ノート
+    ├── tutorials/                      # チュートリアル生成結果
+    ├── chat_logs/                      # チャット履歴
+    ├── private_docs/                   # 共有不可ドキュメント
+    ├── _rag_dashboard/                 # インデックス管理用（検索対象外）
+    └── _templates/                     # テンプレート（検索対象外）
 ```
 
----
-
-## 新規RAGの追加方法
-
-新しいデータソース（Namespace）を追加するときの手順です。詳細は **[lecture/new-rag-setup.html](lecture/new-rag-setup.html)** を参照してください。
-
-### 5ステップの概要
-
-```powershell
-# 1. Namespaceフォルダを作成
-New-Item -ItemType Directory -Path "localRAG\your_namespace"
-
-# 2. トピック単位でMarkdownを作成（1ファイル = 1トピックが原則）
-# localRAG\your_namespace\topic_a.md を Obsidian / VSCode で編集
-
-# 3. rag_indexed: true を確認（全ファイル）
-Get-ChildItem -Path "localRAG\your_namespace" -Filter "*.md" -Recurse |
-  Select-String -Pattern "rag_indexed: false"
-
-# 4. インデックス化（mcp-rag-serverディレクトリで実行）
-cd ..\mcp-rag-server
-uv run python -m src.cli index          # 初回はフルインデックス
-uv run python -m src.cli index --incremental  # 2回目以降は差分のみ
-
-# 5. Claude Desktopで検索テスト（スコア83%以上が目安）
-```
-
-### Markdownテンプレート
-
-```markdown
----
-title: ドキュメントタイトル
-tags:
-  - タグ1
-  - namespace名
-rag_indexed: true
-created: 2026-06-18
-updated: 2026-06-18
----
-
-# タイトル
-
-本文...
-```
-
-### 精度向上のポイント
-
-- **1ファイル = 1トピック** — 複数トピックを1ファイルにまとめると検索スコアが均一化して精度が落ちる
-- **ファイルサイズ** — 本文800〜3,000文字（2〜8チャンク）が理想
-- **固有名詞を明示** — 略語のみでなく正式名称を本文に含める
-- **auto_index.py** — watchdogを起動しておくとファイル保存時に自動インデックスされる
+★ マークは今回新たに追加されたファイルです。
 
 ---
 
 ## 設計思想
 
+### なぜクラウドとローカルの 2 層構成にしたのか
+
+すべての情報を 1 か所に集めると、個人のチャット履歴や未公開メモがチームメンバーに見えてしまいます。  
+逆に、チームで共有すべきツール仕様や設計書をローカルだけに置くと、他のメンバーが参照できません。
+
+そのため、**「公開してよい情報」と「個人情報」を物理的に分離**する設計にしました。
+
 ```
-クラウドに入れるもの（共有すべき情報）
-├── ツール仕様: Unity / Houdini / DirectX12 / 環境設定
-├── ゲーム情報: 共有設計書・仕様
-├── 技術記事:   手動で精査したもの
-└── 研究資料:   ゼミ資料・議事録
+クラウドに入れるもの（チームで共有する情報）
+├── Unity / Houdini / DirectX12 などのツール仕様
+├── ゲーム設計書・共有ドキュメント
+├── 技術記事（手動で精査したもの）
+└── ゼミ資料・議事録
 
-ローカルに入れるもの（個人情報）
-├── チャット履歴: Claude等との会話ログ
-├── 生成結果:     Houdiniチュートリアル生成結果
-├── 個人メモ:     Obsidianノート・進捗・AFURI/BrainTQ等
-└── 草稿・NG:     共有できない文書
-```
-
-クラウドへの書き込みはローカルからは行いません（読み取り専用）。
-
----
-
-## スクリプトの使い方
-
-### vector_database.py — ChromaDB バックエンド
-
-mcp-rag-server の `src/vector_database.py` に差し替えて使う：
-
-```powershell
-copy scripts\vector_database.py ..\mcp-rag-server\src\vector_database.py
+ローカルに入れるもの（個人情報・外に出せない情報）
+├── AI とのチャット履歴
+├── Houdini チュートリアルの生成結果
+├── 個人の Obsidian ノート・進捗メモ
+└── 共有できない草稿・下書き
 ```
 
-### auto_index.py — watchdog 自動インデックス化
+### なぜ Unity・Houdini に直接組み込んだのか
 
-mcp-rag-server のルートにコピーしてバックグラウンド起動：
+ブラウザを別途開いて AI に質問するより、**作業中のツール内で直接質問できる**方が開発効率が上がります。  
+また、Cloud モードと Local モードをワンクリックで切り替えられるよう、`IRAGClient` インターフェース（切り替え口）を設けて実装を抽象化しています。
 
-```powershell
-copy scripts\auto_index.py ..\mcp-rag-server\
-cd ..\mcp-rag-server
-Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python auto_index.py"
+### なぜ HTTP ブリッジ（rag_local_bridge.py）が必要なのか
+
+`mcp-rag-server` は Claude Code などの AI ツールと繋ぐための MCP（Model Context Protocol）という専用通信方式で動いています。しかし Unity（C#）や Houdini（Python）は MCP には対応していないため、**HTTP という汎用的な通信方式に変換する中継サーバー**が必要です。
+
 ```
-
-### notion_bulk_add.py — Notion DB 一括投入
-
-```powershell
-# サンプルYAMLを編集してから実行
-# まずドライランで確認
-uv run python scripts\notion_bulk_add.py --input scripts\notion_bulk_input.yaml --dry-run
-
-# 実際に投入
-uv run python scripts\notion_bulk_add.py --input scripts\notion_bulk_input.yaml
+Unity C# / Houdini Python
+        ↓ HTTP POST（誰でも使える通信）
+rag_local_bridge.py（変換係）
+        ↓ MCP stdio（AI ツール専用通信）
+mcp-rag-server
 ```
-
-`.env` に `NOTION_API_KEY` と `GEMINI_API_KEY` の設定が必要。
-
-### notion_to_corpus.py — Notion→Gemini Corpus 同期
-
-CloudRAGのベクトル検索エンジン。Notionの全ページをGemini Semantic Retrieval Corpusへ同期する。
-
-```powershell
-# 初回（コーパス作成 + 全件投入）
-uv run python scripts/notion_to_corpus.py --init
-
-# Notionにページを追加・編集したあと（差分のみ）
-uv run python scripts/notion_to_corpus.py --sync
-
-# テスト検索
-uv run python scripts/notion_to_corpus.py --query "柚子塩らーめん" --db afuri
-```
-
-初回実行後に表示される `GEMINI_CORPUS_NAME` をGASのスクリプトプロパティに追加する。
-
-### gas_cloud_rag.js — GAS WebApp
-
-GAS エディタ（script.google.com）に貼り付けて使う。  
-詳細は `docs/cloud-rag-setup.md` のステップ4を参照。
-
-### extract_zip.py / delete_non_txt.py — Houdini ヘルプ前処理
-
-```powershell
-copy scripts\extract_zip.py ..\mcp-rag-server\
-copy scripts\delete_non_txt.py ..\mcp-rag-server\
-cd ..\mcp-rag-server
-uv run python extract_zip.py
-uv run python delete_non_txt.py
-```
-
----
-
-## mcp-rag-server について
-
-このプロジェクトでは [karaage0703/mcp-rag-server](https://github.com/karaage0703/mcp-rag-server) のフォーク [manato1201/mcp-rag-server](https://github.com/manato1201/mcp-rag-server) を使用しています。
-
-**オリジナルからの主な変更点:**
-- ベクトルDB: PostgreSQL/pgvector → **ChromaDB**（Docker不要）
-- Windows 11 ネイティブ対応（WSL2不要）
-- `main.py` に Windows CP932→UTF-8 パッチ適用済み
-- `vector_database.py` に Obsidian vault ネームスペース対応・バグ修正3件
-- **ハイブリッド検索**: BM25（rank-bm25）+ SudachiPy形態素解析 + RRF（Reciprocal Rank Fusion）
 
 ---
 
 ## 参考リンク
 
-- [manato1201/mcp-rag-server](https://github.com/manato1201/mcp-rag-server) — 使用しているフォーク
-- [karaage0703/mcp-rag-server](https://github.com/karaage0703/mcp-rag-server) — オリジナル
-- [Notion API リファレンス](https://developers.notion.com/)
-- [Google AI Studio（Gemini APIキー発行）](https://aistudio.google.com/)
-- [uv — Python パッケージマネージャー](https://docs.astral.sh/uv/)
+| リソース | URL |
+|----------|-----|
+| manato1201/mcp-rag-server（使用フォーク） | https://github.com/manato1201/mcp-rag-server |
+| karaage0703/mcp-rag-server（オリジナル） | https://github.com/karaage0703/mcp-rag-server |
+| Notion API リファレンス | https://developers.notion.com/ |
+| Google AI Studio（Gemini API キー発行） | https://aistudio.google.com/ |
+| uv — Python パッケージマネージャー | https://docs.astral.sh/uv/ |
