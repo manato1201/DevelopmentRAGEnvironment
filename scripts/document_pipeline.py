@@ -432,6 +432,22 @@ def main() -> None:
     tmpl_p.add_argument("kind", choices=list(_TEMPLATES.keys()), help="テンプレート種類")
     tmpl_p.add_argument("--output", "-o", default=".", help="出力ディレクトリ")
 
+    # collect コマンド（rss_to_rag.py への委譲）
+    collect_p = sub.add_parser("collect", help="RSS/Web から記事を収集して vault に追加")
+    collect_p.add_argument(
+        "--source", "-s",
+        choices=["all", "zenn_qiita", "unity_ue", "cedec", "papers"],
+        default="all",
+        help="収集ソース（デフォルト: all）",
+    )
+    collect_p.add_argument("--max-per-feed", "-m", type=int, default=5, help="フィードあたりの最大取得件数")
+    collect_p.add_argument("--namespace", "-n", choices=NAMESPACES, default=None, help="namespace 強制指定")
+    collect_p.add_argument("--vault", default=str(_VAULT_DIR), help="vault ディレクトリ")
+    collect_p.add_argument("--dry-run", action="store_true", help="書き込まずに確認")
+    collect_p.add_argument("--index", action="store_true", help="収集後にインデックス化")
+    collect_p.add_argument("--delay", type=float, default=1.5, help="記事間の待機秒数")
+    collect_p.add_argument("--reset-seen", action="store_true", help="処理済みURLリストをリセット")
+
     args = parser.parse_args()
 
     if args.cmd == "add":
@@ -452,6 +468,29 @@ def main() -> None:
 
     elif args.cmd == "template":
         generate_template(args.kind, Path(args.output))
+
+    elif args.cmd == "collect":
+        # rss_to_rag.py に処理を委譲
+        rss_script = _HERE / "rss_to_rag.py"
+        if not rss_script.exists():
+            print(f"[エラー] {rss_script} が見つかりません")
+            sys.exit(1)
+        cmd = [sys.executable, str(rss_script)]
+        cmd += ["--source", args.source]
+        cmd += ["--max-per-feed", str(args.max_per_feed)]
+        cmd += ["--delay", str(args.delay)]
+        if args.namespace:
+            cmd += ["--namespace", args.namespace]
+        if args.vault:
+            cmd += ["--vault", args.vault]
+        if args.dry_run:
+            cmd.append("--dry-run")
+        if args.index:
+            cmd.append("--index")
+        if args.reset_seen:
+            cmd.append("--reset-seen")
+        import subprocess as _sp
+        sys.exit(_sp.run(cmd).returncode)
 
     else:
         parser.print_help()
