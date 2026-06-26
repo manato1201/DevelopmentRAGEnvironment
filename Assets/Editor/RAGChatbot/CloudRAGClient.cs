@@ -14,16 +14,20 @@ namespace RAGChatbot
     public class CloudRAGClient : IRAGClient
     {
         private readonly string _url;
+        private readonly string _apiKey;
+        private readonly string _dbKey;
 
-        public CloudRAGClient(string gasWebAppUrl)
+        public CloudRAGClient(string gasWebAppUrl, string apiKey, string dbKey = "all")
         {
-            _url = gasWebAppUrl;
+            _url    = gasWebAppUrl;
+            _apiKey = apiKey;
+            _dbKey  = string.IsNullOrEmpty(dbKey) ? "all" : dbKey;
         }
 
         public async Task<RAGResponse> QueryAsync(string query, IReadOnlyList<RAGMessage> history)
         {
             var historyJson = BuildHistoryJson(history);
-            var body = $"{{\"query\":{JsonEscape(query)},\"dbKey\":\"all\",\"history\":{historyJson}}}";
+            var body = $"{{\"query\":{JsonEscape(query)},\"dbKey\":{JsonEscape(_dbKey)},\"history\":{historyJson},\"apiKey\":{JsonEscape(_apiKey)}}}";
             return await PostJsonAsync(_url, body);
         }
 

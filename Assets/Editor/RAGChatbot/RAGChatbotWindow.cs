@@ -15,6 +15,8 @@ namespace RAGChatbot
     {
         // ── EditorPrefs キー ──────────────────────────────────────────────────────
         private const string PREF_GAS_URL   = "RAGChatbot_GasUrl";
+        private const string PREF_API_KEY   = "RAGChatbot_ApiKey";
+        private const string PREF_DB_KEY    = "RAGChatbot_DbKey";
         private const string PREF_LOCAL_PORT = "RAGChatbot_LocalPort";
         private const string PREF_MODE      = "RAGChatbot_Mode";   // "cloud" | "local"
 
@@ -38,7 +40,9 @@ namespace RAGChatbot
         private Process _bridgeProcess;
 
         // ── 設定フィールド ────────────────────────────────────────────────────────
-        private string _gasUrl   = "";
+        private string _gasUrl      = "";
+        private string _apiKey      = "";
+        private string _dbKey       = "all";
         private string _localPortStr = "8766";
 
         // ── グラフビュー ──────────────────────────────────────────────────────────
@@ -52,6 +56,8 @@ namespace RAGChatbot
         private void OnEnable()
         {
             _gasUrl       = EditorPrefs.GetString(PREF_GAS_URL, "");
+            _apiKey       = EditorPrefs.GetString(PREF_API_KEY, "");
+            _dbKey        = EditorPrefs.GetString(PREF_DB_KEY, "all");
             _localPortStr = EditorPrefs.GetString(PREF_LOCAL_PORT, "8766");
             _mode         = EditorPrefs.GetString(PREF_MODE, "local") == "cloud" ? Mode.Cloud : Mode.Local;
 
@@ -68,7 +74,7 @@ namespace RAGChatbot
         private void RebuildClient()
         {
             _client = _mode == Mode.Cloud
-                ? (IRAGClient)new CloudRAGClient(_gasUrl)
+                ? (IRAGClient)new CloudRAGClient(_gasUrl, _apiKey, _dbKey)
                 : new LocalRAGClient(ParsePort());
         }
 
@@ -340,6 +346,22 @@ namespace RAGChatbot
             {
                 _gasUrl = newUrl;
                 EditorPrefs.SetString(PREF_GAS_URL, _gasUrl);
+                RebuildClient();
+            }
+
+            var newKey = EditorGUILayout.PasswordField("API Key", _apiKey);
+            if (newKey != _apiKey)
+            {
+                _apiKey = newKey;
+                EditorPrefs.SetString(PREF_API_KEY, _apiKey);
+                RebuildClient();
+            }
+
+            var newDb = EditorGUILayout.TextField("DB Key (例: all, tool_docs)", _dbKey);
+            if (newDb != _dbKey)
+            {
+                _dbKey = newDb;
+                EditorPrefs.SetString(PREF_DB_KEY, _dbKey);
                 RebuildClient();
             }
 
