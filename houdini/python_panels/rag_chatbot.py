@@ -51,6 +51,8 @@ _CONFIG_PATH = Path.home() / ".houdini" / "rag_chatbot_config.json"
 _DEFAULT_CONFIG = {
     "mode": "local",
     "gas_url": "",
+    "gas_api_key": "",
+    "gas_db_key": "all",
     "local_port": 8766,
     "local_bridge_dir": "",   # rag_local_bridge.py のあるディレクトリ
 }
@@ -98,7 +100,12 @@ class RAGClient:
         if self.cfg["mode"] == "cloud":
             return _post_json(
                 self.cfg["gas_url"],
-                {"query": query, "dbKey": "all", "history": history},
+                {
+                    "query": query,
+                    "dbKey": self.cfg.get("gas_db_key") or "all",
+                    "history": history,
+                    "apiKey": self.cfg.get("gas_api_key", ""),
+                },
             )
         else:
             port = self.cfg["local_port"]
@@ -286,10 +293,22 @@ class RAGChatbotPanel(QWidget):
         layout.setSpacing(8)
 
         layout.addWidget(QLabel("Cloud RAG"))
+
+        layout.addWidget(QLabel("GAS WebApp URL:"))
         self._gas_url_edit = QLineEdit(self._cfg.get("gas_url", ""))
         self._gas_url_edit.setPlaceholderText("https://script.google.com/macros/s/...")
-        layout.addWidget(QLabel("GAS WebApp URL:"))
         layout.addWidget(self._gas_url_edit)
+
+        layout.addWidget(QLabel("API Key:"))
+        self._api_key_edit = QLineEdit(self._cfg.get("gas_api_key", ""))
+        self._api_key_edit.setPlaceholderText("管理画面で発行した32文字のキー")
+        self._api_key_edit.setEchoMode(QLineEdit.Password)
+        layout.addWidget(self._api_key_edit)
+
+        layout.addWidget(QLabel("DB Key:"))
+        self._db_key_edit = QLineEdit(self._cfg.get("gas_db_key", "all"))
+        self._db_key_edit.setPlaceholderText("all / tool_docs / afuri / ...")
+        layout.addWidget(self._db_key_edit)
 
         layout.addWidget(QLabel("Local RAG"))
         self._port_edit = QLineEdit(str(self._cfg.get("local_port", 8766)))
@@ -385,7 +404,9 @@ class RAGChatbotPanel(QWidget):
         self._set_status("")
 
     def _on_save_settings(self) -> None:
-        self._cfg["gas_url"]        = self._gas_url_edit.text().strip()
+        self._cfg["gas_url"]          = self._gas_url_edit.text().strip()
+        self._cfg["gas_api_key"]      = self._api_key_edit.text().strip()
+        self._cfg["gas_db_key"]       = self._db_key_edit.text().strip() or "all"
         self._cfg["local_bridge_dir"] = self._bridge_dir_edit.text().strip()
         try:
             self._cfg["local_port"] = int(self._port_edit.text())
