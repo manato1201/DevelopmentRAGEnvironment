@@ -46,11 +46,12 @@ var DB_LABELS = {
   fourteen:   '⛳ Fourteen',
 };
 
-var ALL_NAMESPACES  = Object.keys(DB_KEY_MAP);
-var SHEET_NAME      = 'RAG_Index';
-var IDX_CACHE_KEY   = 'rag_idx_v2';
-var CACHE_TTL       = 21600;
-var CACHE_CHUNK     = 90000;
+var ALL_NAMESPACES   = Object.keys(DB_KEY_MAP);
+var SHEET_NAME       = 'RAG_Index';
+var MEMORY_SHEET     = 'RAG_Memory';
+var IDX_CACHE_KEY    = 'rag_idx_v2';
+var CACHE_TTL        = 21600;
+var CACHE_CHUNK      = 90000;
 
 // ─────────────────────────────────────────────
 // ストレージヘルパー
@@ -108,7 +109,58 @@ function getNamespacesForKey(apiKey) {
 function ragQueryWithKey(query, dbKey, history, apiKey) {
   var config = validateApiKey_(apiKey);
   if (!config) throw new Error('認証エラー: 無効なAPIキーです');
-  return ragQueryInternal_(query, dbKey, history, config.namespaces || []);
+  var result = ragQueryInternal_(query, dbKey, history, config.namespaces || [], apiKey);
+  try { result.memoryId = saveMemory_(apiKey, query, result.answer, result.sources); } catch(e) {}
+  return result;
+}
+
+/** 履歴取得（ブラウザ用） */
+function getUserMemory(apiKey, limit) {
+  var config = validateApiKey_(apiKey);
+  if (!config) throw new Error('認証エラー: 無効なAPIキーです');
+  limit = limit || 30;
+  try {
+    var sheet = getMemorySheet_();
+    if (!sheet) return { records: [] };
+    var prefix = apiKey.substring(0, 8);
+    var data   = sheet.getDataRange().getValues();
+    var records = [];
+    for (var i = data.length - 1; i >= 1 && records.length < limit; i--) {
+      if (String(data[i][1]) !== prefix) continue;
+      records.push({
+        id:        String(data[i][0]),
+        timestamp: String(data[i][2]),
+        query:     String(data[i][3]),
+        answer:    String(data[i][4]),
+        sources:   data[i][5] ? JSON.parse(data[i][5]) : [],
+        rating:    String(data[i][6]),
+      });
+    }
+    return { records: records };
+  } catch(e) {
+    return { records: [], error: e.message };
+  }
+}
+
+/** 評価保存（ブラウザ用） */
+function rateMemoryEntry(apiKey, id, rating) {
+  var config = validateApiKey_(apiKey);
+  if (!config) throw new Error('認証エラー: 無効なAPIキーです');
+  try {
+    var sheet  = getMemorySheet_();
+    if (!sheet) return { ok: false };
+    var prefix = apiKey.substring(0, 8);
+    var data   = sheet.getDataRange().getValues();
+    for (var i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][0]) === id && String(data[i][1]) === prefix) {
+        sheet.getRange(i + 1, 7).setValue(rating);
+        return { ok: true };
+      }
+    }
+    return { ok: false };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
 }
 
 /** グラフデータ（ブラウザ用） */
@@ -198,12 +250,15 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    var result = ragQueryInternal_(query, dbKey, history, allowed);
+    var result  = ragQueryInternal_(query, dbKey, history, allowed, apiKey);
+    var memId   = '';
+    try { memId = saveMemory_(apiKey, query, result.answer, result.sources); } catch(e) {}
     return ContentService.createTextOutput(JSON.stringify({
       answer:            result.answer,
       sources:           result.sources,
       status:            'ok',
       allowedNamespaces: allowed,
+      memoryId:          memId,
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch(err) {
@@ -218,7 +273,7 @@ function doPost(e) {
 // RAG コア
 // ─────────────────────────────────────────────
 
-function ragQueryInternal_(query, dbKey, history, allowedNamespaces) {
+function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey) {
   history = history || [];
   if (!allowedNamespaces || allowedNamespaces.length === 0) {
     return { answer: 'アクセス可能なDBがありません。管理者にAPIキーの権限付与を依頼してください。', sources: [] };
@@ -233,6 +288,19 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces) {
     : results.map(function(r, i) {
         return '### [' + (i+1) + '] ' + r.title + '（DB: ' + r.db + ' / 関連度: ' + (r.score*100).toFixed(1) + '%）\n' + r.text;
       }).join('\n\n');
+
+  // 過去Q&Aをコンテキストに追加（自己学習）
+  if (apiKey) {
+    try {
+      var mems = searchMemory_(query, apiKey, 2);
+      if (mems.length > 0) {
+        context += '\n\n### 参考: あなたの過去の関連Q&A\n' +
+          mems.map(function(m) {
+            return 'Q: ' + m.query + '\nA: ' + m.answer.substring(0, 400);
+          }).join('\n\n');
+      }
+    } catch(e) {}
+  }
 
   var contents = [
     { role: 'user',  parts: [{ text: '以下の参考ドキュメントを確認しました。\n\n' + context }] },
@@ -327,6 +395,74 @@ function buildGraphData_(allowedNamespaces) {
 }
 
 // ─────────────────────────────────────────────
+// ユーザーメモリ（自己学習）
+// ─────────────────────────────────────────────
+
+function getMemorySheet_() {
+  var sheetsId = getProps_().getProperty('SHEETS_ID');
+  if (!sheetsId) return null;
+  try {
+    var ss    = SpreadsheetApp.openById(sheetsId);
+    var sheet = ss.getSheetByName(MEMORY_SHEET);
+    if (!sheet) {
+      sheet = ss.insertSheet(MEMORY_SHEET);
+      sheet.appendRow(['id', 'apiKeyPrefix', 'timestamp', 'query', 'answer', 'sources', 'rating']);
+      sheet.getRange(1, 1, 1, 7).setFontWeight('bold');
+    }
+    return sheet;
+  } catch(e) {
+    Logger.log('getMemorySheet_ error: ' + e.message);
+    return null;
+  }
+}
+
+function saveMemory_(apiKey, query, answer, sources) {
+  try {
+    var sheet  = getMemorySheet_();
+    if (!sheet) return '';
+    var id     = new Date().getTime().toString(36) + Math.random().toString(36).slice(2, 5);
+    var prefix = apiKey.substring(0, 8);
+    var ts     = new Date().toISOString();
+    var srcStr = JSON.stringify((sources || []).slice(0, 5).map(function(s) { return { title: s.title, db: s.db }; }));
+    sheet.appendRow([id, prefix, ts, query.substring(0, 500), answer.substring(0, 1000), srcStr, '']);
+    return id;
+  } catch(e) {
+    Logger.log('saveMemory_ error: ' + e.message);
+    return '';
+  }
+}
+
+function searchMemory_(query, apiKey, limit) {
+  limit = limit || 3;
+  try {
+    var sheet = getMemorySheet_();
+    if (!sheet) return [];
+    var prefix = apiKey.substring(0, 8);
+    var data   = sheet.getDataRange().getValues();
+    if (data.length < 2) return [];
+    var words  = query.toLowerCase().split(/[\s、。！？!?,.\r\n]+/).filter(function(w) { return w.length >= 2; });
+    if (!words.length) return [];
+    var candidates = [];
+    var start = Math.max(1, data.length - 300);
+    for (var i = data.length - 1; i >= start; i--) {
+      if (String(data[i][1]) !== prefix) continue;
+      var storedQ = String(data[i][3]).toLowerCase();
+      var storedA = String(data[i][4]).toLowerCase();
+      var overlap = 0;
+      words.forEach(function(w) { if (storedQ.indexOf(w) !== -1 || storedA.indexOf(w) !== -1) overlap++; });
+      if (overlap > 0) {
+        candidates.push({ overlap: overlap, query: String(data[i][3]), answer: String(data[i][4]) });
+      }
+    }
+    candidates.sort(function(a, b) { return b.overlap - a.overlap; });
+    return candidates.slice(0, limit);
+  } catch(e) {
+    Logger.log('searchMemory_ error: ' + e.message);
+    return [];
+  }
+}
+
+// ─────────────────────────────────────────────
 // Gemini
 // ─────────────────────────────────────────────
 
@@ -338,7 +474,8 @@ function callGemini_(contents) {
       'あなたはゲーム開発チームの知識ベースを持つAIアシスタントです。\n' +
       '日本語で**簡潔に**回答してください（目安: 400文字以内）。\n' +
       '重要な点のみ箇条書き（-）または短い見出し（##）でまとめてください。\n' +
-      '知識ベースに情報がない場合のみ「情報がありません」と答えてください。'
+      '知識ベースに情報がない場合のみ「情報がありません」と答えてください。\n' +
+      '「参考: あなたの過去の関連Q&A」が含まれる場合は、それもユーザーの文脈として活用してください。'
     }]},
     contents:         contents,
     generationConfig: { temperature: 0.4, maxOutputTokens: 1024 },
@@ -688,7 +825,25 @@ function getChatHtml_() {
 '.tab-btn:hover:not(.active){color:var(--text);background:#f8fafc}',
 '#tab-chat{display:flex;flex-direction:column;flex:1;overflow:hidden}',
 '#tab-graph{display:none;flex-direction:column;flex:1;overflow:hidden;background:#0f172a;color:#e2e8f0}',
+'#tab-history{display:none;flex:1;overflow-y:auto;background:var(--bg);padding:16px}',
 '#tab-admin{display:none;flex:1;overflow-y:auto;background:var(--dark);color:#e2e8f0;padding:20px}',
+
+'/* 履歴カード */',
+'.hist-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;cursor:pointer;transition:box-shadow .15s}',
+'.hist-card:hover{box-shadow:0 2px 12px rgba(0,0,0,.1)}',
+'.hist-meta{font-size:11px;color:var(--text-light);margin-bottom:6px;display:flex;align-items:center;gap:8px}',
+'.hist-q{font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px;line-height:1.4}',
+'.hist-a{font-size:12px;color:var(--text-light);line-height:1.6;display:none}',
+'.hist-a.open{display:block}',
+'.hist-sources{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}',
+'.hist-src-tag{font-size:10px;background:#ede9fe;color:#6d28d9;padding:1px 7px;border-radius:99px}',
+'.hist-rating{display:flex;gap:6px;margin-top:8px}',
+'.rating-btn{background:none;border:1px solid var(--border);border-radius:6px;cursor:pointer;',
+'  padding:3px 10px;font-size:13px;transition:all .15s}',
+'.rating-btn:hover{border-color:var(--primary)}',
+'.rating-btn.selected-up{background:#dcfce7;border-color:#16a34a}',
+'.rating-btn.selected-down{background:#fee2e2;border-color:#dc2626}',
+'#history-status{text-align:center;color:var(--text-light);font-size:13px;padding:30px 0}',
 
 '/* DB選択 */',
 '.dbwrap{padding:8px 14px;background:var(--white);border-bottom:1px solid var(--border);flex-shrink:0}',
@@ -837,6 +992,7 @@ function getChatHtml_() {
 '<div class="tab-bar" id="tab-bar">',
 '  <button class="tab-btn active" onclick="switchTab(\'chat\')">💬 チャット</button>',
 '  <button class="tab-btn" onclick="switchTab(\'graph\')">🕸 グラフ</button>',
+'  <button class="tab-btn" onclick="switchTab(\'history\')">📚 履歴</button>',
 '  <button class="tab-btn" id="admin-tab-btn" style="display:none" onclick="switchTab(\'admin\')">⚙ 管理</button>',
 '</div>',
 '<div id="tab-chat">',
@@ -877,6 +1033,10 @@ function getChatHtml_() {
 '      </div>',
 '    </div>',
 '  </div>',
+'</div>',
+'<div id="tab-history">',
+'  <div id="history-status">「履歴」タブを開くと読み込まれます</div>',
+'  <div id="history-list"></div>',
 '</div>',
 '<div id="tab-admin">',
 '  <div id="admin-flash" class="admin-flash"></div>',
@@ -1023,7 +1183,9 @@ function getChatHtml_() {
 
 'function doLogout() {',
 '  localStorage.removeItem("rag_api_key");',
-'  _apiKey = null; _user = null;',
+'  _apiKey = null; _user = null; _historyLoaded = false;',
+'  document.getElementById("history-list").innerHTML = "";',
+'  document.getElementById("history-status").textContent = "「履歴」タブを開くと読み込まれます";',
 '  document.getElementById("chat-screen").style.display = "none";',
 '  document.getElementById("login-screen").style.display = "flex";',
 '  document.getElementById("key-input").value = "";',
@@ -1061,18 +1223,26 @@ function getChatHtml_() {
 
 '// ── タブ ──',
 'function switchTab(tab) {',
-'  ["chat","graph","admin"].forEach(function(t) {',
+'  ["chat","graph","history","admin"].forEach(function(t) {',
 '    var el = document.getElementById("tab-"+t);',
 '    if (el) el.style.display = "none";',
 '  });',
 '  var target = document.getElementById("tab-"+tab);',
 '  if (target) {',
-'    target.style.display = "flex";',
-'    target.style.flexDirection = "column";',
+'    if (tab === "history") {',
+'      target.style.display = "block";',
+'      loadHistory();',
+'    } else {',
+'      target.style.display = "flex";',
+'      target.style.flexDirection = "column";',
+'    }',
 '    if (tab === "graph" && !window._graphLoaded) loadGraph();',
 '  }',
 '  document.querySelectorAll(".tab-btn").forEach(function(b) {',
-'    var isActive = (tab==="chat"&&b.textContent.includes("チャット"))||(tab==="graph"&&b.textContent.includes("グラフ"))||(tab==="admin"&&b.textContent.includes("管理"));',
+'    var isActive = (tab==="chat"&&b.textContent.includes("チャット"))',
+'      ||(tab==="graph"&&b.textContent.includes("グラフ"))',
+'      ||(tab==="history"&&b.textContent.includes("履歴"))',
+'      ||(tab==="admin"&&b.textContent.includes("管理"));',
 '    b.classList.toggle("active", isActive);',
 '  });',
 '}',
@@ -1153,6 +1323,70 @@ function getChatHtml_() {
 '      bot.bubble.textContent = "エラー: " + (err.message || "Unknown error");',
 '    })',
 '    .ragQueryWithKey(q, dbKey, snap, _apiKey);',
+'}',
+
+'// ── 履歴 ──',
+'var _historyLoaded = false;',
+'function loadHistory() {',
+'  if (_historyLoaded) return;',
+'  var status = document.getElementById("history-status");',
+'  status.textContent = "読み込み中...";',
+'  google.script.run',
+'    .withSuccessHandler(function(res) {',
+'      _historyLoaded = true;',
+'      var list = document.getElementById("history-list");',
+'      list.innerHTML = "";',
+'      if (!res.records || res.records.length === 0) {',
+'        status.textContent = "まだ会話履歴がありません";',
+'        return;',
+'      }',
+'      status.textContent = "";',
+'      res.records.forEach(function(r) {',
+'        var card = document.createElement("div");',
+'        card.className = "hist-card";',
+'        var ts = r.timestamp ? new Date(r.timestamp).toLocaleString("ja-JP") : "";',
+'        var srcHtml = (r.sources || []).map(function(s) {',
+'          return \'<span class="hist-src-tag">\' + s.db + \'</span>\';',
+'        }).join("");',
+'        var upSel   = r.rating === "up"   ? " selected-up"   : "";',
+'        var downSel = r.rating === "down" ? " selected-down" : "";',
+'        card.innerHTML =',
+'          \'<div class="hist-meta"><span>🕐 \' + ts + \'</span></div>\' +',
+'          \'<div class="hist-q">\' + escHtml(r.query) + \'</div>\' +',
+'          \'<div class="hist-a" id="ha-\' + r.id + \'">\' + md(r.answer) + \'</div>\' +',
+'          \'<div class="hist-sources">\' + srcHtml + \'</div>\' +',
+'          \'<div class="hist-rating">\' +',
+'          \'<button class="rating-btn\' + upSel + \'" onclick="rateEntry(event,\\\'\' + r.id + \'\\\',\\\'up\\\')">👍</button>\' +',
+'          \'<button class="rating-btn\' + downSel + \'" onclick="rateEntry(event,\\\'\' + r.id + \'\\\',\\\'down\\\')">👎</button>\' +',
+'          \'</div>\';',
+'        card.querySelector(".hist-q").onclick = function() {',
+'          var a = document.getElementById("ha-" + r.id);',
+'          a.classList.toggle("open");',
+'        };',
+'        list.appendChild(card);',
+'      });',
+'    })',
+'    .withFailureHandler(function(err) {',
+'      document.getElementById("history-status").textContent = "エラー: " + (err.message || String(err));',
+'    })',
+'    .getUserMemory(_apiKey, 30);',
+'}',
+
+'function rateEntry(ev, id, rating) {',
+'  ev.stopPropagation();',
+'  var btn = ev.currentTarget;',
+'  var card = btn.closest(".hist-card");',
+'  card.querySelectorAll(".rating-btn").forEach(function(b) {',
+'    b.classList.remove("selected-up", "selected-down");',
+'  });',
+'  btn.classList.add(rating === "up" ? "selected-up" : "selected-down");',
+'  google.script.run',
+'    .withFailureHandler(function(e) { console.error(e); })',
+'    .rateMemoryEntry(_apiKey, id, rating);',
+'}',
+
+'function escHtml(s) {',
+'  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");',
 '}',
 
 '// ── グラフ ──',
