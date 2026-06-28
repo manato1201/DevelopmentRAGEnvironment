@@ -60,8 +60,17 @@ try:
 except ImportError:
     _AUDIT_AVAILABLE = False
 
+try:
+    from pep import RAGPolicyEnforcementPoint
+    _PEP_AVAILABLE = True
+except ImportError:
+    _PEP_AVAILABLE = False
+
 # static ファイルディレクトリ
 _STATIC_DIR = _SCRIPTS_DIR / "static"
+
+# PEP シングルトン（モジュールレベル）
+_pep = RAGPolicyEnforcementPoint() if _PEP_AVAILABLE else None
 
 
 # ─── MCP クライアント ────────────────────────────────────────────────────────────
@@ -460,14 +469,23 @@ class BridgeHandler(BaseHTTPRequestHandler):
             return
 
         allowed = user.get("allowed_namespaces", [])
+
+        # PEP: ロールに基づいて名前空間を絞り込む
+        if _pep and user:
+            user_role = "admin" if user.get("is_admin") else "developer"
+            requested_ns = user.get("allowed_namespaces", [])
+            effective_ns = _pep.filter_namespaces(user_role, requested_ns)
+        else:
+            effective_ns = allowed  # fallback: 元のまま
+
         t_start = time.time()
 
         try:
             texts = self.mcp.search(query, limit * 2)  # 多めに取得してフィルタ
 
-            # namespace フィルタリング
-            if allowed:
-                texts = _filter_texts_by_namespaces(texts, allowed)
+            # namespace フィルタリング（PEP で絞り込まれた effective_ns を使用）
+            if effective_ns:
+                texts = _filter_texts_by_namespaces(texts, effective_ns)
                 texts = texts[:limit]
 
             answer  = _call_claude(texts, query, history)
