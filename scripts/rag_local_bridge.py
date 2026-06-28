@@ -27,6 +27,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -52,6 +53,12 @@ try:
 except ImportError:
     _AUTH_AVAILABLE = False
     print("[bridge] 警告: auth_manager が見つかりません。認証なしで動作します。", flush=True)
+
+try:
+    from audit_logger import RAGAuditLogger
+    _AUDIT_AVAILABLE = True
+except ImportError:
+    _AUDIT_AVAILABLE = False
 
 # static ファイルディレクトリ
 _STATIC_DIR = _SCRIPTS_DIR / "static"
@@ -242,6 +249,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     mcp:  MCPClient   # start() 後にセット
     auth: "AuthManager | None" = None  # 認証マネージャー
+    audit: "RAGAuditLogger | None" = None  # 監査ロガー
 
     def log_message(self, fmt: str, *args) -> None:
         pass
@@ -452,6 +460,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             return
 
         allowed = user.get("allowed_namespaces", [])
+        t_start = time.time()
 
         try:
             texts = self.mcp.search(query, limit * 2)  # 多めに取得してフィルタ
@@ -464,11 +473,33 @@ class BridgeHandler(BaseHTTPRequestHandler):
             answer  = _call_claude(texts, query, history)
             sources = _extract_sources(texts)
             self._log(user, "/query", query, allowed, 200)
+            if self.audit:
+                self.audit.log({
+                    "session_id":   user.get("id"),
+                    "user_role":    "admin" if user.get("is_admin") else "user",
+                    "action":       "search",
+                    "namespace":    ",".join(allowed) if allowed else None,
+                    "query":        query,
+                    "result_count": len(texts),
+                    "latency_ms":   int((time.time() - t_start) * 1000),
+                    "allowed":      True,
+                })
             self._send_json(200, {"answer": answer, "sources": sources,
                                   "status": "ok", "namespaces": allowed})
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             self._log(user, "/query", query, allowed, 502)
+            if self.audit:
+                self.audit.log({
+                    "session_id":   user.get("id"),
+                    "user_role":    "admin" if user.get("is_admin") else "user",
+                    "action":       "search",
+                    "namespace":    ",".join(allowed) if allowed else None,
+                    "query":        query,
+                    "result_count": 0,
+                    "latency_ms":   int((time.time() - t_start) * 1000),
+                    "allowed":      False,
+                })
             self._send_json(502, {"error": f"Claude API エラー: {detail}"})
         except Exception as exc:
             self._log(user, "/query", query, allowed, 500)
@@ -542,6 +573,14 @@ def main() -> None:
     mcp = MCPClient(mcp_dir)
     mcp.start()
     BridgeHandler.mcp = mcp
+
+    # 監査ロガーをセット
+    if _AUDIT_AVAILABLE:
+        _audit_logger = RAGAuditLogger(Path(__file__).parent.parent / "logs" / "rag_audit.jsonl")
+        BridgeHandler.audit = _audit_logger
+        print("[bridge] 監査ログ有効: logs/rag_audit.jsonl", flush=True)
+    else:
+        BridgeHandler.audit = None
 
     # 認証マネージャーをセット
     if _AUTH_AVAILABLE and not args.no_auth:
