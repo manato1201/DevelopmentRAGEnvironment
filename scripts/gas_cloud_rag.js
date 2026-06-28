@@ -53,6 +53,15 @@ var IDX_CACHE_KEY    = 'rag_idx_v2';
 var CACHE_TTL        = 21600;
 var CACHE_CHUNK      = 90000;
 
+// 許可された DB キーの一覧。不正値は "all" にフォールバックして安全に処理する。
+var VALID_DB_KEYS_ = ["all","tool_docs","game_info","research","team_notes","afuri","braintq","fourteen"];
+
+/** dbKey が有効かチェックし、不正なら "all" を返す */
+function sanitizeDbKey_(dbKey) {
+  if (!dbKey || VALID_DB_KEYS_.indexOf(dbKey) === -1) return "all";
+  return dbKey;
+}
+
 // ─────────────────────────────────────────────
 // ストレージヘルパー
 // ─────────────────────────────────────────────
@@ -154,6 +163,9 @@ function rateMemoryEntry(apiKey, id, rating) {
     for (var i = data.length - 1; i >= 1; i--) {
       if (String(data[i][0]) === id && String(data[i][1]) === prefix) {
         sheet.getRange(i + 1, 7).setValue(rating);
+        // 評価に基づいて priority を更新 (👍=1.0, 👎=0.0)
+        var priority = (rating === 'up') ? 1.0 : 0.0;
+        sheet.getRange(i + 1, 8).setValue(priority);
         return { ok: true };
       }
     }
@@ -274,6 +286,7 @@ function doPost(e) {
 // ─────────────────────────────────────────────
 
 function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey) {
+  dbKey = sanitizeDbKey_(dbKey);
   history = history || [];
   if (!allowedNamespaces || allowedNamespaces.length === 0) {
     return { answer: 'アクセス可能なDBがありません。管理者にAPIキーの権限付与を依頼してください。', sources: [] };
@@ -293,9 +306,13 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey) {
   if (apiKey) {
     try {
       var mems = searchMemory_(query, apiKey, 2);
-      if (mems.length > 0) {
+      var filteredMems = mems.filter(function(m) {
+        // priority < 0.3 の低評価エントリはコンテキスト注入から除外
+        return m.priority === undefined || m.priority >= 0.3;
+      });
+      if (filteredMems.length > 0) {
         context += '\n\n### 参考: あなたの過去の関連Q&A\n' +
-          mems.map(function(m) {
+          filteredMems.map(function(m) {
             return 'Q: ' + m.query + '\nA: ' + m.answer.substring(0, 400);
           }).join('\n\n');
       }
@@ -406,8 +423,8 @@ function getMemorySheet_() {
     var sheet = ss.getSheetByName(MEMORY_SHEET);
     if (!sheet) {
       sheet = ss.insertSheet(MEMORY_SHEET);
-      sheet.appendRow(['id', 'apiKeyPrefix', 'timestamp', 'query', 'answer', 'sources', 'rating']);
-      sheet.getRange(1, 1, 1, 7).setFontWeight('bold');
+      sheet.appendRow(['id', 'apiKeyPrefix', 'timestamp', 'query', 'answer', 'sources', 'rating', 'priority']);
+      sheet.getRange(1, 1, 1, 8).setFontWeight('bold');
     }
     return sheet;
   } catch(e) {
@@ -424,7 +441,7 @@ function saveMemory_(apiKey, query, answer, sources) {
     var prefix = apiKey.substring(0, 8);
     var ts     = new Date().toISOString();
     var srcStr = JSON.stringify((sources || []).slice(0, 5).map(function(s) { return { title: s.title, db: s.db }; }));
-    sheet.appendRow([id, prefix, ts, query.substring(0, 500), answer.substring(0, 1000), srcStr, '']);
+    sheet.appendRow([id, prefix, ts, query.substring(0, 500), answer.substring(0, 1000), srcStr, '', 0.5]);
     return id;
   } catch(e) {
     Logger.log('saveMemory_ error: ' + e.message);
@@ -446,15 +463,29 @@ function searchMemory_(query, apiKey, limit) {
     var start = Math.max(1, data.length - 300);
     for (var i = data.length - 1; i >= start; i--) {
       if (String(data[i][1]) !== prefix) continue;
+
+      // 👎 評価済みエントリは除外 (rating列=index 6, 値="down")
+      var rating = String(data[i][6]);
+      if (rating === 'down') continue;
+
       var storedQ = String(data[i][3]).toLowerCase();
       var storedA = String(data[i][4]).toLowerCase();
-      var overlap = 0;
-      words.forEach(function(w) { if (storedQ.indexOf(w) !== -1 || storedA.indexOf(w) !== -1) overlap++; });
-      if (overlap > 0) {
-        candidates.push({ overlap: overlap, query: String(data[i][3]), answer: String(data[i][4]) });
-      }
+      var overlapCount = 0;
+      words.forEach(function(w) { if (storedQ.indexOf(w) !== -1 || storedA.indexOf(w) !== -1) overlapCount++; });
+
+      // priority による重み付け (priority列=index 7、存在しない場合は0.5)
+      var priority = parseFloat(data[i][7]);
+      if (isNaN(priority)) priority = 0.5;
+
+      // 最終スコア = overlap * (1 + priority)
+      var weightedScore = overlapCount * (1 + priority);
+
+      // 最低スコア閾値: 重み付きスコアが 1.5 未満は除外
+      if (weightedScore < 1.5) continue;
+
+      candidates.push({ score: weightedScore, query: String(data[i][3]), answer: String(data[i][4]) });
     }
-    candidates.sort(function(a, b) { return b.overlap - a.overlap; });
+    candidates.sort(function(a, b) { return b.score - a.score; });
     return candidates.slice(0, limit);
   } catch(e) {
     Logger.log('searchMemory_ error: ' + e.message);
