@@ -156,6 +156,7 @@
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('users')">ユーザー管理</button>
     <button class="tab-btn" onclick="switchTab('logs')">アクセスログ</button>
+    <button class="tab-btn" onclick="switchTab('audit')">監査ログ</button>
   </div>
 
   <!-- ユーザー管理タブ -->
@@ -254,7 +255,34 @@
         </table>
       </div>
     </div>
-  </div>
+  </div><!-- /tab-logs -->
+
+  <!-- 監査ログタブ -->
+  <div class="tab-pane" id="tab-audit">
+    <div class="card">
+      <div class="card-header">
+        <h2>監査ログ（直近100件）</h2>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-sm" style="background:var(--bg3)" onclick="loadAudit()">更新</button>
+          <button class="btn btn-sm" style="background:var(--bg3)" onclick="downloadAuditCsv()">CSVダウンロード</button>
+          <span id="audit-status" style="color:var(--muted);font-size:.75rem;"></span>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto;">
+        <table id="audit-table" style="width:100%;border-collapse:collapse;font-size:.78rem;">
+          <thead>
+            <tr>
+              <th>Timestamp</th><th>Action</th><th>Namespace</th><th>Query Hash</th>
+              <th style="text-align:right;">Latency(ms)</th>
+              <th style="text-align:right;">Results</th>
+              <th style="text-align:center;">Allowed</th>
+            </tr>
+          </thead>
+          <tbody id="audit-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /tab-audit -->
 
 </div><!-- /container -->
 
@@ -432,6 +460,7 @@ function switchTab(id) {
   document.getElementById('tab-'+id).classList.add('active');
   event.target.classList.add('active');
   if (id === 'logs') loadLogs();
+  if (id === 'audit') loadAudit();
 }
 
 /* ── モーダル ── */
@@ -446,6 +475,51 @@ async function copyKey() {
   const key = document.getElementById('modal-key').textContent;
   await navigator.clipboard.writeText(key);
   flash('コピーしました');
+}
+
+/* ── 監査ログ ── */
+let _auditTimer = null;
+
+async function loadAudit() {
+  const r = await api('GET', '/admin/audit?limit=100');
+  const tbody  = document.getElementById('audit-tbody');
+  const status = document.getElementById('audit-status');
+  if (!r.ok) {
+    status.textContent = 'エラー: ' + (r.data.error || r.status);
+    return;
+  }
+  const records = r.data.records || [];
+  status.textContent = `${records.length}件 (${new Date().toLocaleTimeString()} 更新)`;
+  tbody.innerHTML = records.map(row => {
+    const denied = row.allowed === false;
+    const bg     = denied ? 'background:#4a1a1a;' : '';
+    const ts     = (row.timestamp || '').slice(0, 19).replace('T', ' ');
+    return `<tr style="${bg}">
+      <td style="color:var(--muted);white-space:nowrap;font-size:.72rem;">${ts}</td>
+      <td>${row.action || '-'}</td>
+      <td style="font-size:.72rem;">${row.namespace || '-'}</td>
+      <td style="font-family:monospace;font-size:.72rem;">${row.query_hash || '-'}</td>
+      <td style="text-align:right;">${row.latency_ms ?? '-'}</td>
+      <td style="text-align:right;">${row.result_count ?? '-'}</td>
+      <td style="text-align:center;">${denied ? '❌' : '✅'}</td>
+    </tr>`;
+  }).join('');
+  clearTimeout(_auditTimer);
+  _auditTimer = setTimeout(loadAudit, 30000);
+}
+
+function downloadAuditCsv() {
+  const rows    = document.querySelectorAll('#audit-tbody tr');
+  const headers = ['timestamp','action','namespace','query_hash','latency_ms','result_count','allowed'];
+  const lines   = [headers.join(',')];
+  rows.forEach(tr => {
+    const cells = Array.from(tr.querySelectorAll('td')).map(td => `"${td.textContent.trim()}"`);
+    lines.push(cells.join(','));
+  });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(new Blob([lines.join('\n')], {type: 'text/csv'}));
+  a.download = `rag_audit_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
 }
 
 /* ── フラッシュ ── */
