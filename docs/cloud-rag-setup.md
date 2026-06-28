@@ -2,7 +2,7 @@
 
 **構成:** Notion + Google Apps Script + Gemini gemini-embedding-001 + Google Sheets  
 **所要時間:** 約60〜90分  
-**更新日:** 2026-06-27
+**更新日:** 2026-06-29
 
 > **Notion DB作成済み（2026-06-22）:** 7つのDBはすでにワークスペースに作成されています。Step 2 はスキップ可能。
 
@@ -56,6 +56,7 @@ Gemini gemini-embedding-001  ←→  gemini-2.5-flash（回答生成）
 12. [グラフビューの使い方](#12-グラフビューの使い方)
 13. [Unity クライアントのセットアップ](#13-unity-クライアントのセットアップ)
 14. [Houdini クライアントのセットアップ](#14-houdini-クライアントのセットアップ)
+15. [👍/👎 評価機能の使い方](#15-評価機能の使い方)
 
 ---
 
@@ -445,9 +446,12 @@ Cloud モードでは以下の JSON 形式で GAS WebApp に POST します。`a
   "status": "ok",
   "answer": "回答テキスト",
   "sources": [{"title": "...", "db": "afuri", "score": 0.91}],
-  "allowedNamespaces": ["afuri", "braintq"]
+  "allowedNamespaces": ["afuri", "braintq"],
+  "memoryId": "mem_a1b2c3d4"
 }
 ```
+
+> `memoryId` は 👍/👎 評価リクエストに使用します（後述 §15）。
 
 **エラー時:**
 
@@ -537,3 +541,54 @@ Cloud モードでは以下の JSON 形式で GAS WebApp に POST します。`a
 「Chat」タブで質問を入力して「送信」を押し、回答が返ってくれば設定完了です。
 
 > **グラフビューについて:** 「Graph」タブを開くと、知識ベースのページ関係グラフが表示されます。初回描画には30秒〜1分かかる場合があります（§12 参照）。
+
+---
+
+## 15. 評価機能の使い方
+
+### 15.1 仕組み
+
+Cloud RAG で質問すると、回答が **RAG_Memory シート** に自動保存されます。回答バブルの下に 👍/👎 ボタンが表示され、評価を送ると以後の検索品質に反映されます。
+
+```
+質問 → 回答 + memoryId が返る
+         ↓
+      [👍] [👎] ボタンが回答バブルの下に表示
+         ↓
+  ボタンを押す → GAS に評価を POST
+         ↓
+  RAG_Memory シートの G列(rating) / H列(priority) が更新
+         ↓
+  次回の同じトピック検索で品質が向上
+```
+
+### 15.2 評価の動作
+
+| 操作 | RAG_Memory シート | 次回検索への影響 |
+|------|-----------------|----------------|
+| 👍 を押す | priority = 1.0, rating = "up" | 検索スコアが重み付けされて上位に来やすくなる |
+| 👎 を押す | priority = 0.0, rating = "down" | 検索結果から完全除外される |
+| 評価しない | priority = 0.5（デフォルト） | 影響なし |
+
+### 15.3 確認方法
+
+評価後に Google Sheets の **RAG_Memory** シートを開き、H列（priority）の値が変わっていることを確認します。
+
+### 15.4 評価の HTTP リクエスト形式（技術参照）
+
+```json
+POST <GAS WebApp URL>
+{
+  "action": "rate",
+  "memoryId": "mem_a1b2c3d4",
+  "rating": "up",
+  "apiKey": "YOUR_32_CHAR_KEY"
+}
+```
+
+**レスポンス:**
+```json
+{ "ok": true, "status": "ok" }
+```
+
+> **注意:** Unity・Houdini では評価ボタンが自動的にこのリクエストを送信するため、手動で呼ぶ必要はありません。GAS の再デプロイを忘れずに行ってください。
