@@ -51,6 +51,27 @@ namespace RAGChatbot
         }
 
         /// <summary>
+        /// GAS の RAG_Memory 行に 👍/👎 評価を送る。
+        /// doPost に action:"rate" を POST し、rating/priority 列を更新する。
+        /// </summary>
+        public async Task<bool> RateAsync(string memoryId, string rating)
+        {
+            if (string.IsNullOrEmpty(_url) || string.IsNullOrEmpty(memoryId)) return false;
+            var body = $"{{\"action\":\"rate\",\"memoryId\":{JsonEscape(memoryId)},\"rating\":{JsonEscape(rating)},\"apiKey\":{JsonEscape(_apiKey)}}}";
+            var bytes = Encoding.UTF8.GetBytes(body);
+            var req = new UnityWebRequest(_url, "POST")
+            {
+                uploadHandler   = new UploadHandlerRaw(bytes),
+                downloadHandler = new DownloadHandlerBuffer(),
+                timeout         = 15,
+            };
+            req.SetRequestHeader("Content-Type", "application/json");
+            var op = req.SendWebRequest();
+            while (!op.isDone) await Task.Yield();
+            return req.result == UnityWebRequest.Result.Success;
+        }
+
+        /// <summary>
         /// GAS WebApp に GET リクエストを送って疎通を確認する。
         /// GAS の doGet はチャット UI の HTML を返すだけなので、200 OK なら「生きている」とみなす。
         /// URL が未設定のときは即 false を返して無駄なリクエストを避ける。

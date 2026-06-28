@@ -46,6 +46,11 @@ namespace RAGChatbot
         }
 
         /// <summary>
+        /// Local RAG には評価を永続化するエンドポイントがないため、常に true を返す no-op。
+        /// </summary>
+        public Task<bool> RateAsync(string memoryId, string rating) => Task.FromResult(true);
+
+        /// <summary>
         /// /health エンドポイントに GET して疎通を確認する。
         /// ブリッジが {"status":"ok"} を返せれば成功。
         /// タイムアウト 3 秒（ブリッジ未起動時に UI が固まらないよう短く設定）。
