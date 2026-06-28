@@ -28,8 +28,10 @@ namespace RAGChatbot
         private const string PREF_GAS_URL    = "RAGChatbot_GasUrl";
         private const string PREF_API_KEY    = "RAGChatbot_ApiKey";
         private const string PREF_DB_KEY     = "RAGChatbot_DbKey";
-        private const string PREF_LOCAL_PORT = "RAGChatbot_LocalPort";
-        private const string PREF_MODE       = "RAGChatbot_Mode";   // "cloud" | "local"
+        private const string PREF_LOCAL_PORT    = "RAGChatbot_LocalPort";
+        private const string PREF_MODE          = "RAGChatbot_Mode";   // "cloud" | "local"
+        private const string PREF_LLM_BACKEND   = "RAGChatbot_LlmBackend";
+        private const string PREF_SCORE_USER_ID = "RAGChatbot_ScoreUserId";
 
         // ── タブ ─────────────────────────────────────────────────────────────────
         private static readonly string[] TAB_LABELS = { "Chat", "Graph", "Settings" };
@@ -57,6 +59,12 @@ namespace RAGChatbot
         private string _apiKey       = "";
         private string _dbKey        = "all";
         private string _localPortStr = "8766";
+        private string _llmBackend   = "claude";
+        private string _scoreUserId  = "";
+        private float  _currentScore = 0.5f;
+
+        [Serializable]
+        private class ScoreResponse { public float new_score; }
 
         // ── グラフビュー ──────────────────────────────────────────────────────────
         private readonly RAGGraphView _graphView = new();
@@ -79,6 +87,8 @@ namespace RAGChatbot
             _dbKey        = EditorPrefs.GetString(PREF_DB_KEY, "all");
             _localPortStr = EditorPrefs.GetString(PREF_LOCAL_PORT, "8766");
             _mode         = EditorPrefs.GetString(PREF_MODE, "local") == "cloud" ? Mode.Cloud : Mode.Local;
+            _llmBackend   = EditorPrefs.GetString(PREF_LLM_BACKEND, "claude");
+            _scoreUserId  = EditorPrefs.GetString(PREF_SCORE_USER_ID, "");
 
             RebuildClient();
             _ = EnsureBridgeAsync();
@@ -231,6 +241,18 @@ namespace RAGChatbot
             float inputHeight    = 60f;
             float chatAreaHeight = position.height - 140f;
 
+            // 理解度スコア表示（Local モード + user_id 設定済みの場合）
+            if (_mode == Mode.Local && !string.IsNullOrEmpty(_scoreUserId))
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.FlexibleSpace();
+                    EditorGUILayout.LabelField(
+                        $"理解度スコア: {_currentScore:F2}",
+                        EditorStyles.miniLabel, GUILayout.Width(140));
+                }
+            }
+
             // ── メッセージリスト（スクロール） ──
             _chatScroll = EditorGUILayout.BeginScrollView(
                 _chatScroll, GUILayout.Height(Mathf.Max(chatAreaHeight, 100)));
@@ -338,11 +360,16 @@ namespace RAGChatbot
                 _statusText = resp.sources?.Length > 0
                     ? $"参照: {string.Join(", ", Array.ConvertAll(resp.sources, s => s.title))}"
                     : "";
+                // Local モードのとき理解度スコアを自動更新する
+                if (_mode == Mode.Local && !string.IsNullOrEmpty(_scoreUserId))
+                    _ = UpdateScoreAsync(true);
             }
             catch (Exception ex)
             {
                 _chatHistory.Add(new RAGMessage("assistant", $"エラー: {ex.Message}"));
                 _statusText = ex.Message;
+                if (_mode == Mode.Local && !string.IsNullOrEmpty(_scoreUserId))
+                    _ = UpdateScoreAsync(false);
             }
             finally
             {
@@ -489,6 +516,28 @@ namespace RAGChatbot
             }
 
             EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField("LLM / スコア設定", EditorStyles.boldLabel);
+
+            // LLM バックエンド選択（Local モードのみ有効）
+            var backends   = new[] { "claude", "gemini" };
+            int backendIdx = System.Array.IndexOf(backends, _llmBackend);
+            var newIdx     = EditorGUILayout.Popup("LLM バックエンド", backendIdx < 0 ? 0 : backendIdx, backends);
+            if (newIdx != backendIdx)
+            {
+                _llmBackend = backends[newIdx];
+                EditorPrefs.SetString(PREF_LLM_BACKEND, _llmBackend);
+                _ = SetLlmBackendAsync(_llmBackend);
+            }
+
+            // 理解度スコアユーザーID
+            var newUid = EditorGUILayout.TextField("スコアユーザーID", _scoreUserId);
+            if (newUid != _scoreUserId)
+            {
+                _scoreUserId = newUid;
+                EditorPrefs.SetString(PREF_SCORE_USER_ID, _scoreUserId);
+            }
+
+            EditorGUILayout.Space(8);
             if (GUILayout.Button("ブリッジ接続確認"))
                 _ = CheckBridgeStatusAsync();
 
@@ -505,6 +554,50 @@ namespace RAGChatbot
                 "Editor の起動前に OS 環境変数に追加するか、\n" +
                 "rag_local_bridge.py 実行時にシェルに設定してください。",
                 MessageType.Warning);
+        }
+
+        private async Task UpdateScoreAsync(bool success)
+        {
+            var body  = $"{{\"user_id\":\"{_scoreUserId}\",\"topic\":\"general\",\"success\":{(success ? "true" : "false")}}}";
+            var bytes = System.Text.Encoding.UTF8.GetBytes(body);
+            var req   = new UnityEngine.Networking.UnityWebRequest(
+                $"http://localhost:{ParsePort()}/api/score", "POST")
+            {
+                uploadHandler   = new UnityEngine.Networking.UploadHandlerRaw(bytes),
+                downloadHandler = new UnityEngine.Networking.DownloadHandlerBuffer(),
+                timeout         = 5,
+            };
+            req.SetRequestHeader("Content-Type", "application/json");
+            var op = req.SendWebRequest();
+            while (!op.isDone) await Task.Yield();
+            if (req.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+            {
+                var resp = JsonUtility.FromJson<ScoreResponse>(req.downloadHandler.text);
+                if (resp != null)
+                {
+                    _currentScore = resp.new_score;
+                    Repaint();
+                }
+            }
+        }
+
+        private async Task SetLlmBackendAsync(string backend)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes($"{{\"backend\":\"{backend}\"}}");
+            var req   = new UnityEngine.Networking.UnityWebRequest(
+                $"http://localhost:{ParsePort()}/api/llm-backend", "POST")
+            {
+                uploadHandler   = new UnityEngine.Networking.UploadHandlerRaw(bytes),
+                downloadHandler = new UnityEngine.Networking.DownloadHandlerBuffer(),
+                timeout         = 5,
+            };
+            req.SetRequestHeader("Content-Type", "application/json");
+            var op = req.SendWebRequest();
+            while (!op.isDone) await Task.Yield();
+            _statusText = req.result == UnityEngine.Networking.UnityWebRequest.Result.Success
+                ? $"バックエンド → {backend}"
+                : "バックエンド切り替え失敗";
+            Repaint();
         }
 
         /// <summary>現在のクライアントでヘルスチェックし、ステータスバーに結果を表示する。</summary>

@@ -79,6 +79,8 @@ _DEFAULT_CONFIG = {
     "gas_db_key":       "all",     # 検索対象 DB（"all" で全 DB）
     "local_port":       8766,      # ローカルブリッジのポート番号
     "local_bridge_dir": "",        # rag_local_bridge.py が含まれるプロジェクトのパス
+    "llm_backend":      "claude",  # "claude" | "gemini"（Local モード LLM 切り替え）
+    "score_user_id":    "",        # 理解度スコア記録用ユーザーID
 }
 
 
@@ -481,6 +483,19 @@ class RAGChatbotPanel(QWidget):
         self._bridge_dir_edit.setPlaceholderText("DevelopmentRAGEnvironment のパス")
         layout.addWidget(self._bridge_dir_edit)
 
+        # LLM バックエンド
+        layout.addWidget(QLabel("LLM バックエンド:"))
+        self._backend_combo = QComboBox()
+        self._backend_combo.addItems(["claude", "gemini"])
+        self._backend_combo.setCurrentText(self._cfg.get("llm_backend", "claude"))
+        layout.addWidget(self._backend_combo)
+
+        # スコアユーザーID
+        layout.addWidget(QLabel("スコアユーザーID:"))
+        self._score_uid_edit = QLineEdit(self._cfg.get("score_user_id", ""))
+        self._score_uid_edit.setPlaceholderText("例: my_user")
+        layout.addWidget(self._score_uid_edit)
+
         # 操作ボタン
         save_btn = QPushButton("設定を保存")
         save_btn.clicked.connect(self._on_save_settings)
@@ -563,12 +578,20 @@ class RAGChatbotPanel(QWidget):
             self._set_status("")
         self._send_btn.setEnabled(True)
         self._scroll_to_bottom()
+        # 理解度スコアを自動更新
+        uid = self._cfg.get("score_user_id", "")
+        if self._cfg["mode"] == "local" and uid:
+            threading.Thread(target=self._post_score, args=(uid, True), daemon=True).start()
 
     def _on_query_error(self, msg: str) -> None:
         """クエリ失敗時のコールバック。エラーをバブルとステータスに表示する。"""
         self._add_bubble(f"エラー: {msg}", is_user=False)
         self._set_status(msg)
         self._send_btn.setEnabled(True)
+        # 理解度スコアをエラーとして更新
+        uid = self._cfg.get("score_user_id", "")
+        if self._cfg["mode"] == "local" and uid:
+            threading.Thread(target=self._post_score, args=(uid, False), daemon=True).start()
 
     def _on_clear(self) -> None:
         """会話履歴とバブルをすべて削除してチャットをリセットする。"""
@@ -586,12 +609,17 @@ class RAGChatbotPanel(QWidget):
         self._cfg["gas_api_key"]      = self._api_key_edit.text().strip()
         self._cfg["gas_db_key"]       = self._db_key_edit.text().strip() or "all"
         self._cfg["local_bridge_dir"] = self._bridge_dir_edit.text().strip()
+        self._cfg["llm_backend"]      = self._backend_combo.currentText()
+        self._cfg["score_user_id"]    = self._score_uid_edit.text().strip()
         try:
             self._cfg["local_port"] = int(self._port_edit.text())
         except ValueError:
             pass  # 不正なポート値は無視して既存値を維持
         _save_config(self._cfg)
         self._client = RAGClient(self._cfg)
+        # バックエンド変更をブリッジに通知
+        if self._cfg["mode"] == "local":
+            threading.Thread(target=self._push_backend, daemon=True).start()
         self._set_status("設定を保存しました")
 
     def _on_check_health(self) -> None:
@@ -612,6 +640,30 @@ class RAGChatbotPanel(QWidget):
         self._set_status(f"ブリッジ起動失敗: {msg}")
 
     # ── ブリッジ自動起動 ───────────────────────────────────────────────────────
+
+    def _post_score(self, user_id: str, success: bool) -> None:
+        """理解度スコアを /api/score に POST して結果をステータスバーに反映する。"""
+        try:
+            result = _post_json(
+                f"http://localhost:{self._cfg['local_port']}/api/score",
+                {"user_id": user_id, "topic": "general", "success": success},
+                timeout=5,
+            )
+            score = result.get("new_score", 0.5)
+            self._set_status(f"理解度スコア: {score:.2f}")
+        except Exception:
+            pass  # スコア更新失敗は無視（主処理に影響させない）
+
+    def _push_backend(self) -> None:
+        """選択した LLM バックエンドをブリッジに通知する。"""
+        try:
+            _post_json(
+                f"http://localhost:{self._cfg['local_port']}/api/llm-backend",
+                {"backend": self._cfg["llm_backend"]},
+                timeout=5,
+            )
+        except Exception:
+            pass
 
     def _ensure_bridge(self, force: bool = False) -> None:
         """
