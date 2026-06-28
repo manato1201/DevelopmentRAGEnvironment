@@ -66,11 +66,20 @@ try:
 except ImportError:
     _PEP_AVAILABLE = False
 
+try:
+    from score_engine import UnderstandingScoreEngine
+    _SCORE_AVAILABLE = True
+except ImportError:
+    _SCORE_AVAILABLE = False
+
 # static ファイルディレクトリ
 _STATIC_DIR = _SCRIPTS_DIR / "static"
 
 # PEP シングルトン（モジュールレベル）
 _pep = RAGPolicyEnforcementPoint() if _PEP_AVAILABLE else None
+
+# スコアエンジン シングルトン（モジュールレベル）
+_score_engine = UnderstandingScoreEngine(Path(__file__).parent.parent / "data" / "auth.db") if _SCORE_AVAILABLE else None
 
 
 # ─── MCP クライアント ────────────────────────────────────────────────────────────
@@ -384,6 +393,20 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "allowed": user.get("allowed_namespaces", []),
                 })
             return
+        if path.startswith("/api/score"):
+            # GET /api/score?user_id=xxx  → 全スコア取得
+            if _score_engine is None:
+                self._send_json(503, {"error": "score engine not available"})
+                return
+            from urllib.parse import urlparse, parse_qs
+            params = parse_qs(urlparse(self.path).query)
+            uid = params.get("user_id", [""])[0]
+            if not uid:
+                self._send_json(400, {"error": "user_id required"})
+                return
+            scores = _score_engine.get_all_scores(uid)
+            self._send_json(200, {"user_id": uid, "scores": scores})
+            return
 
         self._send_json(404, {"error": "Not found"})
 
@@ -451,6 +474,25 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                           "message": "このAPIキーは一度だけ表示されます。"})
                 else:
                     self._send_json(404, {"error": "ユーザーが見つかりません"})
+            return
+
+        if path == "/api/score":
+            # 理解度スコア更新エンドポイント
+            # POST body: {"user_id": "xxx", "topic": "SOP", "success": true}
+            # Returns: {"user_id": "xxx", "topic": "SOP", "new_score": 0.6, "query_context": {...}}
+            if _score_engine is None:
+                self._send_json(503, {"error": "score engine not available"})
+                return
+            data    = self._read_body()
+            uid     = data.get("user_id", "")
+            topic   = data.get("topic", "general")
+            success = bool(data.get("success", True))
+            if not uid:
+                self._send_json(400, {"error": "user_id required"})
+                return
+            new_score = _score_engine.update_score(uid, topic, success)
+            query_ctx = _score_engine.build_rag_query(uid, {"topic": topic, "query": data.get("query", "")})
+            self._send_json(200, {"user_id": uid, "topic": topic, "new_score": new_score, "query_context": query_ctx})
             return
 
         self._send_json(404, {"error": "Not found"})
