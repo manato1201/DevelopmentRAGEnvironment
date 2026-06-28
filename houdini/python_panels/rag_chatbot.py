@@ -184,6 +184,32 @@ class RAGClient:
         except Exception:
             return False
 
+    def rate(self, memory_id: str, rating: str) -> bool:
+        """
+        Cloud モードのみ有効。GAS の RAG_Memory 行に 👍/👎 評価を送る。
+        Local モードは評価先がないため常に True を返す（no-op）。
+        rating: "up"（👍）| "down"（👎）
+        """
+        if self.cfg["mode"] != "cloud":
+            return True
+        url = self.cfg.get("gas_url", "")
+        if not url or not memory_id:
+            return False
+        try:
+            result = _post_json(
+                url,
+                {
+                    "action":   "rate",
+                    "memoryId": memory_id,
+                    "rating":   rating,
+                    "apiKey":   self.cfg.get("gas_api_key", ""),
+                },
+                timeout=15,
+            )
+            return bool(result.get("ok", False))
+        except Exception:
+            return False
+
 
 # ─── バックグラウンドワーカー ─────────────────────────────────────────────────
 
@@ -208,6 +234,24 @@ class QueryWorker(QThread):
             self.finished.emit(result)
         except Exception as exc:
             self.error.emit(str(exc))
+
+
+class RateWorker(QThread):
+    """
+    評価（👍/👎）を別スレッドで送信するワーカー。
+    UI スレッドをブロックしないよう QThread に切り出している。
+    """
+    done = Signal(bool)  # 送信結果（True=成功, False=失敗）
+
+    def __init__(self, client: RAGClient, memory_id: str, rating: str) -> None:
+        super().__init__()
+        self._client    = client
+        self._memory_id = memory_id
+        self._rating    = rating
+
+    def run(self) -> None:
+        ok = self._client.rate(self._memory_id, self._rating)
+        self.done.emit(ok)
 
 
 class BridgeStartWorker(QThread):
@@ -299,6 +343,7 @@ class RAGChatbotPanel(QWidget):
         self._history: list[dict]               = []
         self._worker: QueryWorker | None        = None
         self._bridge_worker: BridgeStartWorker | None = None
+        self._rate_workers: list[RateWorker]    = []  # GC 防止のため参照を保持
 
         self._build_ui()
         self._ensure_bridge()  # Local モードなら起動確認
@@ -506,9 +551,10 @@ class RAGChatbotPanel(QWidget):
 
     def _on_query_done(self, result: dict) -> None:
         """クエリ成功時のコールバック。回答バブルを追加し参照ドキュメントをステータスに表示する。"""
-        answer  = result.get("answer", "(空の回答)")
-        sources = result.get("sources", [])
-        self._add_bubble(answer, is_user=False)
+        answer    = result.get("answer", "(空の回答)")
+        sources   = result.get("sources", [])
+        memory_id = result.get("memoryId", "")
+        self._add_rag_bubble(answer, memory_id)
         self._history.append({"role": "assistant", "text": answer})
         if sources:
             titles = ", ".join(s.get("title", "") for s in sources)
@@ -599,9 +645,67 @@ class RAGChatbotPanel(QWidget):
         else:
             row.addWidget(bubble)
             row.addStretch()
-        # _chat_layout の最後は stretch なので、その手前（count - 1）に挿入する
         insert_at = max(0, self._chat_layout.count() - 1)
         self._chat_layout.insertLayout(insert_at, row)
+
+    def _add_rag_bubble(self, text: str, memory_id: str) -> None:
+        """
+        RAG 回答専用バブル。テキストの下に 👍/👎 ボタンを追加する。
+        memory_id が空の場合（Local モードなど）はボタンを表示しない。
+        """
+        container = QWidget()
+        v = QVBoxLayout(container)
+        v.setContentsMargins(0, 0, 0, 4)
+        v.setSpacing(2)
+
+        # テキストバブル行
+        bubble_row = QHBoxLayout()
+        bubble_row.addWidget(ChatBubble(text, is_user=False))
+        bubble_row.addStretch()
+        v.addLayout(bubble_row)
+
+        # 評価ボタン行（Cloud モードで memoryId がある場合のみ）
+        if memory_id:
+            btn_row = QHBoxLayout()
+            thumb_up   = QPushButton("👍")
+            thumb_down = QPushButton("👎")
+            for btn in (thumb_up, thumb_down):
+                btn.setFixedSize(32, 24)
+                btn.setFlat(True)
+                btn.setStyleSheet("QPushButton{border-radius:4px;font-size:14px;}")
+
+            def _on_up(checked=False, mid=memory_id, u=thumb_up, d=thumb_down):
+                u.setStyleSheet("QPushButton{border-radius:4px;font-size:14px;background:#2a7a2a;}")
+                d.setStyleSheet("QPushButton{border-radius:4px;font-size:14px;}")
+                u.setEnabled(False)
+                d.setEnabled(False)
+                self._on_rate(mid, "up")
+
+            def _on_down(checked=False, mid=memory_id, u=thumb_up, d=thumb_down):
+                d.setStyleSheet("QPushButton{border-radius:4px;font-size:14px;background:#7a2a2a;}")
+                u.setStyleSheet("QPushButton{border-radius:4px;font-size:14px;}")
+                u.setEnabled(False)
+                d.setEnabled(False)
+                self._on_rate(mid, "down")
+
+            thumb_up.clicked.connect(_on_up)
+            thumb_down.clicked.connect(_on_down)
+            btn_row.addWidget(thumb_up)
+            btn_row.addWidget(thumb_down)
+            btn_row.addStretch()
+            v.addLayout(btn_row)
+
+        insert_at = max(0, self._chat_layout.count() - 1)
+        self._chat_layout.insertWidget(insert_at, container)
+
+    def _on_rate(self, memory_id: str, rating: str) -> None:
+        """評価を RateWorker でバックグラウンド送信する。"""
+        worker = RateWorker(self._client, memory_id, rating)
+        worker.done.connect(
+            lambda ok: self._set_status("評価を送信しました ✓" if ok else "評価の送信に失敗しました")
+        )
+        self._rate_workers.append(worker)  # GC 防止
+        worker.start()
 
     def _scroll_to_bottom(self) -> None:
         """スクロールエリアを最下部にスクロールして最新メッセージを表示する。"""
