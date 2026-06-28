@@ -1,6 +1,6 @@
 # ゲーム開発 RAG 環境
 
-**更新日:** 2026-06-25
+**更新日:** 2026-06-29
 
 ---
 
@@ -23,6 +23,11 @@
 | **Houdini 連携** | Houdini 21+ のパネルにチャット UI・グラフビューを組み込み |
 | **グラフビュー** | ドキュメント間の関係をネットワーク図として可視化 |
 | **HTTP ブリッジ** | Unity/Houdini からローカル RAG に繋ぐ中継サーバー |
+| **👍/👎 評価機能** | Cloud RAG の回答に評価をつけて検索品質を自己改善 |
+| **監査ログ** | 全クエリを JSONL 形式で記録（NIST SP 800-207 準拠） |
+| **PEP アクセス制御** | ロール別にアクセス可能な名前空間を制限（最小権限原則） |
+| **理解度スコア** | ユーザーごとのトピック習熟度に応じて検索範囲を自動調整 |
+| **セマンティック分割** | トークン単位のオーバーラップチャンク分割で検索精度向上 |
 
 ---
 
@@ -107,6 +112,10 @@ DevelopmentRAGEnvironment/
 ├── scripts/                            # ユーティリティスクリプト
 │   ├── rag_local_bridge.py             # ★ ローカル HTTP ブリッジ（Unity/Houdini → mcp-rag-server）
 │   ├── rag_graph_export.py             # ★ ChromaDB からグラフ JSON を生成
+│   ├── audit_logger.py                 # ★ JSONL 監査ログ（NIST SP 800-207 テネット7）
+│   ├── pep.py                          # ★ Policy Enforcement Point（名前空間アクセス制御）
+│   ├── document_pipeline.py            # ★ SemanticChunker 追加（トークン単位チャンク分割）
+│   ├── score_engine.py                 # ★ 理解度スコアエンジン（トピック別習熟度 → 検索範囲自動調整）
 │   ├── vector_database.py              # ChromaDB バックエンド（mcp-rag-server に適用）
 │   ├── auto_index.py                   # watchdog による自動インデックス化
 │   ├── gas_cloud_rag.js                # GAS WebApp コード（Notion + Gemini チャット）
@@ -139,7 +148,7 @@ DevelopmentRAGEnvironment/
     └── _templates/                     # テンプレート（検索対象外）
 ```
 
-★ マークは今回新たに追加されたファイルです。
+★ マークは新たに追加・拡張されたファイルです。
 
 ---
 
@@ -181,6 +190,29 @@ Unity C# / Houdini Python
 rag_local_bridge.py（変換係）
         ↓ MCP stdio（AI ツール専用通信）
 mcp-rag-server
+```
+
+---
+
+## セキュリティ強化機能（2026-06-29 追加）
+
+NIST SP 800-207（Zero Trust Architecture）の設計を取り入れた以下の機能を追加しました。
+
+| 機能 | ファイル | 概要 |
+|------|---------|------|
+| **監査ログ** | `scripts/audit_logger.py` | 全クエリを `logs/rag_audit.jsonl` に記録。クエリは SHA-256 でハッシュ化してプライバシー保護 |
+| **PEP** | `scripts/pep.py` | ロール（admin / developer / user）ごとにアクセス可能な名前空間を制限 |
+| **SemanticChunker** | `scripts/document_pipeline.py` | 512トークン/64オーバーラップのスライディングウィンドウ分割。`--semantic` フラグで有効化 |
+| **理解度スコア** | `scripts/score_engine.py` | トピック別スコアに応じて検索範囲を自動調整（beginner→tool_docs のみ、expert→research+team_notes） |
+| **👍/👎 評価** | Unity + Houdini UI / GAS | Cloud RAG の回答バブルに評価ボタン。👎 評価した回答は以後の検索から除外 |
+
+### 👍/👎 評価の動作
+
+```
+1. Cloud モードで質問 → 回答バブルの下に 👍/👎 ボタンが表示
+2. 👎 を押す → GAS の RAG_Memory シートで priority=0.0 に更新
+3. 同じトピックを再度質問 → priority<0.3 のエントリが検索から除外
+4. 回答品質が自動的に向上していく
 ```
 
 ---
