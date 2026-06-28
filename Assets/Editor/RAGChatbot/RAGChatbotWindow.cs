@@ -238,15 +238,43 @@ namespace RAGChatbot
             foreach (var msg in _chatHistory)
             {
                 bool isUser = msg.role == "user";
-                // ユーザー発言は helpBox（枠付き）、RAG 回答は通常ラベルで視覚的に区別する
                 var style = isUser ? EditorStyles.helpBox : EditorStyles.wordWrappedLabel;
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    if (isUser) GUILayout.FlexibleSpace();   // ユーザー発言は右寄せ
+                    if (isUser) GUILayout.FlexibleSpace();
                     var label = $"{(isUser ? "You" : "RAG")}: {msg.text}";
                     GUILayout.Label(label, style, GUILayout.MaxWidth(position.width * 0.85f));
-                    if (!isUser) GUILayout.FlexibleSpace();  // RAG 回答は左寄せ
+                    if (!isUser) GUILayout.FlexibleSpace();
+                }
+
+                // RAG 回答にのみ 👍/👎 ボタンを表示する
+                if (!isUser && !string.IsNullOrEmpty(msg.memoryId))
+                {
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        GUILayout.Space(8);
+                        // 評価済みなら対応ボタンをハイライト
+                        using (new GUIColorScope(msg.rating == 1 ? Color.green : Color.white))
+                        {
+                            if (GUILayout.Button("👍", GUILayout.Width(36), GUILayout.Height(20))
+                                && msg.rating != 1)
+                            {
+                                msg.rating = 1;
+                                _ = _client.RateAsync(msg.memoryId, "up");
+                            }
+                        }
+                        using (new GUIColorScope(msg.rating == -1 ? new Color(1f, 0.4f, 0.4f) : Color.white))
+                        {
+                            if (GUILayout.Button("👎", GUILayout.Width(36), GUILayout.Height(20))
+                                && msg.rating != -1)
+                            {
+                                msg.rating = -1;
+                                _ = _client.RateAsync(msg.memoryId, "down");
+                            }
+                        }
+                        GUILayout.FlexibleSpace();
+                    }
                 }
                 EditorGUILayout.Space(2);
             }
@@ -301,7 +329,11 @@ namespace RAGChatbot
             try
             {
                 var resp = await _client.QueryAsync(query, _chatHistory);
-                _chatHistory.Add(new RAGMessage("assistant", resp.answer ?? "(空の回答)"));
+                var assistantMsg = new RAGMessage("assistant", resp.answer ?? "(空の回答)")
+                {
+                    memoryId = resp.memoryId ?? "",
+                };
+                _chatHistory.Add(assistantMsg);
                 // 参照ソースがあればステータスバーに表示する
                 _statusText = resp.sources?.Length > 0
                     ? $"参照: {string.Join(", ", Array.ConvertAll(resp.sources, s => s.title))}"

@@ -240,10 +240,25 @@ function doGet(e) {
 function doPost(e) {
   try {
     var body    = JSON.parse(e.postData.contents);
+    var apiKey  = body.apiKey  || '';
+    var action  = body.action  || 'query';
+
+    // 評価アクション: { action:'rate', apiKey, memoryId, rating:'up'|'down' }
+    if (action === 'rate') {
+      var config = validateApiKey_(apiKey);
+      if (!config) {
+        return ContentService.createTextOutput(JSON.stringify({ ok: false, status: 'auth_error' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      var rateResult = rateMemoryEntry(apiKey, body.memoryId || '', body.rating || '');
+      rateResult.status = rateResult.ok ? 'ok' : 'error';
+      return ContentService.createTextOutput(JSON.stringify(rateResult))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     var query   = body.query;
     var dbKey   = body.dbKey   || 'all';
     var history = body.history || [];
-    var apiKey  = body.apiKey  || '';
 
     if (!query) throw new Error('query は必須です');
 

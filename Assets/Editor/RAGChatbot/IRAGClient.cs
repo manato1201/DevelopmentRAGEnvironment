@@ -31,6 +31,15 @@ namespace RAGChatbot
         Task<RAGResponse> QueryAsync(string query, IReadOnlyList<RAGMessage> history);
 
         /// <summary>
+        /// 回答に対して 👍/👎 の評価を送る。
+        /// Cloud モードでは GAS の RAG_Memory 行の rating/priority を更新する。
+        /// Local モードでは評価の永続化先がないため常に true を返す（no-op）。
+        /// </summary>
+        /// <param name="memoryId">QueryAsync が返した RAGResponse.memoryId</param>
+        /// <param name="rating">"up"（👍）または "down"（👎）</param>
+        Task<bool> RateAsync(string memoryId, string rating);
+
+        /// <summary>
         /// サーバーが応答するか確認するヘルスチェック。
         /// ウィンドウ起動時・モード切り替え時・ブリッジ自動起動の
         /// 待機ループ内で呼ぶ。
