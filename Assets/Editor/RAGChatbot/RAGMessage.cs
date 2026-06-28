@@ -13,6 +13,8 @@ namespace RAGChatbot
         public string role;       // "user" | "assistant"
         public string text;       // メッセージ本文
         public long   timestamp;  // Unix 秒。履歴のソートや表示に使う
+        public string memoryId;   // Cloud RAG の RAG_Memory 行ID（評価リクエスト用）
+        public int    rating;     // 0=未評価, 1=👍, -1=👎
 
         public RAGMessage(string role, string text)
         {
@@ -41,8 +43,9 @@ namespace RAGChatbot
     [Serializable]
     public class RAGResponse
     {
-        public string      answer;   // Gemini が生成した回答テキスト
-        public RAGSource[] sources;  // 参照したドキュメントの一覧（上位 N 件）
-        public string      status;   // "ok" | "error" など
+        public string      answer;    // Gemini が生成した回答テキスト
+        public RAGSource[] sources;   // 参照したドキュメントの一覧（上位 N 件）
+        public string      status;    // "ok" | "error" など
+        public string      memoryId;  // 保存された RAG_Memory の行ID（評価に使う）
     }
 }
