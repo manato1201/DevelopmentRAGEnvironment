@@ -105,6 +105,120 @@ def chunk_by_headings(text: str, max_chunk: int = 800, overlap: int = 80) -> lis
     return chunks
 
 
+class SemanticChunker:
+    """
+    トークン対応セマンティックチャンク分割器。
+
+    RAG_SECURITY_REFERENCE.md の HoudiniDocChunker 設計を基に実装。
+    見出し境界を優先してテキストを分割し、長いセクションはスライディングウィンドウで
+    さらに細かく分割する。各チャンクに SHA-256 ハッシュを付与して同一性を管理する。
+
+    chunk_by_headings() との違い:
+      - 単位が「文字数」ではなく「単語数（トークン近似）」
+      - スライディングウィンドウでオーバーラップを実現
+      - source_hash フィールドで変更検知が可能
+    """
+
+    def __init__(self, chunk_size: int = 512, overlap: int = 64) -> None:
+        """
+        Args:
+            chunk_size: チャンクあたりの最大単語数（デフォルト 512）
+            overlap   : 隣接チャンク間のオーバーラップ単語数（デフォルト 64）
+        """
+        self.chunk_size = chunk_size
+        self.overlap    = overlap
+
+    def split(self, text: str, source: str = "") -> list[dict]:
+        """
+        テキストをセマンティックチャンクに分割する。
+
+        Args:
+            text  : 入力テキスト（Markdown 推奨）
+            source: ソースファイルパス（hash に組み込む）
+
+        Returns:
+            list of dict with keys:
+              heading    : str  — 直近の見出し（なければ空文字）
+              body       : str  — チャンク本文
+              level      : int  — 見出しレベル（1-3、なければ 0）
+              source_hash: str  — SHA-256(source + body) の先頭 16 文字
+        """
+        import hashlib
+
+        chunks: list[dict] = []
+
+        # Markdown 見出しでセクション分割
+        # パターン: 行頭の # または ## または ###
+        sections = re.split(r'\n(?=#{1,3} )', text)
+
+        for section in sections:
+            if not section.strip():
+                continue
+
+            # 見出し行を抽出
+            heading = ""
+            level   = 0
+            lines   = section.splitlines()
+            if lines and re.match(r'^(#{1,3}) ', lines[0]):
+                m       = re.match(r'^(#{1,3}) (.+)', lines[0])
+                level   = len(m.group(1)) if m else 0
+                heading = m.group(2).strip() if m else ""
+                # 見出し行を除いた本文
+                body_text = "\n".join(lines[1:]).strip()
+            else:
+                body_text = section.strip()
+
+            if not body_text:
+                continue
+
+            words = body_text.split()
+
+            if len(words) <= self.chunk_size:
+                # セクションが短い場合はそのまま1チャンク
+                chunk_body = body_text
+                chunks.append({
+                    "heading":     heading,
+                    "body":        chunk_body,
+                    "level":       level,
+                    "source_hash": self._hash(source + chunk_body),
+                })
+            else:
+                # スライディングウィンドウで分割
+                sub_texts = self._sliding_window(words)
+                for i, sub_words in enumerate(sub_texts):
+                    chunk_body = " ".join(sub_words)
+                    sub_heading = f"{heading} ({i+1}/{len(sub_texts)})" if heading else f"part {i+1}/{len(sub_texts)}"
+                    chunks.append({
+                        "heading":     sub_heading,
+                        "body":        chunk_body,
+                        "level":       level,
+                        "source_hash": self._hash(source + chunk_body),
+                    })
+
+        return chunks
+
+    def _sliding_window(self, words: list[str]) -> list[list[str]]:
+        """
+        単語リストをスライディングウィンドウで chunk_size 単語ずつに分割する。
+        overlap 分だけ隣接チャンクと重複させて文脈の継続性を保つ。
+        """
+        result: list[list[str]] = []
+        step = max(1, self.chunk_size - self.overlap)
+        for i in range(0, len(words), step):
+            chunk = words[i : i + self.chunk_size]
+            if chunk:
+                result.append(chunk)
+            if i + self.chunk_size >= len(words):
+                break
+        return result
+
+    @staticmethod
+    def _hash(text: str) -> str:
+        """SHA-256 ハッシュの先頭 16 文字を返す（チャンク同一性の管理に使う）。"""
+        import hashlib
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 def _chunk_paragraphs(text: str, max_chunk: int, overlap: int) -> list[dict]:
     """段落（空行区切り）でチャンク分割するフォールバック。"""
     paragraphs = re.split(r"\n{2,}", text.strip())
@@ -178,6 +292,7 @@ def process_file(
     max_chunk: int = 800,
     overlap: int = 80,
     dry_run: bool = False,
+    semantic: bool = False,
 ) -> int:
     """1ファイルを処理して vault に Markdown チャンクとして書き出す。"""
     print(f"  変換中: {file_path.name}")
@@ -186,7 +301,11 @@ def process_file(
         print(f"  [スキップ] テキストが空です: {file_path.name}")
         return 0
 
-    chunks = chunk_by_headings(text, max_chunk, overlap)
+    if semantic:
+        chunker = SemanticChunker(max_chunk, overlap)
+        chunks = chunker.split(text, str(file_path))
+    else:
+        chunks = chunk_by_headings(text, max_chunk, overlap)
     total = len(chunks)
     stem = re.sub(r"[^\w\-]", "_", file_path.stem)[:40]
 
@@ -221,13 +340,14 @@ def process_input(
     max_chunk: int = 800,
     overlap: int = 80,
     dry_run: bool = False,
+    semantic: bool = False,
 ) -> int:
     """ファイルまたはディレクトリを処理する。"""
     if input_path.is_file():
         if input_path.suffix.lower() not in _ALL_SUPPORTED:
             print(f"[エラー] 非対応のファイル形式です: {input_path.suffix}")
             return 0
-        return process_file(input_path, namespace, vault_dir, max_chunk, overlap, dry_run)
+        return process_file(input_path, namespace, vault_dir, max_chunk, overlap, dry_run, semantic)
 
     if input_path.is_dir():
         total = 0
@@ -235,7 +355,7 @@ def process_input(
                  if f.is_file() and f.suffix.lower() in _ALL_SUPPORTED]
         print(f"{len(files)} ファイルを検出")
         for f in files:
-            total += process_file(f, namespace, vault_dir, max_chunk, overlap, dry_run)
+            total += process_file(f, namespace, vault_dir, max_chunk, overlap, dry_run, semantic)
         return total
 
     print(f"[エラー] パスが見つかりません: {input_path}")
@@ -423,6 +543,7 @@ def main() -> None:
     add_p.add_argument("--vault", default=str(_VAULT_DIR), help="vault ディレクトリのパス")
     add_p.add_argument("--dry-run", action="store_true", help="書き込まずに確認だけ")
     add_p.add_argument("--index", action="store_true", help="vault 追加後にインデックス化も実行")
+    add_p.add_argument("--semantic", action="store_true", help="SemanticChunker を使用（トークン単位チャンク分割）")
 
     # index コマンド
     sub.add_parser("index", help="vault をインデックス化（差分）")
@@ -456,6 +577,7 @@ def main() -> None:
         total = process_input(
             input_path, args.namespace, vault_dir,
             args.max_chunk, args.overlap, args.dry_run,
+            semantic=args.semantic,
         )
         print(f"\n合計 {total} チャンクを処理しました")
         if args.index and not args.dry_run:
