@@ -38,6 +38,8 @@ DEFAULT_PORT    = 8766
 DEFAULT_MCP_DIR = str(Path(__file__).parent.parent.parent / "mcp-rag-server")
 GRAPH_EXPORT_SCRIPT = Path(__file__).parent / "rag_graph_export.py"
 CLAUDE_MODEL    = "claude-haiku-4-5-20251001"
+GEMINI_MODEL    = "gemini-2.5-flash"
+_LLM_BACKEND: str = os.environ.get("RAG_LLM_BACKEND", "claude")  # "claude" | "gemini"
 SYSTEM_PROMPT   = (
     "あなたはゲーム開発チームの知識ベースを持つ AI アシスタントです。"
     "日本語で簡潔に回答してください（目安: 400 文字以内）。"
@@ -239,6 +241,39 @@ def _call_claude(context_texts: list[str], query: str, history: list[dict]) -> s
     return data["content"][0]["text"]
 
 
+def _call_gemini(context_texts: list[str], query: str, history: list[dict]) -> str:
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        return "GEMINI_API_KEY 環境変数が設定されていません。"
+
+    contents = []
+    for h in history[-12:]:
+        role = "user" if h.get("role") not in ("bot", "assistant") else "model"
+        text = h.get("text", h.get("content", ""))
+        if text:
+            contents.append({"role": role, "parts": [{"text": text}]})
+
+    context = "\n\n".join(context_texts) if context_texts else "（参考ドキュメントなし）"
+    user_msg = f"以下の参考ドキュメントを参照して質問に答えてください。\n\n{context}\n\n質問: {query}"
+    contents.append({"role": "user", "parts": [{"text": user_msg}]})
+
+    payload = json.dumps({
+        "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": contents,
+    }, ensure_ascii=False).encode("utf-8")
+
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{GEMINI_MODEL}:generateContent?key={api_key}")
+    req = urllib.request.Request(
+        url, data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = json.loads(resp.read())
+    return data["candidates"][0]["content"]["parts"][0]["text"]
+
+
 def _extract_sources(texts: list[str]) -> list[dict]:
     sources = []
     seen: set[str] = set()
@@ -393,6 +428,24 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "allowed": user.get("allowed_namespaces", []),
                 })
             return
+        if path == "/api/llm-backend":
+            self._send_json(200, {"backend": _LLM_BACKEND})
+            return
+
+        if path == "/admin/audit":
+            admin = self._require_admin()
+            if admin is None:
+                return
+            if self.audit is None:
+                self._send_json(503, {"error": "audit logger not available"})
+                return
+            from urllib.parse import urlparse, parse_qs
+            params = parse_qs(urlparse(self.path).query)
+            limit  = int(params.get("limit", [100])[0])
+            records = self.audit.get_recent(limit)
+            self._send_json(200, {"records": records, "count": len(records)})
+            return
+
         if path.startswith("/api/score"):
             # GET /api/score?user_id=xxx  → 全スコア取得
             if _score_engine is None:
@@ -476,6 +529,17 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     self._send_json(404, {"error": "ユーザーが見つかりません"})
             return
 
+        if path == "/api/llm-backend":
+            global _LLM_BACKEND
+            data = self._read_body()
+            backend = data.get("backend", "claude")
+            if backend not in ("claude", "gemini"):
+                self._send_json(400, {"error": "backend must be 'claude' or 'gemini'"})
+                return
+            _LLM_BACKEND = backend
+            self._send_json(200, {"backend": _LLM_BACKEND})
+            return
+
         if path == "/api/score":
             # 理解度スコア更新エンドポイント
             # POST body: {"user_id": "xxx", "topic": "SOP", "success": true}
@@ -530,7 +594,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 texts = _filter_texts_by_namespaces(texts, effective_ns)
                 texts = texts[:limit]
 
-            answer  = _call_claude(texts, query, history)
+            if _LLM_BACKEND == "gemini":
+                answer = _call_gemini(texts, query, history)
+            else:
+                answer = _call_claude(texts, query, history)
             sources = _extract_sources(texts)
             self._log(user, "/query", query, allowed, 200)
             if self.audit:
