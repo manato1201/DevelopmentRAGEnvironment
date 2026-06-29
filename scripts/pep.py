@@ -33,16 +33,17 @@ class RAGPolicyEnforcementPoint:
         "research":       {"read": True,  "write": False, "delete": False},
         "team_notes":     {"read": True,  "write": True,  "delete": False},
         "personal_notes": {"read": True,  "write": True,  "delete": True},
+        "houdini21":      {"read": True,  "write": False, "delete": False},
     }
 
     # ロール別のアクセス可能名前空間
     # admin     : 全名前空間
-    # developer : 読み取り系 + チームノート
+    # developer : 読み取り系 + チームノート + Houdini21技術DB
     # user      : 公式・公開情報のみ
     _ROLE_NAMESPACES: dict[str, list[str]] = {
         "admin":     list(NAMESPACE_PERMISSIONS.keys()),
-        "developer": ["tool_docs", "game_info", "research", "team_notes"],
-        "user":      ["tool_docs", "game_info", "research"],
+        "developer": ["tool_docs", "game_info", "research", "team_notes", "houdini21"],
+        "user":      ["tool_docs", "game_info", "research", "houdini21"],
     }
 
     def authorize(

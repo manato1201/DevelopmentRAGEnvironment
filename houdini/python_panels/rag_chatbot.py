@@ -468,7 +468,7 @@ class RAGChatbotPanel(QWidget):
 
         layout.addWidget(QLabel("DB Key:"))
         self._db_key_edit = QLineEdit(self._cfg.get("gas_db_key", "all"))
-        self._db_key_edit.setPlaceholderText("all / tool_docs / afuri / ...")
+        self._db_key_edit.setPlaceholderText("all / tool_docs / houdini21 / afuri / ...")
         layout.addWidget(self._db_key_edit)
 
         # Local RAG 設定

@@ -37,6 +37,7 @@ VALID_NAMESPACES = [
     "research",
     "team_notes",
     "personal_notes",
+    "houdini21",
 ]
 
 

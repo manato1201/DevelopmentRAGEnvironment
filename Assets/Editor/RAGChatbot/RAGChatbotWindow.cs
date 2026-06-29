@@ -495,7 +495,7 @@ namespace RAGChatbot
             }
 
             // DB Key（検索対象の絞り込み。"all" で全 DB を対象にする）
-            var newDb = EditorGUILayout.TextField("DB Key (例: all, tool_docs)", _dbKey);
+            var newDb = EditorGUILayout.TextField("DB Key (例: all, houdini21, tool_docs)", _dbKey);
             if (newDb != _dbKey)
             {
                 _dbKey = newDb;

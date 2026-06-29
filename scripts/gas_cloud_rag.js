@@ -34,6 +34,7 @@ var DB_KEY_MAP = {
   afuri:      'DB_AFURI',
   braintq:    'DB_BRAINTQ',
   fourteen:   'DB_FOURTEEN',
+  houdini21:  'DB_HOUDINI21',
 };
 
 var DB_LABELS = {
@@ -44,6 +45,7 @@ var DB_LABELS = {
   afuri:      '🍜 AFURI',
   braintq:    '🧠 BrainTQ',
   fourteen:   '⛳ Fourteen',
+  houdini21:  '🌀 Houdini21',
 };
 
 var ALL_NAMESPACES   = Object.keys(DB_KEY_MAP);
@@ -54,7 +56,7 @@ var CACHE_TTL        = 21600;
 var CACHE_CHUNK      = 90000;
 
 // 許可された DB キーの一覧。不正値は "all" にフォールバックして安全に処理する。
-var VALID_DB_KEYS_ = ["all","tool_docs","game_info","research","team_notes","afuri","braintq","fourteen"];
+var VALID_DB_KEYS_ = ["all","tool_docs","game_info","research","team_notes","afuri","braintq","fourteen","houdini21"];
 
 /** dbKey が有効かチェックし、不正なら "all" を返す */
 function sanitizeDbKey_(dbKey) {
