@@ -513,7 +513,7 @@ git push origin main</code></pre>
         <table>
           <thead><tr><th>サービス</th><th>料金</th><th>用途</th></tr></thead>
           <tbody>
-            <tr><td><strong>Notion</strong></td><td>無料プランで可</td><td>ドキュメントDB（7つのDB）</td></tr>
+            <tr><td><strong>Notion</strong></td><td>無料プランで可</td><td>ドキュメントDB（8つのDB）</td></tr>
             <tr><td><strong>Google アカウント</strong></td><td>無料</td><td>GAS・Google Sheets・Gemini API</td></tr>
             <tr><td><strong>Google AI Studio</strong></td><td>無料枠あり</td><td>Gemini API キー発行</td></tr>
           </tbody>
@@ -572,6 +572,7 @@ git push origin main</code></pre>
             <tr><td><code>DB_AFURI</code></td><td><code>a74822790ec34768bdef0917abae3e6f</code></td></tr>
             <tr><td><code>DB_BRAINTQ</code></td><td><code>847b7db0f29f4190bee9f7ae7dd15514</code></td></tr>
             <tr><td><code>DB_FOURTEEN</code></td><td><code>475cf278492a45ac90cbe4b8f11df1f5</code></td></tr>
+            <tr><td><code>DB_HOUDINI21</code></td><td>Notion houdini21DB の database_id</td></tr>
           </tbody>
         </table>
       </div>
@@ -601,6 +602,7 @@ git push origin main</code></pre>
             <tr><td>AFURI DB</td><td>阿夫利神社関連</td></tr>
             <tr><td>BrainTQ DB</td><td>BrainTQ関連</td></tr>
             <tr><td>Fourteen DB</td><td>Fourteen関連</td></tr>
+            <tr><td>houdini21 DB</td><td>Houdini 21 ドキュメント・ノート</td></tr>
           </tbody>
         </table>
       </div>
@@ -793,6 +795,31 @@ python scripts/rag_local_bridge.py
 
 # [3] ファイル監視（別ターミナル、任意）
 python scripts/auto_index.py</code></pre>
+
+      <h3>houdini21DB を LocalRAG に同期する</h3>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:8px">
+        Notion houdini21DB のページを <code>localRAG/houdini21/</code> へ Markdown ファイルとして書き出します。<br>
+        <strong>注意:</strong> <code>load_dotenv()</code> は使用しません。<code>NOTION_API_KEY</code> は PowerShell で直接セットしてください。
+      </p>
+      <pre><button class="copy-btn" onclick="copyCode(this)">コピー</button><code># houdini21DBをLocalRAGに同期
+$env:NOTION_API_KEY = "secret_xxx"
+uv run python scripts\sync_houdini21_db.py
+
+# プレビューのみ（変更なし）
+uv run python scripts\sync_houdini21_db.py --dry-run
+
+# 同期＋ChromaDBインデックス化
+uv run python scripts\sync_houdini21_db.py --index</code></pre>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>オプション</th><th>動作</th></tr></thead>
+          <tbody>
+            <tr><td>（なし）</td><td>houdini21DB の全ページを <code>localRAG/houdini21/</code> へ同期</td></tr>
+            <tr><td><code>--dry-run</code></td><td>書き出し対象ページ一覧を表示するのみ（ファイル変更なし）</td></tr>
+            <tr><td><code>--index</code></td><td>同期後に ChromaDB へのインデックス化も実行</td></tr>
+          </tbody>
+        </table>
+      </div>
 
       <h3>ローカルRAG アクセス先</h3>
       <div class="table-wrap">
