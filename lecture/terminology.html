@@ -750,6 +750,17 @@
       </div>
 
       <div class="term-card">
+        <div class="term-header"><span class="term-name">Notionデータベース</span><span class="term-abbr">Cloud RAGのメモリ</span></div>
+        <div class="term-body">
+          <p>Cloud RAGの長期記憶として使用。</p>
+          <ul>
+            <li><code>RAG_Memory</code> シートにQ&Aペアを格納（GAS側）</li>
+            <li>Notion MCP経由でHoudini 21 DB（<code>houdini21DB</code>）を管理</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
         <div class="term-header"><span class="term-name">houdini21DB</span></div>
         <div class="term-body">
           <p>本プロジェクトで作成した Notion データベース。Houdini 21 の公式ドキュメントを約 80 トピックに分割して格納。</p>
@@ -804,7 +815,8 @@
           <p>クエリをそのまま埋め込むのではなく、まず「もしこの質問への理想的な回答があったとしたら？」という仮説文書を LLM に生成させ、その仮説文書の埋め込みをクエリ埋め込みと加重平均して検索するテクニック。</p>
           <ul>
             <li><strong>解決する問題</strong>: 語彙ミスマッチ（ユーザーの言葉と文書の言葉が違う問題）を大幅に解消</li>
-            <li><strong>本システムの混合比率</strong>: クエリ 40% ＋ 仮説文書 60%</li>
+            <li><strong>技術ドメイン</strong>（houdini21/tool_docs/research）: クエリ 40% ＋ 仮説文書 60%</li>
+            <li><strong>固有事実ドメイン</strong>（afuri/braintq/fourteen）: クエリ 80% ＋ 仮説文書 20%（<code>FACT_HEAVY_DOMAINS</code>参照）</li>
           </ul>
         </div>
       </div>
@@ -814,6 +826,14 @@
         <div class="term-body">
           <p><code>gas_cloud_rag.js</code> の内部関数。<code>hydePromptFor_(dbKey)</code> でドメイン別プロンプトを取得し、Gemini に仮説文書を生成させてその埋め込みを返す。</p>
           <p>返り値は加重平均済み埋め込みベクトルで、<code>searchByEmbedding_</code> の <code>preEmb</code> 引数として渡される。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">FACT_HEAVY_DOMAINS</span></div>
+        <div class="term-body">
+          <p><code>gas_cloud_rag.js</code>で定義される配列 <code>['afuri', 'braintq', 'fourteen']</code>。LLMが実店舗名・価格などの固有事実を知らないドメインを示す。</p>
+          <p>本番運用でAFURI「辛紅ラーメン」のような固有名詞についてGeminiがハルシネーションした仮説文書を生成し、検索精度が84.4%→79.7%に低下する問題が発覚したため導入。該当ドメインは<code>hydeExpand_</code>内でクエリ側の重みを0.8に引き上げる。</p>
         </div>
       </div>
 
@@ -912,6 +932,14 @@
           </ul>
         </div>
       </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">afuri / braintq / fourteen</span><span class="term-abbr">DBキー</span></div>
+        <div class="term-body">
+          <p>houdini21と並ぶCloud RAGのDBキー。<code>afuri</code>=飲食店（AFURI阿夫利）のメニュー・店舗情報、<code>braintq</code>=サービス・施設情報、<code>fourteen</code>=ゴルフ場・アパレル情報を扱う名前空間。</p>
+          <p>いずれも実店舗・実在ブランドの固有事実を扱うため<code>FACT_HEAVY_DOMAINS</code>に含まれ、HyDEの仮説文書重みが抑制される。</p>
+        </div>
+      </div>
     </section>
 
     <!-- ── 7. Local RAG ── -->
@@ -921,18 +949,57 @@
       <div class="term-card">
         <div class="term-header"><span class="term-name">rag_local_bridge.py</span></div>
         <div class="term-body">
-          <p>Local RAG の HTTP ブリッジサーバー。Port <strong>8766</strong> で起動。</p>
+          <p>Local RAG の HTTP ブリッジサーバー。Port <strong>8766</strong> で起動。内部の<code>LocalRAGClient</code>が<code>rag_service.py</code>をプロセス内で直接importして呼び出す（旧版はmcp-rag-serverをサブプロセス起動しMCP JSON-RPC over stdioで通信していたが、2026-06-30の独立化で廃止）。</p>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Method</th><th>Path</th><th>機能</th></tr></thead>
               <tbody>
+                <tr><td>GET</td><td><code>/health</code></td><td>生存確認・インデックス件数取得</td></tr>
                 <tr><td>POST</td><td><code>/query</code></td><td>RAG 検索 + LLM 回答</td></tr>
+                <tr><td>GET</td><td><code>/graph</code></td><td>ドキュメント関係グラフJSON取得</td></tr>
                 <tr><td>POST</td><td><code>/api/score</code></td><td>理解度スコア更新</td></tr>
                 <tr><td>GET/POST</td><td><code>/api/llm-backend</code></td><td>LLM バックエンド確認/変更</td></tr>
                 <tr><td>GET</td><td><code>/admin/audit</code></td><td>監査ログ取得</td></tr>
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">LocalRAGエンジンのvendoring</span><span class="term-abbr">2026-06-30</span></div>
+        <div class="term-body">
+          <p>LocalRAGは以前、外部リポジトリ<code>mcp-rag-server</code>（karaage0703氏、MIT）を別途cloneして依存していたが、2026-06-30にその検索エンジンコードをこのリポジトリへ直接取り込み（vendoring）、外部依存を解消した。</p>
+          <p>取り込まれたのは<code>document_processor.py</code>・<code>embedding_generator.py</code>・<code>rag_service.py</code>・<code>mcp_server.py</code>・<code>rag_mcp_tools.py</code>・<code>rag_mcp_server.py</code>の6ファイル。MITライセンスのため改変・再配布・商用利用は自由（詳細は<code>docs/license-compliance.md</code>参照）。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">rag_service.py</span></div>
+        <div class="term-body">
+          <p>LocalRAGの検索エンジン統合層。<code>document_processor.py</code>（ファイル読込・チャンク分割）・<code>embedding_generator.py</code>（sentence-transformersラッパー）・<code>vector_database.py</code>（ChromaDB+BM25）を束ねる<code>RAGService</code>クラスを提供。</p>
+          <p><code>create_rag_service_from_env()</code>で環境変数から初期化する（<code>.env</code>非使用、<code>os.environ.get()</code>のみ）。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">LocalRAGClient</span></div>
+        <div class="term-body">
+          <p><code>rag_local_bridge.py</code>内のクラス。<code>rag_service.py</code>の<code>RAGService</code>をプロセス内で直接呼び出し、検索結果を旧mcp-rag-server時代のテキスト形式（"ファイル:"行を含む）と互換のフォーマットで返す。namespaceフィルタ処理が引き続きこの形式に依存しているため。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">rag_cli.py</span></div>
+        <div class="term-body">
+          <p>LocalRAGのインデックス化CLI。<code>uv run python scripts/rag_cli.py index|clear|count [--incremental]</code>。旧mcp-rag-server側の<code>uv run python -m src.cli index</code>を置き換える。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">rag_mcp_server.py / rag_mcp_tools.py</span></div>
+        <div class="term-body">
+          <p>Claude Desktopに直接MCPサーバーとして登録するためのエントリーポイント（<code>rag_mcp_server.py</code>）と、search/get_document_countツールハンドラ（<code>rag_mcp_tools.py</code>）。<code>mcp_server.py</code>（JSON-RPC over stdioのプロトコル実装）と組み合わせて動作し、旧mcp-rag-serverの<code>src/main.py</code>相当を置き換える。</p>
         </div>
       </div>
 
@@ -949,7 +1016,7 @@ return fused[:TOP_K]</pre>
       <div class="term-card">
         <div class="term-header"><span class="term-name">document_pipeline.py</span></div>
         <div class="term-body">
-          <p>ドキュメントを ChromaDB に投入するパイプライン。</p>
+          <p>ドキュメントを ChromaDB に投入するパイプライン（<code>document_processor.py</code>とは別の既存スクリプト）。</p>
           <ul>
             <li><code>chunk_by_headings()</code>: Markdown 見出しで分割（800文字/80文字オーバーラップ）</li>
             <li><code>SemanticChunker</code>: トークン数ベースのスライディングウィンドウ（512/64）</li>
@@ -1078,6 +1145,11 @@ return fused[:TOP_K]</pre>
       </div>
 
       <div class="term-card">
+        <div class="term-header"><span class="term-name">MaterialX</span></div>
+        <div class="term-body"><p>オープンなマテリアル記述フォーマット。Karma XPUでシェーダーをポータブルに定義するために使用。</p></div>
+      </div>
+
+      <div class="term-card">
         <div class="term-header"><span class="term-name">ROP</span><span class="term-abbr">Render Operators</span></div>
         <div class="term-body"><p>Houdini の出力/レンダリングコンテキスト（<code>/out</code> 以下）。フレームレンダリング・ジオメトリキャッシュ出力などを定義する。</p></div>
       </div>
@@ -1085,6 +1157,16 @@ return fused[:TOP_K]</pre>
       <div class="term-card">
         <div class="term-header"><span class="term-name">CHOP</span><span class="term-abbr">Channel Operators</span></div>
         <div class="term-body"><p>時系列データ・アニメーションカーブ・オーディオを操作するコンテキスト。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">POP</span><span class="term-abbr">Particle Operators</span></div>
+        <div class="term-body"><p>DOPコンテキスト内で動作するパーティクルシミュレーションシステム。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Crowd Agent</span></div>
+        <div class="term-body"><p>KineFXリグとアニメーションクリップをパッケージ化したCrowdシミュレーションの基本単位。</p></div>
       </div>
 
       <div class="term-card">
@@ -1113,8 +1195,18 @@ return fused[:TOP_K]</pre>
       </div>
 
       <div class="term-card">
+        <div class="term-header"><span class="term-name">score_user_id</span></div>
+        <div class="term-body"><p>Unityクライアントで RAG を使用するユーザーのID。理解度スコア更新に使用。</p></div>
+      </div>
+
+      <div class="term-card">
         <div class="term-header"><span class="term-name">UpdateScoreAsync()</span></div>
         <div class="term-body"><p>回答受信後に <code>POST /api/score</code> を行い理解度スコアを更新するメソッド。エラーを含む回答は <code>success=false</code> で送信。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">SetLlmBackendAsync()</span></div>
+        <div class="term-body"><p>Settingsタブから LLM バックエンドを変更するメソッド。</p></div>
       </div>
 
       <div class="term-card">
@@ -1187,7 +1279,17 @@ return fused[:TOP_K]</pre>
 
       <div class="term-card">
         <div class="term-header"><span class="term-name">WSL2</span><span class="term-abbr">Windows Subsystem for Linux 2</span></div>
-        <div class="term-body"><p>Local RAG ブリッジ（<code>rag_local_bridge.py</code>）は WSL2 Ubuntu 環境で動作。</p></div>
+        <div class="term-body"><p>2026-06-30 のmcp-rag-server独立化以降、<code>rag_local_bridge.py</code> は Windows ネイティブで動作し WSL2 は不要になった。WSL2 構成は移行前の歴史的な記録（<code>docs/local-rag.md</code> §9参照）。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Docker</span></div>
+        <div class="term-body"><p>将来的なコンテナ化を想定。現状はWindowsネイティブPython環境（uv管理）で動作し、Dockerは不使用。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">GitHub</span></div>
+        <div class="term-body"><p>リポジトリ管理。メインブランチ: <code>main</code>。</p></div>
       </div>
 
       <div class="term-card">
@@ -1207,7 +1309,7 @@ return fused[:TOP_K]</pre>
     </section>
 
     <footer>
-      最終更新: 2026-06-29 &nbsp;|&nbsp; DevelopmentRAGEnvironment
+      最終更新: 2026-06-30 &nbsp;|&nbsp; DevelopmentRAGEnvironment
     </footer>
   </main>
 </div>

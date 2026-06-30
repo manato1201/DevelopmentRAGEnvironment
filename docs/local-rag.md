@@ -182,7 +182,6 @@ uv sync
 | `sudachipy` | >= 0.6.11 | 日本語形態素解析 | Apache 2.0 |
 | `sudachidict-core` | >= 20260428 | 日本語辞書 | Apache 2.0 |
 | `rank-bm25` | >= 0.2.2 | BM25 ハイブリッド検索 | Apache 2.0 |
-| `mcp[cli]` | 最新 | MCP プロトコル | MIT |
 | `watchdog` | >= 6.0.0 | ファイル変更監視 | Apache 2.0 |
 | `numpy` | 最新 | ベクトル演算 | BSD 3-Clause |
 | `sentencepiece` | >= 0.2.0 | トークナイザー | Apache 2.0 |
@@ -602,7 +601,7 @@ public interface IRAGClient
 
 ### 7.3 rag_local_bridge.py の内部設計
 
-`scripts/rag_local_bridge.py` は Python の `FastAPI` フレームワークで動く軽量なサーバーです。
+`scripts/rag_local_bridge.py` は Python 標準ライブラリの `http.server`（`BaseHTTPRequestHandler` / `HTTPServer`）のみで動く軽量なサーバーです（FastAPI 等の外部フレームワークは使用していません）。
 
 ```
 Unity / Houdini
