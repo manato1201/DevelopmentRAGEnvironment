@@ -28,6 +28,9 @@
 | **PEP アクセス制御** | ロール別にアクセス可能な名前空間を制限（最小権限原則） |
 | **理解度スコア** | ユーザーごとのトピック習熟度に応じて検索範囲を自動調整 |
 | **セマンティック分割** | トークン単位のオーバーラップチャンク分割で検索精度向上 |
+| **HyDE 検索強化** | クエリ+仮説文書の加重平均埋め込みで語彙ミスマッチを解消（精度向上）|
+| **情報抽出度メトリクス** | 回答中の引用数÷ソース数で抽出効率を可視化（✓引用バッジ・進捗バー）|
+| **houdini21 名前空間** | Houdini 21ドキュメント専用DB（GAS・LocalRAG・Unity/Houdini UI統合）|
 
 ---
 
@@ -123,7 +126,8 @@ DevelopmentRAGEnvironment/
 │   ├── notion_bulk_input.yaml          # notion_bulk_add.py の入力サンプル
 │   ├── notion_to_corpus.py             # Notion → Gemini Corpus 同期
 │   ├── extract_zip.py                  # Houdini ヘルプ zip 展開
-│   └── delete_non_txt.py              # .txt 以外のファイルを削除
+│   ├── delete_non_txt.py              # .txt 以外のファイルを削除
+│   └── sync_houdini21_db.py            # ★ Notion houdini21DB → localRAG/houdini21/ 同期
 │
 ├── docs/                               # 設計・セットアップドキュメント
 │   ├── rag-system-design.md            # システム設計（全体像）← 本ドキュメントの詳細版
@@ -145,7 +149,8 @@ DevelopmentRAGEnvironment/
     ├── chat_logs/                      # チャット履歴
     ├── private_docs/                   # 共有不可ドキュメント
     ├── _rag_dashboard/                 # インデックス管理用（検索対象外）
-    └── _templates/                     # テンプレート（検索対象外）
+    ├── _templates/                     # テンプレート（検索対象外）
+    └── houdini21/                      # Houdini 21ドキュメント（sync_houdini21_db.py で同期）
 ```
 
 ★ マークは新たに追加・拡張されたファイルです。
@@ -214,6 +219,20 @@ NIST SP 800-207（Zero Trust Architecture）の設計を取り入れた以下の
 3. 同じトピックを再度質問 → priority<0.3 のエントリが検索から除外
 4. 回答品質が自動的に向上していく
 ```
+
+---
+
+## 検索品質向上機能（2026-06-29 追加）
+
+| 機能 | 概要 |
+|------|------|
+| **HyDE（仮説文書埋め込み）** | クエリの語彙と文書の語彙のギャップを仮説文書で橋渡し。検索精度を大幅改善 |
+| **ドメイン別HyDEプロンプト** | DBごとに最適なドメインヒントを使用（Houdini技術/飲食店/研究論文等）。クロスドメイン汚染を防止 |
+| **ページ単位重複排除** | 同一ページの複数チャンクのうち最高スコアのみを残し、多様なソースを優先表示 |
+| **閾値フィルタ** | コサイン類似度0.58未満（全DB時0.62未満）の低品質チャンクを除外 |
+| **情報抽出度** | 回答中の`[1][2]`引用を解析し、何件のソースが実際に活用されたかを表示 |
+| **adminUpdateKey** | APIキーのnamespace権限を削除・再作成不要で更新できる管理機能 |
+| **houdini21 namespace** | Houdini 21専用ドキュメントDB。GAS/LocalRAG/Unity/Houdini UIに統合済み |
 
 ---
 

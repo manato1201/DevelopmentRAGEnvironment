@@ -4,12 +4,12 @@
 **所要時間:** 約60〜90分  
 **更新日:** 2026-06-29
 
-> **Notion DB作成済み（2026-06-22）:** 7つのDBはすでにワークスペースに作成されています。Step 2 はスキップ可能。
+> **Notion DB作成済み（2026-06-22）:** 8つのDBはすでにワークスペースに作成されています。Step 2 はスキップ可能。
 
 ## アーキテクチャ概要
 
 ```
-Notion (7DB)
+Notion (8DB)
     ↓ GAS: syncNotionToSheets()
 Google Sheets (RAG_Index)
   [page_id | db | title | text | last_edited | embedding(768次元)]
@@ -35,6 +35,7 @@ Gemini gemini-embedding-001  ←→  gemini-2.5-flash（回答生成）
 | AFURI DB | `a74822790ec34768bdef0917abae3e6f` | [開く](https://app.notion.com/p/a74822790ec34768bdef0917abae3e6f) |
 | BrainTQ DB | `847b7db0f29f4190bee9f7ae7dd15514` | [開く](https://app.notion.com/p/847b7db0f29f4190bee9f7ae7dd15514) |
 | Fourteen DB | `475cf278492a45ac90cbe4b8f11df1f5` | [開く](https://app.notion.com/p/475cf278492a45ac90cbe4b8f11df1f5) |
+| houdini21 DB | ※ GAS スクリプトプロパティ `DB_HOUDINI21` で設定 | — |
 
 **親ページ:** [🗄️ Cloud RAG — ゲーム開発知識ベース](https://app.notion.com/p/38174fde7afd81eda23df9f7a7c19998)
 
@@ -52,6 +53,7 @@ Gemini gemini-embedding-001  ←→  gemini-2.5-flash（回答生成）
 8. [WebAppとして公開（APIキー認証）](#8-webappとして公開)
 9. [Notionにページを追加したあとの更新方法](#9-notionにページを追加したあとの更新方法)
 10. [トラブルシューティング](#10-トラブルシューティング)
+11. [LocalRAG → Notion 移行ツール](#11-localrag--notion-移行ツール)
 11. [LocalRAG → Notion 移行ツール](#11-localrag--notion-移行ツール)
 12. [グラフビューの使い方](#12-グラフビューの使い方)
 13. [Unity クライアントのセットアップ](#13-unity-クライアントのセットアップ)
@@ -88,6 +90,19 @@ Gemini gemini-embedding-001  ←→  gemini-2.5-flash（回答生成）
 ### 2.2 Notionインテグレーションの接続
 
 [notion.so/my-integrations](https://www.notion.so/my-integrations) で発行した Integration Token を、各DBの「設定」→「接続」→「インテグレーションを追加」で紐付ける。
+
+### 2.3 houdini21 DB のセットアップ
+
+houdini21DB は他のDBとは別に追加された専用DBです。以下の手順でセットアップしてください。
+
+1. Notion で houdini21DB を開き、右上「...」→「接続先」→ Notion Integration を追加する
+2. URLから `database_id` をコピー（`https://www.notion.so/xxxxxxxx...` の 32文字部分）
+3. GASエディタ → 「プロジェクトの設定」→「スクリプトプロパティ」で以下を追加：
+   - プロパティ名: `DB_HOUDINI21`
+   - 値: コピーした database_id
+4. GASエディタで `syncNotionToSheets` を実行して houdini21 ページを同期する
+
+> **確認:** 実行ログに `[houdini21] Notionページ取得中...` と表示されれば成功。
 
 ---
 
@@ -126,6 +141,7 @@ Gemini gemini-embedding-001  ←→  gemini-2.5-flash（回答生成）
 | `DB_AFURI` | `a74822790ec34768bdef0917abae3e6f` |
 | `DB_BRAINTQ` | `847b7db0f29f4190bee9f7ae7dd15514` |
 | `DB_FOURTEEN` | `475cf278492a45ac90cbe4b8f11df1f5` |
+| `DB_HOUDINI21` | Notion houdini21DB の database_id（§2.3 参照） |
 | `API_KEYS_CONFIG` | **手動設定不要。** `bootstrapFirstAdminKey()` 実行時および管理画面からの操作により GAS が自動管理する。 |
 
 ---
@@ -229,8 +245,19 @@ GASエディタで初回インデックスを構築する。
 
 | サブタブ | 内容 |
 |---------|------|
-| 🔑 APIキー管理 | 新規キー発行フォーム・発行済みキー一覧・失効操作 |
+| 🔑 APIキー管理 | 新規キー発行フォーム・発行済みキー一覧・失効操作・**名前空間権限の編集** |
 | 📖 使い方 | HTTP POST リクエスト形式・レスポンス形式・エラーコード一覧 |
+
+### 8.5 既存APIキーの名前空間権限を編集する（adminUpdateKey）
+
+`adminUpdateKey()` 関数により、発行済みのAPIキーが参照できるDB（名前空間）をあとから変更できます。
+
+1. 管理画面 → 「🔑 APIキー管理」サブタブ → 発行済みキー一覧を表示
+2. 変更したいキーの行にある「**編集**」ボタンをクリック
+3. チェックボックスのモーダルが開く → 許可する名前空間にチェックを入れる（例: `houdini21` を追加）
+4. 「保存」ボタンで確定 → `API_KEYS_CONFIG` が即座に更新される
+
+> **注意:** 名前空間を削除すると、そのキーは該当DBにアクセスできなくなります。再付与は同じ手順で可能です。
 
 ---
 
@@ -255,6 +282,19 @@ Notion でページを追加・編集したあとは、GAS で差分同期を実
 | Phase 3 | Embedding生成 | 1チャンクずつ+sleep | `fetchAll` 10件バッチ |
 
 20ページ更新・60チャンクの場合の目安: 旧 ~22秒 → 新 ~2秒
+
+### 9.2 HyDE（Hypothetical Document Expansion）による検索品質向上
+
+クエリ時に `hydeExpand_()` 関数が自動で呼ばれ、検索精度を向上させます。
+
+| 機能 | 内容 |
+|------|------|
+| **HyDE** | クエリから「仮想的な回答文書」を生成し、クエリ埋め込みと平均して検索に使用 |
+| **MIN_SCOREフィルタ** | DB指定検索: 0.58 以上 / 全DB横断検索: 0.62 以上のチャンクのみ採用 |
+| **ページ重複排除** | 同一ページタイトルの複数チャンクから最高スコアのもの1件のみ採用 |
+| **maxOutputTokens** | 回答生成の上限を 1024 → **2048** トークンに拡張 |
+
+> **自動適用:** これらの機能はGASコード内に組み込み済みで、ユーザー側の設定変更は不要です。
 
 ---
 

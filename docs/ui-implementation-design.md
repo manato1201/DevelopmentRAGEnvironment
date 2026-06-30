@@ -2,7 +2,7 @@
 
 **対象:** Unity EditorWindow / Houdini Python Panel / GAS WebApp / ローカルブリッジ  
 **目的:** 実装済みの各コンポーネントの役割・構成・設計判断を説明する  
-**更新日:** 2026-06-25
+**更新日:** 2026-06-29
 
 > このドキュメントは「これから作る設計案」ではなく「実際に動いているコードの説明書」です。
 
@@ -15,7 +15,8 @@
 3. [Houdini Python Panel](#3-houdini-python-panel)
 4. [GAS WebApp グラフ機能](#4-gas-webapp-グラフ機能)
 5. [ローカルブリッジ](#5-ローカルブリッジ)
-6. [セキュリティ設計](#6-セキュリティ設計)
+6. [GAS WebApp UI — ソース表示・管理機能](#6-gas-webapp-ui--ソース表示管理機能)
+7. [セキュリティ設計](#7-セキュリティ設計)
 
 ---
 
@@ -308,7 +309,99 @@ mcp-rag-server を **stdio JSON-RPC** でラップするクラスです。
 
 ---
 
-## 6. セキュリティ設計
+## 6. GAS WebApp UI — ソース表示・管理機能
+
+### 6-1. 抽出度サマリー UI（情報抽出率の可視化）
+
+RAG の回答がソースのどの割合を実際に引用したかを視覚的に示す UI です。GAS の `ragQueryInternal_()` が返す `extractionRate` / `extractionDetail` フィールドをクライアント側で描画します。
+
+**ソースヘッダー部分**
+
+```
+📎 参考情報 4件  💡 抽出度: 2/4 (50%) ▾
+```
+
+- `📎 参考情報 N件`: 検索でヒットしたソース数
+- `💡 抽出度: X/Y (ZZ%)`: LLM が実際に引用したソース数 / ヒット総数
+- `▾`: ソース一覧の折りたたみトグル
+
+**プログレスバー**
+
+```css
+.extract-bar  { height: 4px; background: #e2e8f0; border-radius: 2px; margin: 4px 0; }
+.extract-fill { height: 100%; background: #6366f1; border-radius: 2px; }
+              /* width は抽出率(%) を inline style で設定 */
+```
+
+**ソースごとの引用バッジ**
+
+| クラス | 表示テキスト | 背景色 | 文字色 |
+|--------|-------------|--------|--------|
+| `.src-cited` | ✓引用 | `#dcfce7` | `#16a34a` |
+| `.src-not-cited` | 未引用 | `#f1f5f9` | `#94a3b8` |
+
+**データフロー**
+
+```
+GAS: parseExtractionRate_() → ragQueryInternal_()
+  ↓ レスポンス
+{ extractionRate: 0.5, extractionDetail: [true, false, true, false] }
+  ↓ クライアント JavaScript
+抽出度サマリー文字列を組み立て → プログレスバー width を設定
+各ソースに .src-cited / .src-not-cited バッジを付与
+```
+
+`extractionDetail` は各ソースが引用されたか (`true`) / されていないか (`false`) の配列で、インデックスがソース一覧と対応しています。
+
+---
+
+### 6-2. 管理者 UI — API キーネームスペース編集モーダル
+
+管理者画面の API キー一覧テーブルに「編集」ボタンを追加し、削除・再作成なしにネームスペース権限を変更できる UI です。
+
+**「編集」ボタン**
+
+各 API キー行の末尾に配置。クリックすると `openEditNs(preview, currentNs)` を呼び出します。
+
+**モーダル構造**
+
+```html
+<!-- オーバーレイ背景 + 中央ダイアログ -->
+<div id="editNsModal" style="display:none; position:fixed; ...">
+  <div class="modal-body">
+    <h3>ネームスペース権限を編集</h3>
+    <!-- 全 DB に対応したチェックボックス一覧 -->
+    <label><input type="checkbox" value="tool_docs"> tool_docs</label>
+    ...
+    <button onclick="saveEditNs()">保存</button>
+    <button onclick="closeEditNs()">キャンセル</button>
+  </div>
+</div>
+```
+
+**JavaScript 関数**
+
+| 関数 | 処理 |
+|------|------|
+| `openEditNs(preview, currentNs)` | モーダルを表示。`preview` に編集対象キーを保持。`currentNs`（カンマ区切り文字列）を分解してチェックボックスを初期化 |
+| `closeEditNs()` | モーダルを非表示にする |
+| `saveEditNs()` | チェックされた値を収集し `google.script.run.adminUpdateKey(preview, newNs)` を呼び出す。完了後モーダルを閉じてテーブルを再読み込み |
+
+**呼び出しパターン**
+
+```javascript
+// 保存時
+google.script.run
+  .withSuccessHandler(() => { closeEditNs(); location.reload(); })
+  .withFailureHandler(e => alert('保存失敗: ' + e.message))
+  .adminUpdateKey(editTarget, newNamespaces.join(','));
+```
+
+キーを削除・再作成する操作が不要になり、他のユーザーのアクティブセッションを中断せずにネームスペースを変更できます。
+
+---
+
+## 7. セキュリティ設計
 
 ### 秘密情報の保存ルール
 

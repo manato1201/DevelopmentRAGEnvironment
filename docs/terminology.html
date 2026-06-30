@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用語・技術解説ドキュメント — DevelopmentRAGEnvironment</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --bg2: #1a1d27;
+      --bg3: #22263a;
+      --border: #2e3250;
+      --text: #e2e8f0;
+      --muted: #8892a4;
+      --accent: #7c6df7;
+      --accent2: #5db8fa;
+      --green: #4ade80;
+      --yellow: #facc15;
+      --red: #f87171;
+      --orange: #fb923c;
+      --code-bg: #12151f;
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", "Noto Sans JP", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.75;
+      font-size: 15px;
+    }
+
+    /* ── layout ── */
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* ── sidebar ── */
+    nav {
+      width: 260px;
+      flex-shrink: 0;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 24px 0 40px;
+    }
+
+    nav .logo {
+      padding: 0 20px 20px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: .04em;
+      border-bottom: 1px solid var(--border);
+    }
+
+    nav ul {
+      list-style: none;
+      padding: 12px 0;
+    }
+
+    nav li a {
+      display: block;
+      padding: 6px 20px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      transition: color .15s, background .15s;
+      border-left: 3px solid transparent;
+    }
+
+    nav li a:hover,
+    nav li a.active {
+      color: var(--text);
+      background: var(--bg3);
+      border-left-color: var(--accent);
+    }
+
+    nav .section-label {
+      padding: 14px 20px 4px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+    }
+
+    /* ── main ── */
+    main {
+      flex: 1;
+      max-width: 900px;
+      padding: 48px 48px 80px;
+      overflow: hidden;
+    }
+
+    /* ── header ── */
+    .page-header {
+      margin-bottom: 40px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .page-header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .page-header p {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .badge-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-weight: 600;
+      letter-spacing: .03em;
+    }
+
+    .badge-purple { background: #3b2f7a; color: #c4b5fd; }
+    .badge-blue   { background: #1e3a5f; color: #93c5fd; }
+    .badge-green  { background: #14532d; color: #86efac; }
+    .badge-orange { background: #7c2d12; color: #fdba74; }
+
+    /* ── section ── */
+    .section {
+      margin-bottom: 56px;
+      scroll-margin-top: 24px;
+    }
+
+    .section-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--accent2);
+      margin-bottom: 24px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-title .num {
+      background: var(--accent);
+      color: #fff;
+      border-radius: 6px;
+      font-size: 12px;
+      padding: 2px 8px;
+      font-weight: 700;
+    }
+
+    /* ── term card ── */
+    .term-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+
+    .term-header {
+      padding: 14px 18px;
+      background: var(--bg3);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .term-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .term-abbr {
+      font-size: 12px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .term-body {
+      padding: 14px 18px;
+      font-size: 14px;
+      color: #c8d0de;
+      line-height: 1.8;
+    }
+
+    .term-body p { margin-bottom: 8px; }
+    .term-body p:last-child { margin-bottom: 0; }
+
+    .term-body strong { color: var(--text); }
+
+    /* ── code ── */
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+      font-size: 12.5px;
+      line-height: 1.6;
+      color: #a8d0ff;
+      margin: 10px 0;
+    }
+
+    code {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: "Cascadia Code", "Fira Code", monospace;
+      font-size: 12.5px;
+      color: #93c5fd;
+    }
+
+    pre code { background: none; border: none; padding: 0; font-size: inherit; }
+
+    /* ── table ── */
+    .table-wrap { overflow-x: auto; margin: 10px 0; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead th {
+      background: var(--bg3);
+      color: var(--accent2);
+      font-weight: 700;
+      padding: 8px 14px;
+      text-align: left;
+      border: 1px solid var(--border);
+    }
+
+    tbody td {
+      padding: 7px 14px;
+      border: 1px solid var(--border);
+      color: #c8d0de;
+      vertical-align: top;
+    }
+
+    tbody tr:nth-child(even) { background: #141720; }
+    tbody tr:hover { background: var(--bg3); }
+
+    /* ── lists ── */
+    .term-body ul,
+    .term-body ol {
+      padding-left: 22px;
+      margin: 6px 0;
+    }
+
+    .term-body li { margin-bottom: 4px; }
+
+    /* ── arch diagram ── */
+    .arch {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin: 10px 0;
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    .arch-layer {
+      flex: 1;
+      border-radius: 6px;
+      padding: 12px 14px;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .layer-cloud { background: #1a2b4a; border: 1px solid #2a4a7f; }
+    .layer-local { background: #1a3a2a; border: 1px solid #2a5f3a; }
+
+    .arch-layer .layer-title {
+      font-weight: 700;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 8px;
+    }
+
+    .layer-cloud .layer-title { color: #93c5fd; }
+    .layer-local .layer-title { color: #86efac; }
+
+    .arch-arrow {
+      display: flex;
+      align-items: center;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    /* ── score viz ── */
+    .score-row {
+      display: flex;
+      gap: 6px;
+      margin: 8px 0;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .score-bar {
+      height: 8px;
+      border-radius: 4px;
+      background: var(--border);
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .score-fill {
+      height: 100%;
+      border-radius: 4px;
+    }
+
+    /* ── nist cards ── */
+    .nist-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      margin: 10px 0;
+    }
+
+    .nist-card {
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      font-size: 12.5px;
+      line-height: 1.6;
+    }
+
+    .nist-identify { background: #2d1f3a; border: 1px solid #5b3f7a; }
+    .nist-protect  { background: #1f3a2d; border: 1px solid #3f7a5b; }
+    .nist-detect   { background: #1a2d3a; border: 1px solid #3f5b7a; }
+    .nist-respond  { background: #3a2d1a; border: 1px solid #7a5b3f; }
+    .nist-recover  { background: #3a1a1a; border: 1px solid #7a3f3f; }
+
+    .nist-card .nist-label {
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 4px;
+    }
+
+    .nist-identify .nist-label { color: #c4b5fd; }
+    .nist-protect  .nist-label { color: #86efac; }
+    .nist-detect   .nist-label { color: #93c5fd; }
+    .nist-respond  .nist-label { color: #fdba74; }
+    .nist-recover  .nist-label { color: #f87171; }
+
+    .nist-card p { color: #a0aec0; font-size: 12px; }
+
+    /* ── footer ── */
+    footer {
+      margin-top: 64px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    /* ── search ── */
+    .search-bar {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .search-bar input {
+      width: 100%;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 7px 12px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .search-bar input:focus {
+      border-color: var(--accent);
+    }
+
+    .search-bar input::placeholder { color: var(--muted); }
+
+    /* hidden by search */
+    .term-card.hidden { display: none; }
+
+    @media (max-width: 768px) {
+      nav { display: none; }
+      main { padding: 24px 20px 60px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ── Sidebar ── -->
+  <nav id="sidebar">
+    <div class="logo">📚 RAG 用語集</div>
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="用語を検索…" oninput="filterTerms(this.value)">
+    </div>
+    <ul id="navList">
+      <li><span class="section-label">RAGシステム</span></li>
+      <li><a href="#sec1">1. RAGシステム基礎</a></li>
+      <li><a href="#sec2">2. ベクトル検索</a></li>
+      <li><a href="#sec3">3. LLM連携</a></li>
+      <li><span class="section-label">セキュリティ</span></li>
+      <li><a href="#sec4">4. 認証モデル</a></li>
+      <li><a href="#sec5">5. NISTフレームワーク</a></li>
+      <li><span class="section-label">RAGレイヤー</span></li>
+      <li><a href="#sec6">6. Cloud RAG</a></li>
+      <li><a href="#sec7">7. Local RAG</a></li>
+      <li><a href="#sec8">8. 監査ログ</a></li>
+      <li><span class="section-label">技術スタック</span></li>
+      <li><a href="#sec9">9. Houdini用語</a></li>
+      <li><a href="#sec10">10. Unity連携</a></li>
+      <li><a href="#sec11">11. 固有コンポーネント</a></li>
+      <li><a href="#sec12">12. インフラ</a></li>
+    </ul>
+  </nav>
+
+  <!-- ── Main ── -->
+  <main>
+    <div class="page-header">
+      <h1>用語・技術解説ドキュメント</h1>
+      <p>DevelopmentRAGEnvironment で使用するすべての概念・用語を網羅した解説集。</p>
+      <div class="badge-row">
+        <span class="badge badge-purple">RAG</span>
+        <span class="badge badge-blue">Houdini 21</span>
+        <span class="badge badge-green">Unity</span>
+        <span class="badge badge-orange">NIST</span>
+      </div>
+    </div>
+
+    <!-- ── 1. RAGシステム基礎 ── -->
+    <section class="section" id="sec1">
+      <h2 class="section-title"><span class="num">1</span>RAGシステム基礎</h2>
+
+      <div class="term-card">
+        <div class="term-header">
+          <span class="term-name">RAG</span>
+          <span class="term-abbr">Retrieval-Augmented Generation / 検索拡張生成</span>
+        </div>
+        <div class="term-body">
+          <p>LLM（大規模言語モデル）の回答生成前に外部知識ベースから関連文書を検索し、そのコンテキストをプロンプトに注入する技術。</p>
+          <ul>
+            <li><strong>利点</strong>: モデルのパラメータに含まれない最新・専門知識を活用できる</li>
+            <li><strong>本プロジェクト</strong>: ゲーム開発知識（Houdini・Unity）に特化した二層RAGを構築</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header">
+          <span class="term-name">二層RAGアーキテクチャ</span>
+        </div>
+        <div class="term-body">
+          <p>本プロジェクト固有の設計。用途に応じて2レイヤーを使い分ける。</p>
+          <div class="arch">
+            <div class="arch-layer layer-cloud">
+              <div class="layer-title">☁ Cloud RAG</div>
+              GAS + Gemini + Notion DB<br>
+              軽量・即応性・Notion統合重視
+            </div>
+            <div class="arch-arrow">⟷</div>
+            <div class="arch-layer layer-local">
+              <div class="layer-title">🖥 Local RAG</div>
+              ChromaDB + BM25 + Claude/Gemini<br>
+              プライバシー・ハイブリッド検索重視
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">チャンク</span><span class="term-abbr">Chunk</span></div>
+        <div class="term-body">
+          <p>長文ドキュメントをRAGで扱うために分割した断片。</p>
+          <ul>
+            <li>小さすぎる → 文脈が失われる</li>
+            <li>大きすぎる → LLMのコンテキスト上限を圧迫</li>
+            <li>本プロジェクト: <code>chunk_by_headings()</code> 見出し単位 / <code>SemanticChunker</code> 512トークン/64オーバーラップ</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">エンベディング</span><span class="term-abbr">Embedding</span></div>
+        <div class="term-body">
+          <p>テキストを高次元ベクトルに変換したもの。意味的に近いテキストはベクトル空間でも近い位置に配置される。</p>
+          <p>本プロジェクト（Local RAG）: ChromaDB 組み込みの Sentence-Transformers を使用。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">コンテキストウィンドウ</span></div>
+        <div class="term-body">
+          <p>LLMが一度に処理できるトークン数の上限。RAGはここに検索結果チャンクを詰め込む。</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>モデル</th><th>上限</th></tr></thead>
+              <tbody>
+                <tr><td><code>claude-haiku-4-5-20251001</code></td><td>200K tokens</td></tr>
+                <tr><td><code>gemini-2.5-flash</code></td><td>1M tokens</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 2. ベクトル検索 ── -->
+    <section class="section" id="sec2">
+      <h2 class="section-title"><span class="num">2</span>ベクトル検索とインデックス</h2>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">ChromaDB</span></div>
+        <div class="term-body">
+          <p>オープンソースのベクトルデータベース。SQLite上に構築されており、ローカルファイルシステムに永続化できる。</p>
+          <ul>
+            <li>コレクション単位でインデックスを管理</li>
+            <li>本プロジェクト: <code>data/chroma/</code> 以下に格納</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">BM25</span><span class="term-abbr">Best Match 25</span></div>
+        <div class="term-body">
+          <p>TF-IDFを改良した古典的なキーワード検索アルゴリズム。ベクトル検索では拾えない完全一致・専門用語・固有名詞に強い。</p>
+          <p>使用ライブラリ: <code>rank_bm25</code></p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">ハイブリッド検索</span></div>
+        <div class="term-body">
+          <p>ベクトル検索（意味的類似度）と BM25（キーワードマッチ）を組み合わせた検索手法。両者の強みを補完し合う。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">RRF</span><span class="term-abbr">Reciprocal Rank Fusion</span></div>
+        <div class="term-body">
+          <p>複数の検索結果ランキングを統合する手法。</p>
+          <pre>score(d) = Σ  1 / (k + rank_i(d))    # k=60</pre>
+          <p>本プロジェクトでは ChromaDB + BM25 の結果を RRF で融合している。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Namespace</span><span class="term-abbr">名前空間</span></div>
+        <div class="term-body">
+          <p>検索スコープを制限する区分。ロールによってアクセス可能な Namespace が異なる。</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Namespace</th><th>内容</th></tr></thead>
+              <tbody>
+                <tr><td><code>tool_docs</code></td><td>Houdini/Unity 公式ドキュメント</td></tr>
+                <tr><td><code>game_info</code></td><td>ゲームデザイン・仕様情報</td></tr>
+                <tr><td><code>research</code></td><td>技術調査メモ・論文</td></tr>
+                <tr><td><code>team_notes</code></td><td>チーム共有ノート</td></tr>
+                <tr><td><code>personal_notes</code></td><td>個人メモ</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 3. LLM連携 ── -->
+    <section class="section" id="sec3">
+      <h2 class="section-title"><span class="num">3</span>LLM連携</h2>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Claude</span><span class="term-abbr">Anthropic</span></div>
+        <div class="term-body">
+          <p>本プロジェクトのデフォルト LLM。Local RAG で使用。</p>
+          <ul>
+            <li>モデル: <code>claude-haiku-4-5-20251001</code></li>
+            <li>API Key: 環境変数 <code>ANTHROPIC_API_KEY</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Gemini</span><span class="term-abbr">Google</span></div>
+        <div class="term-body">
+          <p>Cloud RAG の LLM。Local RAG でも切り替え可能。</p>
+          <ul>
+            <li>モデル: <code>gemini-2.5-flash</code></li>
+            <li>API Key: 環境変数 <code>GEMINI_API_KEY</code></li>
+            <li>ライブラリ: <code>google.generativeai</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">LLMバックエンド切り替え</span></div>
+        <div class="term-body">
+          <p><code>rag_local_bridge.py</code> の <code>_LLM_BACKEND</code> 変数で制御する。</p>
+          <pre>_LLM_BACKEND = os.environ.get("RAG_LLM_BACKEND", "claude")
+# "claude" または "gemini"</pre>
+          <p>Unity・Houdini クライアントから <code>POST /api/llm-backend</code> でも変更可能。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">ストリーミングレスポンス</span></div>
+        <div class="term-body">
+          <p>LLM の回答をトークン単位で逐次返す方式。レイテンシを体感的に下げる効果がある。本プロジェクトは現状バッファリング方式（全文返却後に表示）。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 4. セキュリティ ── -->
+    <section class="section" id="sec4">
+      <h2 class="section-title"><span class="num">4</span>セキュリティ・認証モデル</h2>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">AuthManager</span></div>
+        <div class="term-body">
+          <p><code>scripts/auth_manager.py</code> で定義。SQLite（<code>data/auth.db</code>）でユーザーと API キーを管理する。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">APIキー認証</span></div>
+        <div class="term-body">
+          <ul>
+            <li>クライアントは HTTP ヘッダー <code>X-API-Key: &lt;key&gt;</code> でリクエスト</li>
+            <li><code>auth_manager.verify_key(api_key)</code> で検証</li>
+            <li>失敗時: <strong>403 Forbidden</strong></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">ユーザーロール</span></div>
+        <div class="term-body">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ロール</th><th>検索可能 Namespace</th></tr></thead>
+              <tbody>
+                <tr><td><code>admin</code></td><td>全 Namespace</td></tr>
+                <tr><td><code>developer</code></td><td>tool_docs / game_info / research / team_notes</td></tr>
+                <tr><td><code>user</code></td><td>tool_docs / game_info / research</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">PEP</span><span class="term-abbr">Policy Enforcement Point</span></div>
+        <div class="term-body">
+          <p><code>scripts/pep.py</code> の <code>RAGPolicyEnforcementPoint</code> クラス。ロールと操作種別に基づいてアクセスを決定する。</p>
+          <ul>
+            <li><code>authorize(namespace, operation)</code> → bool</li>
+            <li><code>filter_namespaces(user_role, requested)</code> → 許可された Namespace リスト</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">最小権限の原則</span><span class="term-abbr">Principle of Least Privilege</span></div>
+        <div class="term-body">
+          <p>ユーザーには必要最小限のアクセス権のみを付与する設計原則。PEP の namespace フィルタリングで実現。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 5. NIST ── -->
+    <section class="section" id="sec5">
+      <h2 class="section-title"><span class="num">5</span>NISTフレームワーク</h2>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">NIST CSF</span><span class="term-abbr">Cybersecurity Framework</span></div>
+        <div class="term-body">
+          <p>米国国立標準技術研究所が定めたサイバーセキュリティフレームワーク。5つの機能で構成。本プロジェクトは <strong>Protect</strong> と <strong>Detect</strong> に焦点を当てている。</p>
+          <div class="nist-grid">
+            <div class="nist-card nist-identify">
+              <div class="nist-label">Identify</div>
+              <p>資産・リスクの特定</p>
+            </div>
+            <div class="nist-card nist-protect">
+              <div class="nist-label">Protect ✓</div>
+              <p>AuthManager / PEP でアクセス制御</p>
+            </div>
+            <div class="nist-card nist-detect">
+              <div class="nist-label">Detect ✓</div>
+              <p>監査ログ・異常検知</p>
+            </div>
+            <div class="nist-card nist-respond">
+              <div class="nist-label">Respond</div>
+              <p>インシデント対応</p>
+            </div>
+            <div class="nist-card nist-recover">
+              <div class="nist-label">Recover</div>
+              <p>復旧・再発防止</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">NIST SP 800-53</span></div>
+        <div class="term-body">
+          <p>情報システムのセキュリティコントロールカタログ。<strong>AC</strong>（Access Control）、<strong>AU</strong>（Audit and Accountability）ファミリが本プロジェクトに関連。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 6. Cloud RAG ── -->
+    <section class="section" id="sec6">
+      <h2 class="section-title"><span class="num">6</span>Cloud RAG（GAS + Gemini）</h2>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">GAS</span><span class="term-abbr">Google Apps Script</span></div>
+        <div class="term-body">
+          <p>Google Workspace のサーバーレス JavaScript 実行環境。Cloud RAG のバックエンドとして使用。</p>
+          <ul>
+            <li><code>scripts/gas_cloud_rag.js</code> がメインスクリプト</li>
+            <li>Web アプリとしてデプロイして HTTP エンドポイントを提供</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">houdini21DB</span></div>
+        <div class="term-body">
+          <p>本プロジェクトで作成した Notion データベース。Houdini 21 の公式ドキュメントを約 80 トピックに分割して格納。</p>
+          <ul>
+            <li>Data Source ID: <code>ae209d58-b6b6-4678-ada1-ade17fb1ea27</code></li>
+            <li>スキーマ: <code>title / category / tags / difficulty / summary / source_url / collected_at</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">priority（優先度スコア）</span></div>
+        <div class="term-body">
+          <p>Cloud RAG の Q&amp;A エントリに付与するスコア（0.0〜1.0）。</p>
+          <div class="score-row">
+            <span style="width:28px">👍</span>
+            <div class="score-bar"><div class="score-fill" style="width:100%;background:var(--green)"></div></div>
+            <span style="width:30px;color:var(--green)">1.0</span>
+          </div>
+          <div class="score-row">
+            <span style="width:28px">–</span>
+            <div class="score-bar"><div class="score-fill" style="width:50%;background:var(--accent)"></div></div>
+            <span style="width:30px;color:var(--accent)">0.5</span>
+          </div>
+          <div class="score-row">
+            <span style="width:28px">👎</span>
+            <div class="score-bar"><div class="score-fill" style="width:0%;background:var(--red)"></div></div>
+            <span style="width:30px;color:var(--red)">0.0</span>
+          </div>
+          <p style="margin-top:8px">priority &lt; 0.3 のエントリは RAG コンテキストから除外される。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">TF-IDF 風ランキング（Cloud RAG）</span></div>
+        <div class="term-body">
+          <p><code>searchMemory_()</code> での検索スコアリング方式。</p>
+          <ul>
+            <li>キーワードの出現頻度と文書頻度の逆数を組み合わせる</li>
+            <li><code>rating &gt; 0</code> のエントリを優先、<code>rating = -1</code>（👎）を除外</li>
+            <li>最低スコア閾値: <code>score &gt;= 2</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header">
+          <span class="term-name">HyDE</span>
+          <span class="term-abbr">Hypothetical Document Embedding</span>
+        </div>
+        <div class="term-body">
+          <p>クエリをそのまま埋め込むのではなく、まず「もしこの質問への理想的な回答があったとしたら？」という仮説文書を LLM に生成させ、その仮説文書の埋め込みをクエリ埋め込みと加重平均して検索するテクニック。</p>
+          <ul>
+            <li><strong>解決する問題</strong>: 語彙ミスマッチ（ユーザーの言葉と文書の言葉が違う問題）を大幅に解消</li>
+            <li><strong>本システムの混合比率</strong>: クエリ 40% ＋ 仮説文書 60%</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">hydeExpand_(query, dbKey)</span></div>
+        <div class="term-body">
+          <p><code>gas_cloud_rag.js</code> の内部関数。<code>hydePromptFor_(dbKey)</code> でドメイン別プロンプトを取得し、Gemini に仮説文書を生成させてその埋め込みを返す。</p>
+          <p>返り値は加重平均済み埋め込みベクトルで、<code>searchByEmbedding_</code> の <code>preEmb</code> 引数として渡される。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">hydePromptFor_(dbKey)</span></div>
+        <div class="term-body">
+          <p>DB キーごとに HyDE 仮説生成用のドメインヒントプロンプトを返す関数。</p>
+          <p>例: <code>houdini21</code> → 「Houdini の技術ドキュメントとして、ノード名・パラメータ名・VEX 関数名を含めて技術的に」。ドメインをまたいだ汚染（Houdini の概念が別 DB の検索に混入するなど）を防ぐ。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">parseExtractionRate_(answer, total)</span></div>
+        <div class="term-body">
+          <p>回答テキスト中の <code>[1][2][3]</code> などの引用マーカーを正規表現で抽出し、全ソース件数に対する引用済みソースの割合（情報抽出度）を計算する関数。</p>
+          <pre>// 返り値の例
+{ rate: 50, citedCount: 2, total: 4,
+  cited: [true, false, true, false] }</pre>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header">
+          <span class="term-name">情報抽出度</span>
+          <span class="term-abbr">extractionRate</span>
+        </div>
+        <div class="term-body">
+          <p>RAG 回答で LLM が実際に引用したソースの割合。例: 5件のソースを検索して回答に <code>[1][3]</code> の 2 件しか引用されなければ抽出度 40%。</p>
+          <ul>
+            <li>抽出度が低い → 検索結果がクエリに対して過剰または無関係だった可能性</li>
+            <li>UI では進捗バーと ✓ 引用 / 未引用バッジで可視化</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header">
+          <span class="term-name">ページ単位重複排除</span>
+          <span class="term-abbr">Page-level Deduplication</span>
+        </div>
+        <div class="term-body">
+          <p>同一ページ（タイトルが同じ）の複数チャンクが検索結果に並ぶ問題を解消する処理。スコアの最も高いチャンク 1 件のみを残し、多様なソースからの情報を提示できるようにする。<code>searchByEmbedding_</code> 内で実装。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header">
+          <span class="term-name">閾値フィルタ</span>
+          <span class="term-abbr">Threshold Filtering</span>
+        </div>
+        <div class="term-body">
+          <p><code>searchByEmbedding_</code> で低品質の検索結果を除外するためのコサイン類似度の最低基準値。</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>検索モード</th><th>閾値</th></tr></thead>
+              <tbody>
+                <tr><td>DB 指定検索</td><td>0.58 未満を除外</td></tr>
+                <tr><td>全 DB 横断検索</td><td>0.62 未満を除外</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">adminUpdateKey()</span></div>
+        <div class="term-body">
+          <p>GAS 管理者 API の関数。既存の API キーを削除・再作成せずに、そのキーが持つ namespace 権限リストを更新できる。</p>
+          <ul>
+            <li>管理 UI の「編集」ボタンから呼び出し、チェックボックスで許可 namespace を変更する</li>
+            <li>引数: <code>(apiKey, keyPreview, newNamespaces)</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">houdini21 namespace</span></div>
+        <div class="term-body">
+          <p>Houdini 21 向けのドキュメントを管理する Cloud RAG の名前空間。</p>
+          <ul>
+            <li>GAS の <code>DB_KEY_MAP</code> に <code>DB_HOUDINI21</code> スクリプトプロパティとして設定</li>
+            <li>Local RAG の <code>VALID_NAMESPACES</code>、Unity/Houdini クライアントの UI ドロップダウンにも追加済み</li>
+            <li>Notion の houdiniDB（80 ページ）のページを GAS シートに同期して利用する</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">sync_houdini21_db.py</span></div>
+        <div class="term-body">
+          <p>Notion の houdiniDB からページを取得し、<code>localRAG/houdini21/</code> フォルダに Markdown ファイルとして出力するスクリプト。</p>
+          <ul>
+            <li>環境変数 <code>NOTION_API_KEY</code> を使用（<code>load_dotenv()</code> は使わない）</li>
+            <li><code>--dry-run</code>: 変更なし確認モード</li>
+            <li><code>--index</code>: インデックス化まで実行</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 7. Local RAG ── -->
+    <section class="section" id="sec7">
+      <h2 class="section-title"><span class="num">7</span>Local RAG（ChromaDB + BM25）</h2>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">rag_local_bridge.py</span></div>
+        <div class="term-body">
+          <p>Local RAG の HTTP ブリッジサーバー。Port <strong>8766</strong> で起動。</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Method</th><th>Path</th><th>機能</th></tr></thead>
+              <tbody>
+                <tr><td>POST</td><td><code>/query</code></td><td>RAG 検索 + LLM 回答</td></tr>
+                <tr><td>POST</td><td><code>/api/score</code></td><td>理解度スコア更新</td></tr>
+                <tr><td>GET/POST</td><td><code>/api/llm-backend</code></td><td>LLM バックエンド確認/変更</td></tr>
+                <tr><td>GET</td><td><code>/admin/audit</code></td><td>監査ログ取得</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Hybrid Retrieval</span></div>
+        <div class="term-body">
+          <pre>chroma_results = chroma.query(query_embedding, n_results=20)
+bm25_results   = bm25_index.get_top_n(query_tokens, corpus, n=20)
+fused          = rrf_fusion(chroma_results, bm25_results)
+return fused[:TOP_K]</pre>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">document_pipeline.py</span></div>
+        <div class="term-body">
+          <p>ドキュメントを ChromaDB に投入するパイプライン。</p>
+          <ul>
+            <li><code>chunk_by_headings()</code>: Markdown 見出しで分割（800文字/80文字オーバーラップ）</li>
+            <li><code>SemanticChunker</code>: トークン数ベースのスライディングウィンドウ（512/64）</li>
+            <li><code>process_file()</code>: <code>--semantic</code> フラグで SemanticChunker に切り替え</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">source_hash</span></div>
+        <div class="term-body">
+          <p>チャンクの SHA-256 ハッシュ（先頭 16 文字）。重複投入防止と追跡に使用。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 8. 監査ログ ── -->
+    <section class="section" id="sec8">
+      <h2 class="section-title"><span class="num">8</span>監査ログと監視</h2>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">RAGAuditLogger</span></div>
+        <div class="term-body">
+          <p><code>scripts/audit_logger.py</code>。出力: <code>logs/rag_audit.jsonl</code>（JSON Lines 形式）</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>フィールド</th><th>説明</th></tr></thead>
+              <tbody>
+                <tr><td><code>timestamp</code></td><td>ISO8601 形式の UTC 時刻</td></tr>
+                <tr><td><code>session_id</code></td><td>セッション識別子</td></tr>
+                <tr><td><code>user_role</code></td><td>ユーザーロール</td></tr>
+                <tr><td><code>action</code></td><td>操作種別（query/save/delete）</td></tr>
+                <tr><td><code>namespace</code></td><td>対象 Namespace</td></tr>
+                <tr><td><code>query_hash</code></td><td>クエリの SHA-256 先頭 16 文字</td></tr>
+                <tr><td><code>result_count</code></td><td>検索結果数</td></tr>
+                <tr><td><code>latency_ms</code></td><td>レイテンシ（ミリ秒）</td></tr>
+                <tr><td><code>allowed</code></td><td>アクセス許可の可否</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">JSONL</span><span class="term-abbr">JSON Lines</span></div>
+        <div class="term-body">
+          <p>1行1 JSON オブジェクトのファイル形式。ストリーミング書き込みと行単位の読み込みが容易。</p>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">/admin/audit エンドポイント</span></div>
+        <div class="term-body">
+          <p><code>GET /admin/audit?limit=100</code> で最新 N 件の監査ログを JSON 配列で返す。<code>allowed=false</code> の行はフロントエンドで赤くハイライト表示。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 9. Houdini ── -->
+    <section class="section" id="sec9">
+      <h2 class="section-title"><span class="num">9</span>Houdini技術用語</h2>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">SOP</span><span class="term-abbr">Surface Operators</span></div>
+        <div class="term-body"><p>Houdini のジオメトリ処理コンテキスト（<code>/obj/geo</code> 以下）。ポリゴン・カーブ・ボリュームを操作する基本コンテキスト。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">VEX</span><span class="term-abbr">Vector Expression Language</span></div>
+        <div class="term-body"><p>Houdini 独自のシェーダー/手続き型プログラミング言語。C 言語ライクで GPU 並列実行される。Wrangle SOP など多数のノードで使用。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">VOP</span><span class="term-abbr">VEX Operators</span></div>
+        <div class="term-body"><p>VEX をビジュアルにノードで組む方法。GLSL/HLSL のノードベースエディタに相当。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">DOP</span><span class="term-abbr">Dynamic Operators</span></div>
+        <div class="term-body"><p>物理シミュレーションのコンテキスト。RBD・FLIP 流体・Pyro 煙炎・Vellum が動作する。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">FLIP</span><span class="term-abbr">FLuid Implicit Particle</span></div>
+        <div class="term-body"><p>粒子と格子を組み合わせた流体シミュレーション手法。Houdini の水・流体の標準方式。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Pyro</span></div>
+        <div class="term-body"><p>煙・炎・爆発のボリューメトリックシミュレーション。Sparse Pyro で大規模シミュが可能。GPU 加速（CUDA）により大幅に高速化。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Vellum</span></div>
+        <div class="term-body"><p>位置ベースダイナミクス（PBD）を使った布・ソフトボディ・髪・構造物のシミュレーション。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">KineFX</span></div>
+        <div class="term-body"><p>Houdini 18.5 以降のキャラクターアニメーションフレームワーク。SOP 内でリグ・スキニング・アニメーションを処理する。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Solaris / LOP</span><span class="term-abbr">Lighting Operators</span></div>
+        <div class="term-body"><p>Houdini の USD 編集コンテキスト。ライティング・レンダリング設定を USD レイヤー上で管理する。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Karma XPU</span></div>
+        <div class="term-body"><p>Houdini のメインレンダラー。Hydra/USD ベースで NVIDIA CUDA / AMD HIP / Intel GPU に対応。MaterialX 1.38.6 採用。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">PDG</span><span class="term-abbr">Procedural Dependency Graph</span></div>
+        <div class="term-body"><p>タスクグラフを定義して Work Item を並列処理するフレームワーク。TOPs（Task Operators）コンテキストで使用。バッチレンダリング・シミュバリエーション探索などに活用。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">HDA</span><span class="term-abbr">Houdini Digital Asset</span></div>
+        <div class="term-body"><p>ノードネットワークをカプセル化した再利用可能なカスタムノード形式（.hda ファイル）。Houdini Engine で Unity/Unreal から直接呼び出せる。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">USD</span><span class="term-abbr">Universal Scene Description</span></div>
+        <div class="term-body"><p>Pixar が開発したオープンな 3D シーン記述フォーマット。Houdini の Solaris/LOP で使用。バリアント・リファレンス・レイヤースタックなど高度な合成機能を持つ。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">ROP</span><span class="term-abbr">Render Operators</span></div>
+        <div class="term-body"><p>Houdini の出力/レンダリングコンテキスト（<code>/out</code> 以下）。フレームレンダリング・ジオメトリキャッシュ出力などを定義する。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">CHOP</span><span class="term-abbr">Channel Operators</span></div>
+        <div class="term-body"><p>時系列データ・アニメーションカーブ・オーディオを操作するコンテキスト。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Height Field</span></div>
+        <div class="term-body"><p>VDB ボリュームとして高さマップを保持する地形表現。Height Field SOP で操作し、Unity/UE5 向けに PNG/R16 でエクスポートできる。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">SideFX Labs</span></div>
+        <div class="term-body"><p>SideFX が無料提供するゲーム開発向け HDA 集。Instant Meshes・Roof Generator・Road Generator などを含む。</p></div>
+      </div>
+    </section>
+
+    <!-- ── 10. Unity ── -->
+    <section class="section" id="sec10">
+      <h2 class="section-title"><span class="num">10</span>Unity連携用語</h2>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">RAGChatbotWindow.cs</span></div>
+        <div class="term-body"><p><code>Assets/Editor/RAGChatbot/RAGChatbotWindow.cs</code>。Unity の EditorWindow として実装された RAG チャットクライアント。LLM バックエンド選択・理解度スコア表示・評価ボタンを備える。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">IRAGClient.cs</span></div>
+        <div class="term-body"><p>RAG バックエンドへのインターフェース定義。Local/Cloud の DI 切り替えを想定した設計。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">UpdateScoreAsync()</span></div>
+        <div class="term-body"><p>回答受信後に <code>POST /api/score</code> を行い理解度スコアを更新するメソッド。エラーを含む回答は <code>success=false</code> で送信。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">LOD</span><span class="term-abbr">Level of Detail</span></div>
+        <div class="term-body"><p>距離に応じてメッシュの複雑度を切り替える最適化手法。Houdini で LOD0-3 を事前生成して FBX エクスポートし、Unity の LOD Group コンポーネントで使用。</p></div>
+      </div>
+    </section>
+
+    <!-- ── 11. 固有コンポーネント ── -->
+    <section class="section" id="sec11">
+      <h2 class="section-title"><span class="num">11</span>プロジェクト固有のコンポーネント</h2>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">UnderstandingScoreEngine</span></div>
+        <div class="term-body">
+          <p><code>scripts/score_engine.py</code>。理解度スコアエンジン。</p>
+          <ul>
+            <li>テーブル: <code>understanding_scores (user_id, topic, score REAL, updated_at)</code></li>
+            <li>正解時: <code>score += 0.1</code>、誤答時: <code>score -= 0.05</code></li>
+            <li>スコア範囲: <code>[0.0, 1.0]</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">スコアに基づくNamespace選択</span></div>
+        <div class="term-body">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>スコア範囲</th><th>アクセス Namespace</th><th>レベル</th></tr></thead>
+              <tbody>
+                <tr><td>0.0 〜 0.3</td><td><code>["tool_docs"]</code></td><td>基礎のみ</td></tr>
+                <tr><td>0.3 〜 0.7</td><td><code>["tool_docs","game_info","research"]</code></td><td>標準</td></tr>
+                <tr><td>0.7 〜 1.0</td><td><code>["research","team_notes"]</code></td><td>上級</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Houdini パネル（rag_chatbot.py）</span></div>
+        <div class="term-body">
+          <p><code>houdini/python_panels/rag_chatbot.py</code>。Houdini Python Panel として PySide6 で実装された RAG チャット UI。バックエンドコンボボックスで Claude/Gemini を切り替え、ステータスバーに理解度スコアを表示。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 12. インフラ ── -->
+    <section class="section" id="sec12">
+      <h2 class="section-title"><span class="num">12</span>インフラ・環境</h2>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">環境変数（.envファイル不使用）</span></div>
+        <div class="term-body">
+          <p><strong>重要</strong>: <code>load_dotenv()</code> は使用禁止。<code>os.environ.get()</code> のみで取得する。</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>変数</th><th>用途</th></tr></thead>
+              <tbody>
+                <tr><td><code>ANTHROPIC_API_KEY</code></td><td>Claude API 認証</td></tr>
+                <tr><td><code>GEMINI_API_KEY</code></td><td>Gemini API 認証</td></tr>
+                <tr><td><code>RAG_LLM_BACKEND</code></td><td>LLM バックエンド選択（"claude"/"gemini"）</td></tr>
+                <tr><td><code>RAG_API_KEY</code></td><td>Local RAG ブリッジ認証キー</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">WSL2</span><span class="term-abbr">Windows Subsystem for Linux 2</span></div>
+        <div class="term-body"><p>Local RAG ブリッジ（<code>rag_local_bridge.py</code>）は WSL2 Ubuntu 環境で動作。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">SQLite</span></div>
+        <div class="term-body"><p><code>data/auth.db</code>: 認証・ユーザー管理・理解度スコアの永続化に使用。軽量でサーバーレスなため開発環境に適する。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Port 8766</span></div>
+        <div class="term-body"><p>Local RAG ブリッジのデフォルトポート。<code>rag_local_bridge.py</code> が <code>BaseHTTPRequestHandler</code> で待ち受ける。</p></div>
+      </div>
+
+      <div class="term-card">
+        <div class="term-header"><span class="term-name">Obsidian</span></div>
+        <div class="term-body"><p>ユーザーのノート管理ツール。Obsidian の Markdown ファイルをドキュメントパイプラインで取り込み、RAG のナレッジベースとして活用。</p></div>
+      </div>
+    </section>
+
+    <footer>
+      最終更新: 2026-06-29 &nbsp;|&nbsp; DevelopmentRAGEnvironment
+    </footer>
+  </main>
+</div>
+
+<script>
+  // ── Active nav highlight on scroll ──
+  const sections = document.querySelectorAll('.section');
+  const navLinks = document.querySelectorAll('#navList a');
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        const id = e.target.id;
+        navLinks.forEach(a => {
+          a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+        });
+      }
+    });
+  }, { threshold: 0.2 });
+
+  sections.forEach(s => observer.observe(s));
+
+  // ── Search / filter ──
+  function filterTerms(query) {
+    const q = query.toLowerCase().trim();
+    const cards = document.querySelectorAll('.term-card');
+
+    cards.forEach(card => {
+      if (!q) {
+        card.classList.remove('hidden');
+        return;
+      }
+      const text = card.textContent.toLowerCase();
+      card.classList.toggle('hidden', !text.includes(q));
+    });
+
+    // hide/show sections with no visible cards
+    sections.forEach(sec => {
+      const visible = [...sec.querySelectorAll('.term-card')].some(c => !c.classList.contains('hidden'));
+      sec.style.display = (!q || visible) ? '' : 'none';
+    });
+  }
+</script>
+</body>
+</html>
