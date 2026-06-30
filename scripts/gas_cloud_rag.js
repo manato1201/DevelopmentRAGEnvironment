@@ -444,6 +444,10 @@ function hydePromptFor_(dbKey) {
   return (hints[dbKey] || '情報ドキュメントとして具体的に') + '、次の質問への回答になる短い説明文（3〜5文）を書いてください:\n\n';
 }
 
+// LLMが固有名詞・実店舗情報などの具体的事実を知らないドメイン。
+// HyDEの仮説文書がハルシネーションを起こし埋め込みを誤誘導するため、クエリ側の重みを高くする。
+var FACT_HEAVY_DOMAINS = ['afuri', 'braintq', 'fourteen'];
+
 function hydeExpand_(query, dbKey) {
   try {
     var apiKey = getProps_().getProperty('GEMINI_API_KEY');
@@ -459,8 +463,11 @@ function hydeExpand_(query, dbKey) {
     var queryEmb = embedQuery_(query);
     var hypoEmb  = embedDoc_(hypoDoc);
     if (!queryEmb || !hypoEmb) return queryEmb;
-    // クエリ 40% + ドメイン適合仮説文書 60%
-    return queryEmb.map(function(v, i) { return v * 0.4 + hypoEmb[i] * 0.6; });
+    // 固有事実ドメインはクエリ80%+仮説20%（仮説のハルシネーション影響を抑制）、
+    // 技術ドメインはクエリ40%+仮説60%（仮説文書が語彙ギャップを橋渡しする効果を活かす）
+    var queryWeight = FACT_HEAVY_DOMAINS.indexOf(dbKey) !== -1 ? 0.8 : 0.4;
+    var hypoWeight  = 1 - queryWeight;
+    return queryEmb.map(function(v, i) { return v * queryWeight + hypoEmb[i] * hypoWeight; });
   } catch(e) {
     Logger.log('HyDE fallback: ' + e.message);
     return embedQuery_(query);
