@@ -333,6 +333,10 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface); pa
   header, nav { padding-left: 20px; padding-right: 20px; }
   main { padding: 0 20px 60px; }
 }
+
+/* CANVAS ANIMATIONS */
+.canvas-wrap { margin: 12px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg); }
+#chunk-canvas, #spring-canvas { display: block; width: 100%; height: auto; }
 </style>
 </head>
 <body>
@@ -799,10 +803,10 @@ expires: 2026-12-31  <span class="cm"># オプション</span>
   </div>
 
   <h3>チャンク分割の詳細</h3>
-  <div class="chunk-vis-fallback">
-    <pre><code>Chunk 0 (0〜500字) ──overlap100字── Chunk 1 (400〜900字) ──overlap100字── Chunk 2 (800〜1300字) ──…</code></pre>
+  <div class="canvas-wrap">
+    <canvas id="chunk-canvas" width="640" height="200"></canvas>
   </div>
-  <p>隣接チャンク間で100文字を共有することで、チャンク境界をまたぐ文脈が失われない。検索ヒットしたチャンクの前後が自然に繋がる。</p>
+  <p>隣接チャンク間で100文字を共有することで、チャンク境界をまたぐ文脈が失われない。検索ヒットしたチャンクの前後が自然に繋がる。スライディングウィンドウが右へ進むアニメーションで、オーバーラップ部分（黄色）が次のチャンクへ引き継がれる様子を示している。</p>
 
   <div class="callout callout-warn">
     <p><strong>1ファイルに複数トピックを混在させるとスコア差が消える</strong></p>
@@ -1377,6 +1381,103 @@ TextEncodeInput must be Union[TextInputSequence, ...]</code></pre>
     Updated 2026-06-30
   </p>
 </footer>
+
+
+<!-- ===== チャンク分割アニメーション ===== -->
+<script>
+(function() {
+  var canvas = document.getElementById('chunk-canvas');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width, H = canvas.height;
+
+  var CHUNK_SIZE = 500, OVERLAP = 100, STEP = CHUNK_SIZE - OVERLAP; // 400字ずつ進む
+  var TOTAL_CHARS = 1700;
+  var trackY = 60, trackH = 28;
+  var scale = (W - 40) / TOTAL_CHARS; // 文字数 → px 変換
+
+  var colors = ['#58a6ff', '#3fb950', '#bc8cff', '#d29922'];
+  var chunkStarts = [];
+  for (var s = 0; s + CHUNK_SIZE <= TOTAL_CHARS + STEP; s += STEP) chunkStarts.push(s);
+
+  var t = 0;
+  var cyclePerChunk = 90; // フレーム数/チャンク
+
+  function charToX(c) { return 20 + c * scale; }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, W, H);
+
+    // 全文ドキュメントのトラック（背景バー）
+    ctx.fillStyle = '#161b22';
+    ctx.fillRect(20, trackY, W - 40, trackH);
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(20, trackY, W - 40, trackH);
+    ctx.fillStyle = '#7d8590';
+    ctx.font = '11px monospace';
+    ctx.fillText('ドキュメント全文（' + TOTAL_CHARS + '字）', 20, trackY - 8);
+
+    // 現在進行中のチャンクindex
+    var idx = Math.floor(t / cyclePerChunk) % chunkStarts.length;
+    var progress = (t % cyclePerChunk) / cyclePerChunk; // 0→1 でこのチャンクが現れる
+
+    // 確定済みチャンク（薄く表示）
+    for (var i = 0; i < idx; i++) {
+      var cs = chunkStarts[i], ce = Math.min(cs + CHUNK_SIZE, TOTAL_CHARS);
+      var x0 = charToX(cs), x1 = charToX(ce);
+      ctx.fillStyle = colors[i % colors.length] + '33';
+      ctx.fillRect(x0, trackY + 36 + (i % 3) * 0, x1 - x0, trackH);
+    }
+
+    // 現在アニメーション中のチャンク（フェードイン）
+    var cs = chunkStarts[idx], ce = Math.min(cs + CHUNK_SIZE, TOTAL_CHARS);
+    var x0 = charToX(cs), x1 = charToX(ce);
+    var alpha = Math.min(1, progress * 3);
+    ctx.fillStyle = colors[idx % colors.length];
+    ctx.globalAlpha = 0.28 * alpha;
+    ctx.fillRect(x0, trackY, x1 - x0, trackH);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = colors[idx % colors.length];
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x0, trackY, x1 - x0, trackH);
+
+    // オーバーラップ部分（前チャンクとの共有100字）をハイライト
+    if (idx > 0) {
+      var prevEnd = Math.min(chunkStarts[idx - 1] + CHUNK_SIZE, TOTAL_CHARS);
+      var ovStart = cs, ovEnd = Math.min(prevEnd, ce);
+      if (ovEnd > ovStart) {
+        var ox0 = charToX(ovStart), ox1 = charToX(ovEnd);
+        ctx.fillStyle = '#d29922';
+        ctx.globalAlpha = 0.55 * alpha;
+        ctx.fillRect(ox0, trackY, ox1 - ox0, trackH);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // ラベル
+    ctx.fillStyle = colors[idx % colors.length];
+    ctx.font = 'bold 13px "JetBrains Mono", monospace';
+    ctx.fillText('Chunk ' + idx + '（' + cs + '〜' + ce + '字）', 20, trackY + trackH + 28);
+
+    if (idx > 0) {
+      ctx.fillStyle = '#d29922';
+      ctx.font = '11px monospace';
+      ctx.fillText('オーバーラップ ' + OVERLAP + '字 を前チャンクと共有', 20, trackY + trackH + 48);
+    }
+
+    ctx.fillStyle = '#7d8590';
+    ctx.font = '10px monospace';
+    ctx.fillText('chunk_size=500字 / overlap=100字 / 進行幅=400字', 20, trackY + trackH + 70);
+
+    t++;
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
 
 </body>
 </html>
