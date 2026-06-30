@@ -218,7 +218,7 @@ footer a{color:var(--accent);text-decoration:none;}
   <div class="meta-row">
     <span class="meta-tag">対象: CS 専攻大学生・非エンジニア</span>
     <span class="meta-tag">Unity / Houdini ユーザー向け</span>
-    <span class="meta-tag">Updated: 2026-06-25</span>
+    <span class="meta-tag">Updated: 2026-06-30</span>
     <span class="meta-tag">Phase 1〜8 完全版</span>
   </div>
 </div>
@@ -379,9 +379,9 @@ footer a{color:var(--accent);text-decoration:none;}
       <thead><tr><th>コサイン類似度</th><th>意味</th><th>このシステムでの扱い</th></tr></thead>
       <tbody>
         <tr><td><code>0.90〜1.00</code></td><td>ほぼ同じ意味</td><td>トップヒット</td></tr>
-        <tr><td><code>0.75〜0.90</code></td><td>かなり関連あり</td><td>上位5件に含まれる</td></tr>
-        <tr><td><code>0.70〜0.75</code></td><td>関連あり</td><td>グラフビューの「エッジ」として表示</td></tr>
-        <tr><td><code>0.70未満</code></td><td>あまり関連なし</td><td>検索結果に含めない</td></tr>
+        <tr><td><code>0.82〜0.90</code></td><td>かなり関連あり</td><td>グラフビューの「エッジ」として表示</td></tr>
+        <tr><td><code>0.58〜0.82</code></td><td>関連あり</td><td>検索結果に含める（DB指定時は0.58、全DB横断は0.62が下限）</td></tr>
+        <tr><td><code>0.58未満</code></td><td>あまり関連なし</td><td>検索結果に含めない</td></tr>
       </tbody>
     </table>
   </div>
@@ -457,7 +457,7 @@ footer a{color:var(--accent);text-decoration:none;}
   ☁️ CLOUD LAYER
   ┌──────────────┐    syncNotionToSheets()     ┌──────────────────────────┐
   │  Notion      │ ─── fetchAll 並列同期 ───→  │  Google Sheets           │
-  │  7 DB        │                              │  RAG_Index               │
+  │  8 DB        │                              │  RAG_Index               │
   │  (共有情報)  │    Gemini Embedding API      │  [chunk | 768次元ベクトル]│
   └──────────────┘                              └───────────┬──────────────┘
                                                             │ コサイン類似度検索
@@ -495,7 +495,7 @@ footer a{color:var(--accent);text-decoration:none;}
     <table>
       <thead><tr><th>レイヤ</th><th>技術</th><th>役割</th></tr></thead>
       <tbody>
-        <tr><td><span class="badge badge-blue">Cloud</span></td><td>Notion（7 DB）</td><td>知識ベースとしてのドキュメント管理</td></tr>
+        <tr><td><span class="badge badge-blue">Cloud</span></td><td>Notion（8 DB）</td><td>知識ベースとしてのドキュメント管理</td></tr>
         <tr><td><span class="badge badge-blue">Cloud</span></td><td>Google Apps Script</td><td>サーバーレス処理・WebApp ホスティング</td></tr>
         <tr><td><span class="badge badge-blue">Cloud</span></td><td>Gemini Embedding 001</td><td>768 次元ベクトル生成</td></tr>
         <tr><td><span class="badge badge-blue">Cloud</span></td><td>Gemini 2.5 Flash</td><td>回答生成 LLM</td></tr>
@@ -521,13 +521,13 @@ footer a{color:var(--accent);text-decoration:none;}
 
   <p>
     Cloud RAG はサーバー（VPS や AWS など）を一切使わず、<strong>Google Apps Script（GAS）</strong>
-    の上だけで動きます。Notion の 7 つのデータベースを知識ソースとして、
+    の上だけで動きます。Notion の 8 つのデータベースを知識ソースとして、
     Google Sheets にベクトルインデックスを構築します。
   </p>
 
   <h3>データフロー：インデックス構築</h3>
   <div class="concept-flow">
-    <div class="cf-node">Notion<br><span class="cf-label">7 DB・ページ本文</span></div>
+    <div class="cf-node">Notion<br><span class="cf-label">8 DB・ページ本文</span></div>
     <div class="cf-arrow">→</div>
     <div class="cf-node">チャンク分割<br><span class="cf-label">500字 / 100字重複</span></div>
     <div class="cf-arrow">→</div>
@@ -536,7 +536,7 @@ footer a{color:var(--accent);text-decoration:none;}
     <div class="cf-node">Google Sheets<br><span class="cf-label">RAG_Index</span></div>
   </div>
 
-  <h3>Notion 7 データベース構成</h3>
+  <h3>Notion 8 データベース構成</h3>
   <div class="tbl-wrap">
     <table>
       <thead><tr><th>DB キー</th><th>内容</th></tr></thead>
@@ -650,7 +650,7 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
   });
 });
 
-<span class="cm">// ← これが 1 行で 7 DB を並列取得</span>
+<span class="cm">// ← これが 1 行で全 DB を並列取得（houdini21 追加後は 8 DB）</span>
 <span class="kw">var</span> listResps = UrlFetchApp.<span class="fn">fetchAll</span>(listReqs);</code></pre>
   </div>
 
@@ -717,9 +717,10 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
     <div class="step">
       <div class="step-rail"><div class="step-badge">4</div><div class="step-line"></div></div>
       <div class="step-content">
-        <div class="step-title">仮説ドキュメントを埋め込み → 重み付き平均 <span class="badge badge-purple">query×0.4 + hypothesis×0.6</span></div>
+        <div class="step-title">仮説ドキュメントを埋め込み → 重み付き平均 <span class="badge badge-purple">query×0.4 + hypothesis×0.6（技術ドメイン）</span></div>
         <div class="step-body">
-          <p>質問と仮説ドキュメントをそれぞれ 768 次元ベクトルに変換し、加重平均で最終クエリベクトルを計算します。仮説ドキュメントのほうが実際のドキュメント語彙に近いため、重みを 60% にします。</p>
+          <p>質問と仮説ドキュメントをそれぞれ 768 次元ベクトルに変換し、加重平均で最終クエリベクトルを計算します。<code>tool_docs</code> のような技術ドメインでは、仮説ドキュメントのほうが実際のドキュメント語彙に近いため重みを 60% にします。</p>
+          <p style="margin-top:8px;"><strong>例外：固有事実ドメイン（<code>afuri</code> / <code>braintq</code> / <code>fourteen</code>）はクエリ80%＋仮説20%</strong>。本番運用でAFURI（実店舗）の「辛紅ラーメン」のような固有名詞をGeminiが知らずハルシネーションした仮説文書を生成し、検索精度が84.4%→79.7%に低下する問題が発覚したため、<code>FACT_HEAVY_DOMAINS</code>配列に該当するドメインだけクエリ側の重みを引き上げている。</p>
         </div>
       </div>
     </div>
@@ -747,7 +748,8 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
     ├─ hypothesis_vec (768次元)
     │
     ▼
-  最終クエリ = query_vec × 0.4 + hypothesis_vec × 0.6
+  最終クエリ = query_vec × 0.4 + hypothesis_vec × 0.6  （技術ドメイン）
+        ※ afuri/braintq/fourteen 等の固有事実ドメインは 0.8 / 0.2
     │
     ▼ コサイン類似度検索
   「CinemachineImpulseSource 実装例」← ヒット率 UP
@@ -764,8 +766,8 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
       <div class="metric-label">全 DB 横断閾値</div>
     </div>
     <div class="metric metric-blue">
-      <div class="metric-value">0.6</div>
-      <div class="metric-label">仮説ドキュメント重み</div>
+      <div class="metric-value">0.6 / 0.2</div>
+      <div class="metric-label">仮説ドキュメント重み（技術／固有事実ドメイン）</div>
     </div>
     <div class="metric metric-purple">
       <div class="metric-value">+高精度</div>
@@ -1000,7 +1002,7 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
 
   <p>
     ドキュメントが増えると「どの文書が関連しているか」がわかりにくくなります。
-    グラフビューは <strong>コサイン類似度が 0.70 以上のドキュメント同士をエッジ（線）で結ぶ</strong>
+    グラフビューは <strong>コサイン類似度が 0.82 以上のドキュメント同士をエッジ（線）で結ぶ</strong>
     ことで、知識の繋がりをネットワーク図として可視化します。
   </p>
 
@@ -1012,22 +1014,22 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
     </div>
     <div class="card">
       <div class="card-title">グラフビューの価値</div>
-      <p>コサイン類似度 0.70 以上のページが自動的にエッジで結ばれるため「意味的に近い文書群」が一目でわかる。</p>
+      <p>コサイン類似度 0.82 以上のページが自動的にエッジで結ばれるため「意味的に近い文書群」が一目でわかる。</p>
     </div>
   </div>
 
-  <h3>コサイン類似度 0.70 のエッジ定義</h3>
+  <h3>コサイン類似度 0.82 のエッジ定義</h3>
   <div class="arch">
     <pre><code>
   全ドキュメントペアのコサイン類似度を計算:
 
-  doc_A × doc_B → similarity = 0.83  ✅ エッジを張る
-  doc_A × doc_C → similarity = 0.71  ✅ エッジを張る
-  doc_A × doc_D → similarity = 0.65  ❌ エッジを張らない（閾値 0.70 未満）
+  doc_A × doc_B → similarity = 0.90  ✅ エッジを張る
+  doc_A × doc_C → similarity = 0.83  ✅ エッジを張る
+  doc_A × doc_D → similarity = 0.71  ❌ エッジを張らない（閾値 0.82 未満）
 
   閾値を下げすぎると → ほぼ全ノードが繋がり「地図」にならない
   閾値を上げすぎると → 孤立ノードが増え「孤島」だらけになる
-  0.70 は実験的に最も「意味のある関係」が見える値として採用
+  0.82 は不適切なDB間接続を抑制するため旧版の 0.70 から引き上げられた値
     </code></pre>
   </div>
 
@@ -1095,7 +1097,7 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
     <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">rag_graph_export.py — コサイン類似度行列の計算</span></div>
     <pre><code><span class="kw">import</span> numpy <span class="kw">as</span> np
 
-<span class="kw">def</span> <span class="fn">build_graph</span>(embeddings, titles, threshold=<span class="num">0.70</span>):
+<span class="kw">def</span> <span class="fn">build_graph</span>(embeddings, titles, threshold=<span class="num">0.82</span>):
     <span class="cm"># numpy で一括計算（ループなし・高速）</span>
     norms = np.linalg.<span class="fn">norm</span>(embeddings, axis=<span class="num">1</span>, keepdims=<span class="kw">True</span>)
     normalized = embeddings / (norms + <span class="num">1e-10</span>)
@@ -1160,7 +1162,7 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
 <span class="cm">// Local RAG 実装（rag_local_bridge.py に HTTP リクエスト）</span>
 <span class="kw">public class</span> <span class="fn">LocalRAGClient</span> : IRAGClient
 {
-    <span class="kw">private</span> string _bridgeUrl = <span class="str">"http://localhost:8765"</span>;
+    <span class="kw">private</span> string _bridgeUrl = <span class="str">"http://localhost:8766"</span>;
     <span class="kw">public async</span> Task&lt;RAGResponse&gt; <span class="fn">QueryAsync</span>(string query, string dbKey) { ... }
 }</code></pre>
   </div>
@@ -1259,7 +1261,7 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
     <span class="kw">try</span>
     {
         <span class="cm">// /health で生存確認</span>
-        <span class="kw">var</span> res = <span class="kw">await</span> _httpClient.<span class="fn">GetAsync</span>(<span class="str">"http://localhost:8765/health"</span>);
+        <span class="kw">var</span> res = <span class="kw">await</span> _httpClient.<span class="fn">GetAsync</span>(<span class="str">"http://localhost:8766/health"</span>);
         _bridgeRunning = res.IsSuccessStatusCode;
     }
     <span class="kw">catch</span>
@@ -1369,7 +1371,7 @@ SETTINGS_PATH = pathlib.Path.<span class="fn">home</span>() / <span class="str">
 <span class="kw">def</span> <span class="fn">load_settings</span>():
     <span class="kw">if</span> SETTINGS_PATH.<span class="fn">exists</span>():
         <span class="kw">return</span> json.<span class="fn">loads</span>(SETTINGS_PATH.<span class="fn">read_text</span>())
-    <span class="kw">return</span> { <span class="str">'bridge_url'</span>: <span class="str">'http://localhost:8765'</span>, <span class="str">'gas_url'</span>: <span class="str">''</span> }
+    <span class="kw">return</span> { <span class="str">'bridge_url'</span>: <span class="str">'http://localhost:8766'</span>, <span class="str">'gas_url'</span>: <span class="str">''</span> }
 
 <span class="kw">def</span> <span class="fn">save_settings</span>(cfg):
     SETTINGS_PATH.<span class="fn">write_text</span>(json.<span class="fn">dumps</span>(cfg, ensure_ascii=<span class="kw">False</span>, indent=<span class="num">2</span>))</code></pre>
@@ -1666,7 +1668,7 @@ SETTINGS_PATH = pathlib.Path.<span class="fn">home</span>() / <span class="str">
     <a href="https://ai.google.dev/gemini-api/docs">Gemini API</a> ·
     <a href="https://docs.trychroma.com/">ChromaDB</a> ·
     <a href="https://docs.anthropic.com/">Claude API</a> ·
-    Updated: 2026-06-25
+    Updated: 2026-06-30
   </p>
 </footer>
 
