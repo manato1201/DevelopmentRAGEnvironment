@@ -1,6 +1,6 @@
 # ゲーム開発 RAG 環境
 
-**更新日:** 2026-06-29
+**更新日:** 2026-06-30
 
 ---
 
@@ -142,8 +142,8 @@ DevelopmentRAGEnvironment/
 │   └── license-compliance.md           # ライセンス・権利関連
 │
 ├── lecture/                            # 講義資料（HTML、4種に統合済み）
-│   ├── cloud-rag-lecture.html          # クラウド RAG 講義
-│   ├── local-rag-lecture.html          # ローカル RAG 講義（内部構造・新規ドキュメント追加ガイド等を統合）
+│   ├── cloud-rag-lecture.html          # ★ クラウド RAG 講義（コサイン類似度・Spring Layoutのcanvasアニメーション付き）
+│   ├── local-rag-lecture.html          # ★ ローカル RAG 講義（内部構造・新規ドキュメント追加ガイド等を統合、チャンク分割のcanvasアニメーション付き）
 │   ├── terminology.html                # 用語解説（講義版）
 │   └── license-compliance.html         # ライセンス解説（講義版）
 │
@@ -233,7 +233,7 @@ NIST SP 800-207（Zero Trust Architecture）の設計を取り入れた以下の
 | 機能 | 概要 |
 |------|------|
 | **HyDE（仮説文書埋め込み）** | クエリの語彙と文書の語彙のギャップを仮説文書で橋渡し。検索精度を大幅改善 |
-| **ドメイン別HyDEプロンプト** | DBごとに最適なドメインヒントを使用（Houdini技術/飲食店/研究論文等）。クロスドメイン汚染を防止 |
+| **ドメイン別HyDEプロンプト・重み** | DBごとに最適なドメインヒントを使用（Houdini技術/飲食店/研究論文等）。固有事実ドメイン（afuri/braintq/fourteen）はクエリ80%＋仮説20%、技術ドメインは40%＋60%（ハルシネーション対策） |
 | **ページ単位重複排除** | 同一ページの複数チャンクのうち最高スコアのみを残し、多様なソースを優先表示 |
 | **閾値フィルタ** | コサイン類似度0.58未満（全DB時0.62未満）の低品質チャンクを除外 |
 | **情報抽出度** | 回答中の`[1][2]`引用を解析し、何件のソースが実際に活用されたかを表示 |
@@ -246,8 +246,7 @@ NIST SP 800-207（Zero Trust Architecture）の設計を取り入れた以下の
 
 | リソース | URL |
 |----------|-----|
-| manato1201/mcp-rag-server（使用フォーク） | https://github.com/manato1201/mcp-rag-server |
-| karaage0703/mcp-rag-server（オリジナル） | https://github.com/karaage0703/mcp-rag-server |
+| karaage0703/mcp-rag-server（検索エンジンのベンダリング元、MIT） | https://github.com/karaage0703/mcp-rag-server |
 | Notion API リファレンス | https://developers.notion.com/ |
 | Google AI Studio（Gemini API キー発行） | https://aistudio.google.com/ |
 | uv — Python パッケージマネージャー | https://docs.astral.sh/uv/ |
