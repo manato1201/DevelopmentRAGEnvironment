@@ -363,6 +363,11 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface); pa
     <li><a href="#index">インデックス化</a></li>
     <li><a href="#watchdog">watchdog</a></li>
     <li><a href="#mcp-config">MCP設定</a></li>
+    <li><a href="#internals">内部アーキテクチャ</a></li>
+    <li><a href="#new-rag">新規ドキュメント追加ガイド</a></li>
+    <li><a href="#obsidian-mgmt">Obsidian管理</a></li>
+    <li><a href="#houdini-rag">Houdini RAG活用</a></li>
+    <li><a href="#ui-impl">UI実装（Unity/Houdini）</a></li>
     <li><a href="#trouble">トラブルシューティング</a></li>
   </ul>
 </nav>
@@ -708,6 +713,579 @@ expires: 2026-12-31  <span class="cm"># オプション</span>
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ===== 内部アーキテクチャ ===== -->
+<div class="section" id="internals">
+  <div class="section-eye">Internals</div>
+  <h2>内部アーキテクチャ</h2>
+
+  <p>LocalRAGは5つのコンポーネントが連携して動作する。Obsidian Vault内のMarkdownファイルを起点に、ChromaDBにベクトルとして格納し、MCPまたはHTTPブリッジ経由でクライアントから検索できる構成になっている。</p>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">📁 → ⚙️ → 🔢 インデックス側</div>
+      <ul>
+        <li><code>document_processor.py</code>: ファイルスキャン・チャンク分割・差分検出（SHA-256）</li>
+        <li><code>embedding_generator.py</code>: multilingual-e5-large で1024次元ベクトル生成</li>
+        <li><code>vector_database.py</code>: ChromaDBへの格納・検索ラッパー</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">🗄️ → 🔌 → 💬 検索側</div>
+      <ul>
+        <li><code>rag_service.py</code>: 検索・インデックス処理の中核（<code>RAGService</code>）</li>
+        <li><code>rag_mcp_server.py</code>: Claude Desktop 向け MCP stdio サーバー</li>
+        <li><code>rag_local_bridge.py</code>: Unity/Houdini 向け HTTP ブリッジ（<code>rag_service.py</code> を直接 import）</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout callout-note">
+    <p><strong>2026-06-30 の構成変更点</strong></p>
+    <p>以前は <code>rag_local_bridge.py</code> が外部リポジトリ <code>mcp-rag-server</code> をサブプロセスとして起動し、MCP（JSON-RPC over stdio）で通信していた。現在は <code>LocalRAGClient</code> クラスが <code>rag_service.py</code> の <code>create_rag_service_from_env()</code> を直接 import して呼び出すだけになっており、サブプロセスもMCPハンドシェイクも発生しない。MCP stdio が必要なのは Claude Desktop 登録時（<code>rag_mcp_server.py</code>）のみで、HTTPブリッジの経路では使われない。</p>
+  </div>
+
+  <h3>インデックスパイプライン</h3>
+  <p><code>RAGService.index_documents()</code> が中心となり、DocumentProcessor・EmbeddingGenerator・VectorDatabaseを順に呼び出す。</p>
+
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">ディレクトリスキャン</div>
+        <div class="step-body">
+          <p><code>SOURCE_DIR</code> 配下を再帰的にスキャンする。最上位フォルダ名がNamespace（ChromaDBコレクション名）になる。<code>_</code> または <code>.</code> で始まるフォルダは除外される。対応形式は <code>.md</code> / <code>.txt</code> / <code>.pptx</code> / <code>.docx</code> / <code>.pdf</code>（.pptx/.docx/.pdfはmarkitdownで先にMarkdown変換）。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">差分チェック（incremental mode）</div>
+        <div class="step-body">
+          <p>各ファイルのSHA-256ハッシュ・mtime・sizeを計算し、前回の記録と比較してスキップ判定する。新規・変更ファイルのみ処理する。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">3</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">チャンク分割</div>
+        <div class="step-body">
+          <p>テキストを500文字ずつに分割し、前後100文字のオーバーラップを持たせる。文の途中で切れないよう <code>\n</code> または <code>。</code> を探して文境界で調整する。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">4</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">エンベディング生成</div>
+        <div class="step-body">
+          <p>全チャンクに <code>"passage: "</code> プレフィックスを付加し、multilingual-e5-largeでベクトル化する。バッチ処理で効率化されている。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">5</div></div>
+      <div class="step-content">
+        <div class="step-title">ChromaDB格納</div>
+        <div class="step-body">
+          <p><code>batch_insert_documents()</code> でチャンクテキスト・ベクトル・メタデータをまとめて書き込む。<code>CHROMA_PATH</code>（デフォルト <code>data/chroma</code>）にファイルとして永続化され、HNSWインデックスはメモリ上で高速検索できる状態になる。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3>チャンク分割の詳細</h3>
+  <div class="chunk-vis-fallback">
+    <pre><code>Chunk 0 (0〜500字) ──overlap100字── Chunk 1 (400〜900字) ──overlap100字── Chunk 2 (800〜1300字) ──…</code></pre>
+  </div>
+  <p>隣接チャンク間で100文字を共有することで、チャンク境界をまたぐ文脈が失われない。検索ヒットしたチャンクの前後が自然に繋がる。</p>
+
+  <div class="callout callout-warn">
+    <p><strong>1ファイルに複数トピックを混在させるとスコア差が消える</strong></p>
+    <p>例: 1ファイルに複数の独立したトピックが混在 → 全チャンクが同一ブランド・同一トピックとして均一にエンコードされ、スコアが団子状態になる。トピックごとにファイルを分割すると、チャンクが専門的な意味空間に集中し、スコア差が拡大して精度が向上する。</p>
+  </div>
+
+  <h3>エンベディングのプレフィックス設計</h3>
+  <p>intfloat/multilingual-e5-large はcontrastive learningで学習されており、「passage:」と「query:」の非対称な関係を学習している。同じプレフィックスで両方を計算すると類似度が低下するため、用途で使い分ける。</p>
+
+  <div class="code-wrap">
+    <div class="code-label"><span class="env-tag">Python</span> embedding_generator.py</div>
+    <pre><code><span class="cm"># ドキュメントをインデックス化するとき</span>
+<span class="kw">def</span> <span class="fn">generate_embeddings</span>(self, texts):
+    prefixed = [<span class="str">"passage: "</span> + t <span class="kw">for</span> t <span class="kw">in</span> texts]
+    <span class="kw">return</span> model.<span class="fn">encode</span>(prefixed, normalize_embeddings=<span class="val">True</span>)
+
+<span class="cm"># ユーザーのクエリを検索するとき</span>
+<span class="kw">def</span> <span class="fn">generate_search_embedding</span>(self, query):
+    prefixed = <span class="str">"query: "</span> + query
+    <span class="kw">return</span> model.<span class="fn">encode</span>(prefixed, normalize_embeddings=<span class="val">True</span>)</code></pre>
+  </div>
+
+  <h3>検索パイプライン</h3>
+  <p><code>RAGService.search()</code> がクエリ受信から結果返却までの全工程を管理する。クエリに <code>query: </code> プレフィックスを付加 → ベクトル化 → ChromaDBでHNSW近傍探索 → （<code>with_context=True</code> なら）前後チャンクをマージして返却する。</p>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>オプション</th><th>デフォルト</th><th>説明</th></tr></thead>
+      <tbody>
+        <tr><td><code>limit</code></td><td>5</td><td>返す検索結果の最大件数</td></tr>
+        <tr><td><code>with_context</code></td><td>False</td><td>ヒットしたチャンクの前後チャンクも取得する</td></tr>
+        <tr><td><code>context_size</code></td><td>1</td><td>前後に取得するチャンク数</td></tr>
+        <tr><td><code>full_document</code></td><td>False</td><td>ヒットしたファイルの全チャンクを返す</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-note">
+    <p><strong>類似度スコアの見方</strong></p>
+    <p>ChromaDBはL2距離で検索し、<code>1 - (distance / 2)</code> でコサイン類似度（0〜1）に変換して返す。85%以上が「関連性が高い」の目安。80〜85%はノイズが混入し始めるゾーン。トピック分割によりスコア差が広がり精度が向上する。</p>
+  </div>
+
+  <h3>Namespaceシステム</h3>
+  <p>ChromaDBのコレクション（検索対象グループ）は、<code>SOURCE_DIR</code> 直下の最上位フォルダ名が自動的に割り当てられる。MCP/HTTPの検索呼び出し時に <code>namespace</code> を指定すると特定コレクションのみを検索でき、省略すると全コレクションが対象になる。</p>
+
+  <h3>差分インデックス（増分更新）</h3>
+  <p>毎回全ファイルを処理すると時間がかかるため、<code>--incremental</code> を指定すると変更ファイルのみを処理する。対象ファイルのSHA-256ハッシュ・mtime・sizeを計算 → 記録と照合してスキップ判定 → 変更があれば旧チャンクを削除して新チャンクを挿入、という流れ。<code>auto_index.py</code>（watchdog）は常にincrementalモードで動作する。</p>
+
+  <h3>MCP通信とWindows対応</h3>
+  <p>Claude Desktop と <code>rag_mcp_server.py</code> はModel Context Protocol (MCP) のstdio transportで通信する。Windows標準の文字コードはCP932（Shift-JIS）であり、日本語を含むJSONをstdoutにそのまま書くと文字化けしてMCPが壊れる。<code>rag_mcp_server.py</code> の冒頭にUTF-8強制パッチが当たっている。</p>
+
+  <div class="code-wrap">
+    <div class="code-label"><span class="env-tag">Python</span> rag_mcp_server.py — UTF-8パッチ</div>
+    <pre><code><span class="kw">import</span> sys, io
+<span class="cm"># stdoutをUTF-8に強制（Windows CP932問題の回避）</span>
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding=<span class="str">"utf-8"</span>)
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding=<span class="str">"utf-8"</span>)</code></pre>
+  </div>
+
+  <div class="callout callout-note">
+    <p><strong>HTTPブリッジ経路（8.2）ではMCPは使われない</strong></p>
+    <p><code>rag_local_bridge.py</code> は <code>LocalRAGClient</code> 経由で <code>rag_service.py</code> を直接 import して呼ぶため、stdio/JSON-RPCのオーバーヘッドもCP932の問題も発生しない。CP932パッチが必要なのは Claude Desktop の MCP 登録（8.1）経路のみ。</p>
+  </div>
+
+  <h3>重要パラメータ一覧</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>パラメータ</th><th>値</th><th>説明</th></tr></thead>
+      <tbody>
+        <tr><td>chunk_size</td><td><span class="badge badge-blue">500文字</span></td><td>1チャンクの最大文字数。日本語500字 ≈ 300〜400トークン</td></tr>
+        <tr><td>chunk_overlap</td><td><span class="badge badge-blue">100文字</span></td><td>隣接チャンク間の重複文字数</td></tr>
+        <tr><td><code>EMBEDDING_MODEL</code></td><td><span class="badge badge-purple">multilingual-e5-large</span></td><td>HuggingFace Hub のモデルID</td></tr>
+        <tr><td>ベクトル次元数</td><td><span class="badge badge-blue">1024</span></td><td>multilingual-e5-largeの出力次元</td></tr>
+        <tr><td>検索アルゴリズム</td><td><span class="badge badge-purple">HNSW</span></td><td>Hierarchical Navigable Small World。ChromaDB固定</td></tr>
+        <tr><td>類似度計算</td><td><span class="badge badge-blue">コサイン類似度</span></td><td>L2距離から変換: 1 - (dist / 2)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== 新規ドキュメント追加ガイド ===== -->
+<div class="section" id="new-rag">
+  <div class="section-eye">How-To</div>
+  <h2>新規ドキュメント追加ガイド</h2>
+
+  <p>新しいデータソース（Namespace）をLocalRAGに追加するときの手順と、検索精度を高めるドキュメント設計のコツ。インデックスより先にドキュメント設計を固めることが精度向上の鍵。</p>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>ステップ</th><th>作業</th><th>場所</th><th>目安時間</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge-blue">1</span> Namespace設計</td><td>localRAG/配下にフォルダを作成</td><td>エクスプローラー / PowerShell</td><td>2分</td></tr>
+        <tr><td><span class="badge badge-green">2</span> ドキュメント設計</td><td>トピック分割の粒度を決める</td><td>設計作業</td><td>5〜10分</td></tr>
+        <tr><td><span class="badge badge-green">3</span> MD作成</td><td>Frontmatter付きMarkdownを作成</td><td>Obsidian / VSCode</td><td>10〜20分</td></tr>
+        <tr><td><span class="badge badge-purple">4</span> インデックス実行</td><td><code>rag_cli.py index</code> を叩く</td><td>PowerShell</td><td>1〜5分</td></tr>
+        <tr><td><span class="badge badge-amber">5</span> 動作確認</td><td>Claude Desktopで検索テスト</td><td>Claude Desktop</td><td>2〜3分</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-note">
+    <p><strong>以降は自動化できる</strong></p>
+    <p><code>auto_index.py</code>（watchdog）を起動しておくと、Markdownを保存するたびに差分インデックスが自動実行される。追加・編集のたびに手動でインデックスコマンドを叩く必要はない。</p>
+  </div>
+
+  <h3>Namespace命名ルール</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>ルール</th><th>OK例</th><th>NG例</th></tr></thead>
+      <tbody>
+        <tr><td>英数字・アンダースコアのみ</td><td><code>unity_docs</code></td><td><code>Unity Docs</code>（スペース不可）</td></tr>
+        <tr><td><code>_</code> または <code>.</code> で始めない</td><td><code>game_dev</code></td><td><code>_game_dev</code>（除外される）</td></tr>
+        <tr><td>用途が伝わる名前にする</td><td><code>houdini_vex</code></td><td><code>docs1</code>（何か不明）</td></tr>
+        <tr><td>SOURCE_DIR直下の1階層目のみ有効</td><td><code>localRAG/unity_docs/</code></td><td><code>localRAG/docs/unity/</code>（unity/はNamespaceにならない）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Markdownファイル作成ルール</h3>
+  <p>RAG用ドキュメントは通常のMarkdownだが、YAMLフロントマターを付けることでメタデータとして管理できる。</p>
+
+  <div class="code-wrap">
+    <div class="code-label"><span class="win-tag">Markdown</span> localRAG/your_namespace/topic_name.md</div>
+    <pre><code>---
+title: ここにドキュメントのタイトル
+tags:
+  - タグ1
+  - タグ2
+  - namespace名
+rag_indexed: <span class="ok">true</span>
+created: 2026-06-18
+updated: 2026-06-18
+---
+
+<span class="cm"># メインタイトル（frontmatterのtitleと揃える）</span>
+
+ここに本文を書く。
+
+## セクション1
+内容...</code></pre>
+  </div>
+
+  <div class="callout callout-warn">
+    <p><strong><code>rag_indexed: true</code> の確認を忘れずに</strong></p>
+    <p>新規作成時にテンプレートを使わないと <code>rag_indexed: false</code> のままになることがある。インデックス化しても内容が正式登録されていない「ドラフト状態」になるため、作成後は必ず確認する。</p>
+  </div>
+
+  <h3>ドキュメント設計 — 検索精度を上げるコツ</h3>
+  <p>RAGの検索精度はドキュメントの書き方・分割の粒度に強く依存する。原則は<strong>「1ファイル = 1トピック」</strong>。</p>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">✓ GOOD — トピック分割</div>
+      <ul>
+        <li><code>unity_shader_basics.md</code></li>
+        <li><code>unity_shader_urp.md</code></li>
+        <li><code>unity_particle_system.md</code></li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">✗ BAD — 1ファイルに全部</div>
+      <ul>
+        <li><code>unity_all.md</code>（シェーダー・パーティクル・アニメ・UIすべて混在）</li>
+        <li>→ 全チャンクが均一にエンコードされ、検索スコアが80〜83%に団子状態になる</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>文字数（本文）</th><th>チャンク数の目安</th><th>評価</th></tr></thead>
+      <tbody>
+        <tr><td>〜800文字</td><td>1〜2チャンク</td><td class="pri-md">小さすぎ — 文脈が薄く精度が不安定</td></tr>
+        <tr><td>800〜3,000文字</td><td>2〜8チャンク</td><td class="ok">理想 — 1トピックを充分に説明できる量</td></tr>
+        <tr><td>3,000〜6,000文字</td><td>8〜14チャンク</td><td class="pri-md">やや大きい — サブトピックで分割検討</td></tr>
+        <tr><td>6,000文字〜</td><td>14チャンク〜</td><td class="pri-hi">分割推奨 — 必ずトピック分割する</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>インデックス実行</h3>
+  <p>ドキュメントが揃ったらリポジトリのルートでインデックスコマンドを実行する。検索エンジンはこのリポジトリに統合済みのため、外部リポジトリへの移動は不要。</p>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — DevelopmentRAGEnvironment</span></div>
+    <pre><code><span class="cm"># 初回はフルインデックス</span>
+<span class="prompt">PS></span> uv run python scripts\rag_cli.py index
+
+<span class="cm"># 2回目以降は差分インデックスが高速</span>
+<span class="prompt">PS></span> uv run python scripts\rag_cli.py index --incremental
+
+<span class="cm"># チャンク数の確認</span>
+<span class="prompt">PS></span> uv run python scripts\rag_cli.py count</code></pre>
+  </div>
+
+  <div class="callout callout-warn">
+    <p><strong><code>clear</code> コマンドは全データを削除する</strong></p>
+    <p><code>uv run python scripts\rag_cli.py clear</code> を実行するとChromaDB内の全コレクションが削除される。特定Namespaceだけを消す機能は現在なし。clear後は必ずフルインデックスを実行すること。</p>
+  </div>
+
+  <h3>動作確認 — スコアで精度を判定する</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>スコアレンジ</th><th>判定</th><th>対応</th></tr></thead>
+      <tbody>
+        <tr><td>88%〜</td><td class="ok">良好</td><td>そのまま使える</td></tr>
+        <tr><td>83〜88%</td><td class="pri-md">普通</td><td>許容範囲。さらに上げたければトピック分割を細かく</td></tr>
+        <tr><td>78〜83%</td><td class="pri-md">要注意</td><td>関係ない文書がヒットしている可能性。ファイル粒度を見直す</td></tr>
+        <tr><td>〜78%</td><td class="pri-hi">NG</td><td>ドキュメント内容か分割粒度に問題あり。設計から見直す</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>上位5件のスコア差が<strong>3%以上</strong>あれば絞り込みが効いている。差が<strong>1%未満</strong>の場合はトピックが混在しているサイン。</p>
+
+  <h3>新規RAG追加チェックリスト</h3>
+  <ul class="checklist">
+    <li>localRAG/配下に新しいNamespaceフォルダを作成した</li>
+    <li>フォルダ名が英数字・アンダースコアのみで、先頭が _ / . でない</li>
+    <li>トピック単位でファイルを分割した（1ファイル = 1トピック）</li>
+    <li>各ファイルに YAMLフロントマターを付けた</li>
+    <li><code>rag_indexed: true</code> を全ファイルに設定した</li>
+    <li>インデックスコマンドを実行してチャンク数の増加を確認した</li>
+    <li>Claude Desktopで検索テストしてスコア83%以上を確認した</li>
+    <li>auto_index.py を起動して以降の自動化を設定した</li>
+  </ul>
+</div>
+
+<!-- ===== Obsidian管理 ===== -->
+<div class="section" id="obsidian-mgmt">
+  <div class="section-eye">Management Design</div>
+  <h2>Obsidian管理 — 可視化・運用設計</h2>
+
+  <p>Obsidian vault = <code>SOURCE_DIR</code> とすることでファイルツリーがそのままインデックス対象の一覧になる。watchdogがインデックス後にダッシュボードノートを自動更新することで、ChromaDBの状態をObsidianから常に確認できるようにする設計。</p>
+
+  <div class="callout callout-note">
+    <p><strong>解決している課題</strong></p>
+    <p>何がインデックスされているか分からない・namespace別の状態が把握できない・更新漏れが発生しやすい、といった問題を vault構造 + frontmatter + watchdog書き戻しの3層設計で解決する。</p>
+  </div>
+
+  <h3>frontmatterによる鮮度管理</h3>
+  <p>各ノートの先頭にYAMLフロントマターを付けて、インデックス状態と有効期限を管理する。</p>
+
+  <div class="code-wrap">
+    <div class="code-label"><span class="win-tag">Markdown</span> tutorials/houdini_vex_wrangle.md</div>
+    <pre><code>---
+title: Houdini VEX wrangle 基礎メモ
+namespace: tutorials
+status: active
+created: 2026-06-10
+updated: 2026-06-10
+expires: 2026-12-10
+tags: [houdini, vex, tutorial]
+rag_indexed: <span class="kw">false</span>
+---
+
+## 概要
+...</code></pre>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>フィールド</th><th>値</th><th>説明</th></tr></thead>
+      <tbody>
+        <tr><td><code>status</code></td><td><code>active</code></td><td>インデックス化する（デフォルト）</td></tr>
+        <tr><td><code>status</code></td><td><code>stale</code></td><td>期限切れ・要確認。警告ログ付きでインデックス</td></tr>
+        <tr><td><code>status</code></td><td><code>archived</code></td><td>インデックス化をスキップ</td></tr>
+        <tr><td><code>expires</code></td><td>日付</td><td>この日付を過ぎるとwatchdogがstaleに自動変更</td></tr>
+        <tr><td><code>rag_indexed</code></td><td><code>false→true</code></td><td>インデックス完了後にwatchdogが書き換える</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-warn">
+    <p><strong>expiresの設定目安</strong></p>
+    <p>チャット履歴: 90日 / チュートリアル: 180日 / 個人メモ: 無期限。古いチュートリアルが検索に混入するのを防ぐのが主目的。</p>
+  </div>
+
+  <h3>ダッシュボードノート仕様</h3>
+  <p><code>scripts/auto_index.py</code> がインデックス完了ごとに <code>_rag_dashboard/</code> 内のファイルを自動更新する。Obsidianで開くだけで現在のRAG状態が分かる。</p>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">index_status.md</div>
+      <ul>
+        <li>最終更新日時・総ファイル数</li>
+        <li>namespace別件数テーブル</li>
+        <li>staleファイルの一覧（Obsidianリンク付き）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">namespace_map.md</div>
+      <ul>
+        <li>namespace別のファイル一覧</li>
+        <li>インデックス済み: ✓ / 未: ○</li>
+        <li>status と tags を表示</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>運用フロー</h3>
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">Obsidianでノートを作成・編集</div>
+        <div class="step-body"><p>frontmatterに <code>namespace</code> と <code>expires</code> を記載して保存する。</p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">watchdog（auto_index.py）が自動検知</div>
+        <div class="step-body"><p>保存と同時に <code>scripts/rag_cli.py</code> 経由の差分インデックス化が走る（外部リポジトリへの依存はない）。</p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">3</div></div>
+      <div class="step-content">
+        <div class="step-title">frontmatterとダッシュボードが自動更新</div>
+        <div class="step-body"><p><code>rag_indexed: true</code> に書き換わり、<code>index_status.md</code> が最新になる。</p></div>
+      </div>
+    </div>
+  </div>
+
+  <h3>月次メンテナンス</h3>
+  <ol style="font-size:14px;color:var(--muted);padding-left:20px;line-height:2;">
+    <li><code>_rag_dashboard\index_status.md</code> を開いて stale ファイルを確認</li>
+    <li>各ファイルを開いて内容を精査（削除 or 更新）</li>
+    <li>更新した場合は <code>updated</code> と <code>expires</code> を書き換えて <code>status: active</code> に戻す</li>
+  </ol>
+</div>
+
+<!-- ===== Houdini RAG活用 ===== -->
+<div class="section" id="houdini-rag">
+  <div class="section-eye">Use Case</div>
+  <h2>Houdini RAG活用</h2>
+
+  <p>大規模言語モデルは「知識の鮮度」と「専門ドメインの正確性」という根本的な課題を抱える。Houdiniの場合、新しいノードを知らない・存在しないパラメータをハルシネーションする・バージョン間の情報混在といった問題が起きやすい。RAGはこれらを「検索して、それを根拠に生成する」アプローチで抑制する。</p>
+
+  <div class="callout callout-tip">
+    <p><strong>ゲーム開発での実用価値</strong></p>
+    <p>Houdini MCP でノードを自動配置する際のボトルネックは「存在しないノード・パラメータを指定してしまうこと」。Houdiniヘルプドキュメントをこのリポジトリの houdini21 Namespace としてインデックス化しておくことで、LLMは正確なノード名とパラメータ名を参照しながらHoudiniを操作できる。</p>
+  </div>
+
+  <h3>MCP設計思想 — 検索タイミングをLLMに委ねる</h3>
+  <p>MCPの重要な設計原則は「LLMはいつ検索すべきかを自分で判断する」という点。RAGの検索タイミングをLLMの推論に委ねることで、「まず何が必要かを考え、必要なノードをリストアップしてからヘルプを検索する」という2段階推論が自然に実現される。これは従来のパイプライン型RAG（検索→プロンプト構築→LLM呼び出しを1本道で固定実装する方式）にはない柔軟性。</p>
+
+  <h3>Claude Desktop への MCP 登録（現行構成）</h3>
+  <p>このリポジトリ単体で完結する現行構成では、外部リポジトリのクローンやWSL内サーバー起動は不要。<a href="#mcp-config">「Claude Desktop への登録」</a>の手順どおり <code>scripts/rag_mcp_server.py</code> を指定するだけでよい。</p>
+
+  <h3>使い方のコツ</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>問題</th><th>対策</th></tr></thead>
+      <tbody>
+        <tr><td>抽象的タスクで検索が失敗する</td><td>「必要なノードを列挙してから各ヘルプを検索して」と段階を踏ませる</td></tr>
+        <tr><td>回答がチャット欄に流れて追いにくい</td><td>「Markdownファイルに出力して」と明示する</td></tr>
+        <tr><td>検索スコアが低い・関係ない結果が混ざる</td><td>クエリに具体的なノード名・パラメータ名を含める（固有名詞は省略しない）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>確認問題</h3>
+  <div class="callout callout-note">
+    <p><strong>理解度チェック</strong></p>
+    <p>
+    1. multilingual-e5-largeで検索クエリに付与すべきプレフィックスは何か。<br>
+    2. コサイン類似度が0.0であることは2つのテキストがどのような関係にあることを示すか。<br>
+    3. HNSWアルゴリズムがブルートフォース検索より優れている点を計算量の観点で説明せよ。<br>
+    4. MCP環境でRAGを構成する利点を、従来のパイプライン型RAGと比較して説明せよ。<br>
+    5. このリポジトリでHTTPブリッジ経路がMCP/JSON-RPCを使わなくなった理由を説明せよ。
+    </p>
+  </div>
+</div>
+
+<!-- ===== UI実装 ===== -->
+<div class="section" id="ui-impl">
+  <div class="section-eye">UI Implementation</div>
+  <h2>UI実装（Unity / Houdini）</h2>
+
+  <p>LocalRAGへのアクセスはHTTPブリッジ（<code>rag_local_bridge.py</code>、<code>localhost:8766</code>）経由で行う。Unity・Houdiniのどちらも同じHTTP APIを叩くシンプルな構造で、外部ライブラリへの依存を最小限にしている。</p>
+
+  <h3>rag_local_bridge.py のエンドポイント設計</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>メソッド</th><th>パス</th><th>認証</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/health</code></td><td>不要</td><td>生存確認・総チャンク数取得</td></tr>
+        <tr><td>POST</td><td><code>/query</code></td><td>必須（<code>X-API-Key</code>）</td><td>検索クエリ実行</td></tr>
+        <tr><td>GET</td><td><code>/graph</code></td><td>必須</td><td>namespace別の関係グラフをJSONで取得</td></tr>
+        <tr><td>GET</td><td><code>/api/score</code></td><td>必須</td><td>ユーザーのトピック別理解度スコア取得</td></tr>
+        <tr><td>POST</td><td><code>/api/score</code></td><td>必須</td><td>理解度スコア更新（success true/falseで増減）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-note">
+    <p><strong>LocalRAGClient は in-process 直接呼び出し</strong></p>
+    <p><code>rag_local_bridge.py</code> 内の <code>LocalRAGClient</code> クラスは <code>rag_service.py</code> の <code>create_rag_service_from_env()</code> を直接 import して呼び出す。外部プロセスの起動やMCP通信は発生しない。HTTPリクエストを受けたハンドラがこのクライアントのメソッドを直接呼ぶだけのシンプルな構造。</p>
+  </div>
+
+  <h3>Unity エディタ拡張</h3>
+  <p>C# の <code>EditorWindow</code> + <code>HttpClient</code>（async/await）で実装する。<code>RAGClient.cs</code> が HTTPブリッジへの呼び出しを担当し、<code>RAGChatWindow.cs</code> がチャットUIを描画する。</p>
+
+  <div class="code-wrap">
+    <div class="code-label"><span class="win-tag">C#</span> RAGClient.cs — localhost:8766 呼び出し</div>
+    <pre><code><span class="kw">public class</span> <span class="fn">RAGClient</span>
+{
+    <span class="kw">private const string</span> Endpoint = <span class="str">"http://localhost:8766/query"</span>;
+    <span class="kw">private static readonly</span> HttpClient Http = <span class="kw">new</span>();
+
+    <span class="kw">public async</span> Task&lt;<span class="kw">string</span>&gt; <span class="fn">QueryAsync</span>(<span class="kw">string</span> query, <span class="kw">string</span> namespace_, <span class="kw">string</span> apiKey)
+    {
+        <span class="kw">var</span> req = <span class="kw">new</span> HttpRequestMessage(HttpMethod.Post, Endpoint);
+        req.Headers.<span class="fn">Add</span>(<span class="str">"X-API-Key"</span>, apiKey);
+        req.Content = <span class="kw">new</span> <span class="fn">StringContent</span>(
+            JsonConvert.<span class="fn">SerializeObject</span>(<span class="kw">new</span> { query, namespace_ }),
+            Encoding.UTF8, <span class="str">"application/json"</span>);
+
+        <span class="kw">var</span> res  = <span class="kw">await</span> Http.<span class="fn">SendAsync</span>(req);
+        <span class="kw">var</span> json = <span class="kw">await</span> res.Content.<span class="fn">ReadAsStringAsync</span>();
+        <span class="kw">return</span> json; <span class="cm">// 呼び出し側でチャンク配列をパース</span>
+    }
+}</code></pre>
+  </div>
+
+  <div class="callout callout-tip">
+    <p><strong>Tips: ホットキー登録</strong></p>
+    <p><code>SceneView.duringSceneGui</code> コールバックで <code>Shift+Q</code> を検知してウィンドウを開くと、作業中に素早くアクセスできる。</p>
+  </div>
+
+  <h3>Houdini Python UIパネル（PySide6）</h3>
+  <p>Houdiniの組み込みPythonには <code>requests</code> が入っていない環境が多いため、標準ライブラリの <code>urllib.request</code> のみで実装する。UIブロックを避けるため別スレッドでHTTPリクエストを行い、Qtシグナルで結果をメインスレッドに戻す。</p>
+
+  <div class="code-wrap">
+    <div class="code-label"><span class="env-tag">Python</span> panel.py — localhost:8766 呼び出し</div>
+    <pre><code><span class="kw">import</span> hou
+<span class="kw">import</span> urllib.request, json, threading
+<span class="kw">from</span> PySide6 <span class="kw">import</span> QtWidgets, QtCore
+
+BRIDGE_ENDPOINT = <span class="str">"http://localhost:8766/query"</span>
+
+<span class="kw">class</span> <span class="fn">RAGChatPanel</span>(QtWidgets.QDialog):
+    answer_received = QtCore.<span class="fn">Signal</span>(<span class="kw">str</span>)
+
+    <span class="kw">def</span> <span class="fn">__init__</span>(self):
+        <span class="fn">super()</span>.<span class="fn">__init__</span>(hou.qt.<span class="fn">mainWindow</span>())
+        self.<span class="fn">setWindowTitle</span>(<span class="str">"RAG Chat — Houdini"</span>)
+        self.answer_received.<span class="fn">connect</span>(self._on_answer)
+
+    <span class="kw">def</span> <span class="fn">_send</span>(self, query, namespace, api_key):
+        threading.<span class="fn">Thread</span>(
+            target=self._fetch, args=(query, namespace, api_key), daemon=<span class="kw">True</span>
+        ).<span class="fn">start</span>()
+
+    <span class="kw">def</span> <span class="fn">_fetch</span>(self, query, namespace, api_key):
+        <span class="kw">try</span>:
+            payload = json.<span class="fn">dumps</span>({<span class="str">"query"</span>: query, <span class="str">"namespace"</span>: namespace}).<span class="fn">encode</span>()
+            req = urllib.request.<span class="fn">Request</span>(
+                BRIDGE_ENDPOINT, data=payload,
+                headers={<span class="str">"Content-Type"</span>: <span class="str">"application/json"</span>,
+                         <span class="str">"X-API-Key"</span>: api_key}
+            )
+            <span class="kw">with</span> urllib.request.<span class="fn">urlopen</span>(req, timeout=<span class="val">30</span>) <span class="kw">as</span> r:
+                data = json.<span class="fn">loads</span>(r.<span class="fn">read</span>().<span class="fn">decode</span>())
+                self.answer_received.<span class="fn">emit</span>(json.<span class="fn">dumps</span>(data, ensure_ascii=<span class="val">False</span>))
+        <span class="kw">except</span> Exception <span class="kw">as</span> e:
+            self.answer_received.<span class="fn">emit</span>(<span class="str">f"エラー: {e}"</span>)
+
+    <span class="kw">def</span> <span class="fn">_on_answer</span>(self, text):
+        <span class="cm"># チャットビューに描画</span>
+        <span class="kw">pass</span></code></pre>
+  </div>
+
+  <div class="callout callout-tip">
+    <p><strong>外部ライブラリ不要の理由</strong></p>
+    <p><code>urllib.request</code> は標準ライブラリなので追加インストール不要でどのHoudiniでも動く。シェルフツールに <code>import rag_chat; rag_chat.show()</code> を登録するだけで呼び出せる。</p>
+  </div>
+
+  <div class="callout callout-warn">
+    <p><strong>タイムアウト設定</strong></p>
+    <p>埋め込み生成＋ChromaDB検索の処理時間は通常数百ms〜数秒だが、初回起動時はモデルロードが入るため長くなる。各クライアントのHTTPタイムアウトは<strong>30秒</strong>程度を確保すること。</p>
   </div>
 </div>
 
