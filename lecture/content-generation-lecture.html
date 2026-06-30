@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>コンテンツ動的生成 — 設計講義資料</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --bg3: #1c2128;
+  --surface: #21262d;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #7d8590;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --amber: #d29922;
+  --red: #f85149;
+  --purple: #bc8cff;
+  --teal: #39d353;
+  --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  --sans: 'Inter', 'Noto Sans JP', system-ui, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.75; }
+
+header {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 56px 40px 44px;
+}
+.header-inner { max-width: 860px; margin: 0 auto; }
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--purple);
+  margin-bottom: 16px;
+}
+header h1 {
+  font-size: clamp(24px, 4.5vw, 40px);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  margin-bottom: 14px;
+}
+header h1 .accent { color: var(--accent); }
+.header-desc { color: var(--muted); max-width: 560px; font-size: 14px; margin-bottom: 24px; }
+.meta-row { display: flex; gap: 20px; flex-wrap: wrap; font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.meta-row span { display: flex; align-items: center; gap: 5px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--purple); display: inline-block; }
+
+nav {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 0 40px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  overflow-x: auto;
+}
+nav ul { max-width: 860px; margin: 0 auto; display: flex; list-style: none; }
+nav a {
+  display: block;
+  padding: 12px 14px;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+nav a:hover { color: var(--text); border-color: var(--accent); }
+
+main { max-width: 860px; margin: 0 auto; padding: 0 40px 80px; }
+
+.section { padding: 52px 0 0; }
+.section-eye {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.section > h2 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+h3 { font-size: 15px; font-weight: 600; color: var(--accent); margin: 32px 0 10px; }
+p { color: var(--text); margin-bottom: 14px; font-size: 14px; }
+
+.step-group { margin: 20px 0; }
+.step { display: flex; gap: 0; margin-bottom: 2px; position: relative; }
+.step-rail { display: flex; flex-direction: column; align-items: center; width: 40px; flex-shrink: 0; }
+.step-badge {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--surface); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--accent);
+  flex-shrink: 0; margin-top: 10px; position: relative; z-index: 1;
+}
+.step-line { width: 1px; flex: 1; background: var(--border); margin-top: 4px; min-height: 20px; }
+.step:last-child .step-line { display: none; }
+.step-content { flex: 1; padding: 8px 0 24px 12px; }
+.step-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.step-body { font-size: 13px; color: var(--muted); }
+.step-body p { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+
+.code-wrap { margin: 10px 0 6px; }
+.code-label {
+  font-family: var(--mono); font-size: 10px; color: var(--muted);
+  letter-spacing: 0.06em; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;
+}
+.code-label .env-tag {
+  background: rgba(88,166,255,0.1); border: 1px solid rgba(88,166,255,0.25);
+  color: var(--accent); padding: 1px 6px; border-radius: 3px; font-size: 10px;
+}
+pre {
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+  padding: 14px 18px; overflow-x: auto; margin: 0;
+}
+pre code { font-family: var(--mono); font-size: 12.5px; line-height: 1.65; color: #adbac7; }
+.kw { color: #f47067; }
+.str { color: #96d0ff; }
+.cm { color: #636e7b; font-style: italic; }
+.fn { color: #dcbdfb; }
+.val { color: #6cb6ff; }
+.ok { color: var(--green); }
+
+.callout { border-radius: 6px; padding: 12px 16px; margin: 14px 0; font-size: 13px; border-left: 3px solid; }
+.callout-note { background: rgba(88,166,255,0.07); border-color: var(--accent); }
+.callout-warn { background: rgba(210,153,34,0.08); border-color: var(--amber); }
+.callout-tip  { background: rgba(63,185,80,0.07); border-color: var(--green); }
+.callout strong { font-weight: 600; }
+.callout p { margin: 0; color: var(--muted); }
+.callout p:first-child { color: var(--text); margin-bottom: 4px; }
+
+.tbl-wrap { overflow-x: auto; margin: 14px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  background: var(--surface); color: var(--muted); font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em; padding: 8px 14px; text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+.pri-hi { color: var(--red); font-weight: 600; }
+.pri-md { color: var(--amber); }
+.pri-lo { color: var(--muted); }
+
+.badge { display: inline-block; font-family: var(--mono); font-size: 10px; padding: 2px 7px; border-radius: 3px; font-weight: 500; }
+.badge-blue { background: rgba(88,166,255,0.12); color: var(--accent); border: 1px solid rgba(88,166,255,0.25); }
+.badge-green { background: rgba(63,185,80,0.1); color: var(--green); border: 1px solid rgba(63,185,80,0.25); }
+.badge-purple { background: rgba(188,140,255,0.1); color: var(--purple); border: 1px solid rgba(188,140,255,0.25); }
+.badge-amber { background: rgba(210,153,34,0.1); color: var(--amber); border: 1px solid rgba(210,153,34,0.25); }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 16px 0; }
+.card { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.card-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.card ul { font-size: 12px; color: var(--muted); padding-left: 14px; }
+.card li { margin-bottom: 4px; }
+
+.checklist { list-style: none; margin: 12px 0; }
+.checklist li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.checklist li::before { content: '□'; font-family: var(--mono); color: var(--border); flex-shrink: 0; margin-top: 1px; }
+
+.terminal { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 14px 0; }
+.terminal-bar { background: var(--surface); padding: 8px 14px; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--border); }
+.t-dot { width: 10px; height: 10px; border-radius: 50%; }
+.t-red { background: #ff5f57; }
+.t-yellow { background: #febc2e; }
+.t-green { background: #28c840; }
+.terminal-label { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: 6px; }
+.terminal pre { background: none; border: none; border-radius: 0; padding: 16px 18px; }
+.terminal pre code { color: #adbac7; }
+.prompt { color: var(--green); }
+.out { color: var(--muted); }
+
+hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+
+footer {
+  background: var(--bg2); border-top: 1px solid var(--border); padding: 28px 40px;
+  text-align: center; font-size: 12px; font-family: var(--mono); color: var(--muted);
+}
+footer a { color: var(--accent); text-decoration: none; }
+
+a { color: var(--accent); }
+code { font-family: var(--mono); font-size: 12px; background: var(--surface); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border); }
+
+.status-badge {
+  display: inline-block; font-family: var(--mono); font-size: 11px; padding: 3px 10px;
+  border-radius: 4px; font-weight: 600; letter-spacing: 0.04em;
+}
+.status-design { background: rgba(210,153,34,0.12); color: var(--amber); border: 1px solid rgba(210,153,34,0.3); }
+.status-notstarted { background: rgba(125,133,144,0.12); color: var(--muted); border: 1px solid rgba(125,133,144,0.3); }
+
+@media (max-width: 640px) {
+  header, nav { padding-left: 20px; padding-right: 20px; }
+  main { padding: 0 20px 60px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="eyebrow"><span class="dot"></span> Design Doc · Content Generation · 設計中</div>
+    <h1>コンテンツ動的生成<br><span class="accent">RAG × エージェントループによる成果物生成</span></h1>
+    <p class="header-desc">
+      RAGチャットボットの次段階として、検索した知識をもとにLLMが実際にツールを操作しながら検証済みの成果物を作るエージェントループの設計。
+      houdini21（Houdiniチュートリアル自動生成）と BrainTQ（ミニゲーム動的生成）を「コンテンツ動的生成」という1トピックで扱う。
+    </p>
+    <div class="meta-row">
+      <span>ステータス: 設計中（実装未着手）</span>
+      <span>houdini21: 設計確定</span>
+      <span>BrainTQ: 設計開始前</span>
+      <span>Updated: 2026-06-30</span>
+    </div>
+  </div>
+</header>
+
+<nav>
+  <ul>
+    <li><a href="#overview">概要</a></li>
+    <li><a href="#houdini-arch">houdini21: 全体構成</a></li>
+    <li><a href="#houdini-tools">houdini21: ツールスキーマ</a></li>
+    <li><a href="#houdini-loop">houdini21: エージェントループ</a></li>
+    <li><a href="#houdini-graph">houdini21: ノードグラフビュー</a></li>
+    <li><a href="#houdini-safety">houdini21: 安全設計</a></li>
+    <li><a href="#braintq">BrainTQ（設計中）</a></li>
+    <li><a href="#common">共通の設計判断</a></li>
+  </ul>
+</nav>
+
+<main>
+
+<!-- ===== 概要 ===== -->
+<div class="section" id="overview">
+  <div class="section-eye">Overview</div>
+  <h2>概要</h2>
+
+  <p>
+    これまでのRAGチャットボットは「質問 → 検索 → 回答」の1往復で完結していた。コンテンツ動的生成はこれを発展させ、
+    RAGで取得した知識をもとに <strong>LLMが実際にツールを操作しながら検証済みの成果物を作る</strong> エージェントループに踏み込む。
+  </p>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th></th><th>houdini21</th><th>BrainTQ</th></tr></thead>
+      <tbody>
+        <tr><td>生成対象</td><td>Houdiniノードグラフ＋ステップバイステップのチュートリアル</td><td>ミニゲーム（詳細は設計中）</td></tr>
+        <tr><td>操作対象</td><td>Houdini（<code>hou</code>モジュール）</td><td>未定</td></tr>
+        <tr><td>検証手段</td><td>cookエラーの自己修正ループ</td><td>未定</td></tr>
+        <tr><td>状態</td><td><span class="status-badge status-design">設計確定・実装着手前</span></td><td><span class="status-badge status-notstarted">設計開始前</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-note">
+    <p>2つを1つのドキュメントにまとめている理由</p>
+    <p>houdini21とBrainTQは「対象ドメイン」も「操作対象」も異なるが、いずれも「RAG検索 → エージェントループ → 検証 → 知識ベースへの還流」という共通の骨格を持つ。モデル選定・コスト管理・検証フローなどの設計判断（<a href="#common">4章</a>）は両者で共有する。</p>
+  </div>
+</div>
+
+<!-- ===== houdini21: 全体構成 ===== -->
+<div class="section" id="houdini-arch">
+  <div class="section-eye">houdini21 · Section 01</div>
+  <h2>houdini21 — Houdiniチュートリアル自動生成：全体構成</h2>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">アーキテクチャ全体図</span></div>
+    <pre><code>Houdiniチャットパネル（rag_chatbot.py）に「チュートリアル生成」モード追加
+  │
+  ├─ ① RAG検索: houdini21 namespace から関連ドキュメント取得
+  │
+  ├─ ② エージェントループ（Claude Sonnet 4.6 + Tool Use）
+  │     - houdini_tools.py（hou モジュールのラッパー）
+  │     - サンドボックスサブネット内でのみノード操作
+  │     - cookエラーを自己修正ループにフィードバック（最大25回）
+  │     - プロンプトキャッシュ：システムプロンプト＋ツール定義＋RAGコンテキストを
+  │       cache_control で固定し、繰り返しコストを抑制
+  │
+  ├─ ③ 生成完了後、ノード構成を NodeGraphAsset 形式の JSON にエクスポート
+  │     （hou.node()を辿ってnodes/edges/params/positionを抽出）
+  │
+  ├─ ④ チャット上でMarkdownチュートリアルをプレビュー → ユーザーが保存確認
+  │
+  └─ ⑤ 保存先：
+        localRAG/tutorials/&lt;slug&gt;_&lt;date&gt;.md   （チュートリアル本文）
+        localRAG/tutorials/&lt;slug&gt;_&lt;date&gt;.json （ノードグラフ、可視化用）</code></pre>
+  </div>
+
+  <h3>新規コンポーネント</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+      <tbody>
+        <tr><td><code>houdini/python_panels/houdini_tools.py</code></td><td><code>hou</code>モジュールのラッパー。create_node・set_parameter・connect_nodes・cook_node・delete_node・list_available_node_types・get_node_info・finish_tutorialをAnthropic tool-use形式で定義</td></tr>
+        <tr><td><code>houdini/python_panels/tutorial_agent.py</code></td><td>RAG検索→エージェントループ→Markdown保存のオーケストレーター</td></tr>
+        <tr><td><code>rag_chatbot.py</code>への追加</td><td>「チュートリアル生成」モード／<code>/tutorial</code>コマンド。進行状況をリアルタイム表示</td></tr>
+        <tr><td>ノードグラフJSONエクスポーター</td><td>完成したノード構成をNodeGraphAsset互換のJSONへ変換</td></tr>
+        <tr><td>「過去のチュートリアル」タブ</td><td>保存済みチュートリアル一覧 → 選択するとノードグラフを<code>QGraphicsView</code>で表示</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== houdini21: ツールスキーマ ===== -->
+<div class="section" id="houdini-tools">
+  <div class="section-eye">houdini21 · Section 02</div>
+  <h2>ツールスキーマ（houdini_tools.py）</h2>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>ツール</th><th>役割</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge-blue">create_node</span></td><td>サンドボックス内にノード作成</td></tr>
+        <tr><td><span class="badge badge-blue">set_parameter</span></td><td>パラメータ設定</td></tr>
+        <tr><td><span class="badge badge-blue">connect_nodes</span></td><td>ノード間接続</td></tr>
+        <tr><td><span class="badge badge-amber">cook_node</span></td><td>実行してエラー/警告を取得（自己修正の起点）</td></tr>
+        <tr><td><span class="badge badge-green">list_available_node_types</span></td><td>正確なノードタイプ名を検索（Claudeの記憶違い防止）</td></tr>
+        <tr><td><span class="badge badge-green">get_node_info</span></td><td>既存ノードの状態確認</td></tr>
+        <tr><td><span class="badge badge-purple">delete_node</span></td><td>クリーンアップ用</td></tr>
+        <tr><td><span class="badge badge-purple">finish_tutorial</span></td><td>ループ終了シグナル</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-warn">
+    <p><strong>なぜ list_available_node_types が必要か</strong></p>
+    <p>Houdiniのノードタイプ名はバージョン依存の正確な文字列が必要（例: <code>mountain</code> ではなく <code>mountain::2.0</code>）。Claudeが記憶だけで呼ぶと失敗しやすいため、houdini21のRAGドキュメントと組み合わせて正確なタイプ名を検索させ精度を上げる。</p>
+  </div>
+</div>
+
+<!-- ===== houdini21: エージェントループ ===== -->
+<div class="section" id="houdini-loop">
+  <div class="section-eye">houdini21 · Section 03</div>
+  <h2>エージェントループ（疑似コード）</h2>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">tutorial_agent.py — 疑似コード</span></div>
+    <pre><code><span class="fn">sandbox</span> = create_sandbox_subnet()  <span class="cm"># /obj/ai_tutorial_&lt;timestamp&gt; 既存シーンを保護</span>
+<span class="fn">rag_context</span> = query_rag(namespace=<span class="str">"houdini21"</span>, query=user_request)
+
+<span class="fn">messages</span> = [system_prompt(rag_context, sandbox_path), user_request]
+<span class="fn">step_log</span> = []
+
+<span class="kw">for</span> i <span class="kw">in</span> range(MAX_ITER):  <span class="cm"># 例: 25回</span>
+    response = anthropic.messages.create(
+        model=<span class="str">"claude-sonnet-4-6"</span>, tools=HOUDINI_TOOLS, messages=messages
+    )
+    <span class="kw">if</span> tool_use_blocks:
+        <span class="kw">for</span> block <span class="kw">in</span> tool_use_blocks:
+            result = execute_tool(block.name, block.input, sandbox)  <span class="cm"># houdini_tools.py</span>
+            step_log.append({tool, input, result})
+            messages.append(tool_result(block.id, result))
+    <span class="kw">elif</span> finish_tutorial_called <span class="kw">or</span> text_only_response:
+        <span class="kw">break</span>
+
+tutorial_md = assemble_markdown(step_log, claude_explanation, rag_sources)
+show_preview_in_chat(tutorial_md)  <span class="cm"># ユーザーが「保存」を押したら localRAG/tutorials/ へ</span>
+node_graph_json = export_node_graph(sandbox)  <span class="cm"># NodeGraphAsset形式</span></code></pre>
+  </div>
+
+  <h3>cookエラーの自己修正ループ</h3>
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">Claude がツールを呼び出してノードを作成・設定</div>
+        <div class="step-body"><p>例: <code>create_node</code> → <code>set_parameter</code> → <code>connect_nodes</code></p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title"><code>cook_node</code> でエラー・警告を取得</div>
+        <div class="step-body"><p>パラメータ名の誤り・型不一致・未接続入力などがここで検出される</p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">3</div></div>
+      <div class="step-content">
+        <div class="step-title">エラーをツール結果としてClaudeに返す → 自己修正</div>
+        <div class="step-body"><p>Claudeがエラーメッセージを読んで原因を特定し、別のツール呼び出しで修正する。これを反復上限（25回）まで繰り返す</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== houdini21: ノードグラフビュー ===== -->
+<div class="section" id="houdini-graph">
+  <div class="section-eye">houdini21 · Section 04</div>
+  <h2>ノードグラフビュー</h2>
+
+  <p>
+    <code>Node-Management</code>（<code>GameDevelopment\Graduation\Node-Management</code>、Blenderノードグラフの保存・可視化ツール）の設計を転用する。
+  </p>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Node-Management（Blender）</th><th>Houdini版への転用</th></tr></thead>
+      <tbody>
+        <tr><td><code>types/nodeGraph.ts</code>のNodeGraphAsset（nodes/edges/params/position）</td><td>ほぼそのままHoudini版スキーマとして使う（<code>kind</code>=<code>node.type().name()</code>、<code>params</code>=<code>node.parms()</code>）</td></tr>
+        <tr><td><code>blender-addon/exporter.py</code>（手動でクリップボードエクスポート）</td><td><code>tutorial_agent.py</code>が生成完了後に自動でJSON化（手動操作不要）</td></tr>
+        <tr><td><code>GraphViewer.tsx</code>（React Flow、color_tagでヘッダー色分け）</td><td>Houdiniパネル（PySide6）の新タブで<code>QGraphicsView</code>を使い、同じ配色思想で実装（既存の<code>graph_view.py</code>が文書関係グラフで<code>QGraphicsView</code>を使っており実装パターンを流用可能）</td></tr>
+        <tr><td>SQLite + Webアプリ</td><td>不要。<code>localRAG/tutorials/&lt;slug&gt;_&lt;date&gt;.json</code>として保存するだけで十分</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout callout-tip">
+    <p>品質チェックの手段にもなる</p>
+    <p>生成されたチュートリアルが「本当に動くノード構成だったか」を後から視覚的に確認できるため、パイロット検証（<a href="#common">4.3</a>）でも活用する。</p>
+  </div>
+</div>
+
+<!-- ===== houdini21: 安全設計 ===== -->
+<div class="section" id="houdini-safety">
+  <div class="section-eye">houdini21 · Section 05</div>
+  <h2>サンドボックス化・安全設計</h2>
+
+  <ul class="checklist">
+    <li>ユーザーの既存シーンを壊さないよう、<code>/obj/ai_tutorial_&lt;timestamp&gt;</code> のような専用サブネット内でのみノード作成・操作を行う</li>
+    <li>生成完了後もサンドボックスは残す（ユーザーが結果を直接確認できるように）。明示的に「削除」操作をチャット上で選べるようにする</li>
+    <li>反復上限は25回（コスト・暴走防止）。超えたら「途中までの状態」を提示して打ち切り</li>
+    <li>保存先ファイル名は <code>localRAG/tutorials/&lt;slug&gt;_&lt;日付&gt;.md</code></li>
+  </ul>
+</div>
+
+<!-- ===== BrainTQ ===== -->
+<div class="section" id="braintq">
+  <div class="section-eye">Section 06</div>
+  <h2>BrainTQ — ミニゲーム動的生成 <span class="status-badge status-notstarted">設計中</span></h2>
+
+  <p>未着手。houdini21の設計が確定し次第、同様の形式で詰める。</p>
+</div>
+
+<!-- ===== 共通の設計判断 ===== -->
+<div class="section" id="common">
+  <div class="section-eye">Section 07</div>
+  <h2>共通の設計判断</h2>
+
+  <h3>モデル選定</h3>
+  <p>ツール呼び出しを伴うエージェントループには、単発チャット（現状Haiku使用）より高度な推論が必要なため <strong>Claude Sonnet 4.6</strong> を使用する。</p>
+
+  <h3>コスト見積もり（houdini21の試算、参考値）</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>構成要素</th><th>概算トークン数</th></tr></thead>
+      <tbody>
+        <tr><td>システムプロンプト＋ツール定義8個</td><td>約1,300</td></tr>
+        <tr><td>RAG検索コンテキスト（1トピック分）</td><td>約2,000</td></tr>
+        <tr><td>1ツール呼び出し往復（Claude応答＋ツール結果）</td><td>約250〜500</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>15ステップ程度の生成タスクで、<strong>プロンプトキャッシュなしの場合は概算8万トークン・$0.25〜0.35/回</strong>程度（Sonnet 4.6: $3/$15 per 1M tokens換算）。会話履歴を毎ターン再送する構造上、ステップ数に対してほぼ線形〜やや超線形に増える。</p>
+
+  <div class="callout callout-warn">
+    <p><strong>プロンプトキャッシュ（cache_control）は必須</strong></p>
+    <p>固定部分（システムプロンプト・ツール定義・RAGコンテキスト）をキャッシュすれば、2回目以降のターンはこの部分が約1/10のコストになる。体感3〜4割のコスト削減が見込めるが、実測での検証が必要。</p>
+  </div>
+
+  <div class="callout callout-note">
+    <p>上記はいずれも設計段階の見積もり</p>
+    <p>実測値ではない。実装後にパイロット実行で検証すること。</p>
+  </div>
+
+  <h3>検証フロー</h3>
+  <p>実装が一通り動いたら、難易度の異なる2〜3個の生成タスクでパイロット実行し、以下を同時に確認する：</p>
+  <ul class="checklist">
+    <li><strong>トークン消費の実測値</strong>（見積もりとの乖離を確認）</li>
+    <li><strong>生成品質</strong>（houdini21の場合：ノードグラフが実際に正しく動くか／cookエラーなく完成するか）</li>
+    <li><strong>自己修正ループの収束性</strong>（cookエラーから何往復で収束するか。収束しないと反復上限に張り付いてコストだけ膨らむ）</li>
+  </ul>
+  <p>この検証結果をもとに、モデル選定（Sonnet継続 or Opus検討）・反復上限・プロンプト設計を再調整する。</p>
+
+  <h3>保存先と知識ベースへの還流</h3>
+  <p>
+    生成された成果物（houdini21のチュートリアル等）は<code>localRAG/</code>配下に保存することで、watchdogによる自動インデックス化の対象になる。
+    つまり <strong>生成したコンテンツがそのまま将来のRAG検索資産になる</strong> という自己拡張するフィードバックループを持つ。BrainTQの設計でも同様の還流構造を検討する。
+  </p>
+</div>
+
+</main>
+
+<footer>
+  <p>
+    コンテンツ動的生成 設計講義資料 · houdini21 / BrainTQ ·
+    Updated: 2026-06-30
+  </p>
+</footer>
+
+</body>
+</html>

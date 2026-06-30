@@ -135,15 +135,17 @@ DevelopmentRAGEnvironment/
 │   ├── delete_non_txt.py              # .txt 以外のファイルを削除
 │   └── sync_houdini21_db.py            # ★ Notion houdini21DB → localRAG/houdini21/ 同期
 │
-├── docs/                               # 設計・セットアップ・用語・ライセンスドキュメント（4種に統合済み）
+├── docs/                               # 設計・セットアップ・用語・ライセンスドキュメント
 │   ├── cloud-rag.md                    # クラウド RAG 設計・セットアップ（旧 cloud-rag-setup.md + rag-system-design.md統合）
 │   ├── local-rag.md                    # ローカル RAG 設計・セットアップ（旧 local-rag-setup.md 等7ファイル統合）
+│   ├── content-generation.md           # ★ コンテンツ動的生成 設計ドキュメント（houdini21 / BrainTQ、設計中）
 │   ├── terminology.md                  # 技術・用語解説
 │   └── license-compliance.md           # ライセンス・権利関連
 │
-├── lecture/                            # 講義資料（HTML、4種に統合済み）
+├── lecture/                            # 講義資料（HTML）
 │   ├── cloud-rag-lecture.html          # ★ クラウド RAG 講義（コサイン類似度・Spring Layoutのcanvasアニメーション付き）
 │   ├── local-rag-lecture.html          # ★ ローカル RAG 講義（内部構造・新規ドキュメント追加ガイド等を統合、チャンク分割のcanvasアニメーション付き）
+│   ├── content-generation-lecture.html # ★ コンテンツ動的生成 設計講義資料（houdini21 / BrainTQ、設計中）
 │   ├── terminology.html                # 用語解説（講義版）
 │   └── license-compliance.html         # ライセンス解説（講義版）
 │
