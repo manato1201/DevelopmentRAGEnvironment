@@ -1352,6 +1352,20 @@ TextEncodeInput must be Union[TextInputSequence, ...]</code></pre>
     Claude Desktop: タスクトレイから完全終了 → 再起動<br>
     <code>rag_local_bridge.py</code>: プロセスを再起動</p>
   </div>
+
+  <h3>全部クリアしてやり直したい（完全リセット）</h3>
+  <p style="font-size:13px;color:var(--muted)"><code>data\chroma</code> だけでなく <code>file_registry.json</code>（差分インデックスの管理ファイル）も削除しないと、再インデックス時に「差分なし」と判定されファイルが再取り込みされない点に注意。</p>
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — 完全リセット手順</span></div>
+    <pre><code><span class="cm"># 1. ChromaDBデータを削除</span>
+<span class="prompt">PS></span> Remove-Item -Recurse -Force "data\chroma"
+
+<span class="cm"># 2. file_registry.json（差分管理ファイル）を削除</span>
+<span class="prompt">PS></span> Remove-Item -Force "localRAG\_rag_dashboard\.processed\file_registry.json"
+
+<span class="cm"># 3. フルインデックスで再構築</span>
+<span class="prompt">PS></span> uv run python scripts\rag_cli.py index</code></pre>
+  </div>
 </div>
 
 </main>
