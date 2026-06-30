@@ -2,11 +2,12 @@
 """
 rag_local_bridge.py — Local RAG HTTP Bridge（認証・アクセス制御対応版）
 
-mcp-rag-server (JSON-RPC stdio) + Claude API を
+RAGService（このリポジトリ内で完結する検索エンジン）+ Claude API を
 Unity/Houdini 向け HTTP API として公開する薄いブリッジ。
+外部リポジトリ（mcp-rag-server）への依存はなし。
 
 Usage:
-    python scripts/rag_local_bridge.py [--port 8766] [--mcp-dir PATH]
+    python scripts/rag_local_bridge.py [--port 8766]
 
 Env:
     ANTHROPIC_API_KEY  必須（.env 非使用）
@@ -35,7 +36,6 @@ from pathlib import Path
 
 # ─── デフォルト設定 ─────────────────────────────────────────────────────────────
 DEFAULT_PORT    = 8766
-DEFAULT_MCP_DIR = str(Path(__file__).parent.parent.parent / "mcp-rag-server")
 GRAPH_EXPORT_SCRIPT = Path(__file__).parent / "rag_graph_export.py"
 CLAUDE_MODEL    = "claude-haiku-4-5-20251001"
 GEMINI_MODEL    = "gemini-2.5-flash"
@@ -84,87 +84,86 @@ _pep = RAGPolicyEnforcementPoint() if _PEP_AVAILABLE else None
 _score_engine = UnderstandingScoreEngine(Path(__file__).parent.parent / "data" / "auth.db") if _SCORE_AVAILABLE else None
 
 
-# ─── MCP クライアント ────────────────────────────────────────────────────────────
-class MCPClient:
-    """mcp-rag-server (stdio JSON-RPC 2.0) の薄いラッパー"""
+# ─── RAG クライアント ────────────────────────────────────────────────────────────
+class LocalRAGClient:
+    """
+    RAGService を直接 import して呼び出すクライアント。
+
+    以前は mcp-rag-server を別プロセス（stdio JSON-RPC 2.0）として起動して
+    いたが、検索エンジン一式（document_processor / embedding_generator /
+    vector_database / rag_service）をこのリポジトリに取り込んだことで、
+    プロセス内で直接呼び出せるようになった。外部リポジトリへの依存はゼロ。
+
+    search() の戻り値（テキストのリスト）は旧 mcp-rag-server の
+    search_handler が返していたフォーマットと互換にしてある
+    （"ファイル:" 行を含む）。下流の namespace フィルタ処理
+    （_filter_texts_by_namespaces / _extract_sources）が
+    このフォーマットに依存しているため。
+    """
 
     def __init__(self, server_dir: Path) -> None:
-        self.server_dir = server_dir
-        self._proc: subprocess.Popen | None = None
+        self.server_dir = server_dir  # 互換性のため保持（_handle_graph 等で参照）
+        self._rag_service = None
         self._lock = threading.Lock()
-        self._id   = 0
-
-    def _next_id(self) -> int:
-        self._id += 1
-        return self._id
-
-    def _send(self, obj: dict) -> None:
-        line = json.dumps(obj, ensure_ascii=False) + "\n"
-        self._proc.stdin.write(line)
-        self._proc.stdin.flush()
-
-    def _recv(self) -> dict:
-        line = self._proc.stdout.readline()
-        if not line:
-            raise RuntimeError("mcp-rag-server が予期せず終了しました")
-        return json.loads(line)
 
     def start(self) -> None:
-        self._proc = subprocess.Popen(
-            ["uv", "run", "python", "-m", "src.main"],
-            cwd=str(self.server_dir),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            encoding="utf-8",
-            bufsize=1,
-        )
-        self._send({
-            "jsonrpc": "2.0", "id": self._next_id(), "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "clientInfo": {"name": "rag-local-bridge", "version": "2.0"},
-            },
-        })
-        self._recv()
-        self._send({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
-        print("[bridge] mcp-rag-server 起動完了", flush=True)
+        from rag_service import create_rag_service_from_env
+        self._rag_service = create_rag_service_from_env()
+        print("[bridge] RAGService 起動完了（ローカル直接呼び出し）", flush=True)
 
     def stop(self) -> None:
-        if self._proc:
-            self._proc.terminate()
-            self._proc = None
+        self._rag_service = None
 
     def is_alive(self) -> bool:
-        return self._proc is not None and self._proc.poll() is None
+        return self._rag_service is not None
 
     def search(self, query: str, limit: int = 5) -> list[str]:
+        if self._rag_service is None:
+            raise RuntimeError("RAGService が起動していません")
+
         with self._lock:
-            self._send({
-                "jsonrpc": "2.0", "id": self._next_id(), "method": "tools/call",
-                "params": {
-                    "name": "search",
-                    "arguments": {"query": query, "limit": limit, "with_context": True},
-                },
-            })
-            resp = self._recv()
-        content = resp.get("result", {}).get("content", [])
-        return [c["text"] for c in content if c.get("type") == "text"]
+            doc_count = self._rag_service.get_document_count()
+            if doc_count == 0:
+                return [
+                    "インデックスにドキュメントが存在しません。"
+                    "`uv run python scripts/rag_cli.py index` を使用してドキュメントをインデックス化してください。"
+                ]
+
+            results = self._rag_service.search(query, limit, with_context=True, context_size=1)
+
+        if not results:
+            return [f"クエリ '{query}' に一致する結果が見つかりませんでした"]
+
+        file_groups: dict[str, list[dict]] = {}
+        for result in results:
+            file_groups.setdefault(result["file_path"], []).append(result)
+        for fp in file_groups:
+            file_groups[fp].sort(key=lambda x: x["chunk_index"])
+
+        texts = [f"クエリ '{query}' の検索結果（{len(results)} 件）:"]
+        for i, (file_path, group) in enumerate(file_groups.items()):
+            file_name = os.path.basename(file_path)
+            texts.append(f"\n[{i + 1}] ファイル: {file_name}")
+            for result in group:
+                similarity_percent = result.get("similarity", 0) * 100
+                is_context = result.get("is_context", False)
+                is_full_document = result.get("is_full_document", False)
+                if is_full_document:
+                    texts.append(f"\n+++ ドキュメント全文（チャンク {result['chunk_index']}) +++\n{result['content']}")
+                elif is_context:
+                    texts.append(f"\n--- 前後のコンテキスト（チャンク {result['chunk_index']}) ---\n{result['content']}")
+                else:
+                    texts.append(
+                        f"\n=== 検索ヒット（チャンク {result['chunk_index']}, 類似度: {similarity_percent:.2f}%) ===\n"
+                        f"{result['content']}"
+                    )
+        return texts
 
     def get_document_count(self) -> int:
+        if self._rag_service is None:
+            return 0
         with self._lock:
-            self._send({
-                "jsonrpc": "2.0", "id": self._next_id(), "method": "tools/call",
-                "params": {"name": "get_document_count", "arguments": {}},
-            })
-            resp = self._recv()
-        content = resp.get("result", {}).get("content", [])
-        if content:
-            for word in content[0].get("text", "").split():
-                if word.isdigit():
-                    return int(word)
-        return 0
+            return self._rag_service.get_document_count()
 
 
 # ─── namespace フィルタリング ────────────────────────────────────────────────────
@@ -300,7 +299,7 @@ def _read_static(filename: str) -> bytes | None:
 # ─── HTTP ハンドラ ────────────────────────────────────────────────────────────────
 class BridgeHandler(BaseHTTPRequestHandler):
 
-    mcp:  MCPClient   # start() 後にセット
+    mcp:  LocalRAGClient   # start() 後にセット
     auth: "AuthManager | None" = None  # 認証マネージャー
     audit: "RAGAuditLogger | None" = None  # 監査ロガー
 
@@ -468,7 +467,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         count = self.mcp.get_document_count() if alive else 0
         self._send_json(200 if alive else 503, {
             "status": "ok" if alive else "error",
-            "server": "mcp-rag-server",
+            "server": "rag-service-local",
             "total_chunks": count,
             "auth_enabled": _AUTH_AVAILABLE and self.auth is not None,
         })
@@ -476,8 +475,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def _handle_graph(self, user: dict) -> None:
         try:
             result = subprocess.run(
-                ["uv", "run", "--directory", str(self.mcp.server_dir),
-                 "python", str(GRAPH_EXPORT_SCRIPT), str(self.mcp.server_dir)],
+                ["uv", "run", "python", str(GRAPH_EXPORT_SCRIPT)],
+                cwd=str(Path(__file__).parent.parent),
                 capture_output=True, text=True, timeout=90,
             )
             if result.returncode != 0:
@@ -571,7 +570,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "query は必須です"})
             return
         if not self.mcp.is_alive():
-            self._send_json(503, {"error": "mcp-rag-server が起動していません"})
+            self._send_json(503, {"error": "RAGService が起動していません"})
             return
 
         allowed = user.get("allowed_namespaces", [])
@@ -684,20 +683,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
 def main() -> None:
     parser = argparse.ArgumentParser(description="Local RAG HTTP Bridge v2")
     parser.add_argument("--port",    type=int, default=DEFAULT_PORT)
-    parser.add_argument("--mcp-dir", default=DEFAULT_MCP_DIR)
     parser.add_argument("--no-auth", action="store_true",
                         help="認証を無効化（開発用）")
     args = parser.parse_args()
 
-    mcp_dir = Path(args.mcp_dir)
-    if not mcp_dir.exists():
-        print(f"[bridge] エラー: mcp-rag-server が見つかりません: {mcp_dir}", file=sys.stderr)
-        sys.exit(1)
-
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print("[bridge] 警告: ANTHROPIC_API_KEY が未設定です。", file=sys.stderr)
 
-    mcp = MCPClient(mcp_dir)
+    mcp = LocalRAGClient(Path(__file__).parent.parent)
     mcp.start()
     BridgeHandler.mcp = mcp
 

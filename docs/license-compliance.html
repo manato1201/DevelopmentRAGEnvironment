@@ -180,7 +180,7 @@
       <th>上限</th>
       <th>リスク</th>
     </tr>
-    <tr><td>mcp-rag-server</td><td>MIT</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
+    <tr><td>ベンダー統合コード（旧 mcp-rag-server 由来）</td><td>MIT</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
     <tr><td>MCP SDK (Anthropic)</td><td>MIT</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
     <tr><td>ChromaDB</td><td>Apache 2.0</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
     <tr><td>multilingual-e5-large</td><td>MIT</td><td class="ok">○</td><td class="ok">○</td><td class="ok">不要</td><td class="ok">なし</td><td class="risk-low">低</td></tr>
@@ -198,12 +198,12 @@
     <tr><td>Notion API</td><td>利用規約</td><td class="ok">○</td><td>—</td><td>—</td><td class="warn">レート制限あり</td><td class="risk-low">低</td></tr>
   </table>
 
-  <!-- ── mcp-rag-server ── -->
+  <!-- ── ベンダー統合コード（旧 mcp-rag-server 由来） ── -->
   <h2>ツール別詳細</h2>
 
   <div class="tool-card">
     <div class="tool-header">
-      <span class="tool-name">mcp-rag-server</span>
+      <span class="tool-name">ベンダー統合コード（旧 mcp-rag-server 由来）</span>
       <span class="license-badge license-mit">MIT</span>
     </div>
     <div class="tag-grid">
@@ -212,12 +212,13 @@
       <span class="tag ok">ソース開示不要</span>
       <span class="tag ok">ユーザー上限なし</span>
     </div>
+    <p><a href="https://github.com/karaage0703/mcp-rag-server" target="_blank">karaage0703/mcp-rag-server</a> の検索エンジンコードを本リポジトリに直接取り込み（ベンダー統合）、<code>scripts/document_processor.py</code> / <code>scripts/embedding_generator.py</code> / <code>scripts/rag_service.py</code> / <code>scripts/mcp_server.py</code> 等として同梱しています（2026-06-30、外部リポジトリ依存を解消）。「外部ツールへの依存」ではなく「自社コードに組み込んだサードパーティ由来のコード」という扱いになります。</p>
     <pre>MIT License
 Copyright (c) 2025 karaage
 
 配布時のみ: この著作権表示・LICENSEファイルの同梱が必要</pre>
-    <p>内部ツールとして使うだけなら著作権表示の義務もなし。商用製品への組み込み・改造・再販もすべて可能。</p>
-    <h3>依存パッケージ（すべて許容的ライセンス）</h3>
+    <p>内部ツールとして使うだけなら著作権表示の義務もなし。商用製品への組み込み・改造・再販もすべて可能。コードをコピーして改変しても、MIT である限りソース開示義務は発生しない。</p>
+    <h3>依存パッケージ（すべて許容的ライセンス、pyproject.toml で直接宣言）</h3>
     <table>
       <tr><th>パッケージ</th><th>ライセンス</th><th>コピーレフト</th></tr>
       <tr><td>sentence-transformers</td><td>Apache 2.0</td><td class="ok">なし</td></tr>
@@ -226,12 +227,12 @@ Copyright (c) 2025 karaage
       <tr><td>sudachipy / sudachidict-core</td><td>Apache 2.0</td><td class="ok">なし</td></tr>
       <tr><td>rank-bm25</td><td>Apache 2.0</td><td class="ok">なし</td></tr>
       <tr><td>numpy</td><td>BSD 3-Clause</td><td class="ok">なし</td></tr>
-      <tr><td>python-dotenv</td><td>BSD 3-Clause</td><td class="ok">なし</td></tr>
       <tr><td>mcp (Anthropic MCP SDK)</td><td>MIT</td><td class="ok">なし</td></tr>
       <tr><td>pydantic</td><td>MIT</td><td class="ok">なし</td></tr>
       <tr><td>watchdog</td><td>Apache 2.0</td><td class="ok">なし</td></tr>
     </table>
     <p style="margin-top:12px; color: var(--green); font-weight:600;">⟹ GPL/AGPL 含むパッケージはゼロ。ソース開示義務は一切発生しない。</p>
+    <p style="margin-top:8px; font-size: 0.9em;">注: 本プロジェクトは <code>.env</code> / <code>load_dotenv()</code> を使用しない方針のため、<code>python-dotenv</code> は依存に含まれません。</p>
   </div>
 
   <div class="tool-card">
@@ -246,7 +247,7 @@ Copyright (c) 2025 karaage
     </div>
     <pre>MIT License
 Copyright (c) 2024 Anthropic, PBC</pre>
-    <p>mcp-rag-server が内部で使う <code>mcp[cli]</code> ライブラリ。MIT なので完全に自由に使える。</p>
+    <p><code>scripts/mcp_server.py</code> / <code>scripts/rag_mcp_server.py</code> が内部で使う <code>mcp[cli]</code> ライブラリ。MIT なので完全に自由に使える。</p>
   </div>
 
   <div class="tool-card">
@@ -443,7 +444,7 @@ https://www.qt.io/licensing/</pre>
   <p>ソフトウェアを外部に配布・販売する場合、以下を <code>NOTICES</code> ファイルか製品のライセンス画面に含めてください。</p>
   <pre>This product includes the following open-source software:
 
-mcp-rag-server
+ベンダー統合コード（旧 mcp-rag-server 由来、scripts/document_processor.py 等）
   MIT License - Copyright (c) 2025 karaage
 
 MCP SDK
@@ -469,7 +470,7 @@ D3.js
   <div class="conclusion-box">
     <div class="big">✅ OSS スタックは商用利用に問題なし</div>
     <p>
-      mcp-rag-server・ChromaDB・MCP SDK・multilingual-e5-large などコア技術はすべて MIT / Apache 2.0。<br>
+      ベンダー統合コード（旧 mcp-rag-server 由来）・ChromaDB・MCP SDK・multilingual-e5-large などコア技術はすべて MIT / Apache 2.0。<br>
       <strong>自社コードのソース開示が義務になるケースは現在の構成では発生しない。</strong><br><br>
       要対応は <strong>Houdini の有償ライセンス移行</strong> と <strong>Gemini の Vertex AI 移行</strong> の2点が最優先。
     </p>
