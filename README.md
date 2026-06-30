@@ -38,11 +38,11 @@
 
 ### クラウド RAG を使いたい
 
-1. Notion に 7 つのデータベースを作成する
+1. Notion に 8 つのデータベースを作成する
 2. `scripts/gas_cloud_rag.js` を Google Apps Script に貼り付けてデプロイ
 3. Unity または Houdini の Settings タブで GAS WebApp の URL を設定する
 
-詳細 → [docs/cloud-rag-setup.md](docs/cloud-rag-setup.md)
+詳細 → [docs/cloud-rag.md](docs/cloud-rag.md)（講義資料 → [lecture/cloud-rag-lecture.html](lecture/cloud-rag-lecture.html)）
 
 ### ローカル RAG を使いたい
 
@@ -61,7 +61,7 @@ uv run python scripts\rag_local_bridge.py
 # → localhost:8766 で待機開始
 ```
 
-詳細 → [docs/local-rag-setup.md](docs/local-rag-setup.md)
+詳細 → [docs/local-rag.md](docs/local-rag.md)（講義資料 → [lecture/local-rag-lecture.html](lecture/local-rag-lecture.html)）
 
 ### Unity から使いたい
 
@@ -84,7 +84,7 @@ uv run python scripts\rag_graph_export.py
 
 ### 新しいドキュメントを追加したい
 
-詳細 → [lecture/new-rag-setup.html](lecture/new-rag-setup.html)
+詳細 → [lecture/local-rag-lecture.html](lecture/local-rag-lecture.html) の「新規ドキュメント追加ガイド」セクション
 
 ---
 
@@ -135,19 +135,17 @@ DevelopmentRAGEnvironment/
 │   ├── delete_non_txt.py              # .txt 以外のファイルを削除
 │   └── sync_houdini21_db.py            # ★ Notion houdini21DB → localRAG/houdini21/ 同期
 │
-├── docs/                               # 設計・セットアップドキュメント
-│   ├── rag-system-design.md            # システム設計（全体像）← 本ドキュメントの詳細版
-│   ├── local-rag-setup.md              # ローカル RAG セットアップ詳細
-│   ├── cloud-rag-setup.md              # クラウド RAG セットアップ
-│   ├── distribution-guide.md           # 別 PC への配布・導入手順
-│   ├── local-rag-chromadb-migration.md # pgvector → ChromaDB 移行記録
-│   └── obsidian-localrag-management.md # Obsidian vault 管理ガイド
+├── docs/                               # 設計・セットアップ・用語・ライセンスドキュメント（4種に統合済み）
+│   ├── cloud-rag.md                    # クラウド RAG 設計・セットアップ（旧 cloud-rag-setup.md + rag-system-design.md統合）
+│   ├── local-rag.md                    # ローカル RAG 設計・セットアップ（旧 local-rag-setup.md 等7ファイル統合）
+│   ├── terminology.md                  # 技術・用語解説
+│   └── license-compliance.md           # ライセンス・権利関連
 │
-├── lecture/                            # チュートリアル・講義資料（HTML）
-│   ├── local-rag-lecture.html
-│   ├── cloud-rag-lecture.html
-│   ├── localrag-internals.html
-│   └── new-rag-setup.html
+├── lecture/                            # 講義資料（HTML、4種に統合済み）
+│   ├── cloud-rag-lecture.html          # クラウド RAG 講義
+│   ├── local-rag-lecture.html          # ローカル RAG 講義（内部構造・新規ドキュメント追加ガイド等を統合）
+│   ├── terminology.html                # 用語解説（講義版）
+│   └── license-compliance.html         # ライセンス解説（講義版）
 │
 └── localRAG/                           # Obsidian vault（インデックス対象のドキュメント置き場）
     ├── personal_notes/                 # 個人メモ・調査ノート
@@ -203,7 +201,7 @@ rag_local_bridge.py（HTTP API として公開）
 rag_service.py（検索エンジン本体）
 ```
 
-検索エンジン一式（`document_processor.py` / `embedding_generator.py` / `rag_service.py` / `vector_database.py`）はこのリポジトリに内蔵されており、外部リポジトリへの依存はありません。Claude Desktop から直接 MCP サーバーとして使いたい場合は `scripts/rag_mcp_server.py` を登録してください（[docs/local-rag-setup.md](docs/local-rag-setup.md) 参照）。
+検索エンジン一式（`document_processor.py` / `embedding_generator.py` / `rag_service.py` / `vector_database.py`）はこのリポジトリに内蔵されており、外部リポジトリへの依存はありません。Claude Desktop から直接 MCP サーバーとして使いたい場合は `scripts/rag_mcp_server.py` を登録してください（[docs/local-rag.md](docs/local-rag.md) 参照）。
 
 ---
 

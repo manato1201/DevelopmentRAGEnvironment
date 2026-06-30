@@ -204,11 +204,6 @@ footer a{color:var(--accent);text-decoration:none;}
 </head>
 <body>
 
-<!-- ===== 更新通知（2026-06-30）===== -->
-<div style="background:#422006;color:#fde68a;padding:12px 20px;font-size:14px;border-bottom:1px solid #92400e;">
-  ⚠️ 本資料中の「mcp-rag-server」は外部リポジトリとしての参照です。2026-06-30 時点でこの依存は解消され、検索エンジンはこのリポジトリ（DevelopmentRAGEnvironment）に直接統合されています。最新のセットアップ手順は <code>docs/local-rag-setup.md</code> を参照してください。
-</div>
-
 <!-- ===== HEADER ===== -->
 <header>
 <div class="header-inner">
@@ -258,6 +253,38 @@ footer a{color:var(--accent);text-decoration:none;}
     あらかじめ用意した<strong>知識データベース</strong>を検索してから回答を生成する手法です。
     「参考書を見ながら試験に答えていい」方式と考えてください。
   </p>
+
+  <h3>なぜ自前の RAG が必要なのか</h3>
+  <p>
+    AI ツールが普及した結果「AI に聞けば何でも答えてくれる」という幻想が生まれましたが、
+    実務でぶつかる問題の大半は<strong>汎用 LLM が学習していない固有の情報</strong>に関係しています。
+  </p>
+
+  <div class="diff-row">
+    <div class="diff-col">
+      <div class="diff-col-title" style="color:var(--red)">LLM 単体では解決できないこと</div>
+      <ul>
+        <li>自分のチャット履歴・過去のアウトプット</li>
+        <li>自分のプロジェクトのドキュメント</li>
+        <li>研究室・チーム固有のツール設定や規約</li>
+        <li>学習カットオフ後の最新技術情報</li>
+      </ul>
+    </div>
+    <div class="diff-col" style="border-color:rgba(63,185,80,.35)">
+      <div class="diff-col-title" style="color:var(--green)">RAG があると解決できること</div>
+      <ul>
+        <li>「以前生成したチュートリアルと同じ形式で」</li>
+        <li>「うちの Houdini 環境に合わせたコードで」</li>
+        <li>「先週の議事録を踏まえて提案して」</li>
+        <li>「この論文の内容を参考に実装して」</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout callout-tip">
+    <p>実務家の視点</p>
+    <p>ゲーム会社に入ると、社内 Wiki やプロジェクトドキュメントが膨大に存在します。それを素早く参照して実装に活かせるエンジニアは、それだけで生産性が大きく変わります。自分の RAG 環境を作れるということは、どんな職場でも即戦力になれるということです。</p>
+  </div>
 
   <h3>ChatGPT との違い</h3>
   <div class="diff-row">
@@ -796,6 +823,64 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
 };</code></pre>
   </div>
 
+  <h3>管理者 UI — API キーのネームスペース編集モーダル</h3>
+  <p>
+    GAS WebApp の管理者画面では、発行済み API キーの一覧テーブルから
+    <strong>キーを削除・再作成することなく、その場でアクセス可能なネームスペース（DB 範囲）を変更</strong>できます。
+    テーブル各行の「編集」ボタンからモーダルを開き、チェックボックスでネームスペースを選び直して保存します。
+  </p>
+
+  <div class="arch">
+    <pre><code>
+  管理テーブルの各行:
+  [プレビュー: sk-abc...xyz] [NS: tool_docs, game_info] [編集] [削除]
+                                                            │
+                                                            ▼
+  ┌─────────────────────────────────────┐
+  │ ネームスペース権限を編集              │
+  │  ☑ tool_docs   ☑ game_info           │
+  │  ☐ research    ☐ team_notes          │
+  │  ☐ houdini21   ☐ braintq  ...        │
+  │             [保存]  [キャンセル]      │
+  └─────────────────────────────────────┘
+    </code></pre>
+  </div>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">admin UI JavaScript — openEditNs / saveEditNs</span></div>
+    <pre><code><span class="kw">let</span> editTarget = <span class="kw">null</span>;
+
+<span class="kw">function</span> <span class="fn">openEditNs</span>(preview, currentNs) {
+  editTarget = preview;
+  <span class="kw">const</span> modal = document.<span class="fn">getElementById</span>(<span class="str">'editNsModal'</span>);
+  <span class="kw">const</span> current = (currentNs || <span class="str">''</span>).<span class="fn">split</span>(<span class="str">','</span>).<span class="fn">map</span>(s => s.<span class="fn">trim</span>());
+
+  <span class="cm">// 既存のチェックボックスを現在のネームスペースに合わせて初期化</span>
+  modal.<span class="fn">querySelectorAll</span>(<span class="str">'input[type=checkbox]'</span>).<span class="fn">forEach</span>(cb => {
+    cb.checked = current.<span class="fn">includes</span>(cb.value);
+  });
+  modal.style.display = <span class="str">'flex'</span>;
+}
+
+<span class="kw">function</span> <span class="fn">saveEditNs</span>() {
+  <span class="kw">const</span> modal = document.<span class="fn">getElementById</span>(<span class="str">'editNsModal'</span>);
+  <span class="kw">const</span> checked = [...modal.<span class="fn">querySelectorAll</span>(<span class="str">'input[type=checkbox]:checked'</span>)]
+    .<span class="fn">map</span>(cb => cb.value);
+  <span class="kw">const</span> newNs = checked.<span class="fn">join</span>(<span class="str">','</span>);
+
+  <span class="cm">// google.script.run で GAS サーバー関数を非同期呼び出し</span>
+  google.script.run
+    .<span class="fn">withSuccessHandler</span>(() => { <span class="fn">closeEditNs</span>(); location.<span class="fn">reload</span>(); })
+    .<span class="fn">withFailureHandler</span>(e => <span class="fn">alert</span>(<span class="str">'保存失敗: '</span> + e.message))
+    .<span class="fn">adminUpdateKey</span>(editTarget, newNs);
+}</code></pre>
+  </div>
+
+  <div class="callout callout-note">
+    <p>google.script.run の呼び出しパターン</p>
+    <p><code>google.script.run</code> は GAS WebApp のクライアント側 JavaScript から GAS のサーバー関数を直接呼び出す API です。<code>withSuccessHandler()</code> / <code>withFailureHandler()</code> でコールバックを登録し、非同期で結果を受け取ります。サーバー側の <code>adminUpdateKey(preview, ns)</code> 関数が <code>PropertiesService</code> に実際の変更を書き込みます。</p>
+  </div>
+
 <!-- =========================================================
      第4章: Local RAG の仕組み
      ========================================================= -->
@@ -1078,6 +1163,56 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
     <span class="kw">private</span> string _bridgeUrl = <span class="str">"http://localhost:8765"</span>;
     <span class="kw">public async</span> Task&lt;RAGResponse&gt; <span class="fn">QueryAsync</span>(string query, string dbKey) { ... }
 }</code></pre>
+  </div>
+
+  <h3>CloudRAGClient.cs — GAS WebApp への HTTPS 接続</h3>
+  <p>
+    <code>CloudRAGClient</code> は Unity エディタから GAS WebApp の URL に <code>HttpClient</code> で
+    HTTPS POST を投げるだけのシンプルな実装です。GAS 側は <code>doPost(e)</code> で受け取り、
+    <code>ragQuery()</code> を呼んで JSON を返します。レスポンスは <code>Newtonsoft.Json</code>
+    （Unity 同梱の Json.NET）でデシリアライズします。
+  </p>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">C# — CloudRAGClient.cs 実装</span></div>
+    <pre><code><span class="kw">using</span> System.Net.Http;
+<span class="kw">using</span> System.Text;
+<span class="kw">using</span> System.Threading.Tasks;
+<span class="kw">using</span> Newtonsoft.Json;
+
+<span class="kw">public class</span> <span class="fn">CloudRAGClient</span> : IRAGClient
+{
+    <span class="kw">private readonly string</span> _gasUrl;
+    <span class="kw">private static readonly</span> HttpClient Http = <span class="kw">new</span>();
+
+    <span class="kw">public</span> <span class="fn">CloudRAGClient</span>(<span class="kw">string</span> gasUrl) => _gasUrl = gasUrl;
+
+    <span class="kw">public async</span> Task&lt;RAGResponse&gt; <span class="fn">QueryAsync</span>(<span class="kw">string</span> query, <span class="kw">string</span> dbKey)
+    {
+        <span class="kw">var</span> body = JsonConvert.<span class="fn">SerializeObject</span>(<span class="kw">new</span> { query, dbKey });
+        <span class="kw">var</span> content = <span class="kw">new</span> <span class="fn">StringContent</span>(body, Encoding.UTF8, <span class="str">"application/json"</span>);
+
+        <span class="cm">// GAS WebApp URL（https://script.google.com/macros/s/{ID}/exec）に POST</span>
+        <span class="kw">var</span> res  = <span class="kw">await</span> Http.<span class="fn">PostAsync</span>(_gasUrl, content);
+        <span class="kw">var</span> json = <span class="kw">await</span> res.Content.<span class="fn">ReadAsStringAsync</span>();
+
+        <span class="cm">// answer / sources / extractionRate / extractionDetail を含むレスポンスをパース</span>
+        <span class="kw">return</span> JsonConvert.<span class="fn">DeserializeObject</span>&lt;RAGResponse&gt;(json);
+    }
+
+    <span class="kw">public async</span> Task&lt;GraphData&gt; <span class="fn">GetGraphAsync</span>()
+    {
+        <span class="cm">// GAS 側の /graph（doGet?mode=graph）エンドポイントを叩く</span>
+        <span class="kw">var</span> res  = <span class="kw">await</span> Http.<span class="fn">GetAsync</span>(_gasUrl + <span class="str">"?mode=graph"</span>);
+        <span class="kw">var</span> json = <span class="kw">await</span> res.Content.<span class="fn">ReadAsStringAsync</span>();
+        <span class="kw">return</span> JsonConvert.<span class="fn">DeserializeObject</span>&lt;GraphData&gt;(json);
+    }
+}</code></pre>
+  </div>
+
+  <div class="callout callout-note">
+    <p>Houdini からの接続も同じ構造</p>
+    <p>Houdini Python Panel から Cloud RAG を呼ぶ場合も同じ GAS WebApp URL に対して、標準ライブラリの <code>urllib.request</code> で HTTPS POST するだけです。リクエスト / レスポンスの JSON 形式は Unity 版と完全に同一なので、クライアント実装言語が違ってもサーバー側コードは 1 つで済みます。</p>
   </div>
 
   <h3>3 つのタブ構成</h3>
