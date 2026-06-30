@@ -208,9 +208,11 @@ Ollama の API は OpenAI 互換のため、`rag_local_bridge.py` の `_call_cla
 
 **markitdown のインポートエラー**
 ```bash
-# mcp-rag-server 環境で実行する
-cd C:\Users\matuu\Desktop\GameDevelopment\mcp-rag-server
-uv run python C:\...\DevelopmentRAGEnvironment\scripts\document_pipeline.py add ...
+# このリポジトリの依存（pyproject.toml に markitdown[all] を含む）が
+# uv sync されているか確認する
+cd C:\Users\matuu\Desktop\GameDevelopment\DevelopmentRAGEnvironment
+uv sync
+uv run python scripts\document_pipeline.py add ...
 ```
 
 **チャンクが多すぎる（PDF が長い）**

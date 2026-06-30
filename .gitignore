@@ -10,6 +10,10 @@ __pycache__/
 *.py[cod]
 .venv/
 
+# LocalRAG データ（ChromaDB インデックス・処理済みファイル・ログ）
+data/
+logs/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -181,10 +181,10 @@ pre code {
 
 <div class="page-header">
   <h1>RAG <span>環境構築ガイド</span></h1>
-  <p style="color:#94a3b8;margin-top:6px">必要環境・依存関係リスト / mcp-rag-server フォーク方針</p>
+  <p style="color:#94a3b8;margin-top:6px">必要環境・依存関係リスト / 検索エンジンはリポジトリに統合済み</p>
   <div class="meta">
     <span>対象: DevelopmentRAGEnvironment</span>
-    <span>更新日: 2026-06-25</span>
+    <span>更新日: 2026-06-30</span>
     <span>OS: Windows 10/11</span>
   </div>
 </div>
@@ -194,7 +194,7 @@ pre code {
   <nav class="toc">
     <h3>目次</h3>
     <a href="#arch">全体構成（二層）</a>
-    <a href="#fork">mcp-rag-server フォーク</a>
+    <a href="#fork">検索エンジンの統合</a>
     <a href="#system">OS・システム要件</a>
     <a href="#tools">必須ツール</a>
     <a href="#repos">リポジトリ構成</a>
@@ -224,8 +224,7 @@ pre code {
           <div style="color:var(--accent);font-weight:700;margin-bottom:8px">【ローカルRAG層】</div>
           <span class="hl">Windows 11</span><br>
           │<br>
-          ├── <span class="hl">Python 3.13+</span> (DevelopmentRAGEnvironment)<br>
-          ├── <span class="hl">Python 3.10+</span> (mcp-rag-server ★フォーク)<br>
+          ├── <span class="hl">Python 3.13+</span> (DevelopmentRAGEnvironment に統合済み)<br>
           │&nbsp;&nbsp;&nbsp;├── ChromaDB ← ベクトルDB<br>
           │&nbsp;&nbsp;&nbsp;├── sentence-transformers<br>
           │&nbsp;&nbsp;&nbsp;├── markitdown<br>
@@ -262,92 +261,60 @@ pre code {
       </div>
     </section>
 
-    <!-- ── フォーク ── -->
+    <!-- ── 検索エンジン統合 ── -->
     <section id="fork">
-      <h2><span class="num">1</span>mcp-rag-server のフォーク方針</h2>
+      <h2><span class="num">1</span>検索エンジンのリポジトリ統合（2026-06-30）</h2>
 
-      <div class="alert alert-danger">
-        <div class="alert-icon">⚠</div>
+      <div class="alert alert-info">
+        <div class="alert-icon">✓</div>
         <div class="alert-body">
-          <strong>現状の問題:</strong> 現在は他者（karaage 氏）の個人リポジトリを clone して使っています。
-          元リポジトリが削除・非公開化された場合、または破壊的変更が入った場合に即座に影響を受けます。
+          <strong>外部リポジトリへの依存は解消済みです。</strong>
+          以前は検索エンジンを他者の個人リポジトリ <code>mcp-rag-server</code>（<code>karaage0703</code> 氏、MIT ライセンス）として別途 clone し、
+          <code>rag_local_bridge.py</code> がサブプロセス + MCP JSON-RPC (stdio) で通信していました。
+          2026-06-30 時点で、MIT ライセンスの許諾範囲内でコードをこのリポジトリへ直接ベンダリング（取り込み）し、外部依存はなくなりました。
         </div>
       </div>
 
-      <h3>リスク一覧</h3>
+      <h3>旧構成で抱えていたリスク（解消済み）</h3>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>リスク</th><th>内容</th><th>深刻度</th></tr></thead>
+          <thead><tr><th>リスク</th><th>内容</th><th>状態</th></tr></thead>
           <tbody>
-            <tr><td>リポジトリ削除</td><td>元オーナーが予告なく非公開・削除する可能性</td><td><span class="badge badge-required">高</span></td></tr>
-            <tr><td>破壊的変更</td><td>upstream の更新で動作が壊れる可能性</td><td><span class="badge badge-caution">中</span></td></tr>
-            <tr><td>商用監査</td><td>自社管理外コードへの直接依存は証跡が取りにくい</td><td><span class="badge badge-caution">中</span></td></tr>
-            <tr><td>カスタマイズ</td><td>独自改修を加えたい場合に管理できない</td><td><span class="badge badge-caution">中</span></td></tr>
+            <tr><td>リポジトリ削除</td><td>元オーナーが予告なく非公開・削除する可能性</td><td><span class="badge badge-ok">解消</span></td></tr>
+            <tr><td>破壊的変更</td><td>upstream の更新で動作が壊れる可能性</td><td><span class="badge badge-ok">解消</span></td></tr>
+            <tr><td>商用監査</td><td>自社管理外コードへの直接依存は証跡が取りにくい</td><td><span class="badge badge-ok">解消</span></td></tr>
+            <tr><td>カスタマイズ</td><td>独自改修を加えたい場合に管理できない</td><td><span class="badge badge-ok">解消</span></td></tr>
           </tbody>
         </table>
       </div>
 
-      <h3>フォーク vs 完全独立 — 方針選択</h3>
-      <div class="cards">
-        <div class="card recommended">
-          <h4>フォーク（現時点の推奨）</h4>
-          <p>GitHub で Fork ボタンを押すだけ。upstream の更新を選択的に取り込める。MIT ライセンスで改造・商用利用自由。OSS の恩恵を維持しながらリスク回避できる。</p>
-        </div>
-        <div class="card">
-          <h4>完全独立（独自実装）</h4>
-          <p>ブランド・コードを完全に自社管理したい場合。大幅な改修が必要になり、upstream の更新は自力でマージする必要がある。将来的に検討。</p>
-        </div>
+      <h3>ベンダリングされたファイル</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ファイル</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td><code>scripts/document_processor.py</code></td><td>ファイル読み込み・チャンク分割（旧 <code>mcp-rag-server/src/document_processor.py</code> を移植）</td></tr>
+            <tr><td><code>scripts/embedding_generator.py</code></td><td>sentence-transformers ラッパー（旧 <code>mcp-rag-server/src/embedding_generator.py</code> を移植、<code>load_dotenv()</code> は削除）</td></tr>
+            <tr><td><code>scripts/rag_service.py</code></td><td>document_processor + embedding_generator + vector_database を束ねるオーケストレーター。<code>create_rag_service_from_env()</code> ファクトリを提供</td></tr>
+            <tr><td><code>scripts/rag_cli.py</code></td><td>インデックス用 CLI（旧 <code>mcp-rag-server</code> の <code>uv run python -m src.cli index</code> を置き換え）</td></tr>
+            <tr><td><code>scripts/mcp_server.py</code></td><td>MCP プロトコル実装（JSON-RPC over stdio）。Claude Desktop に直接登録したい場合に使用</td></tr>
+            <tr><td><code>scripts/rag_mcp_tools.py</code></td><td>search / get_document_count の MCP ツールハンドラ</td></tr>
+            <tr><td><code>scripts/rag_mcp_server.py</code></td><td>MCP サーバーのエントリーポイント（旧 <code>mcp-rag-server/src/main.py</code> を置き換え）</td></tr>
+            <tr><td><code>scripts/vector_database.py</code></td><td>ChromaDB + BM25 ハイブリッド検索のストレージ層（既存・変更なし）</td></tr>
+          </tbody>
+        </table>
       </div>
 
-      <h3>フォーク手順</h3>
-      <ul class="steps">
-        <li>
-          <strong>GitHub でフォーク</strong><br>
-          元リポジトリ（<code>github.com/karaage0703/mcp-rag-server</code>）を開き、右上の <strong>Fork</strong> ボタンをクリック。<br>
-          フォーク先: <code>manato1201/mcp-rag-server</code>（または任意のリポジトリ名）
-        </li>
-        <li>
-          <strong>ローカルの remote を変更</strong>
-          <pre><button class="copy-btn" onclick="copyCode(this)">コピー</button><code>cd C:\Users\matuu\Desktop\GameDevelopment\mcp-rag-server
-
-# 現在の remote を確認
-git remote -v
-
-# origin を自分のフォークに変更
-git remote set-url origin https://github.com/manato1201/mcp-rag-server.git
-
-# 元リポジトリを upstream として保持（更新取り込み用）
-git remote add upstream https://github.com/karaage0703/mcp-rag-server.git
-
-# 確認
-git remote -v</code></pre>
-        </li>
-        <li>
-          <strong>フォーク済みリポジトリに push</strong>
-          <pre><button class="copy-btn" onclick="copyCode(this)">コピー</button><code>git push origin main</code></pre>
-        </li>
-        <li>
-          <strong>（必要なとき）upstream の更新を取り込む</strong>
-          <pre><button class="copy-btn" onclick="copyCode(this)">コピー</button><code>git fetch upstream
-git merge upstream/main
-# コンフリクトがあれば解消してから push
-git push origin main</code></pre>
-        </li>
-      </ul>
-
-      <h3>フォーク後の推奨対応</h3>
-      <ul class="checklist">
-        <li><input type="checkbox"> <code>pyproject.toml</code> の <code>authors</code> を自分の名前に更新（管理責任の明示）</li>
-        <li><input type="checkbox"> <code>psycopg2-binary</code> を依存から削除（未使用。PostgreSQL は使っていない）</li>
-        <li class="warn-item"><input type="checkbox"> <code>CHANGELOG.md</code> を追加して独自変更を記録（監査・ロールバック対応）</li>
-        <li><input type="checkbox"> GitHub リポジトリを <strong>Private</strong> に設定（商用ソースを非公開にしたい場合）</li>
-        <li><input type="checkbox"> GitHub Actions で <code>uv sync &amp;&amp; pytest</code> を設定（upstream マージ後の自動テスト）</li>
-      </ul>
+      <p style="font-size:.85rem;color:var(--muted)">
+        <code>scripts/rag_local_bridge.py</code> も、サブプロセス + JSON-RPC で通信していた旧 <code>MCPClient</code> クラスを廃止し、
+        <code>rag_service.py</code> を直接 in-process で呼び出す <code>LocalRAGClient</code> クラスに置き換えました。CLI 引数 <code>--mcp-dir</code> も廃止されています。
+        <code>pyproject.toml</code> には検索エンジンの依存がすべて直接宣言されており、このリポジトリで <code>uv sync</code> を一度実行するだけで完結します。
+      </p>
 
       <div class="alert alert-info">
         <div class="alert-icon">ℹ</div>
         <div class="alert-body">
-          <strong>ライセンスについて:</strong> mcp-rag-server は MIT ライセンスです。フォーク・改造・商用利用は自由で、ソース開示義務もありません。唯一の義務は「配布時に LICENSE ファイルを同梱すること」だけです。
+          <strong>ライセンスについて:</strong> ベンダリング元の mcp-rag-server は MIT ライセンスです。改変・再配布・商用利用は自由で、ソース開示義務もありません。
         </div>
       </div>
     </section>
@@ -362,8 +329,7 @@ git push origin main</code></pre>
             <tr><td>OS</td><td>Windows 10 22H2</td><td>Windows 11</td><td>Mac / Linux も可（パス変更が必要）</td></tr>
             <tr><td>RAM</td><td>8 GB</td><td>16 GB 以上</td><td>multilingual-e5-large が約 1.5 GB 使用</td></tr>
             <tr><td>ストレージ</td><td>10 GB 空き</td><td>20 GB 以上</td><td>モデルキャッシュ + ChromaDB</td></tr>
-            <tr><td>Python（本プロジェクト）</td><td>3.13+</td><td>3.13 最新</td><td>DevelopmentRAGEnvironment 用</td></tr>
-            <tr><td>Python（RAGエンジン）</td><td>3.10+</td><td>3.11 / 3.12</td><td>mcp-rag-server 用</td></tr>
+            <tr><td>Python</td><td>3.13+</td><td>3.13 最新</td><td>DevelopmentRAGEnvironment 用（検索エンジン込み）</td></tr>
             <tr><td>GPU</td><td>不要</td><td>NVIDIA（CUDA）</td><td>CPU のみでも動作。GPU があると埋め込み生成が大幅高速化</td></tr>
           </tbody>
         </table>
@@ -381,13 +347,7 @@ git push origin main</code></pre>
               <td><strong>Python 3.13+</strong></td>
               <td>3.13 以上</td>
               <td><code>python.org</code> からインストーラー</td>
-              <td>DevelopmentRAGEnvironment 実行</td>
-            </tr>
-            <tr>
-              <td><strong>Python 3.10+</strong></td>
-              <td>3.10 〜 3.12 推奨</td>
-              <td>同上（バージョン管理ツール推奨）</td>
-              <td>mcp-rag-server 実行</td>
+              <td>DevelopmentRAGEnvironment 実行（検索エンジン込み）</td>
             </tr>
             <tr>
               <td><strong>uv</strong></td>
@@ -409,26 +369,26 @@ git push origin main</code></pre>
     <!-- ── リポジトリ ── -->
     <section id="repos">
       <h2><span class="num">4</span>リポジトリ構成</h2>
-      <div class="alert alert-warn">
+      <div class="alert alert-info">
         <div class="alert-icon">📁</div>
-        <div class="alert-body">2つのリポジトリが同じディレクトリに並んでいる必要があります。<code>mcp-rag-server</code> は <strong>フォーク済みの自分のリポジトリ</strong> を使用してください。</div>
+        <div class="alert-body">外部リポジトリのクローンは不要です。検索エンジン一式はこのリポジトリ内に統合済みで、1リポジトリのみで完結します。</div>
       </div>
       <pre><button class="copy-btn" onclick="copyCode(this)">コピー</button><code>C:\Users\matuu\Desktop\GameDevelopment\
-  ├── mcp-rag-server\              ← ★フォーク済み RAGエンジン
-  │   ├── src/
-  │   │   ├── main.py             ← MCP サーバー起動点
-  │   │   ├── cli.py              ← インデックス CLI
-  │   │   └── document_processor.py
-  │   ├── pyproject.toml
-  │   └── .venv/                  ← uv sync で自動生成
-  │
-  └── DevelopmentRAGEnvironment\  ← 本プロジェクト
+  └── DevelopmentRAGEnvironment\  ← 本プロジェクト（単体で完結）
       ├── scripts/
-      │   ├── rag_local_bridge.py ← HTTP API サーバー (:8766)
-      │   ├── auth_manager.py     ← 認証・アクセス制御
-      │   ├── auto_index.py       ← ファイル監視・自動インデックス
-      │   ├── document_pipeline.py← ドキュメント追加パイプライン
-      │   └── rss_to_rag.py       ← RSS/arXiv 自動収集
+      │   ├── rag_local_bridge.py    ← HTTP API サーバー (:8766)
+      │   ├── document_processor.py  ← ファイル読み込み・チャンク分割（vendored）
+      │   ├── embedding_generator.py ← 埋め込み生成ラッパー（vendored）
+      │   ├── rag_service.py         ← オーケストレーター（vendored）
+      │   ├── rag_cli.py             ← インデックス CLI（vendored）
+      │   ├── mcp_server.py          ← MCP プロトコル実装（vendored）
+      │   ├── rag_mcp_tools.py       ← MCP ツールハンドラ（vendored）
+      │   ├── rag_mcp_server.py      ← MCP サーバーエントリーポイント（vendored）
+      │   ├── vector_database.py     ← ChromaDB + BM25 ストレージ層
+      │   ├── auth_manager.py        ← 認証・アクセス制御
+      │   ├── auto_index.py          ← ファイル監視・自動インデックス
+      │   ├── document_pipeline.py   ← ドキュメント追加パイプライン
+      │   └── rss_to_rag.py          ← RSS/arXiv 自動収集
       ├── scripts/static/
       │   ├── admin.html          ← 管理画面
       │   └── user_ui.html        ← ユーザーチャット画面
@@ -438,15 +398,17 @@ git push origin main</code></pre>
       │   ├── team_notes/
       │   ├── personal_notes/
       │   └── game_info/
+      ├── pyproject.toml          ← 検索エンジンの依存も含めて宣言
       └── data/
-          └── auth.db             ← 認証DB（自動生成）</code></pre>
+          ├── chroma/              ← ChromaDB 永続化データ（自動生成、gitignore）
+          └── auth.db              ← 認証DB（自動生成）</code></pre>
     </section>
 
     <!-- ── パッケージ ── -->
     <section id="packages">
       <h2><span class="num">5</span>Python パッケージ</h2>
 
-      <h3>mcp-rag-server（<code>uv sync</code> で自動インストール）</h3>
+      <h3>DevelopmentRAGEnvironment（<code>uv sync</code> で自動インストール、検索エンジン込み）</h3>
       <div class="table-wrap">
         <table>
           <thead><tr><th>パッケージ</th><th>バージョン</th><th>用途</th><th>ライセンス</th></tr></thead>
@@ -461,21 +423,9 @@ git push origin main</code></pre>
             <tr><td><code>watchdog</code></td><td>&gt;= 6.0.0</td><td>ファイル変更監視（auto_index）</td><td>Apache 2.0</td></tr>
             <tr><td><code>numpy</code></td><td>最新</td><td>ベクトル演算</td><td>BSD 3-Clause</td></tr>
             <tr><td><code>sentencepiece</code></td><td>&gt;= 0.2.0</td><td>トークナイザー</td><td>Apache 2.0</td></tr>
-            <tr><td><code>pyyaml</code></td><td>&gt;= 6.0.2</td><td>設定ファイル読み込み</td><td>MIT</td></tr>
-            <tr><td><code>python-dotenv</code></td><td>最新</td><td>mcp-rag-server 内部用環境変数</td><td>BSD 3-Clause</td></tr>
-            <tr style="opacity:.5"><td><del><code>psycopg2-binary</code></del></td><td>—</td><td><del>PostgreSQL 対応（未使用）</del> <span class="badge badge-caution">削除推奨</span></td><td>LGPL</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h3>DevelopmentRAGEnvironment（<code>uv sync</code> で自動インストール）</h3>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>パッケージ</th><th>バージョン</th><th>用途</th><th>ライセンス</th></tr></thead>
-          <tbody>
-            <tr><td><code>pyyaml</code></td><td>&gt;= 6.0.3</td><td>YAML 処理</td><td>MIT</td></tr>
+            <tr><td><code>pyyaml</code></td><td>&gt;= 6.0.3</td><td>YAML / 設定ファイル読み込み</td><td>MIT</td></tr>
             <tr><td><code>requests</code></td><td>&gt;= 2.34.2</td><td>HTTP 通信</td><td>Apache 2.0</td></tr>
-            <tr><td><code>python-dotenv</code></td><td>&gt;= 1.2.2</td><td>旧スクリプト互換（load_dotenv は削除済み）</td><td>BSD 3-Clause</td></tr>
+            <tr><td><code>python-dotenv</code></td><td>&gt;= 1.2.2</td><td>未使用（<code>load_dotenv()</code> は呼び出していない。互換目的のみ）</td><td>BSD 3-Clause</td></tr>
           </tbody>
         </table>
       </div>
@@ -706,7 +656,7 @@ $env:ANTHROPIC_API_KEY = "sk-ant-..."
               <td><span class="badge badge-caution">gitignore — ローカルのみ</span></td>
             </tr>
             <tr>
-              <td><code>mcp-rag-server/chroma_db/</code></td>
+              <td><code>data/chroma/</code></td>
               <td>ChromaDB 永続化データ</td>
               <td><span class="badge badge-caution">gitignore — ローカルのみ</span></td>
             </tr>
@@ -769,20 +719,16 @@ ollama pull phi4      # 軽量・高速</code></pre>
       <h2><span class="num">10</span>起動手順</h2>
 
       <h3>ローカルRAG 初回セットアップ（一度だけ実施）</h3>
-      <pre><button class="copy-btn" onclick="copyCode(this)">コピー</button><code># [1] mcp-rag-server の依存関係インストール
-cd C:\Users\matuu\Desktop\GameDevelopment\mcp-rag-server
-uv sync
-
-# [2] DevelopmentRAGEnvironment の依存関係インストール
+      <pre><button class="copy-btn" onclick="copyCode(this)">コピー</button><code># [1] DevelopmentRAGEnvironment の依存関係インストール（検索エンジン込みで一括）
 cd C:\Users\matuu\Desktop\GameDevelopment\DevelopmentRAGEnvironment
 uv sync
 pip install feedparser   # RSS 収集を使う場合
 
-# [3] namespace ディレクトリを作成
+# [2] namespace ディレクトリを作成
 mkdir localRAG\tool_docs, localRAG\research, localRAG\team_notes
 mkdir localRAG\personal_notes, localRAG\game_info
 
-# [4] 管理者ユーザーを作成（★ API キーを必ず控える）
+# [3] 管理者ユーザーを作成（★ API キーを必ず控える）
 python scripts/auth_manager.py create-admin --name "Admin"</code></pre>
 
       <h3>ローカルRAG 通常起動（毎回）</h3>
@@ -860,7 +806,7 @@ uv run python scripts\sync_houdini21_db.py --index</code></pre>
             <tr>
               <td><code>uv sync</code> でエラー</td>
               <td>Python バージョン不一致</td>
-              <td><code>python --version</code> で確認。3.10+ が必要</td>
+              <td><code>python --version</code> で確認。3.13+ が必要</td>
             </tr>
             <tr>
               <td><code>chromadb</code> インストール失敗</td>
@@ -878,9 +824,9 @@ uv run python scripts\sync_houdini21_db.py --index</code></pre>
               <td><code>python scripts/auth_manager.py list</code> でユーザー確認</td>
             </tr>
             <tr>
-              <td><code>503 mcp-rag-server が起動していません</code></td>
-              <td>内部プロセスが落ちた</td>
-              <td>ブリッジを再起動</td>
+              <td><code>503 RAGService が起動していません</code></td>
+              <td><code>rag_service.py</code> の初期化に失敗した</td>
+              <td>ログを確認しブリッジを再起動</td>
             </tr>
             <tr>
               <td>RSS 収集でエラー</td>

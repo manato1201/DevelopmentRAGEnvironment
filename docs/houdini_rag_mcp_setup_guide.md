@@ -2,6 +2,8 @@
 
 > Houdini 20.5/21.0 のヘルプドキュメントを pgvector + MCP で検索可能にする手順書
 
+> **⚠️ 過去のセットアップ手順（歴史的資料）:** 2026-06-30 時点で `mcp-rag-server` への依存は解消され、検索エンジンはこのリポジトリに直接ベンダー統合されています。`git clone https://github.com/karaage0703/mcp-rag-server` の手順は不要です。Claude Desktop への MCP 登録は `scripts/rag_mcp_server.py` を使用してください（[docs/local-rag-setup.md](local-rag-setup.md) の「8.1 Claude Desktop に MCP サーバーとして直接登録する」を参照）。
+
 ---
 
 ## 全体構成

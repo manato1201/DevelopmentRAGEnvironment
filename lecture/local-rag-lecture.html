@@ -339,16 +339,16 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface); pa
 
 <header>
   <div class="header-inner">
-    <div class="eyebrow"><span class="dot"></span> Setup Guide · Local RAG · ChromaDB版</div>
-    <h1>ローカルRAG環境構築<br><span class="accent">ChromaDB + Windows Native + mcp-rag-server</span></h1>
+    <div class="eyebrow"><span class="dot"></span> Setup Guide · Local RAG · 単一リポジトリ版</div>
+    <h1>ローカルRAG環境構築<br><span class="accent">ChromaDB + Windows Native + 単一リポジトリ完結</span></h1>
     <p class="header-desc">
-      Docker・WSL2不要。Windows PCにChromaDBベースのベクトル検索エンジンを立て、
-      Obsidian vaultと連携してプライベートドキュメントをClaude Desktopから参照できるようにする手順書。
+      Docker・WSL2・外部リポジトリのクローン不要。このリポジトリ単体に検索エンジン一式が同梱されており、
+      <code>uv sync</code> だけでObsidian vaultと連携してプライベートドキュメントをClaude Desktopから参照できるようにする手順書。
     </p>
     <div class="meta-row">
       <span>OS: Windows 11（Nativeのみ — WSL2・Docker不要）</span>
-      <span>所要時間: セットアップ 約20分</span>
-      <span>Updated: 2026-06-16</span>
+      <span>所要時間: セットアップ 約15分</span>
+      <span>Updated: 2026-06-30</span>
     </div>
   </div>
 </header>
@@ -357,8 +357,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface); pa
   <ul>
     <li><a href="#prereq">前提条件</a></li>
     <li><a href="#uv">uv インストール</a></li>
-    <li><a href="#mcp-rag">mcp-rag-server</a></li>
-    <li><a href="#chromadb">ChromaDB パッチ</a></li>
+    <li><a href="#mcp-rag">依存パッケージの同期</a></li>
+    <li><a href="#chromadb">環境変数の設定</a></li>
     <li><a href="#obsidian">Obsidian vault</a></li>
     <li><a href="#index">インデックス化</a></li>
     <li><a href="#watchdog">watchdog</a></li>
@@ -390,25 +390,27 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface); pa
         <li>WSL2 / Ubuntu</li>
         <li>Docker Desktop</li>
         <li>PostgreSQL / pgvector</li>
+        <li>外部リポジトリ（mcp-rag-server）のクローン</li>
         <li>Python の別途インストール（uv が管理）</li>
       </ul>
     </div>
   </div>
 
   <div class="callout callout-note">
-    <p><strong>なぜ ChromaDB に移行したのか</strong></p>
-    <p>pgvector は Docker + WSL2 が必須でセットアップが複雑。ChromaDB はファイルベースのローカルDB（SQLite + HNSW）で動くため、Dockerなしで同等の検索精度が得られる。個人・小規模チームのプライベートRAGには最適。</p>
+    <p><strong>なぜ単一リポジトリ構成に統合したのか</strong></p>
+    <p>以前は検索エンジン本体を外部リポジトリ <code>mcp-rag-server</code> としてクローンし、ブリッジスクリプトがサブプロセスとして起動・JSON-RPC over stdio で通信していた。現在は検索エンジンのコード（<code>document_processor.py</code> / <code>embedding_generator.py</code> / <code>rag_service.py</code> / <code>mcp_server.py</code> など）をこのリポジトリに直接ベンダリング（MITライセンスのため取り込み可）し、単体で完結する構成にした。クローン・パッチ適用・別ディレクトリでの依存管理が一切不要になった。</p>
   </div>
 
   <div class="tbl-wrap">
     <table>
-      <thead><tr><th>比較項目</th><th>旧構成（pgvector）</th><th>新構成（ChromaDB）</th></tr></thead>
+      <thead><tr><th>比較項目</th><th>旧構成（外部リポジトリ + pgvector）</th><th>新構成（単一リポジトリ + ChromaDB）</th></tr></thead>
       <tbody>
         <tr><td>Docker</td><td class="pri-hi">必要</td><td class="ok">不要</td></tr>
         <tr><td>WSL2</td><td class="pri-hi">必要</td><td class="ok">不要</td></tr>
-        <tr><td>セットアップ時間</td><td>1時間以上</td><td class="ok">約20分</td></tr>
+        <tr><td>外部リポジトリのクローン</td><td class="pri-hi">必要（mcp-rag-server）</td><td class="ok">不要（このリポジトリ単体）</td></tr>
+        <tr><td>セットアップ時間</td><td>1時間以上</td><td class="ok">約15分</td></tr>
         <tr><td>検索精度</td><td>cosine similarity</td><td>cosine similarity（同等）</td></tr>
-        <tr><td>データ保存</td><td>PostgreSQL（コンテナ内）</td><td>ローカルフォルダ（./data/chroma）</td></tr>
+        <tr><td>データ保存</td><td>PostgreSQL（コンテナ内）</td><td>ローカルフォルダ（data/chroma）</td></tr>
         <tr><td>Namespace</td><td>テーブル分離</td><td>Collection分離（Obsidianフォルダ対応）</td></tr>
       </tbody>
     </table>
@@ -452,40 +454,27 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface); pa
   </div>
 </div>
 
-<!-- ===== mcp-rag-server ===== -->
+<!-- ===== 依存パッケージの同期 ===== -->
 <div class="section" id="mcp-rag">
   <div class="section-eye">Step 02</div>
-  <h2>mcp-rag-server セットアップ</h2>
+  <h2>依存パッケージの同期</h2>
+
+  <p>このリポジトリの <code>pyproject.toml</code> に検索エンジンの依存（ChromaDB・sentence-transformers・rank-bm25・sudachipy 等）が直接宣言されている。外部リポジトリのクローンも個別の依存インストールも不要で、リポジトリ直下で <code>uv sync</code> するだけで完結する。</p>
 
   <div class="step-group">
     <div class="step">
-      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-rail"><div class="step-badge">1</div></div>
       <div class="step-content">
-        <div class="step-title">リポジトリをクローン <span class="badge badge-purple">PowerShell</span></div>
+        <div class="step-title">依存関係を同期 <span class="badge badge-purple">PowerShell</span></div>
         <div class="step-body">
           <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell</span></div>
-            <pre><code><span class="prompt">PS></span> cd C:\Users\YOUR_USERNAME\Desktop\GameDevelopment
-<span class="prompt">PS></span> git clone https://github.com/karaage0703/mcp-rag-server
-<span class="prompt">PS></span> cd mcp-rag-server</code></pre>
+            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — DevelopmentRAGEnvironment</span></div>
+            <pre><code><span class="prompt">PS></span> cd C:\Users\YOUR_USERNAME\Desktop\GameDevelopment\DevelopmentRAGEnvironment
+<span class="prompt">PS></span> uv sync</code></pre>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">2</div></div>
-      <div class="step-content">
-        <div class="step-title">依存関係インストール（Python 3.12 指定） <span class="badge badge-purple">PowerShell</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
-            <pre><code><span class="prompt">PS></span> uv sync --python 3.12
-<span class="prompt">PS></span> uv add chromadb watchdog pyyaml</code></pre>
-          </div>
-          <div class="callout callout-warn">
-            <p><strong>Python 3.12 を必ず指定すること</strong></p>
-            <p><code>uv sync</code> のみだと Python 3.13 が選択され、<code>sentencepiece</code> のビルドが CMake エラーで失敗する。3.12 には pre-built wheel があるためビルド不要。</p>
+          <div class="callout callout-note">
+            <p><strong>Python バージョンの自動管理</strong></p>
+            <p><code>pyproject.toml</code> の <code>requires-python</code> が <code>&gt;=3.13</code> に設定されており、uv が自動で適切なバージョンを用意する。3.13 以降には <code>sentencepiece</code> の pre-built wheel が提供されているため、CMake ビルドエラーは発生しない。初回は <code>sentence-transformers</code> 等のダウンロードで数分かかる。</p>
           </div>
         </div>
       </div>
@@ -493,98 +482,33 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface); pa
   </div>
 </div>
 
-<!-- ===== ChromaDB パッチ ===== -->
+<!-- ===== 環境変数の設定 ===== -->
 <div class="section" id="chromadb">
   <div class="section-eye">Step 03</div>
-  <h2>ChromaDB パッチの適用</h2>
+  <h2>環境変数の設定</h2>
 
-  <p style="font-size:13px;color:var(--muted)">mcp-rag-server の vector_database.py と rag_tools.py を ChromaDB 対応版に差し替える。</p>
+  <p style="font-size:13px;color:var(--muted)">このプロジェクトは <code>.env</code> ファイル / <code>load_dotenv()</code> を使用しない方針。設定はすべて OS の環境変数として渡す。デフォルト値のままで問題なければこの手順はスキップしてよい。</p>
 
   <div class="step-group">
     <div class="step">
-      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-rail"><div class="step-badge">1</div></div>
       <div class="step-content">
-        <div class="step-title">vector_database.py を差し替え <span class="badge badge-purple">PowerShell</span></div>
+        <div class="step-title">主な環境変数一覧</div>
         <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
-            <pre><code><span class="prompt">PS></span> copy ..\DevelopmentRAGEnvironment\scripts\vector_database.py src\vector_database.py</code></pre>
-          </div>
-          <p>差し替えた <code>vector_database.py</code> の主な変更点：</p>
-          <ul style="font-size:12px;color:var(--muted);padding-left:18px;margin-top:6px">
-            <li>PostgreSQL 接続コードを全削除 → <code>chromadb.PersistentClient</code> に置き換え</li>
-            <li>Obsidian の最上位フォルダ名 → ChromaDB Collection 名（namespace）にマッピング</li>
-            <li><code>_rag_dashboard</code>、<code>_templates</code>、<code>.processed</code> フォルダを自動スキップ</li>
-            <li>cosine similarity（距離 → 類似度変換）対応</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">rag_tools.py を編集 <span class="badge badge-purple">テキストエディタ</span></div>
-        <div class="step-body">
-          <p><code>src\rag_tools.py</code> を開き、<code>create_rag_service_from_env</code> 関数内を以下のように変更：</p>
-          <div class="code-label"><span class="win-tag">変更前</span></div>
-          <pre><code><span class="val">vector_database</span> = <span class="fn">VectorDatabase</span>({
-    <span class="str">"host"</span>:     os.environ.get(<span class="str">"POSTGRES_HOST"</span>,     <span class="str">"localhost"</span>),
-    <span class="str">"port"</span>:     os.environ.get(<span class="str">"POSTGRES_PORT"</span>,     <span class="str">"5432"</span>),
-    <span class="str">"user"</span>:     os.environ.get(<span class="str">"POSTGRES_USER"</span>,     <span class="str">"postgres"</span>),
-    <span class="str">"password"</span>: os.environ.get(<span class="str">"POSTGRES_PASSWORD"</span>, <span class="str">"password"</span>),
-    <span class="str">"database"</span>: os.environ.get(<span class="str">"POSTGRES_DB"</span>,       <span class="str">"ragdb"</span>),
-})</code></pre>
-          <div class="code-label" style="margin-top:10px"><span class="env-tag">変更後</span></div>
-          <pre><code><span class="val">vector_database</span> = <span class="fn">VectorDatabase</span>({
-    <span class="str">"chroma_path"</span>:   os.environ.get(<span class="str">"CHROMA_PATH"</span>,   <span class="str">"./data/chroma"</span>),
-    <span class="str">"embedding_dim"</span>: os.environ.get(<span class="str">"EMBEDDING_DIM"</span>, <span class="str">"1024"</span>),
-})</code></pre>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">.env ファイルを作成 <span class="badge badge-purple">PowerShell</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
-            <pre><code><span class="prompt">PS></span> copy ..\DevelopmentRAGEnvironment\.env.example .env</code></pre>
-          </div>
-          <p><code>.env</code> の内容（<code>YOUR_USERNAME</code> を自分のユーザー名に変更）：</p>
-          <pre><code><span class="cm"># ChromaDB データ保存先</span>
-CHROMA_PATH=./data/chroma
-
-<span class="cm"># Obsidian vault のパス</span>
-SOURCE_DIR=C:\Users\YOUR_USERNAME\Desktop\GameDevelopment\DevelopmentRAGEnvironment\localRAG
-PROCESSED_DIR=C:\Users\YOUR_USERNAME\Desktop\GameDevelopment\DevelopmentRAGEnvironment\localRAG\_rag_dashboard\.processed
-
-<span class="cm"># 埋め込みモデル（変更不要）</span>
-EMBEDDING_MODEL=intfloat/multilingual-e5-large
-EMBEDDING_DIM=1024
-EMBEDDING_PREFIX_QUERY=query:
-EMBEDDING_PREFIX_EMBEDDING=passage:</code></pre>
-        </div>
-      </div>
-    </div>
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">4</div></div>
-      <div class="step-content">
-        <div class="step-title">main.py に Windows UTF-8 対応パッチを適用 <span class="badge badge-red">Windows 必須</span></div>
-        <div class="step-body">
-          <p><code>src\main.py</code> を開き、<code>import sys</code> の直後（<code>from dotenv</code> より前）に以下を追加する：</p>
-          <pre><code><span class="kw">import</span> io
-
-<span class="cm"># Force UTF-8 for stdin/stdout on Windows (default is CP932, which corrupts Japanese)</span>
-<span class="kw">if</span> <span class="fn">hasattr</span>(sys.stdin, <span class="str">'buffer'</span>):
-    sys.stdin = io.<span class="fn">TextIOWrapper</span>(sys.stdin.buffer, encoding=<span class="str">'utf-8'</span>)
-<span class="kw">if</span> <span class="fn">hasattr</span>(sys.stdout, <span class="str">'buffer'</span>):
-    sys.stdout = io.<span class="fn">TextIOWrapper</span>(sys.stdout.buffer, encoding=<span class="str">'utf-8'</span>, line_buffering=<span class="val">True</span>)</code></pre>
-          <div class="callout callout-warn" style="margin-top:10px">
-            <p><strong>なぜ必要か？</strong><br>
-            Windows のデフォルトは CP932。MCP は stdin/stdout で JSON-RPC を通信するため、日本語クエリが文字化けして <code>TextEncodeInput must be Union[TextInputSequence, ...]</code> エラーになる。</p>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th>変数</th><th>デフォルト</th><th>説明</th></tr></thead>
+              <tbody>
+                <tr><td><code>SOURCE_DIR</code></td><td><code>localRAG/</code></td><td>インデックス化対象ディレクトリ</td></tr>
+                <tr><td><code>PROCESSED_DIR</code></td><td><code>localRAG/_rag_dashboard/.processed</code></td><td>処理済みファイルの保存先</td></tr>
+                <tr><td><code>CHROMA_PATH</code></td><td><code>data/chroma</code></td><td>ChromaDB データ保存先</td></tr>
+                <tr><td><code>EMBEDDING_MODEL</code></td><td><code>intfloat/multilingual-e5-large</code></td><td>埋め込みモデル名</td></tr>
+                <tr><td><code>EMBEDDING_DIM</code></td><td><code>1024</code></td><td>埋め込み次元数</td></tr>
+                <tr><td><code>EMBEDDING_PREFIX_QUERY</code></td><td><code>query:</code></td><td>検索クエリ用プレフィックス</td></tr>
+                <tr><td><code>EMBEDDING_PREFIX_EMBEDDING</code></td><td><code>passage:</code></td><td>文書埋め込み用プレフィックス</td></tr>
+                <tr><td><code>ANTHROPIC_API_KEY</code></td><td>なし</td><td><code>rag_local_bridge.py</code> 使用時に必須</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -664,14 +588,17 @@ expires: 2026-12-31  <span class="cm"># オプション</span>
   </div>
 
   <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
-    <pre><code><span class="prompt">PS></span> uv run python -m src.cli index
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — DevelopmentRAGEnvironment</span></div>
+    <pre><code><span class="prompt">PS></span> uv run python scripts\rag_cli.py index
 <span class="out">インデックス化が完了しました
-- 処理ファイル数: 1
-- 総チャンク数: 8</span>   <span class="cm">← ファイルを追加後の例</span>
+- ドキュメント数: 1
+- 処理時間: 8 秒</span>   <span class="cm">← ファイルを追加後の例</span>
 
 <span class="cm"># 差分のみ更新する場合</span>
-<span class="prompt">PS></span> uv run python -m src.cli index --incremental</code></pre>
+<span class="prompt">PS></span> uv run python scripts\rag_cli.py index --incremental
+
+<span class="cm"># ドキュメント数の確認</span>
+<span class="prompt">PS></span> uv run python scripts\rag_cli.py count</code></pre>
   </div>
 
   <div class="callout callout-note">
@@ -689,41 +616,29 @@ expires: 2026-12-31  <span class="cm"># オプション</span>
 
   <div class="step-group">
     <div class="step">
-      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
-      <div class="step-content">
-        <div class="step-title">スクリプトをコピー <span class="badge badge-purple">PowerShell</span></div>
-        <div class="step-body">
-          <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
-            <pre><code><span class="prompt">PS></span> copy ..\DevelopmentRAGEnvironment\scripts\auto_index.py .</code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-rail"><div class="step-badge">1</div></div>
       <div class="step-content">
         <div class="step-title">バックグラウンドで起動 <span class="badge badge-purple">PowerShell</span></div>
         <div class="step-body">
+          <p><code>scripts\auto_index.py</code> はこのリポジトリにすでに含まれているため、コピー作業は不要。リポジトリ直下から直接起動する。</p>
           <div class="terminal">
-            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — mcp-rag-server</span></div>
-            <pre><code><span class="prompt">PS></span> Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python auto_index.py"</code></pre>
+            <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell — DevelopmentRAGEnvironment</span></div>
+            <pre><code><span class="prompt">PS></span> Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python scripts/auto_index.py"</code></pre>
           </div>
           <div class="callout callout-warn">
-            <p><strong><code>python auto_index.py</code> では起動しないこと</strong></p>
-            <p>uv の仮想環境外で実行すると <code>ModuleNotFoundError: No module named 'yaml'</code> が発生する。必ず <code>uv run</code> 経由で起動すること。</p>
+            <p><strong><code>python scripts\auto_index.py</code> では起動しないこと</strong></p>
+            <p>uv の仮想環境外で実行すると <code>ModuleNotFoundError</code> が発生する。必ず <code>uv run</code> 経由で起動すること。</p>
           </div>
         </div>
       </div>
     </div>
 
     <div class="step">
-      <div class="step-rail"><div class="step-badge">3</div></div>
+      <div class="step-rail"><div class="step-badge">2</div></div>
       <div class="step-content">
         <div class="step-title">動作確認 <span class="badge badge-green">Obsidian</span></div>
         <div class="step-body">
-          <p>Obsidian でノートを保存後、<code>_rag_dashboard\index_status.md</code> のタイムスタンプが更新されれば watchdog が正常に動作している。</p>
+          <p>Obsidian でノートを保存後、<code>_rag_dashboard\index_status.md</code> と <code>namespace_map.md</code> のタイムスタンプが更新されれば watchdog が正常に動作している。</p>
         </div>
       </div>
     </div>
@@ -759,15 +674,14 @@ expires: 2026-12-31  <span class="cm"># オプション</span>
             <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">claude_desktop_config.json</span></div>
             <pre><code>{
   <span class="str">"mcpServers"</span>: {
-    <span class="str">"mcp-rag-server"</span>: {
+    <span class="str">"local-rag-server"</span>: {
       <span class="str">"command"</span>: <span class="str">"uv"</span>,
       <span class="str">"args"</span>: [
         <span class="str">"run"</span>,
         <span class="str">"--directory"</span>,
-        <span class="str">"C:\\Users\\YOUR_USERNAME\\Desktop\\GameDevelopment\\mcp-rag-server"</span>,
+        <span class="str">"C:\\Users\\YOUR_USERNAME\\Desktop\\GameDevelopment\\DevelopmentRAGEnvironment"</span>,
         <span class="str">"python"</span>,
-        <span class="str">"-m"</span>,
-        <span class="str">"src.main"</span>
+        <span class="str">"scripts/rag_mcp_server.py"</span>
       ]
     }
   }
@@ -775,7 +689,7 @@ expires: 2026-12-31  <span class="cm"># オプション</span>
           </div>
           <div class="callout callout-note">
             <p><strong>旧構成との違い</strong></p>
-            <p>旧版は <code>"command": "wsl"</code> で WSL を経由していたが、新版は <code>"command": "uv"</code> で Windows ネイティブに直接起動できる。</p>
+            <p>旧版は外部リポジトリ <code>mcp-rag-server</code> をクローンしたディレクトリを指していたが、新版はこのリポジトリ自身の <code>scripts/rag_mcp_server.py</code> を直接指定する。クローンも別ディレクトリでの依存管理も不要。</p>
           </div>
         </div>
       </div>
@@ -789,7 +703,7 @@ expires: 2026-12-31  <span class="cm"># オプション</span>
           <p>Claude Desktop を完全再起動後、設定画面で <code>running</code> と表示されれば完了。</p>
           <div class="callout callout-tip">
             <p><strong>確認プロンプト</strong></p>
-            <p>mcp-rag-server でインデックス内のドキュメント数を確認してください。</p>
+            <p>local-rag-server でインデックス内のドキュメント数を確認してください。</p>
           </div>
         </div>
       </div>
@@ -802,79 +716,63 @@ expires: 2026-12-31  <span class="cm"># オプション</span>
   <div class="section-eye">Troubleshooting</div>
   <h2>トラブルシューティング</h2>
 
-  <h3>sentencepiece のビルドが失敗する（CMake エラー）</h3>
-  <p style="font-size:13px;color:var(--muted)">Python 3.13 には sentencepiece の pre-built wheel がないためビルドが失敗する。</p>
-  <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell</span></div>
-    <pre><code><span class="prompt">PS></span> uv sync --python 3.12   <span class="cm"># Python バージョンを明示指定</span></code></pre>
-  </div>
+  <h3><code>uv sync</code> で sentencepiece のビルドが失敗する</h3>
+  <p style="font-size:13px;color:var(--muted)"><code>pyproject.toml</code> の <code>requires-python</code> が <code>&gt;=3.13</code> になっているか確認する。Python 3.13 以降であれば pre-built wheel が提供されているためビルド不要。</p>
 
   <h3><code>'NoneType' object has no attribute 'get_or_create_collection'</code></h3>
-  <p style="font-size:13px;color:var(--muted)"><code>vector_database.py</code> の差し替えが正しく行われていない。</p>
-  <ul class="checklist">
-    <li><code>src\vector_database.py</code> が ChromaDB 版に差し替えられているか確認</li>
-    <li><code>initialize_database()</code> が <code>self.connect()</code> を呼んでいるか確認</li>
-    <li>再度コピー: <code>copy ..\DevelopmentRAGEnvironment\scripts\vector_database.py src\vector_database.py</code></li>
-  </ul>
+  <p style="font-size:13px;color:var(--muted)"><code>vector_database.py</code> の <code>initialize_database()</code> が <code>self.connect()</code> を呼んでいるか確認する（<code>scripts/vector_database.py</code> は変更していなければ問題ない）。</p>
 
   <h3>ChromaDB コレクション名エラー（<code>Got: C:\</code>）</h3>
-  <p style="font-size:13px;color:var(--muted)"><code>.env</code> の <code>SOURCE_DIR</code> が正しく設定されていない。</p>
+  <p style="font-size:13px;color:var(--muted)"><code>SOURCE_DIR</code> 環境変数が正しく設定されていない。</p>
   <ul class="checklist">
-    <li><code>.env</code> の <code>SOURCE_DIR</code> が絶対パスで設定されているか確認</li>
+    <li><code>SOURCE_DIR</code> が絶対パスで設定されているか確認（デフォルトでは <code>localRAG/</code> が使われる）</li>
     <li>設定後は <code>.processed\</code> キャッシュを削除して再インデックス</li>
   </ul>
   <div class="terminal">
     <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell</span></div>
     <pre><code><span class="prompt">PS></span> Remove-Item -Recurse -Force localRAG\_rag_dashboard\.processed
-<span class="prompt">PS></span> uv run python -m src.cli index</code></pre>
+<span class="prompt">PS></span> uv run python scripts\rag_cli.py index</code></pre>
   </div>
 
-  <h3>watchdog が起動後すぐ終了する / yaml モジュールエラー</h3>
+  <h3>watchdog が反応しない</h3>
   <div class="terminal">
     <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">PowerShell</span></div>
-    <pre><code><span class="cm"># NG — uv 仮想環境外で実行するとモジュールが見つからない</span>
-<span class="prompt">PS></span> python auto_index.py
+    <pre><code><span class="cm"># uv run 経由で起動されているか確認</span>
+<span class="prompt">PS></span> Get-Process python
 
-<span class="cm"># OK — uv run 経由で起動する</span>
-<span class="prompt">PS></span> Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python auto_index.py"</code></pre>
+<span class="cm"># 止まっていれば再起動</span>
+<span class="prompt">PS></span> Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python scripts/auto_index.py"</code></pre>
   </div>
 
   <h3>Claude Desktop で MCP が running にならない</h3>
   <ul class="checklist">
     <li><code>claude_desktop_config.json</code> のパスが正しいか確認（<code>\\</code> でエスケープ）</li>
-    <li>PowerShell で <code>uv run --directory "C:\...\mcp-rag-server" python -m src.main</code> が単体で動くか確認</li>
+    <li>PowerShell で <code>uv run --directory "C:\...\DevelopmentRAGEnvironment" python scripts/rag_mcp_server.py</code> が単体で動くか確認</li>
     <li>Claude Desktop をタスクトレイから完全終了して再起動</li>
   </ul>
 
   <h3>インデックス化で <code>_rag_dashboard</code> が処理される</h3>
   <ul class="checklist">
-    <li><code>vector_database.py</code> のパッチが正しく適用されているか確認</li>
-    <li><code>_namespace_from_path()</code> が <code>SOURCE_DIR</code> 環境変数を読んで相対パスに変換しているはず</li>
-    <li><code>.env</code> の <code>SOURCE_DIR</code> が設定されているか確認</li>
+    <li><code>_namespace_from_path()</code> が <code>SOURCE_DIR</code> 環境変数を読んで相対パスに変換しているか確認</li>
   </ul>
 
-  <h3>MCP 検索で <code>KeyError: 'chunk_index'</code> が出る</h3>
-  <p style="font-size:13px;color:var(--muted)"><code>vector_database.py</code> の <code>search()</code> が <code>chunk_index</code> をトップレベルに返していない旧バージョン。最新の <code>scripts/vector_database.py</code> を再コピーするか、以下を確認する。</p>
-  <pre><code><span class="cm"># src/vector_database.py の search() 内 results.append({...}) に含まれるか確認</span>
-<span class="str">"chunk_index"</span>: meta.get(<span class="str">"chunk_index"</span>, <span class="val">0</span>),</code></pre>
+  <h3>検索時に <code>KeyError: 'chunk_index'</code> / <code>KeyError: 'document_id'</code> が出る</h3>
+  <p style="font-size:13px;color:var(--muted)"><code>scripts/vector_database.py</code> の <code>search()</code> / <code>get_adjacent_chunks()</code> / <code>get_document_by_file_path()</code> がこれらのキーをトップレベルで返しているか確認する。</p>
 
-  <h3>MCP 検索で <code>KeyError: 'document_id'</code> が出る</h3>
-  <p style="font-size:13px;color:var(--muted)"><code>get_adjacent_chunks()</code> / <code>get_document_by_file_path()</code> が <code>document_id</code> を返していない旧バージョン。最新版では <code>res["ids"]</code> を zip して <code>document_id</code> を含める実装になっている。</p>
-
-  <h3>日本語クエリが文字化け / <code>TextEncodeInput</code> エラー</h3>
-  <p style="font-size:13px;color:var(--muted)">MCP が CP932 で stdin を読んでいる。Step 3-4 の <code>main.py</code> UTF-8 パッチが適用されているか確認する。</p>
+  <h3>日本語クエリが文字化け / <code>TextEncodeInput</code> エラー（MCP 登録時のみ）</h3>
+  <p style="font-size:13px;color:var(--muted)"><code>scripts/rag_mcp_server.py</code> の冒頭に UTF-8 パッチ（<code>io.TextIOWrapper</code>）が含まれているか確認する。Windows のデフォルトエンコーディングは CP932 のため、これがないと stdin/stdout で日本語が文字化けする。</p>
   <div class="terminal">
-    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">エラー例（適用前）</span></div>
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">エラー例</span></div>
     <pre><code>received query: <span class="str">'繝輔か繝ｼ繝...'</span>   <span class="cm">← 文字化けしている</span>
 TextEncodeInput must be Union[TextInputSequence, ...]</code></pre>
   </div>
 
-  <h3>インデックス化後も MCP の検索結果が増えない（HNSW キャッシュ）</h3>
-  <p style="font-size:13px;color:var(--muted)">ChromaDB の HNSW インデックスはメモリにロードされる。別プロセスが upsert しても MCP サーバー側に即時反映されない。</p>
+  <h3>インデックス化後も検索結果が増えない（HNSW キャッシュ）</h3>
+  <p style="font-size:13px;color:var(--muted)">ChromaDB の HNSW インデックスはメモリにロードされる。別プロセスが upsert しても起動中のサーバー側には反映されない。</p>
   <div class="callout callout-warn">
-    <p><strong>インデックス化後は必ず MCP サーバーを再起動する。</strong><br>
+    <p><strong>インデックス化後は必ず MCP サーバー / ブリッジを再起動する。</strong><br>
     Claude Desktop: タスクトレイから完全終了 → 再起動<br>
-    Claude Code: 接続を一度切断してから再接続</p>
+    <code>rag_local_bridge.py</code>: プロセスを再起動</p>
   </div>
 </div>
 
@@ -882,9 +780,9 @@ TextEncodeInput must be Union[TextInputSequence, ...]</code></pre>
 
 <footer>
   <p>
-    Local RAG Setup Guide (ChromaDB版) · based on
-    <a href="https://github.com/karaage0703/mcp-rag-server">mcp-rag-server</a> by karaage0703 ·
-    Updated 2026-06-16
+    Local RAG Setup Guide（単一リポジトリ版）·
+    検索エンジン一式をリポジトリ内にベンダリング（元実装: mcp-rag-server, MIT License）·
+    Updated 2026-06-30
   </p>
 </footer>
 
