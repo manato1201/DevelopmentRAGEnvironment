@@ -229,6 +229,22 @@ function adminDeleteKey(apiKey, keyPreview) {
   return { ok: true };
 }
 
+/** キーのnamespace更新（管理者のみ） */
+function adminUpdateKey(apiKey, keyPreview, newNamespaces) {
+  requireAdmin_(apiKey);
+  var invalidNs = (newNamespaces || []).filter(function(n) { return ALL_NAMESPACES.indexOf(n) === -1; });
+  if (invalidNs.length) throw new Error('無効なnamespace: ' + invalidNs.join(', '));
+  var prefix = keyPreview.replace('...', '');
+  var keys   = getApiKeysConfig_();
+  var found  = false;
+  keys.forEach(function(k) {
+    if (k.key.substring(0, 8) === prefix) { k.namespaces = newNamespaces; found = true; }
+  });
+  if (!found) throw new Error('キーが見つかりません: ' + keyPreview);
+  saveApiKeysConfig_(keys);
+  return { ok: true };
+}
+
 // ─────────────────────────────────────────────
 // WebApp エントリポイント
 // ─────────────────────────────────────────────
@@ -285,6 +301,8 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({
       answer:            result.answer,
       sources:           result.sources,
+      extractionRate:    result.extractionRate,
+      extractionDetail:  result.extractionDetail,
       status:            'ok',
       allowedNamespaces: allowed,
       memoryId:          memId,
@@ -312,7 +330,9 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey) {
     dbKey = 'all';
   }
 
-  var results = searchByEmbedding_(query, dbKey, 5, allowedNamespaces);
+  // HyDE で検索精度を向上させた埋め込みを生成してから検索（dbKey でドメインを指定）
+  var hydeEmb = hydeExpand_(query, dbKey);
+  var results = searchByEmbedding_(query, dbKey, 5, allowedNamespaces, hydeEmb);
   var context = results.length === 0
     ? '（関連ドキュメントが見つかりませんでした）'
     : results.map(function(r, i) {
@@ -337,8 +357,8 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey) {
   }
 
   var contents = [
-    { role: 'user',  parts: [{ text: '以下の参考ドキュメントを確認しました。\n\n' + context }] },
-    { role: 'model', parts: [{ text: '参考ドキュメントを確認しました。ご質問にお答えします。' }] },
+    { role: 'user',  parts: [{ text: '以下の参考ドキュメントを確認しました。回答中で参照したドキュメントは必ず [1][2] のように番号で明記してください。\n\n' + context }] },
+    { role: 'model', parts: [{ text: '参考ドキュメントを確認しました。引用番号を明記してご質問にお答えします。' }] },
   ];
   history.slice(-6).forEach(function(h) {
     contents.push({ role: h.role === 'bot' ? 'model' : 'user', parts: [{ text: h.text }] });
@@ -346,32 +366,52 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey) {
   contents.push({ role: 'user', parts: [{ text: query }] });
 
   var answer = callGemini_(contents);
+
+  // 情報抽出度: 回答中の [1][2] 引用を解析
+  var extraction = parseExtractionRate_(answer, results.length);
+
   var seen = {}, sources = [];
-  results.forEach(function(r) {
+  results.forEach(function(r, i) {
     var key = r.db + '::' + r.title;
-    if (!seen[key]) { seen[key] = true; sources.push({ title: r.title, db: r.db, score: r.score }); }
+    if (!seen[key]) {
+      seen[key] = true;
+      sources.push({ title: r.title, db: r.db, score: r.score, cited: extraction.cited[i] });
+    }
   });
-  return { answer: answer, sources: sources };
+  return { answer: answer, sources: sources, extractionRate: extraction.rate, extractionDetail: extraction.citedCount + '/' + extraction.total };
 }
 
 // ─────────────────────────────────────────────
 // 検索
 // ─────────────────────────────────────────────
 
-function searchByEmbedding_(query, dbKey, limit, allowedNamespaces) {
+function searchByEmbedding_(query, dbKey, limit, allowedNamespaces, preEmb) {
   limit = limit || 5;
-  var qv  = embedQuery_(query);
+  var qv = preEmb || embedQuery_(query);
   if (!qv) return [];
   var idx = loadIndex_();
   if (!idx.length) return [];
-  var results = [];
+
+  // DB指定時は低め（多様なチャンクが少ない小規模DBに対応）、全DB横断は高め
+  var MIN_SCORE = (dbKey && dbKey !== 'all') ? 0.58 : 0.62;
+  var FETCH_K   = limit * 3;    // ページ重複排除前の候補数
+
+  var candidates = [];
   idx.forEach(function(row) {
     if (allowedNamespaces && allowedNamespaces.indexOf(row.db) === -1) return;
     if (dbKey && dbKey !== 'all' && row.db !== dbKey) return;
-    results.push({ score: cosineSimilarity_(qv, row.emb), db: row.db, title: row.title, text: row.text });
+    var score = cosineSimilarity_(qv, row.emb);
+    if (score < MIN_SCORE) return;
+    candidates.push({ score: score, db: row.db, title: row.title, text: row.text });
   });
-  results.sort(function(a, b) { return b.score - a.score; });
-  return results.slice(0, limit);
+  candidates.sort(function(a, b) { return b.score - a.score; });
+
+  // ページ単位重複排除: 同タイトルは最高スコアのチャンクのみ残す
+  var titleSeen = {}, deduped = [];
+  candidates.slice(0, FETCH_K).forEach(function(r) {
+    if (!titleSeen[r.title]) { titleSeen[r.title] = true; deduped.push(r); }
+  });
+  return deduped.slice(0, limit);
 }
 
 function cosineSimilarity_(a, b) {
@@ -379,6 +419,75 @@ function cosineSimilarity_(a, b) {
   for (var i = 0; i < a.length; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }
   var d = Math.sqrt(na) * Math.sqrt(nb);
   return d === 0 ? 0 : dot / d;
+}
+
+/**
+ * HyDE (Hypothetical Document Embedding)
+ * クエリに対して仮説的な回答文書を生成し、クエリ埋め込みと平均を取ることで
+ * ドキュメント空間に近い埋め込みを生成する。検索精度を大幅に改善する。
+ */
+/**
+ * dbKey に応じたドメインヒントを返す
+ * HyDE の仮説文書をDBの内容に合わせるためのプロンプト調整
+ */
+function hydePromptFor_(dbKey) {
+  var hints = {
+    houdini21:  'Houdiniの技術ドキュメントとして、ノード名・パラメータ名・VEX関数名を含めて技術的に',
+    tool_docs:  '技術ドキュメントとして、API名・設定値・コード例を含めて具体的に',
+    game_info:  'ゲーム情報として、タイトル・仕様・特徴を含めて具体的に',
+    research:   '研究・論文の要約として、専門用語・手法・結果を含めて学術的に',
+    team_notes: 'チームのメモ・議事録として、決定事項・担当者・日付を含めて',
+    afuri:      '飲食店・メニュー情報として、料理名・食材・価格・住所・営業時間を含めて',
+    braintq:    'サービス・施設情報として、特徴・利用方法・料金を含めて',
+    fourteen:   'ゴルフ場・施設情報として、コース・設備・予約方法を含めて',
+  };
+  return (hints[dbKey] || '情報ドキュメントとして具体的に') + '、次の質問への回答になる短い説明文（3〜5文）を書いてください:\n\n';
+}
+
+function hydeExpand_(query, dbKey) {
+  try {
+    var apiKey = getProps_().getProperty('GEMINI_API_KEY');
+    var url    = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
+    var prompt = hydePromptFor_(dbKey) + query;
+    var payload = JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }]}],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
+    });
+    var res = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: payload, muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) return embedQuery_(query);
+    var hypoDoc  = JSON.parse(res.getContentText()).candidates[0].content.parts[0].text;
+    var queryEmb = embedQuery_(query);
+    var hypoEmb  = embedDoc_(hypoDoc);
+    if (!queryEmb || !hypoEmb) return queryEmb;
+    // クエリ 40% + ドメイン適合仮説文書 60%
+    return queryEmb.map(function(v, i) { return v * 0.4 + hypoEmb[i] * 0.6; });
+  } catch(e) {
+    Logger.log('HyDE fallback: ' + e.message);
+    return embedQuery_(query);
+  }
+}
+
+/**
+ * 情報抽出度の算出
+ * 回答テキスト中の [1][2] 形式のソース引用を解析し、
+ * 何件のソースが実際に回答で使われたか（引用率）を返す。
+ */
+function parseExtractionRate_(answer, total) {
+  var cited = {};
+  var re = /\[(\d+)\]/g, m;
+  while ((m = re.exec(answer)) !== null) {
+    var n = parseInt(m[1], 10);
+    if (n >= 1 && n <= total) cited[n - 1] = true;
+  }
+  var citedArr = [];
+  for (var i = 0; i < total; i++) citedArr.push(!!cited[i]);
+  var citedCount = Object.keys(cited).length;
+  return {
+    rate:       total > 0 ? Math.round(citedCount / total * 100) : 0,
+    citedCount: citedCount,
+    total:      total,
+    cited:      citedArr,
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -526,7 +635,7 @@ function callGemini_(contents) {
       '「参考: あなたの過去の関連Q&A」が含まれる場合は、それもユーザーの文脈として活用してください。'
     }]},
     contents:         contents,
-    generationConfig: { temperature: 0.4, maxOutputTokens: 1024 },
+    generationConfig: { temperature: 0.4, maxOutputTokens: 2048 },
   });
   var maxRetries = 10, baseDelay = 1000, maxDelay = 30000;
   for (var i = 0; i < maxRetries; i++) {
@@ -939,6 +1048,11 @@ function getChatHtml_() {
 '.src-db{font-size:11px;background:#ede9fe;color:#6d28d9;padding:2px 7px;border-radius:10px;white-space:nowrap;flex-shrink:0}',
 '.src-score{color:var(--text-light);margin-left:auto;font-size:11px;font-weight:600;white-space:nowrap}',
 '.src-score.high{color:#16a34a}.src-score.mid{color:#d97706}.src-score.low{color:#94a3b8}',
+'.src-cited{font-size:10px;background:#dcfce7;color:#16a34a;padding:1px 6px;border-radius:99px;white-space:nowrap;flex-shrink:0}',
+'.src-not-cited{font-size:10px;background:#f1f5f9;color:#94a3b8;padding:1px 6px;border-radius:99px;white-space:nowrap;flex-shrink:0}',
+'.extract-summary{font-size:11px;color:var(--text-light);padding:5px 11px;background:#f8fafc;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px}',
+'.extract-bar{height:4px;border-radius:2px;background:#e2e8f0;flex:1;overflow:hidden}',
+'.extract-fill{height:100%;border-radius:2px;background:#6366f1;transition:width .4s}',
 '.input-area{padding:10px 14px;background:var(--white);border-top:1px solid var(--border);',
 '  display:flex;gap:8px;align-items:flex-end;flex-shrink:0}',
 'textarea{flex:1;padding:9px 13px;border:1.5px solid var(--border);border-radius:12px;',
@@ -1168,6 +1282,19 @@ function getChatHtml_() {
 '    </div>',
 '  </div>',
 '</div>',
+'',
+'<!-- namespace編集モーダル -->',
+'<div class="key-modal-overlay" id="edit-ns-modal">',
+'  <div class="key-modal">',
+'    <h3 style="margin-bottom:4px;color:#e2e8f0">🔑 namespace 編集</h3>',
+'    <p style="font-size:.78rem;color:#64748b;margin-bottom:14px">キー: <span id="edit-ns-preview" style="font-family:monospace;color:#94a3b8"></span></p>',
+'    <div id="edit-ns-checkboxes" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;padding:10px;background:var(--dark3);border-radius:8px;border:1px solid var(--dborder)"></div>',
+'    <div style="display:flex;gap:8px">',
+'      <button class="btn-admin btn-primary" onclick="saveEditNs()">保存</button>',
+'      <button class="btn-admin" style="background:var(--dark3);color:#e2e8f0" onclick="closeEditNs()">キャンセル</button>',
+'    </div>',
+'  </div>',
+'</div>',
 
 '<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>',
 '<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>',
@@ -1325,21 +1452,36 @@ function getChatHtml_() {
 '  return { bubble: bubble, wrap: wrap };',
 '}',
 
-'function buildSources_(sources) {',
+'function buildSources_(sources, extractionRate) {',
 '  var div = document.createElement("div"); div.className = "sources";',
+'  var citedCount = sources.filter(function(s) { return s.cited; }).length;',
+'  var hasExtract = extractionRate !== undefined && extractionRate !== null;',
+'  var extractLabel = hasExtract ? "  💡 抽出度: " + citedCount + "/" + sources.length + " (" + extractionRate + "%)" : "";',
 '  var btn = document.createElement("button"); btn.className = "src-toggle";',
-'  btn.innerHTML = "📎 参考情報 " + sources.length + "件 ▾";',
+'  btn.innerHTML = "📎 参考情報 " + sources.length + "件" + extractLabel + " ▾";',
 '  var list = document.createElement("div"); list.className = "src-list";',
+'  // 情報抽出度バー',
+'  if (hasExtract) {',
+'    var bar = document.createElement("div"); bar.className = "extract-summary";',
+'    bar.innerHTML = \'<span>情報抽出度</span><div class="extract-bar"><div class="extract-fill" style="width:\' + extractionRate + \'%"></div></div><span style="font-weight:600;color:\' + (extractionRate >= 75 ? "#16a34a" : extractionRate >= 50 ? "#d97706" : "#94a3b8") + \'">\' + extractionRate + \'%</span>\';',
+'    list.appendChild(bar);',
+'  }',
 '  sources.forEach(function(s, i) {',
 '    var pct  = (s.score * 100).toFixed(1);',
 '    var cls  = s.score >= 0.75 ? "high" : s.score >= 0.5 ? "mid" : "low";',
+'    var citedBadge = s.cited !== undefined',
+'      ? (s.cited ? \'<span class="src-cited">✓ 引用</span>\' : \'<span class="src-not-cited">未引用</span>\')',
+'      : "";',
 '    var item = document.createElement("div"); item.className = "src-item";',
-'    item.innerHTML = (i+1) + ". " + s.title + \'<span class="src-db">\' + s.db + \'</span><span class="src-score \' + cls + \'">\' + pct + \'%</span>\';',
+'    item.innerHTML = (i+1) + ". " + s.title +',
+'      \'<span class="src-db">\' + s.db + \'</span>\' +',
+'      citedBadge +',
+'      \'<span class="src-score \' + cls + \'">\' + pct + \'%</span>\';',
 '    list.appendChild(item);',
 '  });',
 '  btn.onclick = function() {',
 '    list.classList.toggle("open");',
-'    btn.innerHTML = "📎 参考情報 " + sources.length + "件 " + (list.classList.contains("open") ? "▴" : "▾");',
+'    btn.innerHTML = "📎 参考情報 " + sources.length + "件" + extractLabel + " " + (list.classList.contains("open") ? "▴" : "▾");',
 '  };',
 '  div.appendChild(btn); div.appendChild(list);',
 '  return div;',
@@ -1360,7 +1502,7 @@ function getChatHtml_() {
 '    .withSuccessHandler(function(result) {',
 '      isSending = false; document.getElementById("sbtn").disabled = false;',
 '      bot.bubble.innerHTML = md(result.answer || "");',
-'      if (result.sources && result.sources.length) bot.wrap.appendChild(buildSources_(result.sources));',
+'      if (result.sources && result.sources.length) bot.wrap.appendChild(buildSources_(result.sources, result.extractionRate));',
 '      chatHistory.push({role:"user", text:q});',
 '      chatHistory.push({role:"bot",  text:result.answer||""});',
 '      if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);',
@@ -1564,11 +1706,14 @@ function getChatHtml_() {
 '        var tr  = document.createElement("tr");',
 '        var ns  = (k.namespaces || []).join(", ") || "(なし)";',
 '        var adm = k.isAdmin ? \'<span class="badge-admin">管理者</span>\' : "";',
+'        var currentNsJson = JSON.stringify(k.namespaces || []).replace(/"/g, "&quot;");',
 '        tr.innerHTML =',
 '          \'<td style="font-family:monospace">\' + k.keyPreview + \'</td>\' +',
 '          \'<td>\' + k.displayName + adm + \'</td>\' +',
 '          \'<td style="font-size:.72rem;color:#94a3b8">\' + ns + \'</td>\' +',
-'          \'<td><button class="btn-admin btn-danger btn-sm" onclick="deleteKey(\\\'\' + k.keyPreview + \'\\\')">削除</button></td>\';',
+'          \'<td style="display:flex;gap:6px">\' +',
+'            \'<button class="btn-admin btn-sm" style="background:#334155;color:#e2e8f0" onclick="openEditNs(\\\'\' + k.keyPreview + \'\\\',\' + currentNsJson.replace(/\'/g,"\\\\\'") + \')">編集</button>\' +',
+'            \'<button class="btn-admin btn-danger btn-sm" onclick="deleteKey(\\\'\' + k.keyPreview + \'\\\')">削除</button></td>\';',
 '        tbody.appendChild(tr);',
 '      });',
 '    })',
@@ -1600,6 +1745,40 @@ function getChatHtml_() {
 '    .withSuccessHandler(function() { adminFlash("削除しました"); loadAdminKeys(); })',
 '    .withFailureHandler(function(e) { adminFlash(e.message, true); })',
 '    .adminDeleteKey(_apiKey, preview);',
+'}',
+'',
+'var _editNsPreview = null;',
+'function openEditNs(preview, currentNs) {',
+'  _editNsPreview = preview;',
+'  var modal = document.getElementById("edit-ns-modal");',
+'  if (!modal) return;',
+'  var wrap = document.getElementById("edit-ns-checkboxes");',
+'  wrap.innerHTML = "";',
+'  ALL_NAMESPACES.forEach(function(ns) {',
+'    var chk = document.createElement("label");',
+'    chk.style.cssText = "display:inline-flex;align-items:center;gap:4px;margin:3px 6px 3px 0;font-size:.8rem;color:#e2e8f0;cursor:pointer";',
+'    var input = document.createElement("input");',
+'    input.type = "checkbox"; input.value = ns;',
+'    input.checked = currentNs.indexOf(ns) !== -1;',
+'    chk.appendChild(input);',
+'    chk.appendChild(document.createTextNode(DB_LABELS[ns] || ns));',
+'    wrap.appendChild(chk);',
+'  });',
+'  document.getElementById("edit-ns-preview").textContent = preview;',
+'  modal.classList.add("show");',
+'}',
+'function closeEditNs() {',
+'  var modal = document.getElementById("edit-ns-modal");',
+'  if (modal) modal.classList.remove("show");',
+'  _editNsPreview = null;',
+'}',
+'function saveEditNs() {',
+'  if (!_editNsPreview) return;',
+'  var ns = Array.from(document.querySelectorAll("#edit-ns-checkboxes input:checked")).map(function(i) { return i.value; });',
+'  google.script.run',
+'    .withSuccessHandler(function() { adminFlash("namespace を更新しました"); closeEditNs(); loadAdminKeys(); })',
+'    .withFailureHandler(function(e) { adminFlash(e.message, true); })',
+'    .adminUpdateKey(_apiKey, _editNsPreview, ns);',
 '}',
 
 'function copyModalKey() {',
