@@ -150,10 +150,6 @@ footer { background: var(--bg2); border-top: 1px solid var(--border); padding: 2
 </head>
 <body>
 
-<div style="background:#422006;color:#fde68a;padding:12px 20px;font-size:14px;border-bottom:1px solid #92400e;">
-  ⚠️ 本資料中の「mcp-rag-server」は外部リポジトリとしての参照です。2026-06-30 時点でこの依存は解消され、検索エンジンはこのリポジトリ（DevelopmentRAGEnvironment）に直接統合されています。最新のセットアップ手順は <code>docs/local-rag-setup.md</code> を参照してください。
-</div>
-
 <header>
   <div class="header-inner">
     <div class="eyebrow">● How-To Guide</div>
@@ -414,7 +410,7 @@ updated: 2026-06-18
   <div class="section-eye">section 05</div>
   <h2>インデックス実行</h2>
 
-  <p>ドキュメントが揃ったらインデックスコマンドを実行します。mcp-rag-serverディレクトリで操作します。</p>
+  <p>ドキュメントが揃ったらインデックスコマンドを実行します。検索エンジンはこのリポジトリに統合済みのため、外部リポジトリへの移動は不要です。</p>
 
   <div class="step-group">
     <div class="step">
@@ -423,11 +419,11 @@ updated: 2026-06-18
         <div class="step-line"></div>
       </div>
       <div class="step-content">
-        <div class="step-title">mcp-rag-serverディレクトリに移動</div>
+        <div class="step-title">リポジトリのルートで実行する（移動不要）</div>
         <div class="step-body">
           <div class="code-wrap">
             <div class="code-label"><span class="ps-tag">PowerShell</span></div>
-            <pre><code><span class="prompt">PS></span> cd ..\mcp-rag-server</code></pre>
+            <pre><code><span class="prompt">PS></span> cd C:\Users\YOUR_USERNAME\Desktop\GameDevelopment\DevelopmentRAGEnvironment</code></pre>
           </div>
         </div>
       </div>
@@ -444,7 +440,7 @@ updated: 2026-06-18
           <p>新しいNamespaceを初めてインデックス化するときはフルインデックスを推奨します。</p>
           <div class="code-wrap">
             <div class="code-label"><span class="ps-tag">PowerShell</span> フルインデックス</div>
-            <pre><code><span class="prompt">PS></span> uv run python -m src.cli index
+            <pre><code><span class="prompt">PS></span> uv run python scripts\rag_cli.py index
 
 <span class="cm"># 出力例</span>
 <span class="out">インデックス化しています... (source: localRAG/)
@@ -465,7 +461,7 @@ updated: 2026-06-18
           <p>変更・追加分だけを処理するので高速です。既存のNamespaceに数ファイル追加した場合はこちら。</p>
           <div class="code-wrap">
             <div class="code-label"><span class="ps-tag">PowerShell</span> 差分インデックス（--incremental）</div>
-            <pre><code><span class="prompt">PS></span> uv run python -m src.cli index --incremental
+            <pre><code><span class="prompt">PS></span> uv run python scripts\rag_cli.py index --incremental
 
 <span class="cm"># 変更なしのファイルはスキップされる</span>
 <span class="out">3 files changed, 18 new chunks added (3.2秒)</span></code></pre>
@@ -484,9 +480,9 @@ updated: 2026-06-18
           <p>実行後にチャンク総数が増えていれば正常にインデックス化されています。</p>
           <div class="code-wrap">
             <div class="code-label"><span class="ps-tag">PowerShell</span> 現在のチャンク数を確認</div>
-            <pre><code><span class="prompt">PS></span> uv run python -m src.cli count
+            <pre><code><span class="prompt">PS></span> uv run python scripts\rag_cli.py count
 
-<span class="out">Total documents in index: 365</span></code></pre>
+<span class="out">インデックス内のドキュメント数: 365</span></code></pre>
           </div>
         </div>
       </div>
@@ -497,10 +493,10 @@ updated: 2026-06-18
   <div class="code-wrap">
     <div class="code-label"><span class="ps-tag">PowerShell</span> 対象Namespaceをクリアして再インデックス</div>
     <pre><code><span class="cm"># 1. まず全インデックスをクリア（慎重に！）</span>
-<span class="prompt">PS></span> uv run python -m src.cli clear
+<span class="prompt">PS></span> uv run python scripts\rag_cli.py clear
 
 <span class="cm"># 2. フルインデックスで全Namespaceを再構築</span>
-<span class="prompt">PS></span> uv run python -m src.cli index</code></pre>
+<span class="prompt">PS></span> uv run python scripts\rag_cli.py index</code></pre>
   </div>
 
   <div class="callout callout-warn">
@@ -530,7 +526,7 @@ updated: 2026-06-18
           <p>まず登録したドキュメントのキーワードをそのまま聞いてみます。</p>
           <div class="code-wrap">
             <div class="code-label"><span class="tip-tag">Claude Desktopでの質問例</span></div>
-            <pre><code>mcp-rag-serverで「[登録したキーワード]」について検索してください。
+            <pre><code>local-rag-serverで「[登録したキーワード]」について検索してください。
 チャンクのスコアも教えてください。</code></pre>
           </div>
         </div>
@@ -587,7 +583,7 @@ updated: 2026-06-18
   <h3>Namespace指定で絞り込み検索</h3>
   <div class="code-wrap">
     <div class="code-label"><span class="tip-tag">Claude Desktopでの質問例</span></div>
-    <pre><code>mcp-rag-serverで namespace="your_namespace" を指定して
+    <pre><code>local-rag-serverで namespace="your_namespace" を指定して
 「[キーワード]」を検索してください。</code></pre>
   </div>
 </section>
@@ -597,7 +593,7 @@ updated: 2026-06-18
   <div class="section-eye">section 07</div>
   <h2>自動化 — auto_index.py（watchdog）</h2>
 
-  <p>一度セットアップしたらwatchdogを起動しておくことで、ファイルを保存するたびに差分インデックスが自動実行されます。</p>
+  <p>一度セットアップしたらwatchdogを起動しておくことで、ファイルを保存するたびに差分インデックスが自動実行されます。<code>scripts/auto_index.py</code> はこのリポジトリ内にあるため、コピーは不要です。</p>
 
   <div class="step-group">
     <div class="step">
@@ -606,31 +602,14 @@ updated: 2026-06-18
         <div class="step-line"></div>
       </div>
       <div class="step-content">
-        <div class="step-title">auto_index.py をコピー</div>
-        <div class="step-body">
-          <div class="code-wrap">
-            <div class="code-label"><span class="ps-tag">PowerShell</span></div>
-            <pre><code><span class="prompt">PS></span> copy ..\DevelopmentRAGEnvironment\scripts\auto_index.py ..\mcp-rag-server\</code></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-rail">
-        <div class="step-badge">2</div>
-        <div class="step-line"></div>
-      </div>
-      <div class="step-content">
         <div class="step-title">バックグラウンドで起動</div>
         <div class="step-body">
           <div class="code-wrap">
             <div class="code-label"><span class="ps-tag">PowerShell</span></div>
-            <pre><code><span class="prompt">PS></span> cd ..\mcp-rag-server
-<span class="prompt">PS></span> Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python auto_index.py"
+            <pre><code><span class="prompt">PS></span> Start-Process -NoNewWindow -FilePath "uv" -ArgumentList "run python scripts/auto_index.py"
 
 <span class="cm"># または新しいPowerShellウィンドウで前面起動して確認しながら使う</span>
-<span class="prompt">PS></span> uv run python auto_index.py</code></pre>
+<span class="prompt">PS></span> uv run python scripts\auto_index.py</code></pre>
           </div>
         </div>
       </div>
@@ -733,14 +712,13 @@ Watching...</span></code></pre>
           <div class="code-wrap">
             <div class="code-label"><span class="ps-tag">PowerShell</span> 完全リセット手順</div>
             <pre><code><span class="cm"># 1. ChromaDBデータを削除</span>
-<span class="prompt">PS></span> Remove-Item -Recurse -Force "..\mcp-rag-server\data\chroma"
+<span class="prompt">PS></span> Remove-Item -Recurse -Force "data\chroma"
 
 <span class="cm"># 2. file_registry.json（差分管理ファイル）を削除</span>
-<span class="prompt">PS></span> Remove-Item -Force "..\mcp-rag-server\data\file_registry.json"
+<span class="prompt">PS></span> Remove-Item -Force "localRAG\_rag_dashboard\.processed\file_registry.json"
 
 <span class="cm"># 3. フルインデックスで再構築</span>
-<span class="prompt">PS></span> cd ..\mcp-rag-server
-<span class="prompt">PS></span> uv run python -m src.cli index</code></pre>
+<span class="prompt">PS></span> uv run python scripts\rag_cli.py index</code></pre>
           </div>
         </div>
       </div>
@@ -767,7 +745,7 @@ Watching...</span></code></pre>
 
 <footer>
   <div class="footer-inner">
-    <p>新規RAG追加ガイド — LocalRAG (ChromaDB × mcp-rag-server)</p>
+    <p>新規RAG追加ガイド — LocalRAG (ChromaDB × rag_service.py)</p>
     <div class="footer-right">localRAG/ → Namespace → Index → Search</div>
   </div>
 </footer>
