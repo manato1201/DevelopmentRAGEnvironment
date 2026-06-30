@@ -864,6 +864,11 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
   modal.style.display = <span class="str">'flex'</span>;
 }
 
+<span class="kw">function</span> <span class="fn">closeEditNs</span>() {
+  document.<span class="fn">getElementById</span>(<span class="str">'editNsModal'</span>).style.display = <span class="str">'none'</span>;
+  editTarget = <span class="kw">null</span>;
+}
+
 <span class="kw">function</span> <span class="fn">saveEditNs</span>() {
   <span class="kw">const</span> modal = document.<span class="fn">getElementById</span>(<span class="str">'editNsModal'</span>);
   <span class="kw">const</span> checked = [...modal.<span class="fn">querySelectorAll</span>(<span class="str">'input[type=checkbox]:checked'</span>)]
