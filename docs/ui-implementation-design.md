@@ -277,31 +277,31 @@ GAS の WebApp（ブラウザで開くチャット画面）にもグラフタブ
 
 `scripts/rag_local_bridge.py` として実装されています。Python の `FastAPI` フレームワークで動く軽量なサーバーです。
 
-**なぜブリッジが必要か:** `mcp-rag-server`（ローカルの検索エンジン）は「stdio JSON-RPC」という通信方式を使っており、Unity や Houdini の UI から直接呼び出せません。ブリッジがその変換役を担います。
+**なぜブリッジが必要か:** ローカルの検索エンジン（`scripts/rag_service.py` 一式、ChromaDB ベース）は Python の関数として直接呼び出せますが、Unity（C#）や Houdini（別プロセスの Python）からは直接 import できません。ブリッジがその変換役を担います。
 
 ```
 Unity / Houdini
   ↓ HTTP POST（Unity / Houdini が話せる言語）
 rag_local_bridge.py（localhost:8766）
-  ↓ stdio JSON-RPC（mcp-rag-server が話せる言語）
-mcp-rag-server（ローカル検索エンジン）
+  ↓ LocalRAGClient（インプロセス直接呼び出し）
+rag_service.py（ローカル検索エンジン、ChromaDB + 埋め込みモデル）
 ```
 
 ### 提供するエンドポイント一覧
 
 | エンドポイント | 処理内容 |
 |--------------|---------|
-| `GET /health` | ブリッジが生きているかチェック。mcp-rag-server のドキュメント数も返す |
-| `POST /query` | 質問を受け取り、mcp-rag-server で検索 → Claude Haiku が回答を生成 → JSON で返す |
+| `GET /health` | ブリッジが生きているかチェック。インデックス済みドキュメント数も返す |
+| `POST /query` | 質問を受け取り、`rag_service.py` で検索 → Claude Haiku が回答を生成 → JSON で返す |
 | `GET /graph` | rag_graph_export.py をサブプロセスとして実行し、グラフ JSON を返す |
 
-### MCPClient クラス
+### LocalRAGClient クラス
 
-mcp-rag-server を **stdio JSON-RPC** でラップするクラスです。
+`scripts/rag_service.py` を**インプロセスで直接呼び出す**クラスです（旧 `MCPClient` の stdio JSON-RPC 方式を置き換えたもの）。
 
-- mcp-rag-server を子プロセスとして起動し、標準入出力（stdin / stdout）でやり取りする
-- リクエストを JSON-RPC 形式に組み立てて書き込み、レスポンスを読み取ってパースする
-- `GET /health` は mcp-rag-server に `tools/list` を送ってプロセスの生存を確認する
+- `rag_service.py` の `create_rag_service_from_env()` で生成したサービスインスタンスを直接保持し、サブプロセスを起動しない
+- 検索・インデックス確認などの処理は Python の関数呼び出しとして直接実行される（JSON-RPC のシリアライズ/デシリアライズが不要なため高速）
+- `GET /health` は保持しているサービスインスタンスに対してドキュメント数取得を直接呼び出して生存確認する
 
 ### rag_graph_export.py の呼び出し
 

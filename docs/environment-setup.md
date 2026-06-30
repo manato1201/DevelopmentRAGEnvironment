@@ -1,7 +1,7 @@
 # RAG 環境構築ガイド — 必要環境・依存関係リスト
 
 > 対象: DevelopmentRAGEnvironment（ローカルRAG + クラウドRAG）  
-> 更新日: 2026-06-25  
+> 更新日: 2026-06-30  
 > OS: Windows 10/11（WSL2 も可）
 
 ---
@@ -12,8 +12,7 @@
 ┌─────────────────────────────────────────────────────────┐
 │  【ローカルRAG層】  Windows 11 ローカル環境              │
 │                                                         │
-│  Python 3.13+  (DevelopmentRAGEnvironment)              │
-│  Python 3.10+  (mcp-rag-server)                        │
+│  Python 3.13+  (DevelopmentRAGEnvironment に統合済み)    │
 │    ├── ChromaDB          ← ベクトルDB                   │
 │    ├── sentence-transformers ← 埋め込み生成             │
 │    ├── markitdown        ← PDF/Word 変換                │
@@ -50,79 +49,32 @@
 
 ---
 
-## 1. mcp-rag-server のフォーク方針
+## 1. 検索エンジンのリポジトリ統合（2026-06-30）
 
-### なぜフォークが必要か
+### 外部リポジトリへの依存は解消済み
 
-現在の `mcp-rag-server` は他者の個人リポジトリ（`karaage` 氏）をローカルに clone して使っている状態です。以下のリスクがあります。
+以前は検索エンジンを他者の個人リポジトリ `mcp-rag-server`（`karaage0703` 氏、MIT ライセンス、`C:\Users\matuu\Desktop\GameDevelopment\mcp-rag-server` に clone）として別途用意し、`rag_local_bridge.py` がサブプロセスとして起動・MCP JSON-RPC (stdio) で通信していました。これにより「元リポジトリの削除・非公開化」「破壊的変更」「監査証跡の取りにくさ」「カスタマイズ管理の難しさ」といったリスクを抱えていました。
 
-| リスク | 内容 |
-|--------|------|
-| **削除・非公開化** | 元オーナーが予告なくリポジトリを消す可能性がある |
-| **破壊的変更** | upstream の更新で動作が壊れる可能性がある |
-| **商用利用の明示性** | 自社管理外のコードに直接依存しているため、監査・証跡が取りにくい |
-| **カスタマイズ管理** | 独自改修を加えたい場合に管理できない |
+**2026-06-30 時点でこの依存は完全に解消されています。** MIT ライセンスの許諾範囲内で検索エンジンのコードをこのリポジトリに直接ベンダリング（取り込み）し、外部リポジトリへの依存はなくなりました。
 
-### フォーク手順
+### ベンダリングされたファイル
 
-#### Step 1: GitHub でフォーク
+| ファイル | 内容 |
+|---------|------|
+| `scripts/document_processor.py` | ファイル読み込み・チャンク分割（旧 `mcp-rag-server/src/document_processor.py` を移植） |
+| `scripts/embedding_generator.py` | sentence-transformers ラッパー（旧 `mcp-rag-server/src/embedding_generator.py` を移植、`load_dotenv()` は削除） |
+| `scripts/rag_service.py` | document_processor + embedding_generator + vector_database を束ねるオーケストレーター。`create_rag_service_from_env()` ファクトリを提供 |
+| `scripts/rag_cli.py` | インデックス用 CLI（旧 `mcp-rag-server` の `uv run python -m src.cli index` を置き換え） |
+| `scripts/mcp_server.py` | MCP プロトコル実装（JSON-RPC over stdio）。Claude Desktop に直接登録したい場合に使用 |
+| `scripts/rag_mcp_tools.py` | search / get_document_count の MCP ツールハンドラ |
+| `scripts/rag_mcp_server.py` | MCP サーバーのエントリーポイント（旧 `mcp-rag-server/src/main.py` を置き換え） |
+| `scripts/vector_database.py` | ChromaDB + BM25 ハイブリッド検索のストレージ層（既存・変更なし） |
 
-1. ブラウザで元リポジトリを開く（例: `https://github.com/karaage0703/mcp-rag-server`）
-2. 右上の **Fork** ボタンをクリック
-3. フォーク先を自分のアカウント（`manato1201`）に設定
-4. リポジトリ名はそのまま `mcp-rag-server` 、または `rag-engine` など任意に変更可
+`scripts/rag_local_bridge.py` も、サブプロセス + JSON-RPC で通信していた旧 `MCPClient` クラスを廃止し、`rag_service.py` を直接 in-process で呼び出す `LocalRAGClient` クラスに置き換えました。これに伴い CLI 引数 `--mcp-dir` も廃止されています。
 
-#### Step 2: ローカルの clone 先を変更
+`pyproject.toml` には検索エンジンの依存（sentence-transformers・chromadb・markitdown[all]・rank-bm25・sudachipy 等）がすべて直接宣言されており、このリポジトリで `uv sync` を一度実行するだけで完結します。
 
-```powershell
-cd C:\Users\matuu\Desktop\GameDevelopment\mcp-rag-server
-
-# 現在の remote を確認
-git remote -v
-
-# origin を自分のフォークに変更
-git remote set-url origin https://github.com/manato1201/mcp-rag-server.git
-
-# 元リポジトリを upstream として保持（任意 — upstream の更新を取り込みたい場合）
-git remote add upstream https://github.com/karaage0703/mcp-rag-server.git
-
-# 確認
-git remote -v
-```
-
-#### Step 3: フォーク済みリポジトリに push
-
-```powershell
-git push origin main
-```
-
-#### Step 4: upstream の更新を取り込む（必要なとき）
-
-```powershell
-git fetch upstream
-git merge upstream/main
-# コンフリクトがあれば解消して push
-git push origin main
-```
-
-### フォーク後の推奨対応
-
-| 対応 | 理由 |
-|------|------|
-| `pyproject.toml` の `authors` を自分に更新 | 管理責任の明示 |
-| `psycopg2-binary` を依存から削除（未使用） | 不要な依存を減らす |
-| `CHANGELOG.md` を追加して独自変更を記録 | 監査・ロールバック対応 |
-| プライベートリポジトリ化（商用時） | ソースコード非公開 |
-| GitHub Actions で自動テストを設定（任意） | upstream マージ後の動作確認 |
-
-### フォーク vs 完全独立（独自実装）の判断基準
-
-```
-元リポジトリの更新頻度が高く機能追加を享受したい → フォーク推奨
-商用製品としてブランド・コードを完全に自社管理したい → 独自実装
-```
-
-現時点ではフォークで十分です。将来的に大幅な改修が必要になった場合に独自実装を検討してください。
+> **ライセンスについて:** ベンダリング元の `mcp-rag-server` は MIT ライセンスです。改変・再配布・商用利用は自由で、ソース開示義務もありません。詳細は `docs/local-rag-setup.md` を参照してください。
 
 ---
 
@@ -133,7 +85,7 @@ git push origin main
 | OS | Windows 10 22H2 | Windows 11 | Mac/Linux も可（パス変更が必要） |
 | RAM | 8 GB | 16 GB 以上 | 埋め込みモデル（multilingual-e5-large）が約 1.5 GB 使用 |
 | ストレージ | 10 GB 空き | 20 GB 以上 | モデルキャッシュ + ChromaDB |
-| Python | 3.10 以上 | 3.13 | mcp-rag-server は 3.10+、本プロジェクトは 3.13+ |
+| Python | 3.13 以上 | 3.13 | このリポジトリ単体（外部リポジトリ不要） |
 | GPU | 不要 | あれば高速 | CPU 推論で動作する（CUDA 対応すると埋め込み生成が高速化） |
 
 ---
@@ -142,8 +94,7 @@ git push origin main
 
 | ツール | バージョン | インストール方法 | 用途 |
 |--------|-----------|----------------|------|
-| **Python** | 3.13+ | [python.org](https://www.python.org) | 本プロジェクト実行 |
-| **Python** | 3.10+ | 同上（複数バージョン共存可） | mcp-rag-server 実行 |
+| **Python** | 3.13+ | [python.org](https://www.python.org) | 本プロジェクト実行（検索エンジン込み） |
 | **uv** | 最新 | `pip install uv` | 仮想環境 + パッケージ管理 |
 | **Git** | 2.x | [git-scm.com](https://git-scm.com) | リポジトリ管理 |
 
@@ -151,26 +102,28 @@ git push origin main
 
 ## 4. リポジトリ構成
 
-### 必須（2リポジトリ）
+### 必須（1リポジトリで完結）
+
+外部リポジトリのクローンは不要です。検索エンジン一式はこのリポジトリ内に統合済みです。
 
 ```
 C:\Users\matuu\Desktop\GameDevelopment\
-  ├── mcp-rag-server\              ← フォーク済みRAGエンジン
-  │   ├── src/
-  │   │   ├── main.py             ← MCP サーバー起動点
-  │   │   ├── cli.py              ← インデックス CLI
-  │   │   └── document_processor.py
-  │   ├── pyproject.toml
-  │   └── .venv/                  ← uv sync で生成
-  │
-  └── DevelopmentRAGEnvironment\  ← 本プロジェクト
+  └── DevelopmentRAGEnvironment\  ← 本プロジェクト（単体で完結）
       ├── scripts/
-      │   ├── rag_local_bridge.py ← HTTP API サーバー
-      │   ├── auth_manager.py     ← 認証・アクセス制御
-      │   ├── auto_index.py       ← ファイル監視・自動インデックス
-      │   ├── document_pipeline.py← ドキュメント追加パイプライン
-      │   ├── rss_to_rag.py       ← RSS/arXiv 収集
-      │   └── sync_houdini21_db.py← houdini21DB → LocalRAG 同期
+      │   ├── rag_local_bridge.py    ← HTTP API サーバー
+      │   ├── document_processor.py  ← ファイル読み込み・チャンク分割（vendored）
+      │   ├── embedding_generator.py ← 埋め込み生成ラッパー（vendored）
+      │   ├── rag_service.py         ← オーケストレーター（vendored）
+      │   ├── rag_cli.py             ← インデックス CLI（vendored）
+      │   ├── mcp_server.py          ← MCP プロトコル実装（vendored）
+      │   ├── rag_mcp_tools.py       ← MCP ツールハンドラ（vendored）
+      │   ├── rag_mcp_server.py      ← MCP サーバーエントリーポイント（vendored）
+      │   ├── vector_database.py     ← ChromaDB + BM25 ストレージ層
+      │   ├── auth_manager.py        ← 認証・アクセス制御
+      │   ├── auto_index.py          ← ファイル監視・自動インデックス
+      │   ├── document_pipeline.py   ← ドキュメント追加パイプライン
+      │   ├── rss_to_rag.py          ← RSS/arXiv 収集
+      │   └── sync_houdini21_db.py   ← houdini21DB → LocalRAG 同期
       ├── scripts/static/
       │   ├── admin.html          ← 管理画面
       │   └── user_ui.html        ← ユーザーチャット画面
@@ -180,15 +133,17 @@ C:\Users\matuu\Desktop\GameDevelopment\
       │   ├── team_notes/
       │   ├── personal_notes/
       │   └── game_info/
+      ├── pyproject.toml          ← 検索エンジンの依存も含めて宣言
       └── data/
-          └── auth.db             ← 認証DB（自動生成）
+          ├── chroma/              ← ChromaDB 永続化データ（自動生成、gitignore）
+          └── auth.db              ← 認証DB（自動生成）
 ```
 
 ---
 
 ## 5. Python パッケージ
 
-### mcp-rag-server（`uv sync` で自動インストール）
+### DevelopmentRAGEnvironment（`uv sync` で自動インストール、検索エンジン込み）
 
 | パッケージ | バージョン | 用途 | ライセンス |
 |-----------|-----------|------|-----------|
@@ -202,17 +157,9 @@ C:\Users\matuu\Desktop\GameDevelopment\
 | `watchdog` | >= 6.0.0 | ファイル変更監視 | Apache 2.0 |
 | `numpy` | 最新 | ベクトル演算 | BSD 3-Clause |
 | `sentencepiece` | >= 0.2.0 | トークナイザー | Apache 2.0 |
-| `pyyaml` | >= 6.0.2 | 設定ファイル読み込み | MIT |
-| `python-dotenv` | 最新 | 環境変数（mcp-rag-server 内部） | BSD 3-Clause |
-| ~~`psycopg2-binary`~~ | — | PostgreSQL対応（**未使用・削除推奨**） | LGPL |
-
-### DevelopmentRAGEnvironment（`uv sync` で自動インストール）
-
-| パッケージ | バージョン | 用途 | ライセンス |
-|-----------|-----------|------|-----------|
-| `pyyaml` | >= 6.0.3 | YAML 処理 | MIT |
+| `pyyaml` | >= 6.0.3 | YAML / 設定ファイル読み込み | MIT |
 | `requests` | >= 2.34.2 | HTTP 通信 | Apache 2.0 |
-| `python-dotenv` | >= 1.2.2 | 環境変数（旧スクリプト互換） | BSD 3-Clause |
+| `python-dotenv` | >= 1.2.2 | 未使用（`load_dotenv()` は呼び出していない。互換目的のみ） | BSD 3-Clause |
 
 ### 別途インストールが必要なパッケージ
 
@@ -376,7 +323,7 @@ $env:ANTHROPIC_API_KEY = "sk-ant-..."
 | パス | 内容 | Git 管理 |
 |------|------|---------|
 | `localRAG/` | ドキュメント vault（検索対象ファイル） | **gitignore（ローカルのみ）** |
-| `mcp-rag-server/chroma_db/` | ChromaDB 永続化データ | **gitignore（ローカルのみ）** |
+| `data/chroma/` | ChromaDB 永続化データ | **gitignore（ローカルのみ）** |
 | `data/auth.db` | ユーザー認証 SQLite DB | **gitignore（ローカルのみ）** |
 | `scripts/.rss_to_rag_seen.json` | RSS 既読管理 | **gitignore（ローカルのみ）** |
 
@@ -410,19 +357,15 @@ ollama pull phi4      # 軽量・高速
 ### ローカルRAG 初回セットアップ
 
 ```powershell
-# [1] mcp-rag-server の依存関係インストール
-cd C:\Users\matuu\Desktop\GameDevelopment\mcp-rag-server
-uv sync
-
-# [2] DevelopmentRAGEnvironment の依存関係インストール
+# [1] DevelopmentRAGEnvironment の依存関係インストール（検索エンジン込みで一括）
 cd C:\Users\matuu\Desktop\GameDevelopment\DevelopmentRAGEnvironment
 uv sync
 pip install feedparser   # RSS 収集を使う場合
 
-# [3] namespace ディレクトリを作成
+# [2] namespace ディレクトリを作成
 mkdir localRAG\tool_docs localRAG\research localRAG\team_notes localRAG\personal_notes localRAG\game_info
 
-# [4] 管理者ユーザーを作成（API キーを必ず控える）
+# [3] 管理者ユーザーを作成（API キーを必ず控える）
 python scripts/auth_manager.py create-admin --name "Admin"
 ```
 
@@ -502,11 +445,11 @@ uv run python scripts\sync_houdini21_db.py --index
 
 | 症状 | 原因 | 対処 |
 |------|------|------|
-| `uv sync` でエラー | Python バージョン不一致 | `python --version` で確認。3.10+ が必要 |
+| `uv sync` でエラー | Python バージョン不一致 | `python --version` で確認。3.13+ が必要 |
 | `chromadb` インストール失敗 | Visual C++ ランタイム不足 | Microsoft Visual C++ Redistributable をインストール |
 | 埋め込みが遅い | CPU 推論（正常） | 初回は数分かかる。2回目以降はキャッシュで高速 |
 | `401 Unauthorized` | API キー未設定 or 誤り | `auth_manager.py list` でユーザー確認 |
-| `503 mcp-rag-server が起動していません` | mcp-rag-server のプロセスが落ちた | ブリッジを再起動 |
+| `503 RAGService が起動していません` | `rag_service.py` の初期化に失敗した | ログを確認しブリッジを再起動 |
 | RSS 収集でエラー | feedparser 未インストール | `pip install feedparser` |
 
 ### クラウドRAG

@@ -1,11 +1,12 @@
 """
-auto_index.py — Obsidian vault watchdog for mcp-rag-server (ChromaDB版)
+auto_index.py — Obsidian vault watchdog（このリポジトリ内で完結する版）
+
+外部リポジトリ（mcp-rag-server）への依存はなし。scripts/rag_cli.py を
+直接呼び出してインデックス化する。
 
 Usage:
-  cp scripts/auto_index.py ~/mcp-rag-server/
-  cd ~/mcp-rag-server
-  uv add watchdog pyyaml
-  nohup python3 auto_index.py > auto_index.log 2>&1 &
+  uv run python scripts/auto_index.py
+  nohup uv run python scripts/auto_index.py > auto_index.log 2>&1 &
 
 Obsidian vault structure expected:
   obsidian-vault/
@@ -30,8 +31,9 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 # ===== 設定（環境に合わせて変更） =====
-VAULT = Path(r"C:\Users\matuu\Desktop\GameDevelopment\DevelopmentRAGEnvironment\localRAG")
-MCP_RAG_DIR = Path(r"C:\Users\matuu\Desktop\GameDevelopment\mcp-rag-server")
+REPO_ROOT = Path(__file__).parent.parent
+VAULT = REPO_ROOT / "localRAG"
+RAG_CLI = Path(__file__).parent / "rag_cli.py"
 DASHBOARD = VAULT / "_rag_dashboard"
 
 SKIP_DIRS = {"_rag_dashboard", "_templates", ".obsidian", ".processed"}
@@ -92,10 +94,10 @@ def check_expires(path: Path, fm: dict) -> bool:
 # ===== インデックス化 =====
 
 def run_index() -> bool:
-    """mcp-rag-server の差分インデックス化を実行する。"""
+    """このリポジトリ内の rag_cli.py で差分インデックス化を実行する。"""
     result = subprocess.run(
-        ["uv", "run", "python", "-m", "src.cli", "index", "--incremental"],
-        cwd=str(MCP_RAG_DIR),
+        ["uv", "run", "python", str(RAG_CLI), "index", "--incremental"],
+        cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
     )

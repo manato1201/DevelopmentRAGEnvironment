@@ -46,20 +46,19 @@
 
 ### ローカル RAG を使いたい
 
-```powershell
-# 1. mcp-rag-server をクローン・セットアップ
-git clone https://github.com/manato1201/mcp-rag-server
-cd mcp-rag-server
-uv sync --python 3.12
+外部リポジトリのクローンは不要です。検索エンジン一式（ChromaDB・埋め込み生成・チャンク分割）がこのリポジトリ単体で完結します。
 
-# 2. ローカル HTTP ブリッジを起動（Unity/Houdini と繋ぐ）
-cd ..\DevelopmentRAGEnvironment
+```powershell
+# 1. 依存パッケージを同期
+uv sync
+
+# 2. ドキュメントをインデックス化
+uv run python scripts\rag_cli.py index
+
+# 3. ローカル HTTP ブリッジを起動（Unity/Houdini と繋ぐ）
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
 uv run python scripts\rag_local_bridge.py
 # → localhost:8766 で待機開始
-
-# 3. ドキュメントをインデックス化
-cd ..\mcp-rag-server
-uv run python -m src.cli index
 ```
 
 詳細 → [docs/local-rag-setup.md](docs/local-rag-setup.md)
@@ -113,13 +112,20 @@ DevelopmentRAGEnvironment/
 │       └── graph_view.py              # QGraphicsView によるグラフビュー
 │
 ├── scripts/                            # ユーティリティスクリプト
-│   ├── rag_local_bridge.py             # ★ ローカル HTTP ブリッジ（Unity/Houdini → mcp-rag-server）
+│   ├── rag_local_bridge.py             # ★ ローカル HTTP ブリッジ（Unity/Houdini → RAGService 直接呼び出し）
+│   ├── rag_service.py                  # ★ RAG サービス統合層（document_processor + embedding_generator + vector_database）
+│   ├── document_processor.py           # ★ ファイル読込・チャンク分割（旧 mcp-rag-server から移植）
+│   ├── embedding_generator.py          # ★ 埋め込み生成（sentence-transformers ラッパー）
+│   ├── vector_database.py              # ChromaDB + BM25 ハイブリッド検索バックエンド
+│   ├── rag_cli.py                      # ★ インデックス化 CLI（index / clear / count）
+│   ├── rag_mcp_server.py               # ★ Claude Desktop 直接登録用 MCP サーバー（独立版）
+│   ├── mcp_server.py                   # ★ MCP プロトコル実装（JSON-RPC over stdio）
+│   ├── rag_mcp_tools.py                # ★ MCP 用 search / get_document_count ツール
 │   ├── rag_graph_export.py             # ★ ChromaDB からグラフ JSON を生成
 │   ├── audit_logger.py                 # ★ JSONL 監査ログ（NIST SP 800-207 テネット7）
 │   ├── pep.py                          # ★ Policy Enforcement Point（名前空間アクセス制御）
 │   ├── document_pipeline.py            # ★ SemanticChunker 追加（トークン単位チャンク分割）
 │   ├── score_engine.py                 # ★ 理解度スコアエンジン（トピック別習熟度 → 検索範囲自動調整）
-│   ├── vector_database.py              # ChromaDB バックエンド（mcp-rag-server に適用）
 │   ├── auto_index.py                   # watchdog による自動インデックス化
 │   ├── gas_cloud_rag.js                # GAS WebApp コード（Notion + Gemini チャット）
 │   ├── notion_bulk_add.py              # Notion DB への一括データ投入
@@ -187,15 +193,17 @@ DevelopmentRAGEnvironment/
 
 ### なぜ HTTP ブリッジ（rag_local_bridge.py）が必要なのか
 
-`mcp-rag-server` は Claude Code などの AI ツールと繋ぐための MCP（Model Context Protocol）という専用通信方式で動いています。しかし Unity（C#）や Houdini（Python）は MCP には対応していないため、**HTTP という汎用的な通信方式に変換する中継サーバー**が必要です。
+検索エンジン（`rag_service.py`）は Python のクラスとして実装されています。Unity（C#）や Houdini（Python サブプロセス）から直接 import することはできないため、**HTTP という汎用的な通信方式で公開する中継サーバー**が必要です。
 
 ```
 Unity C# / Houdini Python
         ↓ HTTP POST（誰でも使える通信）
-rag_local_bridge.py（変換係）
-        ↓ MCP stdio（AI ツール専用通信）
-mcp-rag-server
+rag_local_bridge.py（HTTP API として公開）
+        ↓ 同一プロセス内で直接 import
+rag_service.py（検索エンジン本体）
 ```
+
+検索エンジン一式（`document_processor.py` / `embedding_generator.py` / `rag_service.py` / `vector_database.py`）はこのリポジトリに内蔵されており、外部リポジトリへの依存はありません。Claude Desktop から直接 MCP サーバーとして使いたい場合は `scripts/rag_mcp_server.py` を登録してください（[docs/local-rag-setup.md](docs/local-rag-setup.md) 参照）。
 
 ---
 

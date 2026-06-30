@@ -2,11 +2,14 @@
 """
 rag_graph_export.py — ChromaDB グラフデータエクスポーター
 
-mcp-rag-server の uv 環境で実行される（chromadb / numpy が必要）。
+このリポジトリの uv 環境で実行される（chromadb / numpy が必要）。
 stdout に JSON を出力して終了する。rag_local_bridge.py から呼ばれる。
 
 Usage:
-    uv run --directory <mcp_dir> python <this_file> <mcp_dir>
+    uv run python <this_file> [chroma_path]
+
+Env:
+    CHROMA_PATH  ChromaDB データ保存先（省略時はリポジトリ直下の data/chroma）
 
 Output JSON:
     {
@@ -20,23 +23,10 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import random
 import sys
 from pathlib import Path
-
-
-# ─── .env パーサー（ライブラリ不使用） ─────────────────────────────────────────
-def _parse_env(env_path: Path) -> dict[str, str]:
-    result: dict[str, str] = {}
-    try:
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                result[k.strip()] = v.strip().strip('"').strip("'")
-    except FileNotFoundError:
-        pass
-    return result
 
 
 # ─── Spring レイアウト ──────────────────────────────────────────────────────────
@@ -83,14 +73,15 @@ def _spring_layout(
 
 # ─── メイン ────────────────────────────────────────────────────────────────────
 def main() -> None:
-    mcp_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".")
-
-    env = _parse_env(mcp_dir / ".env")
-    chroma_path_raw = env.get("CHROMA_PATH", "./data/chroma")
+    repo_root = Path(__file__).parent.parent
+    chroma_path_raw = (
+        sys.argv[1] if len(sys.argv) > 1
+        else os.environ.get("CHROMA_PATH", str(repo_root / "data" / "chroma"))
+    )
     chroma_path = (
         Path(chroma_path_raw)
         if Path(chroma_path_raw).is_absolute()
-        else (mcp_dir / chroma_path_raw).resolve()
+        else (repo_root / chroma_path_raw).resolve()
     )
 
     try:
@@ -106,12 +97,25 @@ def main() -> None:
         print(json.dumps({"nodes": [], "edges": []}))
         return
 
-    col = client.get_collection(collections[0].name)
-    result = col.get(include=["metadatas", "embeddings"])
+    # namespace ごとに分かれた全コレクションを横断して集計する
+    ids: list[str] = []
+    metas: list[dict] = []
+    embeddings: list = []
+    col_names: list[str] = []
+    for c in collections:
+        col = client.get_collection(c.name)
+        result = col.get(include=["metadatas", "embeddings"])
+        n = len(result["ids"])
+        ids.extend(result["ids"])
+        metas.extend(result.get("metadatas") or [{} for _ in range(n)])
+        col_embeddings = result.get("embeddings")
+        if col_embeddings is not None and len(col_embeddings) > 0:
+            embeddings.extend(col_embeddings)
+        else:
+            embeddings.extend([None] * n)
+        col_names.extend([c.name] * n)
 
-    ids: list[str] = result["ids"]
-    metas: list[dict] = result.get("metadatas") or [{} for _ in ids]
-    embeddings = result.get("embeddings")
+    has_embeddings = any(e is not None for e in embeddings)
 
     # ── ノード: file_path でグルーピング ──────────────────────────────────────
     # 各ファイルの「代表チャンク」（最初のチャンクのインデックス）を使う
@@ -122,7 +126,7 @@ def main() -> None:
             nodes_dict[fp] = {
                 "id": fp,
                 "label": Path(fp).name,
-                "db": "local",
+                "db": col_names[i],
                 "chunk_count": 1,
                 "_emb_idx": i,
             }
@@ -136,7 +140,7 @@ def main() -> None:
     edges: list[dict] = []
     edge_set: dict[tuple[str, str], float] = {}
 
-    if embeddings and len(node_list) > 1:
+    if has_embeddings and len(node_list) > 1:
         rep_embs = np.array(
             [embeddings[n["_emb_idx"]] for n in node_list], dtype=float
         )

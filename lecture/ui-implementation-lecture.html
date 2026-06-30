@@ -686,16 +686,17 @@ rag_chat.<span class="fn">show</span>()</code></pre>
     Ok(data.answer)
 }
 
-<span class="cm">// LocalRAG 呼び出し（WSL2 の mcp-rag-server CLI）</span>
+<span class="cm">// LocalRAG 呼び出し（実際は rag_local_bridge.py の HTTP /query エンドポイントを叩くのが現行の標準経路。
+// ここでは CLI 越しに直接呼ぶ代替パターンの例として、rag_service.py をワンライナーで叩く形を示す）</span>
 #[command]
 <span class="kw">pub async fn</span> <span class="fn">query_local_rag</span>(query: String, namespace: String)
     -> Result&lt;String, String&gt;
 {
     <span class="kw">let</span> cmd = format!(
-        <span class="str">"/home/tk_render/.local/bin/uv run \
-         --directory /home/tk_render/mcp-rag-server \
-         python -m src.cli search --query '{}' --namespace '{}'"</span>,
-        query.<span class="fn">replace</span>(<span class="str">"'"</span>, <span class="str">"\\'"</span>), namespace
+        <span class="str">"uv run --directory C:/Users/YOUR_USERNAME/DevelopmentRAGEnvironment \
+         python -c \"import sys; sys.path.insert(0,'scripts'); from rag_service import create_rag_service_from_env; \
+         print(create_rag_service_from_env().search('{}', limit=5))\""</span>,
+        query.<span class="fn">replace</span>(<span class="str">"'"</span>, <span class="str">"\\'"</span>)
     );
     <span class="kw">let</span> out = tokio::process::Command::new(<span class="str">"wsl"</span>)
         .<span class="fn">args</span>([<span class="str">"bash"</span>, <span class="str">"-c"</span>, &amp;cmd])
