@@ -159,6 +159,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
 /* ===== ANIMATION CANVAS ===== */
 #cosine-canvas{border-radius:8px;background:var(--bg);}
+#spring-canvas{border-radius:8px;background:var(--bg);width:100%;height:auto;display:block;}
+.canvas-wrap{margin:12px 0;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
 
 /* ===== ACCORDION ===== */
 details{background:var(--bg3);border:1px solid var(--border);border-radius:8px;margin:10px 0;overflow:hidden;}
@@ -1050,6 +1052,11 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
     <p>人間が手動でノードを配置する必要がありません。「意味的に似たドキュメント群」が自動的に近くに集まります。これが Spring Layout（力学モデル）の特徴です。Networkx の spring_layout() が同じアルゴリズムを使用しています。</p>
   </div>
 
+  <div class="canvas-wrap">
+    <canvas id="spring-canvas" width="640" height="280"></canvas>
+  </div>
+  <p style="font-size:13px;color:var(--muted);">エッジ（線）で繋がったノード同士はバネで引き寄せられ、繋がっていないノード同士は反発し合う。シミュレーションが収束すると、関連の強いドキュメントが自然にクラスター（塊）を形成する。</p>
+
   <h3>グラフビューの実装: 4 レイヤ</h3>
   <div class="grid2">
     <div class="card">
@@ -1792,6 +1799,129 @@ SETTINGS_PATH = pathlib.Path.<span class="fn">home</span>() / <span class="str">
     requestAnimationFrame(draw);
   }
 
+  draw();
+})();
+</script>
+
+<!-- ===== Spring レイアウト（力学モデル）アニメーション ===== -->
+<script>
+(function() {
+  var canvas = document.getElementById('spring-canvas');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width, H = canvas.height;
+
+  // 3クラスター・計13ノードのダミーグラフ
+  var clusters = [
+    { color: '#58a6ff', n: 5 },
+    { color: '#3fb950', n: 4 },
+    { color: '#bc8cff', n: 4 },
+  ];
+  var nodes = [];
+  clusters.forEach(function(c, ci) {
+    for (var i = 0; i < c.n; i++) {
+      nodes.push({ id: nodes.length, cluster: ci, color: c.color,
+        x: Math.random() * W, y: Math.random() * H, vx: 0, vy: 0 });
+    }
+  });
+  // クラスター内は密に、クラスター間はまばらにエッジを張る
+  var edges = [];
+  nodes.forEach(function(a) {
+    nodes.forEach(function(b) {
+      if (b.id <= a.id) return;
+      if (a.cluster === b.cluster && Math.random() < 0.6) edges.push([a.id, b.id, 0.012]);
+      else if (a.cluster !== b.cluster && Math.random() < 0.04) edges.push([a.id, b.id, 0.004]);
+    });
+  });
+
+  var frame = 0;
+  var RESET_AFTER = 420; // フレーム数でリセットし再収束させる
+
+  function resetPositions() {
+    nodes.forEach(function(n) {
+      n.x = W * 0.5 + (Math.random() - 0.5) * W * 0.9;
+      n.y = H * 0.5 + (Math.random() - 0.5) * H * 0.9;
+      n.vx = 0; n.vy = 0;
+    });
+    frame = 0;
+  }
+  resetPositions();
+
+  function step() {
+    // 反発力（全ノードペア）
+    for (var i = 0; i < nodes.length; i++) {
+      for (var j = i + 1; j < nodes.length; j++) {
+        var a = nodes[i], b = nodes[j];
+        var dx = a.x - b.x, dy = a.y - b.y;
+        var distSq = dx*dx + dy*dy + 0.01;
+        var dist = Math.sqrt(distSq);
+        var force = 900 / distSq;
+        var fx = (dx / dist) * force, fy = (dy / dist) * force;
+        a.vx += fx; a.vy += fy;
+        b.vx -= fx; b.vy -= fy;
+      }
+    }
+    // 引力（エッジで繋がったノード = バネ）
+    edges.forEach(function(e) {
+      var a = nodes[e[0]], b = nodes[e[1]], k = e[2];
+      var dx = b.x - a.x, dy = b.y - a.y;
+      a.vx += dx * k; a.vy += dy * k;
+      b.vx -= dx * k; b.vy -= dy * k;
+    });
+    // 中心へ弱く引き寄せる + 減衰
+    nodes.forEach(function(n) {
+      n.vx += (W/2 - n.x) * 0.0015;
+      n.vy += (H/2 - n.y) * 0.0015;
+      n.vx *= 0.85; n.vy *= 0.85;
+      n.x += n.vx; n.y += n.vy;
+      n.x = Math.max(16, Math.min(W - 16, n.x));
+      n.y = Math.max(16, Math.min(H - 16, n.y));
+    });
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, W, H);
+
+    step();
+
+    // エッジ
+    edges.forEach(function(e) {
+      var a = nodes[e[0]], b = nodes[e[1]];
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = a.cluster === b.cluster ? 'rgba(139,148,158,0.35)' : 'rgba(139,148,158,0.12)';
+      ctx.lineWidth = a.cluster === b.cluster ? 1.2 : 0.8;
+      ctx.stroke();
+    });
+
+    // ノード
+    nodes.forEach(function(n) {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, 7, 0, Math.PI * 2);
+      ctx.fillStyle = n.color;
+      ctx.fill();
+      ctx.strokeStyle = '#0d1117';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    });
+
+    // 状態ラベル
+    var phase = frame < 80 ? '初期配置（ランダム）' : frame < RESET_AFTER - 40 ? '力学シミュレーション収束中…' : 'クラスター形成完了';
+    ctx.fillStyle = '#e6edf3';
+    ctx.font = 'bold 12px "Noto Sans JP", sans-serif';
+    ctx.fillText(phase, 16, 22);
+
+    ctx.font = '10px monospace';
+    ctx.fillStyle = '#7d8590';
+    ctx.fillText('反発力（全ノード間） + 引力（エッジで結ばれたノードのみ） + 中心への弱い引力', 16, H - 12);
+
+    frame++;
+    if (frame > RESET_AFTER) resetPositions();
+    requestAnimationFrame(draw);
+  }
   draw();
 })();
 </script>
