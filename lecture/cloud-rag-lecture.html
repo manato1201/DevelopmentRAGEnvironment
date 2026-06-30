@@ -516,6 +516,7 @@ footer a{color:var(--accent);text-decoration:none;}
         <tr><td><code>afuri</code></td><td>阿夫利神社・AFURI ブランド情報</td></tr>
         <tr><td><code>braintq</code></td><td>BrainTQ ゲーム仕様・ミニゲーム詳細</td></tr>
         <tr><td><code>fourteen</code></td><td>FOURTEEN ゴルフブランド情報</td></tr>
+        <tr><td><code>houdini21</code></td><td>Houdini 21 新機能・VEX/VOPS リファレンス</td></tr>
       </tbody>
     </table>
   </div>
@@ -646,6 +647,149 @@ Object.<span class="fn">keys</span>(DB_KEY_MAP).<span class="fn">forEach</span>(
 ];</code></pre>
   </div>
 </div>
+
+  <h3>HyDE 検索強化 — 仮説ドキュメントで語彙ミスマッチを解消</h3>
+  <p>
+    通常の RAG では「ユーザーの質問」をそのまま埋め込んで検索します。
+    しかし質問の語彙（「Unity でカメラを揺らすには？」）とドキュメントの語彙（「CinemachineImpulseSource の実装例」）が
+    かけ離れていると、コサイン類似度が低くなり正しいドキュメントがヒットしません。
+    <strong>HyDE（Hypothetical Document Embedding）</strong> はこの語彙ミスマッチを解決する手法です。
+  </p>
+
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">ユーザーの質問を受け取る</div>
+        <div class="step-body"><p>例：「Unity でカメラを揺らすには？」</p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">ドメイン特化プロンプトを選択 <span class="badge badge-amber">hydePromptFor_(dbKey)</span></div>
+        <div class="step-body">
+          <p><code>hydePromptFor_(dbKey)</code> が DB キーに応じた専門分野プロンプトを返します。例えば <code>tool_docs</code> なら「あなたは Unity/Houdini のベテランエンジニアです。以下の質問に対して実際のコードやAPIを含む3〜5文の技術的な回答を書いてください。」という指示になります。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">3</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">仮説的回答ドキュメントを生成 <span class="badge badge-blue">Gemini で生成</span></div>
+        <div class="step-body">
+          <p>Gemini が「CinemachineImpulseSource を GameObject にアタッチし、GenerateImpulse() を呼び出します…」のような <strong>3〜5 文の仮説的回答</strong>を生成します。これはユーザーへ返す回答ではなく、あくまで検索精度向上のための内部的な「架空の正解文書」です。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">4</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">仮説ドキュメントを埋め込み → 重み付き平均 <span class="badge badge-purple">query×0.4 + hypothesis×0.6</span></div>
+        <div class="step-body">
+          <p>質問と仮説ドキュメントをそれぞれ 768 次元ベクトルに変換し、加重平均で最終クエリベクトルを計算します。仮説ドキュメントのほうが実際のドキュメント語彙に近いため、重みを 60% にします。</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">5</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">閾値フィルタ → ページ重複排除 <span class="badge badge-green">Retrieval</span></div>
+        <div class="step-body">
+          <p>平均ベクトルでインデックスを検索し、DB 個別閾値 0.58 / 全 DB 検索時 0.62 でフィルタリング。同一ページから複数チャンクがヒットした場合は最高スコアのチャンクのみを残します（ページ重複排除）。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arch">
+    <pre><code>
+  質問: 「Unity でカメラを揺らすには？」
+    │
+    ├─ getEmbedding_(query) → query_vec (768次元)
+    │
+    ├─ hydePromptFor_("tool_docs") → ドメイン専門プロンプト
+    │        ↓ Gemini
+    │  仮説回答: 「CinemachineImpulseSource をアタッチし GenerateImpulse() を…」
+    │        ↓ getEmbedding_()
+    ├─ hypothesis_vec (768次元)
+    │
+    ▼
+  最終クエリ = query_vec × 0.4 + hypothesis_vec × 0.6
+    │
+    ▼ コサイン類似度検索
+  「CinemachineImpulseSource 実装例」← ヒット率 UP
+    </code></pre>
+  </div>
+
+  <div class="metric-row">
+    <div class="metric metric-green">
+      <div class="metric-value">0.58</div>
+      <div class="metric-label">DB 個別閾値（HyDE）</div>
+    </div>
+    <div class="metric metric-amber">
+      <div class="metric-value">0.62</div>
+      <div class="metric-label">全 DB 横断閾値</div>
+    </div>
+    <div class="metric metric-blue">
+      <div class="metric-value">0.6</div>
+      <div class="metric-label">仮説ドキュメント重み</div>
+    </div>
+    <div class="metric metric-purple">
+      <div class="metric-value">+高精度</div>
+      <div class="metric-label">語彙ミスマッチ解消</div>
+    </div>
+  </div>
+
+  <div class="callout callout-tip">
+    <p>HyDE の利点と注意点</p>
+    <p>
+      <strong>利点：</strong>ユーザーが専門用語を知らなくても、AI が架空の正解文書を「翻訳者」として機能させることで検索精度が向上します。<br>
+      <strong>注意点：</strong>仮説ドキュメント生成のために Gemini API を追加で 1 回呼ぶため、レイテンシが若干増加します。質問が単純なキーワードのみの場合は通常埋め込みのほうが速い場合があります。
+    </p>
+  </div>
+
+  <h3>抽出度サマリー UI — どのソースが実際に使われたかを表示</h3>
+  <p>
+    RAG が回答を生成した際、検索でヒットした参考情報のうち <strong>実際に回答中で引用されたのは何件か</strong>
+    を視覚的に示す UI です。GAS の <code>parseExtractionRate_()</code> が回答テキストを解析して計算します。
+  </p>
+
+  <div class="arch">
+    <pre><code>
+  ソースヘッダー例:
+  📎 参考情報 4件  💡 抽出度: 2/4 (50%) ▾
+  ████████████░░░░░░░░  ← 4pxプログレスバー（indigo塗り）
+
+  各ソース表示:
+  [✓引用] タイトル「CinemachineImpulseSource実装」 スコア: 0.85
+  [未引用] タイトル「カメラ設定の基本」           スコア: 0.71
+    </code></pre>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>要素</th><th>CSS クラス</th><th>説明</th></tr></thead>
+      <tbody>
+        <tr><td>抽出度サマリー行</td><td><code>.extract-summary</code></td><td>「💡 抽出度: X/Y (ZZ%)」テキストを含む行</td></tr>
+        <tr><td>プログレスバー外枠</td><td><code>.extract-bar</code></td><td>高さ 4px・背景色 #e2e8f0</td></tr>
+        <tr><td>プログレスバー塗り</td><td><code>.extract-fill</code></td><td>高さ 100%・背景色 #6366f1（indigo）・幅 = 抽出率 %</td></tr>
+        <tr><td>引用ありバッジ</td><td><code>.src-cited</code></td><td>「✓引用」緑バッジ（bg: #dcfce7 / color: #16a34a）</td></tr>
+        <tr><td>未引用バッジ</td><td><code>.src-not-cited</code></td><td>「未引用」グレーバッジ（bg: #f1f5f9 / color: #94a3b8）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="terminal">
+    <div class="terminal-bar"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span><span class="terminal-label">GAS — レスポンスに extractionRate / extractionDetail を付与</span></div>
+    <pre><code><span class="cm">// ragQueryInternal_() の返却値（抽出度フィールドを追加）</span>
+<span class="kw">return</span> {
+  answer:          generatedText,
+  sources:         topChunks,
+  extractionRate:  <span class="num">0.5</span>,       <span class="cm">// 0.0 〜 1.0（引用数 / ヒット総数）</span>
+  extractionDetail: [<span class="kw">true</span>, <span class="kw">false</span>, <span class="kw">true</span>, <span class="kw">false</span>]  <span class="cm">// 各ソースが引用されたか</span>
+};</code></pre>
+  </div>
 
 <!-- =========================================================
      第4章: Local RAG の仕組み

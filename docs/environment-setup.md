@@ -169,7 +169,8 @@ C:\Users\matuu\Desktop\GameDevelopment\
       │   ├── auth_manager.py     ← 認証・アクセス制御
       │   ├── auto_index.py       ← ファイル監視・自動インデックス
       │   ├── document_pipeline.py← ドキュメント追加パイプライン
-      │   └── rss_to_rag.py       ← RSS/arXiv 収集
+      │   ├── rss_to_rag.py       ← RSS/arXiv 収集
+      │   └── sync_houdini21_db.py← houdini21DB → LocalRAG 同期
       ├── scripts/static/
       │   ├── admin.html          ← 管理画面
       │   └── user_ui.html        ← ユーザーチャット画面
@@ -268,6 +269,7 @@ C:\Users\matuu\Desktop\GameDevelopment\
 | `DB_AFURI` | `a74822790ec34768bdef0917abae3e6f` |
 | `DB_BRAINTQ` | `847b7db0f29f4190bee9f7ae7dd15514` |
 | `DB_FOURTEEN` | `475cf278492a45ac90cbe4b8f11df1f5` |
+| `DB_HOUDINI21` | Notion houdini21DB の database_id |
 
 ### 6-4. Google Sheets（ベクトルインデックス）
 
@@ -293,6 +295,7 @@ C:\Users\matuu\Desktop\GameDevelopment\
 | AFURI DB | 阿夫利神社関連 |
 | BrainTQ DB | BrainTQ関連 |
 | Fourteen DB | Fourteen関連 |
+| houdini21 DB | Houdini 21 ドキュメント・ノート |
 
 **Notionページの必須プロパティ（検索精度に直結）:**
 
@@ -466,6 +469,30 @@ python scripts/auto_index.py
 GAS エディタ → syncNotionToSheets() を実行
 → 変更ページのみ差分更新（変更なしのページはスキップ）
 ```
+
+### houdini21DB を LocalRAG に同期する（sync_houdini21_db.py）
+
+Notion houdini21DB のページを `localRAG/houdini21/` フォルダへ Markdown ファイルとして書き出すスクリプトです。
+
+```powershell
+# houdini21DBをLocalRAGに同期
+$env:NOTION_API_KEY = "secret_xxx"
+uv run python scripts\sync_houdini21_db.py
+
+# プレビューのみ（変更なし）
+uv run python scripts\sync_houdini21_db.py --dry-run
+
+# 同期＋ChromaDBインデックス化
+uv run python scripts\sync_houdini21_db.py --index
+```
+
+> **注意:** このスクリプトは `load_dotenv()` を使用しません。`NOTION_API_KEY` は上記のように PowerShell セッションで直接セットしてください（`.env` ファイルは読み込まれません）。
+
+| オプション | 動作 |
+|-----------|------|
+| （なし） | houdini21DB の全ページを `localRAG/houdini21/` へ同期 |
+| `--dry-run` | 書き出し対象のページ一覧を表示するのみ（ファイル変更なし） |
+| `--index` | 同期後に ChromaDB へのインデックス化も実行 |
 
 ---
 

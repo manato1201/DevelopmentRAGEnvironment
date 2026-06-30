@@ -809,6 +809,191 @@ tauri::<span class="fn">Builder</span>::default()
   </div>
 </div>
 
+<!-- ===== ソース表示UI ===== -->
+<div class="sec" id="source-ui">
+  <div class="sece">Source Display UI</div>
+  <h2>ソース表示 UI — 抽出度プログレスバーと引用バッジ</h2>
+
+  <p>RAG 回答の「根拠となったソース」パネルに、どの情報が実際に回答に使われたかを示す UI を追加しています。GAS から返ってくる <code>extractionRate</code> / <code>extractionDetail</code> フィールドを描画します。</p>
+
+  <h3>ソースヘッダーの構造</h3>
+  <pre><code><span class="cm">&lt;!-- ソースパネルのヘッダー --&gt;</span>
+&lt;div class=<span class="str">"source-header"</span>&gt;
+  &lt;span&gt;📎 参考情報 4件&lt;/span&gt;
+  &lt;span class=<span class="str">"extract-summary"</span>&gt;💡 抽出度: 2/4 (50%) ▾&lt;/span&gt;
+&lt;/div&gt;
+<span class="cm">&lt;!-- プログレスバー --&gt;</span>
+&lt;div class=<span class="str">"extract-bar"</span>&gt;
+  &lt;div class=<span class="str">"extract-fill"</span> style=<span class="str">"width: 50%"</span>&gt;&lt;/div&gt;
+&lt;/div&gt;</code></pre>
+
+  <h3>CSS — 抽出度バーとバッジ</h3>
+  <pre><code><span class="cm">/* 抽出度サマリーテキスト */</span>
+.extract-summary {
+  font-size: 12px;
+  color: #6366f1;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+<span class="cm">/* プログレスバー外枠 */</span>
+.extract-bar {
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 2px;
+  margin: 4px 0;
+}
+
+<span class="cm">/* プログレスバー塗り（width は JS で inline style 設定） */</span>
+.extract-fill {
+  height: 100%;
+  background: #6366f1;  <span class="cm">/* indigo */</span>
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+<span class="cm">/* 引用ありバッジ */</span>
+.src-cited {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #dcfce7;
+  color: #16a34a;
+  margin-right: 6px;
+}
+
+<span class="cm">/* 未引用バッジ */</span>
+.src-not-cited {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #f1f5f9;
+  color: #94a3b8;
+  margin-right: 6px;
+}</code></pre>
+
+  <h3>JavaScript — レスポンスからバッジを描画</h3>
+  <div class="term">
+    <div class="tbar"><span class="td tr"></span><span class="td ty"></span><span class="td tg"></span><span class="tlbl">GAS WebApp クライアント JS</span></div>
+    <pre><code><span class="kw">function</span> <span class="fn">renderSources</span>(sources, extractionRate, extractionDetail) {
+  <span class="kw">const</span> pct = Math.<span class="fn">round</span>((extractionRate || <span class="key">0</span>) * <span class="key">100</span>);
+  <span class="kw">const</span> cited = (extractionDetail || []).<span class="fn">filter</span>(Boolean).length;
+
+  <span class="cm">// ヘッダー（抽出度サマリー）</span>
+  headerEl.innerHTML =
+    <span class="str">`📎 参考情報 ${sources.length}件 &nbsp; `</span> +
+    <span class="str">`&lt;span class="extract-summary"&gt;💡 抽出度: ${cited}/${sources.length} (${pct}%) ▾&lt;/span&gt;`</span>;
+
+  <span class="cm">// プログレスバー</span>
+  barEl.innerHTML =
+    <span class="str">`&lt;div class="extract-fill" style="width:${pct}%"&gt;&lt;/div&gt;`</span>;
+
+  <span class="cm">// 各ソースにバッジを付与</span>
+  sources.<span class="fn">forEach</span>((src, i) => {
+    <span class="kw">const</span> isCited = extractionDetail?.[i] ?? <span class="kw">false</span>;
+    <span class="kw">const</span> badgeClass = isCited ? <span class="str">'src-cited'</span> : <span class="str">'src-not-cited'</span>;
+    <span class="kw">const</span> badgeText  = isCited ? <span class="str">'✓引用'</span> : <span class="str">'未引用'</span>;
+    srcEl.innerHTML +=
+      <span class="str">`&lt;div&gt;&lt;span class="${badgeClass}"&gt;${badgeText}&lt;/span&gt;${src.title}&lt;/div&gt;`</span>;
+  });
+}</code></pre>
+  </div>
+
+  <div class="call cg">
+    <p><strong>データの受け取り方</strong></p>
+    <p>GAS の <code>ragQueryInternal_()</code> が <code>extractionRate</code>（0.0〜1.0）と <code>extractionDetail</code>（boolean 配列）をレスポンスに含めます。クライアント側は <code>parseExtractionRate_()</code> が回答本文を解析してどのソースが引用されたか判定した結果を受け取るだけで、判定ロジックは GAS 側に閉じています。</p>
+  </div>
+</div>
+
+<!-- ===== 管理者UI ===== -->
+<div class="sec" id="admin-ui">
+  <div class="sece">Admin UI</div>
+  <h2>管理者 UI — API キーネームスペース編集モーダル</h2>
+
+  <p>管理者画面の API キー一覧テーブルに「編集」ボタンを追加し、キーを削除・再作成することなく <strong>ネームスペース権限をその場で変更</strong>できます。</p>
+
+  <h3>テーブル行の「編集」ボタン</h3>
+  <pre><code><span class="cm">&lt;!-- 管理テーブルの各行末尾 --&gt;</span>
+&lt;td&gt;
+  &lt;button onclick=<span class="str">"openEditNs('${preview}', '${currentNs}')"</span>&gt;編集&lt;/button&gt;
+  &lt;button onclick=<span class="str">"deleteKey('${preview}')"</span>&gt;削除&lt;/button&gt;
+&lt;/td&gt;</code></pre>
+
+  <h3>モーダル HTML</h3>
+  <pre><code>&lt;div id=<span class="str">"editNsModal"</span> style=<span class="str">"display:none;position:fixed;inset:0;
+     background:rgba(0,0,0,.5);z-index:999;display:flex;align-items:center;justify-content:center"</span>&gt;
+  &lt;div style=<span class="str">"background:#fff;padding:24px;border-radius:8px;min-width:320px"</span>&gt;
+    &lt;h3&gt;ネームスペース権限を編集&lt;/h3&gt;
+    &lt;div id=<span class="str">"editNsChecks"</span>&gt;
+      <span class="cm">&lt;!-- JS で動的に生成 --&gt;</span>
+      &lt;label&gt;&lt;input type=<span class="str">"checkbox"</span> value=<span class="str">"tool_docs"</span>&gt; tool_docs&lt;/label&gt;
+      &lt;label&gt;&lt;input type=<span class="str">"checkbox"</span> value=<span class="str">"game_info"</span>&gt; game_info&lt;/label&gt;
+      &lt;label&gt;&lt;input type=<span class="str">"checkbox"</span> value=<span class="str">"houdini21"</span>&gt; houdini21&lt;/label&gt;
+      <span class="cm">&lt;!-- ... 全 DB 分 --&gt;</span>
+    &lt;/div&gt;
+    &lt;div style=<span class="str">"margin-top:16px;display:flex;gap:8px"</span>&gt;
+      &lt;button onclick=<span class="str">"saveEditNs()"</span>&gt;保存&lt;/button&gt;
+      &lt;button onclick=<span class="str">"closeEditNs()"</span>&gt;キャンセル&lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;</code></pre>
+
+  <h3>JavaScript 関数</h3>
+  <div class="term">
+    <div class="tbar"><span class="td tr"></span><span class="td ty"></span><span class="td tg"></span><span class="tlbl">admin UI JavaScript</span></div>
+    <pre><code><span class="kw">let</span> editTarget = <span class="kw">null</span>;
+
+<span class="kw">function</span> <span class="fn">openEditNs</span>(preview, currentNs) {
+  editTarget = preview;
+  <span class="kw">const</span> modal = document.<span class="fn">getElementById</span>(<span class="str">'editNsModal'</span>);
+  <span class="kw">const</span> current = (currentNs || <span class="str">''</span>).<span class="fn">split</span>(<span class="str">','</span>).<span class="fn">map</span>(s => s.<span class="fn">trim</span>());
+
+  <span class="cm">// 既存のチェックボックスを現在のネームスペースに合わせて初期化</span>
+  modal.<span class="fn">querySelectorAll</span>(<span class="str">'input[type=checkbox]'</span>).<span class="fn">forEach</span>(cb => {
+    cb.checked = current.<span class="fn">includes</span>(cb.value);
+  });
+  modal.style.display = <span class="str">'flex'</span>;
+}
+
+<span class="kw">function</span> <span class="fn">closeEditNs</span>() {
+  document.<span class="fn">getElementById</span>(<span class="str">'editNsModal'</span>).style.display = <span class="str">'none'</span>;
+  editTarget = <span class="kw">null</span>;
+}
+
+<span class="kw">function</span> <span class="fn">saveEditNs</span>() {
+  <span class="kw">const</span> modal = document.<span class="fn">getElementById</span>(<span class="str">'editNsModal'</span>);
+  <span class="kw">const</span> checked = [...modal.<span class="fn">querySelectorAll</span>(<span class="str">'input[type=checkbox]:checked'</span>)]
+    .<span class="fn">map</span>(cb => cb.value);
+  <span class="kw">const</span> newNs = checked.<span class="fn">join</span>(<span class="str">','</span>);
+
+  google.script.run
+    .<span class="fn">withSuccessHandler</span>(() => { <span class="fn">closeEditNs</span>(); location.<span class="fn">reload</span>(); })
+    .<span class="fn">withFailureHandler</span>(e => <span class="fn">alert</span>(<span class="str">'保存失敗: '</span> + e.message))
+    .<span class="fn">adminUpdateKey</span>(editTarget, newNs);
+}</code></pre>
+  </div>
+
+  <div class="call cb">
+    <p><strong>google.script.run の呼び出しパターン</strong></p>
+    <p><code>google.script.run</code> は GAS WebApp のクライアント側から GAS 関数を呼び出す API です。<code>withSuccessHandler()</code> と <code>withFailureHandler()</code> でコールバックを登録し、非同期で結果を受け取ります。サーバー側の <code>adminUpdateKey(preview, ns)</code> 関数が実際に PropertiesService に書き込みます。</p>
+  </div>
+
+  <div class="tbl">
+    <table>
+      <thead><tr><th>関数</th><th>引数</th><th>処理</th></tr></thead>
+      <tbody>
+        <tr><td><code>openEditNs(preview, currentNs)</code></td><td>キー識別子、現在のNS文字列</td><td>モーダルを開き、チェックボックスを初期化</td></tr>
+        <tr><td><code>closeEditNs()</code></td><td>なし</td><td>モーダルを閉じ、editTarget をリセット</td></tr>
+        <tr><td><code>saveEditNs()</code></td><td>なし（editTarget を参照）</td><td>チェック済み NS を収集し GAS に送信</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <!-- ===== 共通API仕様 ===== -->
 <div class="sec" id="api">
   <div class="sece">Common API Spec</div>
