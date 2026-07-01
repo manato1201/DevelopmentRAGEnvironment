@@ -90,8 +90,13 @@ class MCPServer:
             self._handle_tools_list(request_id)
         elif method == "tools/call":
             self._handle_tools_call(params, request_id)
-        elif method == "notifications/initialized":
-            self._handle_notifications_initialized(params, request_id)
+        elif method == "ping":
+            # MCP 2025-xx 以降に追加された ping/pong ハンドシェイク
+            if request_id is not None:
+                self._send_result({}, request_id)
+        elif method.startswith("notifications/"):
+            # notifications/* は一方向通知のため応答不要（id があっても送らない）
+            self.logger.info(f"通知を受信しました: {method}")
         elif method == "resources/list":
             self._handle_resources_list(request_id)
         elif method == "resources/templates/list":
@@ -104,15 +109,20 @@ class MCPServer:
                 except Exception as e:
                     self._send_error(-32603, f"Tool execution error: {str(e)}", request_id)
             else:
-                self._send_error(-32601, f"Method not found: {method}", request_id)
+                self.logger.warning(f"未知のメソッド: {method}")
+                if request_id is not None:
+                    self._send_error(-32601, f"Method not found: {method}", request_id)
 
     def _handle_initialize(self, params: Dict[str, Any], request_id: Any):
         client_name = params.get("clientInfo", {}).get("name", "unknown")
         client_version = params.get("clientInfo", {}).get("version", "unknown")
-        self.logger.info(f"クライアント '{client_name} {client_version}' が接続しました")
+        # クライアントが要求したプロトコルバージョンをそのまま採用する
+        # （バージョン不一致で Claude Desktop が接続拒否するのを防ぐ）
+        requested_protocol = params.get("protocolVersion", "2024-11-05")
+        self.logger.info(f"クライアント '{client_name} {client_version}' が接続しました (protocol: {requested_protocol})")
 
         response = {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": requested_protocol,
             "serverInfo": {
                 "name": getattr(self, "server_name", "rag-mcp-server"),
                 "version": getattr(self, "server_version", "0.1.0"),
@@ -128,6 +138,11 @@ class MCPServer:
         self._send_response({"jsonrpc": "2.0", "result": result, "id": request_id})
 
     def _send_error(self, code: int, message: str, request_id: Any):
+        # id が None（null）のエラー応答は Claude Desktop の Zod バリデーターが拒否する。
+        # リクエスト前のパースエラー等で id を特定できない場合はログのみに留める。
+        if request_id is None:
+            self.logger.error(f"Error (no request_id): {code} {message}")
+            return
         self._send_response({"jsonrpc": "2.0", "error": {"code": code, "message": message}, "id": request_id})
 
     def _send_response(self, response: Dict[str, Any]):
