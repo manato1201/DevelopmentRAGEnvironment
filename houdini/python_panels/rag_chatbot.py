@@ -51,6 +51,14 @@ try:
 except ImportError:
     _GRAPH_AVAILABLE = False
 
+# tutorial_view.py（チュートリアル生成タブ）も同様にフォールバック対応
+try:
+    from tutorial_view import TutorialGeneratePanel as _TutorialGeneratePanel
+    from tutorial_view import TutorialHistoryPanel as _TutorialHistoryPanel
+    _TUTORIAL_AVAILABLE = True
+except ImportError:
+    _TUTORIAL_AVAILABLE = False
+
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QPalette
 from PySide6.QtWidgets import (
@@ -361,7 +369,10 @@ class RAGChatbotPanel(QWidget):
         tabs = QTabWidget()
         tabs.addTab(self._build_chat_tab(),     "Chat")
         tabs.addTab(self._build_graph_tab(),    "Graph")
+        tabs.addTab(self._build_tutorial_tab(), "Tutorial")
+        tabs.addTab(self._build_history_tab(),  "History")
         tabs.addTab(self._build_settings_tab(), "Settings")
+        self._tabs = tabs  # /tutorial コマンドでのタブ切り替えに使う
         root.addWidget(tabs)
 
         # 下部ステータスバー（接続状態や参照ドキュメントを表示）
@@ -436,6 +447,39 @@ class RAGChatbotPanel(QWidget):
         label = QLabel(
             "graph_view.py が見つかりません。\n"
             "houdini/python_panels/ に graph_view.py を配置してください。"
+        )
+        label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(label)
+        return w
+
+    def _build_tutorial_tab(self) -> QWidget:
+        """
+        Tutorial タブ:
+          自然言語トピック → エージェントループでノードグラフ組み立て →
+          Markdown プレビュー → ユーザー確認後に localRAG/tutorials/ へ保存。
+        tutorial_view.py がない場合はフォールバック UI を返す。
+        """
+        if _TUTORIAL_AVAILABLE:
+            # cfg_getter で常に最新の設定（ポート・プロジェクトパス）を参照させる
+            self._tutorial_panel = _TutorialGeneratePanel(lambda: self._cfg)
+            return self._tutorial_panel
+        self._tutorial_panel = None
+        return self._missing_module_widget("tutorial_view.py")
+
+    def _build_history_tab(self) -> QWidget:
+        """History タブ: 保存済みチュートリアルの一覧とノードグラフ表示。"""
+        if _TUTORIAL_AVAILABLE:
+            self._history_panel = _TutorialHistoryPanel(lambda: self._cfg)
+            return self._history_panel
+        return self._missing_module_widget("tutorial_view.py")
+
+    @staticmethod
+    def _missing_module_widget(module_name: str) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        label = QLabel(
+            f"{module_name} が見つかりません。\n"
+            f"houdini/python_panels/ に {module_name} を配置してください。"
         )
         label.setAlignment(Qt.AlignCenter)
         layout.addWidget(label)
@@ -550,6 +594,20 @@ class RAGChatbotPanel(QWidget):
             return
         query = self._input.toPlainText().strip()
         if not query:
+            return
+
+        # /tutorial コマンド: Tutorial タブに切り替えて生成を開始する
+        if query.startswith("/tutorial"):
+            topic = query[len("/tutorial"):].strip()
+            self._input.clear()
+            if not _TUTORIAL_AVAILABLE or self._tutorial_panel is None:
+                self._add_bubble("tutorial_view.py が見つからないため /tutorial は使えません", is_user=False)
+                return
+            if not topic:
+                self._add_bubble("使い方: /tutorial <トピック>（例: /tutorial 岩の散布）", is_user=False)
+                return
+            self._tabs.setCurrentWidget(self._tutorial_panel)
+            self._tutorial_panel.start_with_topic(topic)
             return
 
         self._input.clear()

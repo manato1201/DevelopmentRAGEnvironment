@@ -504,7 +504,116 @@ Invoke-RestMethod http://localhost:8766/health
 | `POST /query` | 質問を受け取り、`rag_service.py` で検索 → Claude Haiku が回答を生成 → JSON で返す |
 | `GET /graph` | `rag_graph_export.py` をサブプロセスとして実行し、グラフ JSON を返す（依存関係分離のため直接インポートしない） |
 
-### 5.3 Ollama による完全オフライン化（オプション）
+### 5.3 動作確認手順（クライアント別）
+
+#### Claude Desktop
+
+前提：セクション 5.1 の `claude_desktop_config.json` 設定が完了していること。
+
+```
+1. タスクトレイの Claude Desktop アイコンを右クリック → 「終了」で完全終了
+2. Claude Desktop を再起動（タスクバー から起動、スプラッシュ画面が消えるまで待つ）
+3. 設定 (⚙) → 右ペインで「local-rag-server」が 🟢 running になっているか確認
+4. 新しい会話で以下を入力:
+     local-rag-server でインデックス済みのドキュメント数を確認して
+   → 数値が返れば ChromaDB への接続は正常
+5. 検索テスト:
+     local-rag-server で「Houdini VEX」について検索して
+   → 関連チャンクが返れば完成
+```
+
+> **トラブル:** 3 で `failed` になる場合は `uv --version` でコマンドが通るか確認。`%APPDATA%\Claude\logs\` にエラーログが出ることがある。
+> **インデックス更新後は再起動が必要:** ChromaDB は HNSW をメモリにロードするため、インデックス化後はタスクトレイから Claude Desktop を完全終了して再起動しないと新しいドキュメントが検索されない。
+
+---
+
+#### Unity
+
+前提：ブリッジが起動済み（`$env:ANTHROPIC_API_KEY = "sk-ant-..."; uv run python scripts\rag_local_bridge.py`）。初回は `create-admin` で API キーを取得済みであること。
+
+このリポジトリ（`DevelopmentRAGEnvironment`）のルートが Unity プロジェクトのルートになっています（`Assets/Editor/RAGChatbot/` に EditorWindow スクリプト一式が入っています）。
+
+```
+1. ブリッジの疎通確認（PowerShell）:
+     Invoke-RestMethod http://localhost:8766/health
+   → {"status":"ok","server":"rag-service-local","documents":195} のような JSON が返ること
+
+2. Unity 6 でこのリポジトリ（DevelopmentRAGEnvironment）をプロジェクトとして開く
+
+3. Unity エディタが起動してスクリプトコンパイルが完了するまで待つ
+   （Console タブにエラーがないこと）
+
+4. メニュー: Window > RAG Chatbot → ウィンドウが開く
+
+5. Settings タブで設定:
+     Mode      : Local
+     Port      : 8766
+     API Key   : create-admin で取得したキー
+     Score UID : 任意（理解度スコアを記録する場合）
+
+6. Chat タブに切り替え → ヘッダーのステータスが「ブリッジ接続済み」になること
+
+7. 質問入力欄に以下を入力して送信:
+     Houdini のジオメトリノードについて教えて
+   → AI の回答と Sources が表示されること
+
+8. Graph タブ → 「更新」ボタンをクリック
+   → ドキュメント間のノードグラフが表示されること
+```
+
+> **API キーなしで起動した場合:** ブリッジは認証なしモードで動きますが、`/query` は `401 Unauthorized` を返します。
+> **ポート競合:** 8766 が別プロセスで使われている場合は `rag_local_bridge.py --port 8767` のように変更し、Settings タブのポートも合わせてください。
+
+---
+
+#### Houdini
+
+前提：ブリッジが起動済みであること（Unity と同じブリッジを共有できます）。
+
+```
+1. ブリッジの疎通確認:
+     Invoke-RestMethod http://localhost:8766/health
+
+2. Houdini 21 を起動
+
+3. (初回セットアップ) Python Panel を登録:
+   a. メニュー: Windows > Python Panel Editor
+   b. 画面左上の「+」→「New Panel」をクリック
+   c. Interface タブ: DevelopmentRAGEnvironment\houdini\python_panels\rag_chatbot.py の
+      内容をすべて貼り付ける
+   d. 上部「Entry Point」フィールドに「onCreateInterface」と入力
+   e. 「Apply」で保存
+   f. (グラフタブを使う場合) graph_view.py も同様に登録するか、
+      C:\Users\YOUR_USERNAME\.houdini\python_panels\ にコピーする:
+        Copy-Item houdini\python_panels\graph_view.py `
+          "$env:USERPROFILE\.houdini\python_panels\"
+
+4. パネルを表示: メニュー: Windows > Python Panel > rag_chatbot（登録したパネル名）
+
+5. Settings タブで設定:
+     Mode           : Local
+     Port           : 8766
+     Bridge Directory: C:\Users\YOUR_USERNAME\Desktop\GameDevelopment\DevelopmentRAGEnvironment
+     （rag_local_bridge.py が含まれるリポジトリルート）
+
+6. 「保存」ボタンをクリック → 設定が ~/.houdini/rag_chatbot_config.json に永続化される
+
+7. Chat タブ → ステータスラベルが「ブリッジ接続済み」になること
+   （なっていない場合は「ブリッジ再起動」ボタンをクリック）
+
+8. 質問を入力して送信:
+     Houdini の SOP ノードでポイントを移動する方法を教えて
+   → 回答が表示されること
+
+9. Graph タブ → 「グラフ更新」ボタン → ノードグラフが描画されること
+```
+
+> **Bridge Directory の役割:** Local モードでパネルを開いたとき `BridgeStartWorker` が `uv run python scripts\rag_local_bridge.py` をサブプロセスで自動起動しようとします。このディレクトリが空だと「local_bridge_dir が設定されていません」エラーになります。すでに別のターミナルでブリッジを手動起動している場合は空欄のままでも動作します（ヘルスチェックが通れば自動起動はスキップされるため）。
+> **初回登録後の再利用:** 一度パネルとして登録すれば、次回以降は Windows > Python Panel > rag_chatbot で即表示できます。コードを更新した場合は Python Panel Editor で再貼り付けして Apply してください。
+
+---
+
+### 5.4 Ollama による完全オフライン化（オプション）
 
 Claude API なしで回答生成もしたい場合は Ollama を使います。
 
@@ -608,6 +717,8 @@ public interface IRAGClient
 ### 7.2 Houdini Python Panel での Local モード
 
 `houdini/python_panels/rag_chatbot.py` が Unity 版と同じく Chat / Graph / Settings の3タブ構成で実装されています。Local モードでは `QueryWorker`（QThread）が別スレッドで `localhost:8766` への HTTP リクエストを行い、UI をブロックしません。Local モードを選択すると `BridgeStartWorker`（QThread）がローカルブリッジプロセスを自動起動します。設定は `%USERPROFILE%\.houdini\rag_chatbot_config.json` に JSON 形式で保存されます。
+
+> **自動起動の前提条件:** `BridgeStartWorker` が機能するには Settings タブの「Bridge Directory」フィールドにこのリポジトリのルートパス（`rag_local_bridge.py` が含まれるディレクトリ）を設定する必要があります。空欄の場合は「local_bridge_dir が設定されていません」エラーになります。ただし、すでに別のターミナルでブリッジを手動起動している場合はヘルスチェックが通るため自動起動はスキップされ、空欄でも動作します。詳細手順は「[5.3 動作確認手順（クライアント別）](#53-動作確認手順クライアント別)」の Houdini セクションを参照してください。
 
 グラフタブ（`graph_view.py`）は `GraphFetchWorker`（QThread）が `/graph` エンドポイントに非同期でリクエストを送り、`NodeItem` / `EdgeItem`（PySide6 の `QGraphicsView`）として描画します。
 

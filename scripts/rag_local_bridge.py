@@ -508,6 +508,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._handle_query(user)
             return
 
+        if path == "/search":
+            user = self._require_auth()
+            if user:
+                self._handle_search(user)
+            return
+
         # 管理者 API
         if path == "/api/users":
             user = self._require_admin()
@@ -629,6 +635,52 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._send_json(502, {"error": f"Claude API エラー: {detail}"})
         except Exception as exc:
             self._log(user, "/query", query, allowed, 500)
+            self._send_json(500, {"error": str(exc)})
+
+    def _handle_search(self, user: dict) -> None:
+        """
+        LLM を介さない生の RAG 検索。tutorial_agent（チュートリアル生成）が
+        RAG コンテキストの取得に使う。
+
+        body: {"query": str, "limit": int, "namespaces": ["houdini21", ...]}
+        namespaces はホワイトリスト指定（省略時は namespace フィルタなし）。
+        指定された場合はユーザーの allowed_namespaces との積集合に絞る。
+        """
+        body       = self._read_body()
+        query: str = body.get("query", "").strip()
+        limit: int = int(body.get("limit", 6))
+        requested  = body.get("namespaces") or []
+
+        if not query:
+            self._send_json(400, {"error": "query は必須です"})
+            return
+        if not self.mcp.is_alive():
+            self._send_json(503, {"error": "RAGService が起動していません"})
+            return
+
+        allowed = user.get("allowed_namespaces", [])
+        try:
+            texts = self.mcp.search(query, limit * 2)  # 多めに取得してフィルタ
+            if requested and _AUTH_AVAILABLE:
+                effective = [ns for ns in requested if not allowed or ns in allowed]
+                texts = _filter_texts_by_namespaces(texts, effective)
+            texts = texts[:limit]
+            sources = _extract_sources(texts)
+            self._log(user, "/search", query, requested or allowed, 200)
+            if self.audit:
+                self.audit.log({
+                    "session_id":   user.get("id"),
+                    "user_role":    "admin" if user.get("is_admin") else "user",
+                    "action":       "raw_search",
+                    "namespace":    ",".join(requested) if requested else None,
+                    "query":        query,
+                    "result_count": len(texts),
+                    "latency_ms":   0,
+                    "allowed":      True,
+                })
+            self._send_json(200, {"texts": texts, "sources": sources, "status": "ok"})
+        except Exception as exc:
+            self._log(user, "/search", query, requested or allowed, 500)
             self._send_json(500, {"error": str(exc)})
 
     def _handle_create_user(self) -> None:
