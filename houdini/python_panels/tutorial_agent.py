@@ -2,8 +2,14 @@
 tutorial_agent.py — houdini21 チュートリアル自動生成オーケストレーター
 
 docs/content-generation.md §2 の設計に基づく:
-  ① RAG検索: ローカルブリッジ /search で houdini21 namespace のみから取得
-     （license-compliance のホワイトリスト方針。他 namespace は参照しない）
+  ① RAG検索: houdini21 namespace のみから取得（license-compliance のホワイト
+     リスト方針。他 namespace は参照しない）。取得先は rag_mode で切り替える:
+       - "local": ローカルブリッジ /search（rag_local_bridge.py）
+       - "cloud": GAS WebApp（gas_cloud_rag.js）を mode:'raw' で呼び、
+         最終回答生成をスキップして検索結果のみ取得する
+     どちらのモードでも取得後に db フィールドが houdini21 のものだけに
+     絞り込む（GAS側は許可namespaceが無いと "all" に自動フォールバックする
+     ため、呼び出し側でも二重にホワイトリストを強制する）
   ② エージェントループ: Claude Sonnet 4.6 + HOUDINI_TOOLS（最大25回）
      プロンプトキャッシュ: システムプロンプト・ツール定義・RAGコンテキストを
      cache_control で固定
@@ -32,12 +38,13 @@ from houdini_tools import HOUDINI_TOOLS, HoudiniToolExecutor
 
 # ─── 定数 ────────────────────────────────────────────────────────────────────────
 
-MODEL = "claude-sonnet-4-6"   # 設計判断（§4.1）。変更はコストが変わるため要ユーザー確認
-MAX_ITERATIONS = 25           # 反復上限（§2.6）
+MODEL = "claude-sonnet-5"     # 設計判断（§4.1）。変更はコストが変わるため要ユーザー確認
+MAX_ITERATIONS = 40           # 反復上限（§2.6）
 COST_LIMIT_USD = 0.50         # 自動打ち切り上限（§2.7）
 MAX_TOKENS_PER_TURN = 4096
 RAG_NAMESPACES = ["houdini21"]  # 生成機能が参照してよい namespace のホワイトリスト（§5）
 RAG_LIMIT = 6
+CLOUD_RAG_DB_KEY = "houdini21"  # Cloud RAG（GAS）に問い合わせる際の dbKey
 
 # Sonnet 4.6 の単価（USD / 1M tokens）。コスト上限判定の実測計算に使う
 _PRICE = {
@@ -103,11 +110,17 @@ class TutorialAgent:
         self,
         bridge_port: int = 8766,
         project_dir: str = "",
+        rag_mode: str = "local",
+        gas_url: str = "",
+        gas_api_key: str = "",
         progress_cb: Callable[[str], None] | None = None,
         executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
     ) -> None:
         self._port = bridge_port
         self._project_dir = project_dir
+        self._rag_mode = rag_mode if rag_mode in ("local", "cloud") else "local"
+        self._gas_url = gas_url
+        self._gas_api_key = gas_api_key
         self._progress = progress_cb or (lambda _: None)
         self._executor_factory = executor_factory or HoudiniToolExecutor
         self.executor: HoudiniToolExecutor | None = None  # 生成後もサンドボックス削除用に保持
@@ -124,7 +137,7 @@ class TutorialAgent:
             )
 
         # ① RAG検索（houdini21 namespace のみ）
-        self._progress("RAG検索中（houdini21 ナレッジベース）...")
+        self._progress(f"RAG検索中（houdini21 ナレッジベース / {self._rag_mode}）...")
         rag_texts, result.sources = self._rag_search(topic)
         if rag_texts:
             self._progress(f"参考ドキュメント {len(result.sources)} 件を取得しました")
@@ -165,6 +178,12 @@ class TutorialAgent:
     # ── RAG検索 ─────────────────────────────────────────────────────────────────
 
     def _rag_search(self, topic: str) -> tuple[list[str], list[dict]]:
+        """rag_mode に応じてローカルブリッジ or GAS（Cloud RAG）から houdini21 namespace の生チャンクを取得する。"""
+        if self._rag_mode == "cloud":
+            return self._rag_search_cloud(topic)
+        return self._rag_search_local(topic)
+
+    def _rag_search_local(self, topic: str) -> tuple[list[str], list[dict]]:
         """ローカルブリッジの /search から houdini21 namespace の生チャンクを取得する。"""
         try:
             body = json.dumps({
@@ -183,6 +202,61 @@ class TutorialAgent:
             return data.get("texts", []), data.get("sources", [])
         except Exception as exc:
             self._progress(f"RAG検索エラー（続行します）: {exc}")
+            return [], []
+
+    def _rag_search_cloud(self, topic: str) -> tuple[list[str], list[dict]]:
+        """
+        GAS WebApp を mode:'raw' で呼び、最終回答生成（Gemini呼び出し）をスキップして
+        houdini21 namespace の検索結果だけを取得する。
+
+        GAS 側は APIキーに houdini21 の権限がないと dbKey を "all" にフォールバック
+        してしまうため、応答の sources を db=="houdini21" のものだけに絞り込むことで
+        ホワイトリスト方針（他 namespace は参照しない）をクライアント側でも強制する。
+        """
+        if not self._gas_url:
+            self._progress("Cloud RAG検索エラー: GAS WebApp URLが未設定です（続行します）")
+            return [], []
+        try:
+            body = json.dumps({
+                "query": topic,
+                "dbKey": CLOUD_RAG_DB_KEY,
+                "history": [],
+                "apiKey": self._gas_api_key,
+                "mode": "raw",
+            }, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                self._gas_url,
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read())
+
+            status = data.get("status", "error")
+            if status not in ("ok",):
+                self._progress(f"Cloud RAG検索エラー（{status}）。続行します: {data.get('answer', '')}")
+                return [], []
+
+            raw_sources = [
+                s for s in data.get("sources", [])
+                if s.get("db") == CLOUD_RAG_DB_KEY
+            ]
+            if not raw_sources:
+                self._progress(
+                    "Cloud RAGにhoudini21のドキュメントが見つかりませんでした"
+                    "（APIキーにhoudini21の権限があるか確認してください）"
+                )
+                return [], []
+
+            texts = [f"検索結果（{len(raw_sources)} 件）:"]
+            sources = []
+            for i, s in enumerate(raw_sources[:RAG_LIMIT]):
+                texts.append(f"\n[{i + 1}] ファイル: {s.get('title', '')}\n{s.get('text', '')}")
+                sources.append({"title": s.get("title", ""), "db": s.get("db", ""), "score": s.get("score", 0)})
+            return texts, sources
+        except Exception as exc:
+            self._progress(f"Cloud RAG検索エラー（続行します）: {exc}")
             return [], []
 
     # ── プロンプト構築 ──────────────────────────────────────────────────────────
@@ -348,9 +422,12 @@ class TutorialAgent:
             for e in result.graph.get("edges", [])
         ]
 
+        # "[エラー] " は cook_node の失敗行にのみ付与される接頭辞。cook成功メッセージ
+        # 「cook 成功: ...（エラー・警告なし）」にも "エラー" という部分文字列が
+        # 含まれるため、これと区別するには "[エラー]" まで含めて判定する必要がある。
         cook_errors = [
             entry for entry in (self.executor.step_log if self.executor else [])
-            if entry["tool"] == "cook_node" and "エラー" in str(entry["result"])
+            if entry["tool"] == "cook_node" and "[エラー]" in str(entry["result"])
         ]
 
         pitfalls = finish.get("pitfalls", "")

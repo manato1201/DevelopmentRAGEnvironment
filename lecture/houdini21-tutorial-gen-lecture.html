@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>講義: houdini21チュートリアル自動生成 — Cloud RAG対応と実機検証</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0d0f14;
+    --panel: #161a23;
+    --panel2: #1d222d;
+    --border: #2b3040;
+    --text: #eef0f6;
+    --muted: #93a0b8;
+    --accent: #7aa2ff;
+    --accent2: #ffb86b;
+    --good: #6fd08c;
+    --bad: #ef7a7a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f3f5fa; --panel: #ffffff; --panel2: #eef1f8;
+      --border: #dde1ec; --text: #1a1d27; --muted: #5c6577;
+      --accent: #3358d6; --accent2: #c9761f; --good: #1f8a4c; --bad: #c23a3a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP",sans-serif;
+    scroll-snap-type: y proximity;
+  }
+  .slide {
+    min-height: 100vh;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 4vh 6vw; scroll-snap-align: start;
+    border-bottom: 1px dashed var(--border);
+    position: relative;
+  }
+  .slide .num {
+    position: absolute; top: 2vh; right: 4vw;
+    color: var(--muted); font-size: .85rem; letter-spacing: .05em;
+  }
+  .kicker { color: var(--accent2); font-weight: 700; letter-spacing: .08em; font-size: .85rem; text-transform: uppercase; margin-bottom: .6rem; }
+  h1 { font-size: clamp(1.8rem, 4vw, 3rem); margin: 0 0 1rem; line-height: 1.25; }
+  h2 { font-size: clamp(1.4rem, 2.6vw, 2.1rem); margin: 0 0 1.4rem; }
+  p.lead { font-size: 1.15rem; color: var(--muted); max-width: 46em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 1.2rem 1.4rem;
+  }
+  .card h3 { margin: 0 0 .5rem; font-size: 1rem; color: var(--accent); }
+  .card .big { font-size: 1.8rem; font-weight: 700; }
+  .card.bad .big { color: var(--bad); }
+  .card.good .big { color: var(--good); }
+  table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; font-size: .95rem; }
+  th, td { border: 1px solid var(--border); padding: .6rem .8rem; text-align: left; }
+  th { background: var(--panel2); color: var(--accent); }
+  code { background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; padding: .1rem .4rem; }
+  pre { background: var(--panel2); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.2rem; overflow-x: auto; font-size: .9rem; }
+  .diff-add { color: var(--good); } .diff-del { color: var(--bad); }
+  .mermaid { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 1.2rem; margin-top: 1.2rem; max-width: 900px; }
+  ul.points { font-size: 1.05rem; line-height: 2; }
+  ul.points li::marker { color: var(--accent); }
+  .badge-ok { display: inline-block; background: var(--good); color: #06210f; font-weight: 700; border-radius: 999px; padding: .25rem 1rem; font-size: .9rem; }
+  .nav {
+    position: fixed; bottom: 1.2rem; right: 1.4rem; z-index: 10;
+    display: flex; gap: .4rem; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 999px; padding: .4rem .7rem; font-size: .8rem; color: var(--muted);
+  }
+  footer.end { text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="nav">Scrollで進む ↓ / ↑</div>
+
+<!-- 1: title -->
+<section class="slide" style="align-items:center; text-align:center;">
+  <div class="num">01 / 08</div>
+  <div class="kicker">講義資料 — 実装 &amp; 検証編</div>
+  <h1>houdini21チュートリアル自動生成<br>Cloud RAG対応と実機検証</h1>
+  <p class="lead">RAG検索モードをローカルからクラウドへ拡張し、Houdini実機上で最初のエンドツーエンド検証を行った結果をまとめる。</p>
+  <p class="lead">2026-07-23</p>
+</section>
+
+<!-- 2: 全体像 -->
+<section class="slide">
+  <div class="num">02 / 08</div>
+  <div class="kicker">Overview</div>
+  <h2>今日の流れ</h2>
+  <div class="mermaid">
+flowchart LR
+    A[要件] --> B[Cloud RAG検索モード実装]
+    B --> C[検証1回目]
+    C -->|反復上限到達・未完成| D[原因分析]
+    D --> E[MODEL / MAX_ITERATIONS 調整]
+    E --> F[検証2回目]
+    F -->|完了| G[Houdini実機で目視確認]
+    G --> H[検証完了]
+  </div>
+</section>
+
+<!-- 3: Cloud RAG実装 -->
+<section class="slide">
+  <div class="num">03 / 08</div>
+  <div class="kicker">実装</div>
+  <h2>Cloud RAG検索モードを追加</h2>
+  <p class="lead">これまでLocal RAG（<code>rag_local_bridge.py</code>）のみだった検索元に、GAS WebApp（<code>gas_cloud_rag.js</code>）経由のCloud RAGを追加した。CloudRAG側にドキュメントが多く蓄積されている運用実態に合わせた対応。</p>
+  <ul class="points">
+    <li><code>mode:'raw'</code> で最終回答生成（Gemini呼び出し）をスキップし、検索結果だけを軽量取得</li>
+    <li>取得後に <code>db=="houdini21"</code> 以外を除外し、ホワイトリストをクライアント側でも強制</li>
+    <li>既存のSettingsタブ（<code>mode</code> / <code>gas_url</code> / <code>gas_api_key</code>）を再利用、新規UIなし</li>
+  </ul>
+</section>
+
+<!-- 4: 検証1回目 -->
+<section class="slide">
+  <div class="num">04 / 08</div>
+  <div class="kicker">検証1回目</div>
+  <h2>「岩を地形に散布」→ 反復上限で打ち切り</h2>
+  <div class="grid">
+    <div class="card bad"><h3>結果</h3><div class="big">打ち切り</div></div>
+    <div class="card"><h3>MODEL</h3><div class="big">Sonnet 4.6</div></div>
+    <div class="card"><h3>MAX_ITERATIONS</h3><div class="big">25</div></div>
+    <div class="card"><h3>コスト</h3><div class="big">$0.327</div></div>
+  </div>
+  <p class="lead" style="margin-top:1.5rem;">原因: ノードタイプ検索（<code>list_available_node_types</code>）に反復予算の3割以上を消費し、本題（岩のコピー配置）に到達する前に力尽きた。</p>
+</section>
+
+<!-- 5: 修正 -->
+<section class="slide">
+  <div class="num">05 / 08</div>
+  <div class="kicker">原因分析と修正</div>
+  <h2>2つの独立したレバーを調整</h2>
+  <pre><code><span class="diff-del">- MODEL = "claude-sonnet-4-6"
+- MAX_ITERATIONS = 25</span>
+<span class="diff-add">+ MODEL = "claude-sonnet-5"
++ MAX_ITERATIONS = 40</span></code></pre>
+  <ul class="points">
+    <li><strong>MAX_ITERATIONS 25→40</strong>: 単純に反復の余裕を増やす</li>
+    <li><strong>MODEL Sonnet4.6→Sonnet5</strong>: agentic性能向上で反復効率UP、かつ導入価格が安い（$2/$10 vs $3/$15 per MTok）— 性能とコストを両取り</li>
+  </ul>
+</section>
+
+<!-- 6: 検証2回目 -->
+<section class="slide">
+  <div class="num">06 / 08</div>
+  <div class="kicker">検証2回目</div>
+  <h2>同じリクエストで再実行 → 完了</h2>
+  <table>
+    <thead><tr><th>項目</th><th>1回目</th><th>2回目</th></tr></thead>
+    <tbody>
+      <tr><td>結果</td><td>打ち切り</td><td><span class="badge-ok">完了</span></td></tr>
+      <tr><td>消費イテレーション</td><td>37</td><td>47</td></tr>
+      <tr><td>コスト</td><td>$0.327</td><td>$0.445</td></tr>
+      <tr><td>Copy to Points（最終工程）</td><td>未実行</td><td>実行済み</td></tr>
+    </tbody>
+  </table>
+  <div class="mermaid">
+flowchart TB
+    grid["terrain_grid<br/>Grid"] --> mountain["terrain_mountain<br/>Mountain::2.0"] --> scatter["scatter_points<br/>Scatter::2.0"] --> randomize["randomize_scale<br/>Attribute Randomize"]
+    sphere["rock_base<br/>Sphere"] --> rockmtn["rock_mountain<br/>Mountain::2.0"]
+    rockmtn -->|template| copy["scatter_rocks<br/>Copy to Points::2.0"]
+    randomize -->|points| copy
+  </div>
+</section>
+
+<!-- 7: 実機確認 -->
+<section class="slide">
+  <div class="num">07 / 08</div>
+  <div class="kicker">Houdini実機で確認</div>
+  <h2>初心者ロールで手を動かして検証</h2>
+  <div class="mermaid">
+flowchart LR
+    A["Network Editorを開く"] --> B["サンドボックスへ移動"] --> C["geo1に潜る"] --> D["Display flag ON"] --> E{"見える絵は?"}
+    E -->|"岩だけ・地形非表示"| F["Mergeノードで結合"] --> G["地形+岩を確認"]
+  </div>
+  <p class="lead" style="margin-top:1rem;">わかったこと: <code>Copy to Points</code>は複製インスタンスのみ出力し、元の地形サーフェスは出力に含まれない。3Dビューの「地面」はHoudiniの基準グリッドであり、生成物ではない。ここが初心者には非自明だった。</p>
+</section>
+
+<!-- 8: まとめ -->
+<section class="slide">
+  <div class="num">08 / 08</div>
+  <div class="kicker">まとめ</div>
+  <h2>今後の改善事項（抜粋）</h2>
+  <ul class="points">
+    <li>ノードタイプ検索の効率化（キャッシュ／プロンプトへの事前提供）</li>
+    <li>Scatter/Copy系タスクでの自動Mergeノード挿入 or 説明明記</li>
+    <li><code>COST_LIMIT_USD</code>（現在$0.50）の見直し</li>
+    <li>Houdini基本操作の説明をチュートリアルに補足</li>
+    <li>反復中のコスト消費率のリアルタイム表示</li>
+  </ul>
+  <footer class="end" style="margin-top:2rem;">
+    詳細は <code>docs/houdini21-tutorial-gen-report.md</code>（技術資料）を参照
+  </footer>
+</section>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default') });
+</script>
+</body>
+</html>

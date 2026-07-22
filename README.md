@@ -1,6 +1,6 @@
 # ゲーム開発 RAG 環境
 
-**更新日:** 2026-06-30
+**更新日:** 2026-07-04
 
 ---
 
@@ -31,6 +31,7 @@
 | **HyDE 検索強化** | クエリ+仮説文書の加重平均埋め込みで語彙ミスマッチを解消（精度向上）|
 | **情報抽出度メトリクス** | 回答中の引用数÷ソース数で抽出効率を可視化（✓引用バッジ・進捗バー）|
 | **houdini21 名前空間** | Houdini 21ドキュメント専用DB（GAS・LocalRAG・Unity/Houdini UI統合）|
+| **houdini21チュートリアル自動生成** | 自然言語の依頼からHoudiniのノードグラフを実際に組み立て、cookエラーなしのチュートリアル（Markdown+ノードグラフJSON）を自動生成 |
 
 ---
 
@@ -74,6 +75,16 @@ uv run python scripts\rag_local_bridge.py
 1. `houdini/python_panels/rag_chatbot.py` と `graph_view.py` を Houdini の Python Panels フォルダにコピー
 2. Houdini の **Python Panel** メニューから RAG Chatbot を追加
 
+### Houdiniでチュートリアルを自動生成したい
+
+1. `houdini_tools.py` / `tutorial_agent.py` / `tutorial_view.py` も `rag_chatbot.py` と同じ Python Panels フォルダにコピー
+2. `ANTHROPIC_API_KEY` を環境変数に設定（Houdini 起動前）してから `rag_local_bridge.py` を起動・再起動
+3. Houdini パネルの **Tutorial** タブでトピックを入力、または Chat タブで `/tutorial <トピック>` と入力
+4. RAG検索（houdini21 名前空間のみ・Local/Cloud両対応）→ エージェントループ（最大40回・$0.50 上限）でノードグラフを組み立て → Markdown プレビュー →「保存」を押すと `localRAG/tutorials/` に `.md`＋`.json` を保存
+5. 過去の生成物は **History** タブでノードグラフとあわせて確認できる
+
+詳細 → [docs/content-generation.md](docs/content-generation.md) §2（実機検証レポート → [docs/houdini21-tutorial-gen-report.md](docs/houdini21-tutorial-gen-report.md)、講義資料 → [lecture/houdini21-tutorial-gen-lecture.html](lecture/houdini21-tutorial-gen-lecture.html)）
+
 ### グラフ JSON を手動で生成したい
 
 ```powershell
@@ -108,11 +119,14 @@ DevelopmentRAGEnvironment/
 │
 ├── houdini/                            # Houdini プロジェクトファイル
 │   └── python_panels/
-│       ├── rag_chatbot.py              # PySide6 製チャットパネル（Chat / Settings タブ）
-│       └── graph_view.py              # QGraphicsView によるグラフビュー
+│       ├── rag_chatbot.py              # PySide6 製チャットパネル（Chat / Graph / Tutorial / History / Settings タブ）
+│       ├── graph_view.py              # QGraphicsView によるグラフビュー
+│       ├── houdini_tools.py            # ★ houラッパー8ツール（サンドボックス強制・監査ログ・NodeGraphAssetエクスポート）
+│       ├── tutorial_agent.py           # ★ チュートリアル生成オーケストレーター（RAG検索→エージェントループ）
+│       └── tutorial_view.py            # ★ Tutorial/Historyタブ UI（Markdownプレビュー・保存確認）
 │
 ├── scripts/                            # ユーティリティスクリプト
-│   ├── rag_local_bridge.py             # ★ ローカル HTTP ブリッジ（Unity/Houdini → RAGService 直接呼び出し）
+│   ├── rag_local_bridge.py             # ★ ローカル HTTP ブリッジ（Unity/Houdini → RAGService 直接呼び出し、/search でLLMなし生検索）
 │   ├── rag_service.py                  # ★ RAG サービス統合層（document_processor + embedding_generator + vector_database）
 │   ├── document_processor.py           # ★ ファイル読込・チャンク分割（旧 mcp-rag-server から移植）
 │   ├── embedding_generator.py          # ★ 埋め込み生成（sentence-transformers ラッパー）
@@ -138,7 +152,10 @@ DevelopmentRAGEnvironment/
 ├── docs/                               # 設計・セットアップ・用語・ライセンスドキュメント
 │   ├── cloud-rag.md                    # クラウド RAG 設計・セットアップ（旧 cloud-rag-setup.md + rag-system-design.md統合）
 │   ├── local-rag.md                    # ローカル RAG 設計・セットアップ（旧 local-rag-setup.md 等7ファイル統合）
-│   ├── content-generation.md           # ★ コンテンツ動的生成 設計ドキュメント（houdini21 / BrainTQ、設計中）
+│   ├── content-generation.md           # ★ コンテンツ動的生成 設計ドキュメント（houdini21実装済み・実機検証済み / BrainTQ設計中）
+│   ├── houdini21-tutorial-gen-report.md    # ★ houdini21 Cloud RAG対応・実機検証レポート（mermaid図解付き）
+│   ├── houdini21-tutorial-gen-report.html  # ★ 同レポートのHTML版
+│   ├── houdini21-learning-effect-study.md  # houdini21学習効果検証テスト 要件定義
 │   ├── terminology.md                  # 技術・用語解説
 │   └── license-compliance.md           # ライセンス・権利関連
 │
@@ -146,6 +163,7 @@ DevelopmentRAGEnvironment/
 │   ├── cloud-rag-lecture.html          # ★ クラウド RAG 講義（コサイン類似度・Spring Layoutのcanvasアニメーション付き）
 │   ├── local-rag-lecture.html          # ★ ローカル RAG 講義（内部構造・新規ドキュメント追加ガイド等を統合、チャンク分割のcanvasアニメーション付き）
 │   ├── content-generation-lecture.html # ★ コンテンツ動的生成 設計講義資料（houdini21 / BrainTQ、設計中）
+│   ├── houdini21-tutorial-gen-lecture.html # ★ houdini21 Cloud RAG対応・実機検証 講義資料
 │   ├── terminology.html                # 用語解説（講義版）
 │   └── license-compliance.html         # ライセンス解説（講義版）
 │

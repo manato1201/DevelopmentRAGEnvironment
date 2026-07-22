@@ -1,6 +1,6 @@
 # コンテンツ動的生成 — 設計ドキュメント
 
-**ステータス:** 設計中（実装未着手）
+**ステータス:** houdini21は実装済み・実機検証済み（2026-07-23、[検証レポート](houdini21-tutorial-gen-report.md)）／BrainTQは設計中（実装未着手）
 **更新日:** 2026-06-30
 
 > LocalRAG／CloudRAGを使ったチャットボット機能の次段階として、RAGで取得した知識をもとに**コンテンツを動的に生成**する機能群。houdini21（Houdiniチュートリアル自動生成）とBrainTQ（ミニゲーム動的生成）の2つを「コンテンツ動的生成」という1つのトピックにまとめて扱う。アーキテクチャ・セットアップは [docs/local-rag.md](local-rag.md) / [docs/cloud-rag.md](cloud-rag.md) を前提とする。
@@ -27,7 +27,7 @@
 | 生成対象 | Houdiniノードグラフ＋ステップバイステップのチュートリアル | Phase 1: 既存ミニゲーム向け問題コンテンツ／Phase 2: ミニゲームのScript・Prefab・GameControl.cs分岐 |
 | 操作対象 | Houdini（`hou`モジュール） | Phase 1: なし（データ生成のみ）／Phase 2: Unity Editor |
 | 検証手段 | cookエラーの自己修正ループ | Phase 1: スキーマ・範囲・重複バリデーション／Phase 2: 未構築（自動テスト基盤が現状ゼロ） |
-| 状態 | 設計確定・実装着手前 | Phase 1 設計確定・実装着手前／Phase 2 ロードマップとして文書化 |
+| 状態 | 実装済み・実機検証済み（Local/Cloud RAG両対応） | Phase 1 設計確定・実装着手前／Phase 2 ロードマップとして文書化 |
 
 両者に共通する設計判断（モデル選定・コスト管理・検証フロー）は[4章](#4-共通の設計判断)にまとめる。
 
@@ -35,12 +35,20 @@
 
 ## 2. houdini21 — Houdiniチュートリアル自動生成
 
+> 実装・実機検証は完了済み。Cloud RAG対応の経緯とHoudini実機での検証結果は [houdini21-tutorial-gen-report.md](houdini21-tutorial-gen-report.md)（技術資料・mermaid図解付き／[HTML版](houdini21-tutorial-gen-report.html)）、講義資料は [lecture/houdini21-tutorial-gen-lecture.html](../lecture/houdini21-tutorial-gen-lecture.html) を参照。
+
 ### 2.1 全体構成
 
 ```
 Houdiniチャットパネル（rag_chatbot.py）に「チュートリアル生成」モード追加
   │
   ├─ ① RAG検索: houdini21 namespace から関連ドキュメント取得
+  │     Settingsタブのモード設定に従い取得先を切り替える:
+  │       - local: rag_local_bridge.py の /search
+  │       - cloud: gas_cloud_rag.js を mode:'raw' 呼び出し
+  │                （最終回答生成をスキップし検索結果のみ取得）
+  │     いずれのモードでも取得後に db=="houdini21" 以外を除外し、
+  │     ホワイトリスト方針をクライアント側でも強制する
   │
   ├─ ② エージェントループ（Claude Sonnet 4.6 + Tool Use）
   │     - houdini_tools.py（hou モジュールのラッパー）
@@ -125,7 +133,7 @@ node_graph_json = export_node_graph(sandbox)  # NodeGraphAsset形式
 
 - ユーザーの既存シーンを壊さないよう、`/obj/ai_tutorial_<timestamp>` のような専用サブネット内でのみノード作成・操作を行う
 - 生成完了後もサンドボックスは残す（ユーザーが結果を直接確認できるように）。明示的に「削除」操作をチャット上で選べるようにする
-- 反復上限は25回（コスト・暴走防止）。超えたら「途中までの状態」を提示して打ち切り
+- 反復上限は40回（コスト・暴走防止）。超えたら「途中までの状態」を提示して打ち切り（初期値25回だったが、実機検証で反復消費が想定より多いタスクがあったため40回に調整。経緯は[検証レポート](houdini21-tutorial-gen-report.md) §4参照）
 - 保存先ファイル名は `localRAG/tutorials/<slug>_<日付>.md`
 
 ### 2.7 Goal・完成条件・委任範囲
