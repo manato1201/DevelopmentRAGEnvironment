@@ -62,7 +62,11 @@ class VectorDatabase:
     # ------------------------------------------------------------------ #
 
     def _namespace_from_path(self, file_path: str) -> Optional[str]:
-        source_dir = os.environ.get("SOURCE_DIR", "")
+        # SOURCE_DIR 未設定時は rag_cli.py / knowledge_manager.py と同じデフォルト
+        # （リポジトリ直下の localRAG/）を使う。空文字のままだと relative_to() が
+        # 常に失敗し、namespace の代わりに絶対パスのドライブ部分（"C:\" 等）が
+        # 使われてしまい、ChromaDB のコレクション名検証エラーになる。
+        source_dir = os.environ.get("SOURCE_DIR") or str(Path(__file__).parent.parent / "localRAG")
         try:
             rel = Path(file_path).relative_to(source_dir)
             parts = rel.parts

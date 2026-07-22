@@ -89,20 +89,28 @@ class RAGPolicyEnforcementPoint:
         """
         リクエストされた名前空間リストからロールで許可されるものだけを返す。
 
+        最小権限の原則に基づき fail-closed で判定する: admin 以外のロールは
+        要求が空、または許可される namespace が1つもない場合は「アクセスなし」
+        （空リスト）を返す。以前は未指定時にロールの全namespaceへフォール
+        バックしていたため、namespace を1つも付与されていないユーザーが
+        実質フルアクセスになってしまっていた（fail-open）。
+
         Args:
             user_role : "admin" | "developer" | "user"
             requested : クライアントが要求する名前空間リスト
 
         Returns:
-            list[str]: 許可された名前空間のみ（空リストの場合はロールのデフォルト全体）
+            list[str]: 許可された名前空間のみ。admin は常にロールの
+                       全namespaceを返す（namespace未設定でも管理者権限は
+                       失われない）。admin 以外はフォールバックなし。
         """
         allowed_for_role = self._ROLE_NAMESPACES.get(user_role, self._ROLE_NAMESPACES["user"])
 
-        if not requested:
-            # 明示的な要求がない場合はロールのデフォルト全体
+        if user_role == "admin":
             return allowed_for_role
 
-        # 要求と許可の積集合
-        filtered = [ns for ns in requested if ns in allowed_for_role]
-        # フィルタ後が空なら fallback としてロールのデフォルト
-        return filtered if filtered else allowed_for_role
+        if not requested:
+            return []
+
+        # 要求と許可の積集合。一致するものがなければ空リスト（アクセスなし）。
+        return [ns for ns in requested if ns in allowed_for_role]

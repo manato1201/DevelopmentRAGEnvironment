@@ -89,6 +89,8 @@ _DEFAULT_CONFIG = {
     "local_bridge_dir": "",        # rag_local_bridge.py が含まれるプロジェクトのパス
     "llm_backend":      "claude",  # "claude" | "gemini"（Local モード LLM 切り替え）
     "score_user_id":    "",        # 理解度スコア記録用ユーザーID
+    "video_factory_exe_path": "",  # LearningQt video_factory_cloudrag_poc.exe のフルパス
+                                    # （チュートリアル保存時に自動で動画生成を起動する）
 }
 
 
@@ -540,6 +542,14 @@ class RAGChatbotPanel(QWidget):
         self._score_uid_edit.setPlaceholderText("例: my_user")
         layout.addWidget(self._score_uid_edit)
 
+        # 動画生成（LearningQt video factory）
+        layout.addWidget(QLabel("Video Factory exe パス:"))
+        self._video_factory_exe_edit = QLineEdit(self._cfg.get("video_factory_exe_path", ""))
+        self._video_factory_exe_edit.setPlaceholderText(
+            "LearningQt\\build\\engine\\video_factory_cloudrag_poc.exe（未設定なら自動起動しない）"
+        )
+        layout.addWidget(self._video_factory_exe_edit)
+
         # 操作ボタン
         save_btn = QPushButton("設定を保存")
         save_btn.clicked.connect(self._on_save_settings)
@@ -669,6 +679,7 @@ class RAGChatbotPanel(QWidget):
         self._cfg["local_bridge_dir"] = self._bridge_dir_edit.text().strip()
         self._cfg["llm_backend"]      = self._backend_combo.currentText()
         self._cfg["score_user_id"]    = self._score_uid_edit.text().strip()
+        self._cfg["video_factory_exe_path"] = self._video_factory_exe_edit.text().strip()
         try:
             self._cfg["local_port"] = int(self._port_edit.text())
         except ValueError:
