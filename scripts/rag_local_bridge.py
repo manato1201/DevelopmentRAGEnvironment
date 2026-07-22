@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -36,6 +37,8 @@ from pathlib import Path
 
 # ─── デフォルト設定 ─────────────────────────────────────────────────────────────
 DEFAULT_PORT    = 8766
+# 完成条件の目標応答速度（Claude/Gemini呼び出し込み）を超えたらコンソールに警告を出す
+_LATENCY_WARN_MS = int(os.environ.get("RAG_LATENCY_WARN_MS", "15000"))
 GRAPH_EXPORT_SCRIPT = Path(__file__).parent / "rag_graph_export.py"
 CLAUDE_MODEL    = "claude-haiku-4-5-20251001"
 GEMINI_MODEL    = "gemini-2.5-flash"
@@ -44,7 +47,20 @@ SYSTEM_PROMPT   = (
     "あなたはゲーム開発チームの知識ベースを持つ AI アシスタントです。"
     "日本語で簡潔に回答してください（目安: 400 文字以内）。"
     "重要な点のみ箇条書きでまとめてください。"
+    "回答中で参照した情報は必ず [1][2] のように番号で明記してください。"
 )
+
+# namespace 権限チェックが必要な /api/knowledge/* パス
+# （/crawl と /rollback は対象外 — 定期クロールは既存登録に対する更新のみ、
+# ロールバックはjournal記録済みの操作を取り消すだけで新規書き込み先を選ばないため）
+_NS_SCOPED_KNOWLEDGE_PATHS = {
+    "/api/knowledge/import/url",
+    "/api/knowledge/import/youtube",
+    "/api/knowledge/import/file",
+    "/api/knowledge/import/qa_csv",
+    "/api/knowledge/faq",
+    "/api/knowledge/sources",
+}
 
 # auth_manager をインポート（同ディレクトリにある）
 _SCRIPTS_DIR = Path(__file__).parent
@@ -74,6 +90,12 @@ try:
 except ImportError:
     _SCORE_AVAILABLE = False
 
+try:
+    from knowledge_manager import KnowledgeManager, KnowledgeError
+    _KB_AVAILABLE = True
+except ImportError:
+    _KB_AVAILABLE = False
+
 # static ファイルディレクトリ
 _STATIC_DIR = _SCRIPTS_DIR / "static"
 
@@ -82,6 +104,20 @@ _pep = RAGPolicyEnforcementPoint() if _PEP_AVAILABLE else None
 
 # スコアエンジン シングルトン（モジュールレベル）
 _score_engine = UnderstandingScoreEngine(Path(__file__).parent.parent / "data" / "auth.db") if _SCORE_AVAILABLE else None
+
+
+def _score_label(result: dict) -> str:
+    """
+    検索ヒットのスコア表示ラベルを返す。
+    RRF マージ後の similarity（≒0.016）を %表示すると誤解を招くため、
+    ベクトル由来はコサイン類似度、BM25 のみ由来はキーワード一致と表示する。
+    """
+    vs = result.get("vector_similarity")
+    if vs is not None:
+        return f"類似度: {vs * 100:.2f}%"
+    if result.get("bm25_score") is not None:
+        return "キーワード一致"
+    return f"類似度: {result.get('similarity', 0) * 100:.2f}%"
 
 
 # ─── RAG クライアント ────────────────────────────────────────────────────────────
@@ -94,11 +130,12 @@ class LocalRAGClient:
     vector_database / rag_service）をこのリポジトリに取り込んだことで、
     プロセス内で直接呼び出せるようになった。外部リポジトリへの依存はゼロ。
 
-    search() の戻り値（テキストのリスト）は旧 mcp-rag-server の
-    search_handler が返していたフォーマットと互換にしてある
-    （"ファイル:" 行を含む）。下流の namespace フィルタ処理
-    （_filter_texts_by_namespaces / _extract_sources）が
-    このフォーマットに依存しているため。
+    search_structured() は構造化データ（ファイルパス・スコア種別・
+    コンテキスト/全文フラグ付き）をそのまま返す。以前は事前に番号付き
+    テキストへ整形してから namespace フィルタリングしていたが、フィルタ
+    後に「歯抜けの [1][3] のような番号」が LLM に渡ってしまい、引用番号
+    と実際のソース番号がずれるバグがあった。フィルタ確定後に番号を振る
+    ことで、引用抽出（extractionRate）の整合性を保証している。
     """
 
     def __init__(self, server_dir: Path) -> None:
@@ -117,47 +154,13 @@ class LocalRAGClient:
     def is_alive(self) -> bool:
         return self._rag_service is not None
 
-    def search(self, query: str, limit: int = 5) -> list[str]:
+    def search_structured(self, query: str, limit: int = 5) -> list[dict]:
         if self._rag_service is None:
             raise RuntimeError("RAGService が起動していません")
-
         with self._lock:
-            doc_count = self._rag_service.get_document_count()
-            if doc_count == 0:
-                return [
-                    "インデックスにドキュメントが存在しません。"
-                    "`uv run python scripts/rag_cli.py index` を使用してドキュメントをインデックス化してください。"
-                ]
-
-            results = self._rag_service.search(query, limit, with_context=True, context_size=1)
-
-        if not results:
-            return [f"クエリ '{query}' に一致する結果が見つかりませんでした"]
-
-        file_groups: dict[str, list[dict]] = {}
-        for result in results:
-            file_groups.setdefault(result["file_path"], []).append(result)
-        for fp in file_groups:
-            file_groups[fp].sort(key=lambda x: x["chunk_index"])
-
-        texts = [f"クエリ '{query}' の検索結果（{len(results)} 件）:"]
-        for i, (file_path, group) in enumerate(file_groups.items()):
-            file_name = os.path.basename(file_path)
-            texts.append(f"\n[{i + 1}] ファイル: {file_name}")
-            for result in group:
-                similarity_percent = result.get("similarity", 0) * 100
-                is_context = result.get("is_context", False)
-                is_full_document = result.get("is_full_document", False)
-                if is_full_document:
-                    texts.append(f"\n+++ ドキュメント全文（チャンク {result['chunk_index']}) +++\n{result['content']}")
-                elif is_context:
-                    texts.append(f"\n--- 前後のコンテキスト（チャンク {result['chunk_index']}) ---\n{result['content']}")
-                else:
-                    texts.append(
-                        f"\n=== 検索ヒット（チャンク {result['chunk_index']}, 類似度: {similarity_percent:.2f}%) ===\n"
-                        f"{result['content']}"
-                    )
-        return texts
+            if self._rag_service.get_document_count() == 0:
+                return []
+            return self._rag_service.search(query, limit, with_context=True, context_size=1)
 
     def get_document_count(self) -> int:
         if self._rag_service is None:
@@ -180,28 +183,81 @@ def _extract_namespace_from_path(file_path: str) -> str | None:
     return None
 
 
-def _filter_texts_by_namespaces(texts: list[str], allowed: list[str]) -> list[str]:
-    """
-    search 結果テキストを allowed namespaces でフィルタリングする。
-    ファイルパス行 ("ファイル:") がない場合は通過させる（旧形式互換）。
-    """
+def _group_by_file(results: list[dict]) -> dict[str, list[dict]]:
+    """検索結果をファイルパスごとにまとめ、チャンク順に並べる。"""
+    groups: dict[str, list[dict]] = {}
+    for r in results:
+        groups.setdefault(r["file_path"], []).append(r)
+    for fp in groups:
+        groups[fp].sort(key=lambda x: x["chunk_index"])
+    return groups
+
+
+def _filter_groups_by_namespace(groups: dict[str, list[dict]], allowed: list[str]) -> dict[str, list[dict]]:
+    """allowed namespaces でファイルグループを絞り込む。namespace 不明のファイルは通過させる。"""
     if not allowed:
-        return []
-    filtered = []
-    for t in texts:
-        has_path_line = False
-        for line in t.splitlines():
-            if "ファイル:" in line:
-                has_path_line = True
-                fpath = line.split("ファイル:")[-1].strip()
-                ns = _extract_namespace_from_path(fpath)
-                if ns and ns in allowed:
-                    filtered.append(t)
-                break
-        if not has_path_line:
-            # パス情報なし → 通過（互換性のため）
-            filtered.append(t)
-    return filtered
+        return {}
+    out: dict[str, list[dict]] = {}
+    for fp, items in groups.items():
+        ns = _extract_namespace_from_path(fp)
+        if ns is None or ns in allowed:
+            out[fp] = items
+    return out
+
+
+def _build_context_and_sources(groups: dict[str, list[dict]], limit: int) -> tuple[list[str], list[dict]]:
+    """
+    namespace フィルタ確定後のファイルグループから、LLM に渡す番号付きコンテキストと
+    同じ番号順のソースリストを組み立てる。両者のインデックス（1始まり）は必ず一致する。
+    """
+    items_by_file = list(groups.items())[:limit]
+    if not items_by_file:
+        return ["（関連ドキュメントが見つかりませんでした）"], []
+
+    texts = [f"検索結果（{len(items_by_file)} 件）:"]
+    sources: list[dict] = []
+
+    for i, (file_path, chunks) in enumerate(items_by_file):
+        file_name = os.path.basename(file_path)
+        texts.append(f"\n[{i + 1}] ファイル: {file_name}")
+        max_score: float | None = None
+        saw_vector_hit = False
+        for r in chunks:
+            is_context = r.get("is_context", False)
+            is_full_document = r.get("is_full_document", False)
+            if is_full_document:
+                texts.append(f"\n+++ ドキュメント全文（チャンク {r['chunk_index']}) +++\n{r['content']}")
+            elif is_context:
+                texts.append(f"\n--- 前後のコンテキスト（チャンク {r['chunk_index']}) ---\n{r['content']}")
+            else:
+                texts.append(
+                    f"\n=== 検索ヒット（チャンク {r['chunk_index']}, {_score_label(r)}) ===\n{r['content']}"
+                )
+                vs = r.get("vector_similarity")
+                if vs is not None:
+                    saw_vector_hit = True
+                    max_score = vs if max_score is None else max(max_score, vs)
+
+        ns = _extract_namespace_from_path(file_path)
+        sources.append({
+            "title": file_name,
+            "db": ns or "local",
+            "score": round(max_score, 4) if max_score is not None else 0.0,
+            "score_type": "vector" if saw_vector_hit else "keyword",
+        })
+
+    return texts, sources
+
+
+def _parse_extraction(answer: str, total: int) -> tuple[int, list[bool]]:
+    """回答中の [1][2] 形式の引用番号を解析し、(引用件数, 各ソースの引用有無) を返す。"""
+    cited_nums: set[int] = set()
+    for m in re.finditer(r"\[(\d+)\]", answer):
+        n = int(m.group(1))
+        if 1 <= n <= total:
+            cited_nums.add(n)
+    cited_flags = [(i + 1) in cited_nums for i in range(total)]
+    return len(cited_nums), cited_flags
 
 
 # ─── Claude API 呼び出し ─────────────────────────────────────────────────────────
@@ -222,8 +278,9 @@ def _call_claude(context_texts: list[str], query: str, history: list[dict]) -> s
             messages.append({"role": role, "content": text})
     messages.append({"role": "user", "content": query})
 
+    # 1024 だと箇条書きの長い回答が途中で切れる（引用番号を明記させる分、応答が長くなりやすい）
     payload = json.dumps({
-        "model": CLAUDE_MODEL, "max_tokens": 1024,
+        "model": CLAUDE_MODEL, "max_tokens": 2048,
         "system": SYSTEM_PROMPT, "messages": messages,
     }, ensure_ascii=False).encode("utf-8")
 
@@ -273,20 +330,6 @@ def _call_gemini(context_texts: list[str], query: str, history: list[dict]) -> s
     return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
-def _extract_sources(texts: list[str]) -> list[dict]:
-    sources = []
-    seen: set[str] = set()
-    for t in texts:
-        for line in t.splitlines():
-            if "ファイル:" in line:
-                fname = line.split("ファイル:")[-1].strip()
-                if fname and fname not in seen:
-                    seen.add(fname)
-                    ns = _extract_namespace_from_path(fname)
-                    sources.append({"title": Path(fname).name, "db": ns or "local", "score": 0})
-    return sources
-
-
 # ─── 静的ファイル読み込み ────────────────────────────────────────────────────────
 
 def _read_static(filename: str) -> bytes | None:
@@ -302,6 +345,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
     mcp:  LocalRAGClient   # start() 後にセット
     auth: "AuthManager | None" = None  # 認証マネージャー
     audit: "RAGAuditLogger | None" = None  # 監査ロガー
+    kb:   "KnowledgeManager | None" = None  # ナレッジ登録・更新
 
     def log_message(self, fmt: str, *args) -> None:
         pass
@@ -431,6 +475,20 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"backend": _LLM_BACKEND})
             return
 
+        if path == "/api/knowledge/sources":
+            user = self._require_auth()
+            if user and self._kb_ready():
+                self._send_json(200, {"sources": self.kb.list_sources()})
+            return
+        if path == "/api/knowledge/history":
+            user = self._require_auth()
+            if user and self._kb_ready():
+                from urllib.parse import urlparse, parse_qs
+                params = parse_qs(urlparse(self.path).query)
+                limit = int(params.get("limit", [50])[0])
+                self._send_json(200, {"history": self.kb.history(limit)})
+            return
+
         if path == "/admin/audit":
             admin = self._require_admin()
             if admin is None:
@@ -498,9 +556,87 @@ class BridgeHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"status": "error", "message": str(exc)})
 
+    # ── ナレッジ登録・更新 ────────────────────────────────────────────────────────
+
+    def _kb_ready(self) -> bool:
+        """KnowledgeManager が使えるか確認。使えなければ 503 を返す。"""
+        if self.kb is None:
+            self._send_json(503, {"error": "ナレッジ管理機能が利用できません（knowledge_manager 未初期化）"})
+            return False
+        return True
+
+    def _check_ns_permission(self, user: dict, namespace: str) -> bool:
+        """
+        ユーザーが namespace への書き込み権限を持つか。持たなければ 403。
+        admin は常に許可（PEPの admin ロールと同じ扱い）。admin 以外は
+        allowed_namespaces が空、または対象 namespace を含まない場合は拒否する
+        （fail-closed）。
+        """
+        if user.get("is_admin"):
+            return True
+        allowed = user.get("allowed_namespaces", [])
+        if namespace not in allowed:
+            self._send_json(403, {"error": f"このnamespaceへの権限がありません: {namespace}"})
+            return False
+        return True
+
+    def _handle_knowledge_post(self, user: dict, path: str) -> None:
+        if not self._kb_ready():
+            return
+        body = self._read_body()
+        ns = body.get("namespace", "")
+
+        if path in _NS_SCOPED_KNOWLEDGE_PATHS and not self._check_ns_permission(user, ns):
+            return
+
+        try:
+            if path == "/api/knowledge/import/url":
+                op = self.kb.import_url(body.get("url", ""), ns)
+            elif path == "/api/knowledge/import/youtube":
+                op = self.kb.import_youtube(body.get("url", ""), ns)
+            elif path == "/api/knowledge/import/file":
+                import base64
+                data = base64.b64decode(body.get("data_base64", ""))
+                op = self.kb.import_file_bytes(body.get("filename", "upload.txt"), data, ns)
+            elif path == "/api/knowledge/import/qa_csv":
+                op = self.kb.import_qa_csv(body.get("csv", ""), ns)
+            elif path == "/api/knowledge/faq":
+                op = self.kb.add_faq(body.get("question", ""), body.get("answer", ""), ns)
+            elif path == "/api/knowledge/sources":
+                op = self.kb.add_source(body.get("url", ""), ns,
+                                        int(body.get("interval_hours", 24)))
+            elif path == "/api/knowledge/crawl":
+                source_id = body.get("source_id")
+                if source_id:
+                    op = self.kb.crawl_source(source_id)
+                    op = {"results": [op] if op else [], "message": "更新しました" if op else "変更はありませんでした"}
+                else:
+                    results = self.kb.crawl_due(force=True)
+                    op = {"results": results}
+            elif path == "/api/knowledge/rollback":
+                op = self.kb.rollback(body.get("op_id"))
+            else:
+                self._send_json(404, {"error": "Not found"})
+                return
+
+            self._log(user, path, body.get("url") or body.get("question"), [ns] if ns else None, 200)
+            self._send_json(200, {"ok": True, "result": op})
+        except KnowledgeError as e:
+            self._log(user, path, None, [ns] if ns else None, 400)
+            self._send_json(400, {"error": str(e)})
+        except Exception as e:
+            self._log(user, path, None, [ns] if ns else None, 500)
+            self._send_json(500, {"error": f"ナレッジ操作でエラーが発生しました: {e}"})
+
     # ── POST ─────────────────────────────────────────────────────────────────────
     def do_POST(self) -> None:
         path = self.path.split("?")[0]
+
+        if path.startswith("/api/knowledge/"):
+            user = self._require_auth()
+            if user:
+                self._handle_knowledge_post(user, path)
+            return
 
         if path == "/query":
             user = self._require_auth()
@@ -592,18 +728,34 @@ class BridgeHandler(BaseHTTPRequestHandler):
         t_start = time.time()
 
         try:
-            texts = self.mcp.search(query, limit * 2)  # 多めに取得してフィルタ
+            if self.mcp.get_document_count() == 0:
+                self._send_json(200, {
+                    "answer": "インデックスにドキュメントが存在しません。"
+                              "`uv run python scripts/rag_cli.py index` でドキュメントをインデックス化してください。",
+                    "sources": [], "status": "ok", "namespaces": effective_ns,
+                    "extractionRate": 0, "extractionDetail": "0/0",
+                })
+                return
+
+            results = self.mcp.search_structured(query, limit * 3)  # 多めに取得してフィルタ
+            groups  = _group_by_file(results)
 
             # namespace フィルタリング（PEP で絞り込まれた effective_ns を使用）
             if effective_ns:
-                texts = _filter_texts_by_namespaces(texts, effective_ns)
-                texts = texts[:limit]
+                groups = _filter_groups_by_namespace(groups, effective_ns)
+
+            texts, sources = _build_context_and_sources(groups, limit)
 
             if _LLM_BACKEND == "gemini":
                 answer = _call_gemini(texts, query, history)
             else:
                 answer = _call_claude(texts, query, history)
-            sources = _extract_sources(texts)
+
+            cited_count, cited_flags = _parse_extraction(answer, len(sources))
+            for src, cited in zip(sources, cited_flags):
+                src["cited"] = cited
+            extraction_rate = round(cited_count / len(sources) * 100) if sources else 0
+
             self._log(user, "/query", query, allowed, 200)
             if self.audit:
                 self.audit.log({
@@ -612,12 +764,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "action":       "search",
                     "namespace":    ",".join(allowed) if allowed else None,
                     "query":        query,
-                    "result_count": len(texts),
+                    "result_count": len(sources),
                     "latency_ms":   int((time.time() - t_start) * 1000),
                     "allowed":      True,
                 })
             self._send_json(200, {"answer": answer, "sources": sources,
-                                  "status": "ok", "namespaces": allowed})
+                                  "status": "ok", "namespaces": effective_ns,
+                                  "extractionRate": extraction_rate,
+                                  "extractionDetail": f"{cited_count}/{len(sources)}"})
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             self._log(user, "/query", query, allowed, 502)
@@ -660,12 +814,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
         allowed = user.get("allowed_namespaces", [])
         try:
-            texts = self.mcp.search(query, limit * 2)  # 多めに取得してフィルタ
+            results = self.mcp.search_structured(query, limit * 3)  # 多めに取得してフィルタ
+            groups  = _group_by_file(results)
             if requested and _AUTH_AVAILABLE:
                 effective = [ns for ns in requested if not allowed or ns in allowed]
-                texts = _filter_texts_by_namespaces(texts, effective)
-            texts = texts[:limit]
-            sources = _extract_sources(texts)
+                groups = _filter_groups_by_namespace(groups, effective)
+            texts, sources = _build_context_and_sources(groups, limit)
             self._log(user, "/search", query, requested or allowed, 200)
             if self.audit:
                 self.audit.log({
@@ -674,7 +828,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "action":       "raw_search",
                     "namespace":    ",".join(requested) if requested else None,
                     "query":        query,
-                    "result_count": len(texts),
+                    "result_count": len(sources),
                     "latency_ms":   0,
                     "allowed":      True,
                 })
@@ -701,6 +855,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
     # ── DELETE / PUT ─────────────────────────────────────────────────────────────
     def do_DELETE(self) -> None:
         path = self.path.split("?")[0]
+        if path.startswith("/api/knowledge/sources/"):
+            user = self._require_auth()
+            if user and self._kb_ready():
+                source_id = path.split("/api/knowledge/sources/")[-1]
+                ok = self.kb.delete_source(source_id)
+                self._send_json(200 if ok else 404,
+                                {"ok": ok, "message": "削除しました" if ok else "見つかりません"})
+            return
         if path.startswith("/api/users/"):
             user = self._require_admin()
             if user:
@@ -745,6 +907,29 @@ def main() -> None:
     mcp = LocalRAGClient(Path(__file__).parent.parent)
     mcp.start()
     BridgeHandler.mcp = mcp
+
+    # ナレッジ登録・更新マネージャーをセット
+    if _KB_AVAILABLE:
+        kb = KnowledgeManager(mcp._rag_service)
+        BridgeHandler.kb = kb
+        print("[bridge] ナレッジ管理有効: /api/knowledge/*", flush=True)
+
+        # 定期クロール: 10分ごとに期限が来た登録URLを再取得（RAG_AUTO_CRAWL=0 で無効化）
+        if os.environ.get("RAG_AUTO_CRAWL", "1") != "0":
+            def _crawl_loop() -> None:
+                while True:
+                    time.sleep(600)
+                    try:
+                        results = kb.crawl_due()
+                        updated = [r for r in results if r.get("updated")]
+                        if updated:
+                            print(f"[bridge] 定期クロール: {len(updated)} 件更新", flush=True)
+                    except Exception as e:
+                        print(f"[bridge] 定期クロールエラー: {e}", flush=True)
+            threading.Thread(target=_crawl_loop, daemon=True, name="kb-crawl").start()
+            print("[bridge] 定期クロール有効（10分間隔で更新チェック）", flush=True)
+    else:
+        BridgeHandler.kb = None
 
     # 監査ロガーをセット
     if _AUDIT_AVAILABLE:
