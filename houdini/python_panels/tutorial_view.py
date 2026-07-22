@@ -168,6 +168,9 @@ class TutorialGeneratePanel(QWidget):
         self._agent = TutorialAgent(
             bridge_port=cfg.get("local_port", 8766),
             project_dir=cfg.get("local_bridge_dir", ""),
+            rag_mode=cfg.get("mode", "local"),
+            gas_url=cfg.get("gas_url", ""),
+            gas_api_key=cfg.get("gas_api_key", ""),
         )
         self._worker = TutorialWorker(self._agent, topic)
         # progress_cb は QThread 内から呼ばれるため Signal 経由で UI スレッドに渡す
@@ -248,6 +251,23 @@ class TutorialGeneratePanel(QWidget):
             f"保存しました: {md_path.name} / {json_path.name}"
             "（watchdog が自動インデックス化します）"
         )
+
+        # 動画生成をバックグラウンドで自動起動（ベストエフォート）。
+        # video_factory_bridge / screen_capture は LearningQt 側の video
+        # factory との連携用に追加したモジュールで、失敗してもチュートリアル
+        # 保存そのものは既に成功済みなので、状態表示に追記するだけに留める。
+        try:
+            from video_factory_bridge import launch_video_generation
+
+            video_status = launch_video_generation(
+                md_path=md_path,
+                json_path=json_path,
+                sandbox_path=self._result.sandbox_path,
+                exe_path=self._cfg_getter().get("video_factory_exe_path", ""),
+            )
+            self._status.setText(f"{self._status.text()} / {video_status}")
+        except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
+            self._status.setText(f"{self._status.text()} / 動画生成の起動に失敗: {exc}")
 
     def _on_discard(self) -> None:
         self._result = None
