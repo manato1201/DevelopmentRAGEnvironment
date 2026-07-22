@@ -2,24 +2,19 @@
  * Cloud RAG Chatbot — Google Apps Script  v4 (APIキー認証統一版)
  *
  * ── スクリプトプロパティ ──────────────────────────────────────────────
- *   NOTION_API_KEY     Notion Integration Token（Notionソースを使う namespace がある場合のみ必須）
+ *   NOTION_API_KEY     Notion Integration Token
  *   GEMINI_API_KEY     Google AI Studio API Key
  *   SHEETS_ID          ベクトル保存用スプレッドシートID
- *
+ *   NAMESPACE_CONFIG   namespace定義（JSON、省略可。テナント導入手順書参照）
  *   DB_TOOL_DOCS / DB_GAME_INFO / DB_RESEARCH / DB_TEAM_NOTES
- *   DB_AFURI / DB_BRAINTQ / DB_FOURTEEN / DB_HOUDINI21  (各Notion DB ID)
- *
- *   DRIVE_TOOL_DOCS / DRIVE_GAME_INFO / DRIVE_RESEARCH / DRIVE_TEAM_NOTES
- *   DRIVE_AFURI / DRIVE_BRAINTQ / DRIVE_FOURTEEN / DRIVE_HOUDINI21
- *     ← Notionの代わりに Google Drive フォルダで管理したい namespace について設定する
- *       （Driveの共有フォルダID。DB_* とDRIVE_*が両方設定されている場合はNotionを優先）
- *       フォルダ内の Markdown(.md/.txt) / Google ドキュメントが同期対象。
- *       frontmatter（--- title/summary/tags/source_url ---）を解析してNotionと同じ形式で扱う。
+ *   DB_AFURI / DB_BRAINTQ / DB_FOURTEEN  (各Notion DB ID。キー名は
+ *   NAMESPACE_CONFIG のnamespaceキーから "DB_" + 大文字化 で自動導出される)
  *
  *   API_KEYS_CONFIG    ← 自動管理（管理画面で操作）
  *
  * ── 初回セットアップ ─────────────────────────────────────────────────
- *   1. 上記スクリプトプロパティを設定
+ *   1. 上記スクリプトプロパティを設定（NAMESPACE_CONFIGは新規テナント導入時
+ *      のみ設定。未設定なら下記のAXTechCare向けデフォルト構成が使われる）
  *   2. GASエディタで bootstrapFirstAdminKey() を実行
  *      → ログに管理者APIキーが表示される（一度だけ）
  *   3. WebAppをデプロイ:
@@ -27,48 +22,75 @@
  *        アクセスできるユーザー: Googleアカウントを持つ全員
  *   4. WebAppのURLにブラウザでアクセスし、管理者キーでログイン
  *   5. 管理タブからユーザーキー / クライアントキーを発行
+ *
+ *   新規テナント（他プロジェクト・他社）へのテンプレートとして導入する
+ *   場合は docs/tenant-onboarding.md を参照。
  * ────────────────────────────────────────────────────────────────────
  */
 
 // ─────────────────────────────────────────────
-// 定数
+// 定数（namespace構成）
 // ─────────────────────────────────────────────
 
-var DB_KEY_MAP = {
-  tool_docs:  'DB_TOOL_DOCS',
-  game_info:  'DB_GAME_INFO',
-  research:   'DB_RESEARCH',
-  team_notes: 'DB_TEAM_NOTES',
-  afuri:      'DB_AFURI',
-  braintq:    'DB_BRAINTQ',
-  fourteen:   'DB_FOURTEEN',
-  houdini21:  'DB_HOUDINI21',
+// NAMESPACE_CONFIG スクリプトプロパティが未設定の場合に使う、
+// このデプロイ（AXTechCare本体）向けのデフォルト構成。
+// 新規テナント導入時はコードを変更せず、NAMESPACE_CONFIG に
+// 同じ形のJSONを設定することで namespace 構成を差し替えられる。
+var DEFAULT_NAMESPACE_CONFIG_ = {
+  tool_docs:  { label: '🛠️ Tool Docs' },
+  game_info:  { label: '🎮 Game Info' },
+  research:   { label: '📄 Research' },
+  team_notes: { label: '📝 Team Notes' },
+  afuri:      { label: '🍜 AFURI' },
+  braintq:    { label: '🧠 BrainTQ' },
+  fourteen:   { label: '⛳ Fourteen' },
+  houdini21:  { label: '🌀 Houdini21' },
 };
 
-// Notion の代替ソース。DB_KEY_MAP側（Notion database_id）が未設定の namespace について、
-// こちらのスクリプトプロパティ（Googleドライブの共有フォルダID）が設定されていれば
-// Driveフォルダ内の Markdown / Google ドキュメントを同期対象にする。
-var DRIVE_KEY_MAP = {
-  tool_docs:  'DRIVE_TOOL_DOCS',
-  game_info:  'DRIVE_GAME_INFO',
-  research:   'DRIVE_RESEARCH',
-  team_notes: 'DRIVE_TEAM_NOTES',
-  afuri:      'DRIVE_AFURI',
-  braintq:    'DRIVE_BRAINTQ',
-  fourteen:   'DRIVE_FOURTEEN',
-  houdini21:  'DRIVE_HOUDINI21',
-};
+/** namespaceキーからスクリプトプロパティ名の接尾辞を作る（例: "tool_docs" → "TOOL_DOCS"） */
+function _namespacePropSuffix_(ns) {
+  return String(ns).toUpperCase().replace(/-/g, '_');
+}
 
-var DB_LABELS = {
-  tool_docs:  '🛠️ Tool Docs',
-  game_info:  '🎮 Game Info',
-  research:   '📄 Research',
-  team_notes: '📝 Team Notes',
-  afuri:      '🍜 AFURI',
-  braintq:    '🧠 BrainTQ',
-  fourteen:   '⛳ Fourteen',
-  houdini21:  '🌀 Houdini21',
-};
+function _loadNamespaceConfig_() {
+  var raw;
+  try { raw = PropertiesService.getScriptProperties().getProperty('NAMESPACE_CONFIG'); }
+  catch (e) { raw = null; }
+  if (raw) {
+    try {
+      var parsed = JSON.parse(raw);
+      if (parsed && Object.keys(parsed).length > 0) return parsed;
+    } catch (e) { /* 不正なJSONはデフォルトにフォールバック */ }
+  }
+  return DEFAULT_NAMESPACE_CONFIG_;
+}
+
+var _NAMESPACE_CONFIG_ = _loadNamespaceConfig_();
+
+// DB_KEY_MAP・DB_LABELS・DRIVE_KEY_MAP は _NAMESPACE_CONFIG_ から導出する。
+// プロパティ名の命名規則（"DB_" / "DRIVE_" + namespace大文字）は、
+// 既存のAXTechCareデプロイのスクリプトプロパティ名と完全に一致するため、
+// NAMESPACE_CONFIG を設定しない既存デプロイの動作は変わらない。
+var DB_KEY_MAP    = {};
+var DB_LABELS     = {};
+var DRIVE_KEY_MAP = {};
+// namespaceごとの登録先モード: "notion"（既定・従来通り） / "drive"（Drive単独運用） / "both"（両方に登録）
+var NAMESPACE_SOURCE_MAP = {};
+Object.keys(_NAMESPACE_CONFIG_).forEach(function(ns) {
+  var suffix = _namespacePropSuffix_(ns);
+  DB_KEY_MAP[ns]    = 'DB_' + suffix;
+  DRIVE_KEY_MAP[ns] = 'DRIVE_' + suffix;
+  DB_LABELS[ns]     = (_NAMESPACE_CONFIG_[ns] && _NAMESPACE_CONFIG_[ns].label) || ns;
+  NAMESPACE_SOURCE_MAP[ns] = (_NAMESPACE_CONFIG_[ns] && _NAMESPACE_CONFIG_[ns].source) || 'notion';
+});
+
+/** このnamespaceがNotionを使うか（"notion" / "both"。既定はnotion） */
+function _usesNotion_(dbKey) { return NAMESPACE_SOURCE_MAP[dbKey] !== 'drive'; }
+/** このnamespaceがDriveを使うか（"drive" / "both"） */
+function _usesDrive_(dbKey) {
+  var s = NAMESPACE_SOURCE_MAP[dbKey];
+  return s === 'drive' || s === 'both';
+}
 
 var ALL_NAMESPACES   = Object.keys(DB_KEY_MAP);
 var SHEET_NAME       = 'RAG_Index';
@@ -78,7 +100,7 @@ var CACHE_TTL        = 21600;
 var CACHE_CHUNK      = 90000;
 
 // 許可された DB キーの一覧。不正値は "all" にフォールバックして安全に処理する。
-var VALID_DB_KEYS_ = ["all","tool_docs","game_info","research","team_notes","afuri","braintq","fourteen","houdini21"];
+var VALID_DB_KEYS_ = ["all"].concat(ALL_NAMESPACES);
 
 /** dbKey が有効かチェックし、不正なら "all" を返す */
 function sanitizeDbKey_(dbKey) {
@@ -199,6 +221,39 @@ function rateMemoryEntry(apiKey, id, rating) {
   }
 }
 
+/**
+ * 評価（👍/👎）の集計（管理者のみ）。
+ * MIN_SCORE閾値・HyDE重み等のグローバルなチューニングパラメータは評価に
+ * 応じて自動調整されるわけではないため、この集計を見て人間が判断する
+ * 運用を想定している（docs/cloud-rag.md §7.5 参照）。
+ */
+function adminRatingStats(apiKey) {
+  requireAdmin_(apiKey);
+  var sheet = getMemorySheet_();
+  var stats = { total: 0, up: 0, down: 0, unrated: 0, downByDb: {} };
+  if (!sheet) return stats;
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    var rating = String(data[i][6]);
+    stats.total++;
+    if (rating === 'up') stats.up++;
+    else if (rating === 'down') stats.down++;
+    else stats.unrated++;
+
+    if (rating === 'down') {
+      try {
+        var sources = JSON.parse(String(data[i][5]) || '[]');
+        sources.forEach(function(s) {
+          var db = s.db || '(不明)';
+          stats.downByDb[db] = (stats.downByDb[db] || 0) + 1;
+        });
+      } catch(e) {}
+    }
+  }
+  return stats;
+}
+
 /** グラフデータ（ブラウザ用） */
 function getGraphDataWithKey(apiKey) {
   var config = validateApiKey_(apiKey);
@@ -268,222 +323,6 @@ function adminUpdateKey(apiKey, keyPreview, newNamespaces) {
 }
 
 // ─────────────────────────────────────────────
-// ナレッジ管理（管理タブ「📚 ナレッジ管理」用）
-// ─────────────────────────────────────────────
-//
-// FAQ手入力・Q&A CSV一括インポート・ファイルアップロード(Word/Excel/PPT/PDF/画像)の
-// 3経路でRAG_Indexに知識を追加する。IT知識がない担当者でもブラウザだけで完結するよう、
-// 変換・チャンク分割・埋め込み生成はすべてサーバー側（GAS）で行う。
-//
-// ファイルアップロードには Advanced Drive Service が必要:
-//   GASエディタ →「サービス」(+ボタン) →「Drive API」を追加
-//   （docs/cloud-rag.md §5.4 参照）
-
-var KNOWLEDGE_LOG_SHEET = 'RAG_KnowledgeLog';
-
-/** ナレッジ変更履歴シートを取得（未作成なら作成しヘッダーを書く） */
-function getKnowledgeLogSheet_() {
-  var ss    = SpreadsheetApp.openById(getProps_().getProperty('SHEETS_ID'));
-  var sheet = ss.getSheetByName(KNOWLEDGE_LOG_SHEET);
-  if (!sheet) {
-    sheet = ss.insertSheet(KNOWLEDGE_LOG_SHEET);
-    sheet.appendRow(['timestamp', 'type', 'db', 'label', 'chunkCount', 'pageIds']);
-  }
-  return sheet;
-}
-
-/**
- * ナレッジ登録の履歴を1件記録する。pageIdsを残しておくことで、
- * 将来的に「直前の登録をロールバック（該当page_idの行を削除）」を実装しやすくする。
- */
-function logKnowledgeChange_(type, dbKey, label, chunkCount, pageIds) {
-  try {
-    getKnowledgeLogSheet_().appendRow([
-      new Date().toISOString(), type, dbKey, label, chunkCount, JSON.stringify(pageIds || []),
-    ]);
-  } catch (e) {
-    Logger.log('ナレッジ履歴の記録に失敗: ' + e.message);
-  }
-}
-
-/** テキストをチャンク分割→Gemini埋め込み生成→RAG_Indexへ追記する共通処理 */
-function writeKnowledgeChunks_(pageId, dbKey, title, fullText) {
-  var props    = getProps_();
-  var sheet    = getSheet_();
-  var embedUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=' + props.getProperty('GEMINI_API_KEY');
-  var chunks   = chunkText_(fullText, 500, 100);
-  if (chunks.length === 0) return 0;
-
-  var lastEdited = new Date().toISOString();
-  var newRows = [];
-  var BATCH_SIZE = 10;
-  for (var b = 0; b < chunks.length; b += BATCH_SIZE) {
-    var batch     = chunks.slice(b, b + BATCH_SIZE);
-    var embedReqs = batch.map(function(c) {
-      return { url: embedUrl, method: 'post', contentType: 'application/json',
-        payload: JSON.stringify({ model: 'models/gemini-embedding-001', content: { parts: [{ text: c.substring(0, 2000) }] }, outputDimensionality: 768, taskType: 'RETRIEVAL_DOCUMENT' }),
-        muteHttpExceptions: true };
-    });
-    UrlFetchApp.fetchAll(embedReqs).forEach(function(res, j) {
-      if (res.getResponseCode() !== 200) return;
-      var emb = JSON.parse(res.getContentText()).embedding.values;
-      var k   = b + j;
-      newRows.push([pageId + '::' + k, dbKey, title, batch[j], lastEdited, JSON.stringify(emb)]);
-    });
-    if (b + BATCH_SIZE < chunks.length) Utilities.sleep(200);
-  }
-  if (newRows.length > 0) sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 6).setValues(newRows);
-  invalidateIndexCache_();
-  return newRows.length;
-}
-
-/** 簡易CSVパーサー（ダブルクォート内のカンマ・改行に対応。外部ライブラリ不使用） */
-function parseCsv_(text) {
-  var rows = [], row = [], field = '', inQuotes = false;
-  for (var i = 0; i < text.length; i++) {
-    var c = text.charAt(i);
-    if (inQuotes) {
-      if (c === '"') {
-        if (text.charAt(i + 1) === '"') { field += '"'; i++; }
-        else inQuotes = false;
-      } else field += c;
-    } else {
-      if (c === '"') inQuotes = true;
-      else if (c === ',') { row.push(field); field = ''; }
-      else if (c === '\n' || c === '\r') {
-        if (c === '\r' && text.charAt(i + 1) === '\n') i++;
-        row.push(field); field = '';
-        if (!(row.length === 1 && row[0] === '')) rows.push(row);
-        row = [];
-      } else field += c;
-    }
-  }
-  if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
-  return rows;
-}
-
-/**
- * アップロードされたファイル（base64）からテキストを抽出する。
- * .md/.txtはそのまま読み込み、それ以外（Word/Excel/PPT/PDF/画像）は
- * Advanced Drive Service で Google形式へ変換（画像・PDFはOCR）してから抽出する。
- */
-function extractTextFromUpload_(base64Data, fileName, mimeType) {
-  var blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType, fileName);
-
-  if (mimeType === 'text/plain' || mimeType === 'text/markdown' || /\.(md|txt)$/i.test(fileName)) {
-    return blob.getDataAsString('UTF-8');
-  }
-
-  if (typeof Drive === 'undefined') {
-    throw new Error('この形式の変換には Advanced Drive Service が必要です。GASエディタの「サービス」から Drive API を追加してください（docs/cloud-rag.md §5.4 参照）');
-  }
-
-  var converted = Drive.Files.insert(
-    { title: fileName, mimeType: mimeType },
-    blob,
-    { convert: true, ocr: true, ocrLanguage: 'ja' }
-  );
-
-  var text = '';
-  try {
-    if (converted.mimeType === 'application/vnd.google-apps.document') {
-      text = DocumentApp.openById(converted.id).getBody().getText();
-    } else if (converted.mimeType === 'application/vnd.google-apps.spreadsheet') {
-      text = SpreadsheetApp.openById(converted.id).getSheets().map(function(sh) {
-        return sh.getDataRange().getValues().map(function(row) { return row.join('\t'); }).join('\n');
-      }).join('\n\n');
-    } else if (converted.mimeType === 'application/vnd.google-apps.presentation') {
-      text = SlidesApp.openById(converted.id).getSlides().map(function(slide) {
-        return slide.getShapes().map(function(shape) {
-          try { return shape.getText().asString(); } catch (e) { return ''; }
-        }).join('\n');
-      }).join('\n\n');
-    }
-  } finally {
-    try { Drive.Files.remove(converted.id); } catch (e) { /* 変換用一時ファイルの削除失敗は無視 */ }
-  }
-  return text;
-}
-
-/** FAQ手入力（管理者のみ）。1件のQ&AをRAG_Indexに追加する */
-function adminAddFaq(apiKey, dbKey, question, answer) {
-  requireAdmin_(apiKey);
-  if (ALL_NAMESPACES.indexOf(dbKey) === -1) throw new Error('無効なnamespace: ' + dbKey);
-  question = (question || '').trim();
-  answer   = (answer   || '').trim();
-  if (!question || !answer) throw new Error('QuestionとAnswerは両方必須です');
-
-  var pageId = 'faq_' + Utilities.getUuid();
-  var count  = writeKnowledgeChunks_(pageId, dbKey, 'FAQ: ' + question, 'Q: ' + question + '\nA: ' + answer);
-  logKnowledgeChange_('faq', dbKey, question, count, [pageId]);
-  return { ok: true, chunks: count };
-}
-
-/** Q&A CSV一括インポート（管理者のみ）。ヘッダーに question/answer 列が必要 */
-function adminImportFaqCsv(apiKey, dbKey, csvText) {
-  requireAdmin_(apiKey);
-  if (ALL_NAMESPACES.indexOf(dbKey) === -1) throw new Error('無効なnamespace: ' + dbKey);
-
-  var rows = parseCsv_(csvText);
-  if (rows.length < 2) throw new Error('CSVにヘッダー行とデータ行が必要です');
-
-  var header = rows[0].map(function(h) { return h.trim().toLowerCase(); });
-  var qIdx = header.indexOf('question');
-  var aIdx = header.indexOf('answer');
-  if (qIdx === -1 || aIdx === -1) throw new Error('ヘッダーに question 列と answer 列が必要です（例: question,answer）');
-
-  var pageIds = [], total = 0, ok = 0, err = 0;
-  for (var i = 1; i < rows.length; i++) {
-    var q = (rows[i][qIdx] || '').trim();
-    var a = (rows[i][aIdx] || '').trim();
-    if (!q || !a) continue;
-    total++;
-    try {
-      var pageId = 'faq_' + Utilities.getUuid();
-      writeKnowledgeChunks_(pageId, dbKey, 'FAQ: ' + q, 'Q: ' + q + '\nA: ' + a);
-      pageIds.push(pageId);
-      ok++;
-    } catch (e) {
-      err++;
-    }
-  }
-  logKnowledgeChange_('faq_csv', dbKey, total + '件中' + ok + '件成功', ok, pageIds);
-  return { ok: true, total: total, success: ok, error: err };
-}
-
-/** ファイルアップロードによるナレッジ登録（管理者のみ）。Word/Excel/PPT/PDF/画像/Markdown対応 */
-function adminUploadKnowledgeFile(apiKey, base64Data, fileName, mimeType, dbKey) {
-  requireAdmin_(apiKey);
-  if (ALL_NAMESPACES.indexOf(dbKey) === -1) throw new Error('無効なnamespace: ' + dbKey);
-
-  var text = extractTextFromUpload_(base64Data, fileName, mimeType);
-  if (!text || !text.trim()) throw new Error('ファイルからテキストを抽出できませんでした: ' + fileName);
-
-  var pageId = 'upload_' + Utilities.getUuid();
-  var count  = writeKnowledgeChunks_(pageId, dbKey, fileName, text);
-  logKnowledgeChange_('upload', dbKey, fileName, count, [pageId]);
-  return { ok: true, chunks: count };
-}
-
-/** ナレッジ登録の更新履歴を取得（管理者のみ） */
-function adminGetKnowledgeLog(apiKey, limit) {
-  requireAdmin_(apiKey);
-  limit = limit || 30;
-  var data = getKnowledgeLogSheet_().getDataRange().getValues();
-  var out  = [];
-  for (var i = data.length - 1; i >= 1 && out.length < limit; i--) {
-    out.push({
-      timestamp:  String(data[i][0]),
-      type:       String(data[i][1]),
-      db:         String(data[i][2]),
-      label:      String(data[i][3]),
-      chunkCount: Number(data[i][4]) || 0,
-    });
-  }
-  return out;
-}
-
-// ─────────────────────────────────────────────
 // WebApp エントリポイント
 // ─────────────────────────────────────────────
 
@@ -515,6 +354,8 @@ function doPost(e) {
     var query   = body.query;
     var dbKey   = body.dbKey   || 'all';
     var history = body.history || [];
+    // mode:'raw' は Function Calling 等の低レイテンシ用途向け。最終回答生成をスキップし検索結果のみ返す。
+    var isRaw   = body.mode === 'raw';
 
     if (!query) throw new Error('query は必須です');
 
@@ -533,9 +374,11 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    var result  = ragQueryInternal_(query, dbKey, history, allowed, apiKey);
+    var result  = ragQueryInternal_(query, dbKey, history, allowed, apiKey, { skipAnswer: isRaw });
     var memId   = '';
-    try { memId = saveMemory_(apiKey, query, result.answer, result.sources); } catch(e) {}
+    if (!isRaw) {
+      try { memId = saveMemory_(apiKey, query, result.answer, result.sources); } catch(e) {}
+    }
     return ContentService.createTextOutput(JSON.stringify({
       answer:            result.answer,
       sources:           result.sources,
@@ -558,7 +401,9 @@ function doPost(e) {
 // RAG コア
 // ─────────────────────────────────────────────
 
-function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey) {
+function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey, opts) {
+  opts = opts || {};
+  var skipAnswer = !!opts.skipAnswer;
   dbKey = sanitizeDbKey_(dbKey);
   history = history || [];
   if (!allowedNamespaces || allowedNamespaces.length === 0) {
@@ -571,6 +416,21 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey) {
   // HyDE で検索精度を向上させた埋め込みを生成してから検索（dbKey でドメインを指定）
   var hydeEmb = hydeExpand_(query, dbKey);
   var results = searchByEmbedding_(query, dbKey, 5, allowedNamespaces, hydeEmb);
+
+  // raw モード: Function Calling 等、呼び出し元が自分で最終回答を組み立てる場合に使う。
+  // 検索結果のテキストだけを返し、最終回答生成のGemini呼び出し(直列で一番重い)を丸ごと省略してレイテンシを削減する。
+  if (skipAnswer) {
+    var seen_ = {}, rawSources = [];
+    results.forEach(function(r) {
+      var key = r.db + '::' + r.title;
+      if (!seen_[key]) {
+        seen_[key] = true;
+        rawSources.push({ title: r.title, db: r.db, score: r.score, text: r.text });
+      }
+    });
+    return { answer: '', sources: rawSources };
+  }
+
   var context = results.length === 0
     ? '（関連ドキュメントが見つかりませんでした）'
     : results.map(function(r, i) {
@@ -698,8 +558,13 @@ function hydeExpand_(query, dbKey) {
     var res = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: payload, muteHttpExceptions: true });
     if (res.getResponseCode() !== 200) return embedQuery_(query);
     var hypoDoc  = JSON.parse(res.getContentText()).candidates[0].content.parts[0].text;
-    var queryEmb = embedQuery_(query);
-    var hypoEmb  = embedDoc_(hypoDoc);
+    // クエリと仮説文書の埋め込みは互いに独立しているため、直列fetchではなくfetchAllで並列実行する
+    var embResps = UrlFetchApp.fetchAll([
+      embedRequest_(query, 'RETRIEVAL_QUERY'),
+      embedRequest_(hypoDoc, 'RETRIEVAL_DOCUMENT'),
+    ]);
+    var queryEmb = parseEmbedResponse_(embResps[0]);
+    var hypoEmb  = parseEmbedResponse_(embResps[1]);
     if (!queryEmb || !hypoEmb) return queryEmb;
     // 固有事実ドメインはクエリ80%+仮説20%（仮説のハルシネーション影響を抑制）、
     // 技術ドメインはクエリ40%+仮説60%（仮説文書が語彙ギャップを橋渡しする効果を活かす）
@@ -905,21 +770,29 @@ function callGemini_(contents) {
 // Embedding
 // ─────────────────────────────────────────────
 
-function embed_(text, taskType) {
+function embedRequest_(text, taskType) {
   var apiKey  = getProps_().getProperty('GEMINI_API_KEY');
-  var url     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=' + apiKey;
   var payload = {
     model:   'models/gemini-embedding-001',
     content: { parts: [{ text: text.substring(0, 2000) }] },
     outputDimensionality: 768,
   };
   if (taskType) payload.taskType = taskType;
-  var res = UrlFetchApp.fetch(url, {
+  return {
+    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=' + apiKey,
     method: 'post', contentType: 'application/json',
     payload: JSON.stringify(payload), muteHttpExceptions: true,
-  });
+  };
+}
+
+function parseEmbedResponse_(res) {
   if (res.getResponseCode() !== 200) { Logger.log('Embed error: ' + res.getContentText().substring(0, 200)); return null; }
   return JSON.parse(res.getContentText()).embedding.values;
+}
+
+function embed_(text, taskType) {
+  var req = embedRequest_(text, taskType);
+  return parseEmbedResponse_(UrlFetchApp.fetch(req.url, req));
 }
 
 function embedDoc_(text)   { return embed_(text, 'RETRIEVAL_DOCUMENT'); }
@@ -995,19 +868,7 @@ function getSheet_() {
 // Notion 同期（GASエディタから手動実行）
 // ─────────────────────────────────────────────
 
-// 後方互換のためのエイリアス。docs・過去の運用手順で "syncNotionToSheets" として
-// 案内しているため関数名はそのまま残し、実体は Notion/Drive 両対応の syncAllSources_ に委譲する。
 function syncNotionToSheets() {
-  return syncAllSources_();
-}
-
-/**
- * namespace ごとに、Notion（DB_KEY_MAP）と Google Drive（DRIVE_KEY_MAP）の
- * どちらのスクリプトプロパティが設定されているかを見て取得元を振り分け、
- * RAG_Index シートを更新する。両方とも未設定の namespace はスキップする。
- * 同じ namespace に両方設定されている場合は Notion を優先する。
- */
-function syncAllSources_() {
   var props    = getProps_();
   var sheet    = getSheet_();
   var data     = sheet.getDataRange().getValues();
@@ -1025,113 +886,85 @@ function syncAllSources_() {
     existingMap[baseId].rowIndices.push(i + 1);
   }
 
-  var notionKeys = [], driveKeys = [];
+  var reqKeys = [], listReqs = [];
   Object.keys(DB_KEY_MAP).forEach(function(key) {
-    if (props.getProperty(DB_KEY_MAP[key]))         notionKeys.push(key);
-    else if (props.getProperty(DRIVE_KEY_MAP[key]))  driveKeys.push(key);
-    else Logger.log('DB未設定: ' + key);
+    var dbId = props.getProperty(DB_KEY_MAP[key]);
+    if (!dbId) { Logger.log('DB未設定: ' + key); return; }
+    reqKeys.push(key);
+    listReqs.push({
+      url: 'https://api.notion.com/v1/databases/' + dbId + '/query',
+      method: 'post', headers: nHeaders, contentType: 'application/json',
+      payload: JSON.stringify({ page_size: 100 }), muteHttpExceptions: true,
+    });
   });
+  Logger.log('Phase1: ' + reqKeys.length + 'DB を並列取得...');
+  var listResps = UrlFetchApp.fetchAll(listReqs);
 
   var rowsToDelete = [], updateList = [], totalSkip = 0;
-
-  // ── Notion ソース（Phase1: ページ一覧を並列取得） ──────────────────────────
-  if (notionKeys.length > 0) {
-    var listReqs = notionKeys.map(function(key) {
-      var dbId = props.getProperty(DB_KEY_MAP[key]);
-      return {
-        url: 'https://api.notion.com/v1/databases/' + dbId + '/query',
-        method: 'post', headers: nHeaders, contentType: 'application/json',
-        payload: JSON.stringify({ page_size: 100 }), muteHttpExceptions: true,
-      };
+  listResps.forEach(function(res, i) {
+    var key = reqKeys[i];
+    if (res.getResponseCode() !== 200) { Logger.log('[' + key + '] エラー: ' + res.getResponseCode()); return; }
+    var pages = JSON.parse(res.getContentText()).results || [];
+    Logger.log('[' + key + '] ' + pages.length + 'ページ');
+    pages.forEach(function(page) {
+      var pd = extractPageData_(page, key);
+      if (!pd) return;
+      var ex = existingMap[pd.page_id];
+      if (ex && ex.lastEdited === pd.last_edited) { totalSkip++; return; }
+      if (ex) rowsToDelete = rowsToDelete.concat(ex.rowIndices);
+      updateList.push({ pd: pd });
     });
-    Logger.log('Phase1(Notion): ' + notionKeys.length + 'DB を並列取得...');
-    var listResps = UrlFetchApp.fetchAll(listReqs);
-    listResps.forEach(function(res, i) {
-      var key = notionKeys[i];
-      if (res.getResponseCode() !== 200) { Logger.log('[' + key + '] エラー: ' + res.getResponseCode()); return; }
-      var pages = JSON.parse(res.getContentText()).results || [];
-      Logger.log('[' + key + '] ' + pages.length + 'ページ');
-      pages.forEach(function(page) {
-        var pd = extractPageData_(page, key);
-        if (!pd) return;
-        var ex = existingMap[pd.page_id];
-        if (ex && ex.lastEdited === pd.last_edited) { totalSkip++; return; }
-        if (ex) rowsToDelete = rowsToDelete.concat(ex.rowIndices);
-        updateList.push({ pd: pd, source: 'notion' });
-      });
-    });
-  }
-
-  // ── Google Drive ソース（フォルダ内の Markdown / Google ドキュメントを走査） ──
-  if (driveKeys.length > 0) {
-    Logger.log('Drive: ' + driveKeys.length + 'DB を取得...');
-    driveKeys.forEach(function(key) {
-      var folderId = props.getProperty(DRIVE_KEY_MAP[key]);
-      var result   = fetchDriveFolderPages_(folderId, key, existingMap);
-      Logger.log('[' + key + '] (Drive) ' + result.total + 'ファイル  更新:' + result.updateList.length);
-      updateList   = updateList.concat(result.updateList);
-      rowsToDelete = rowsToDelete.concat(result.rowsToDelete);
-      totalSkip   += result.totalSkip;
-    });
-  }
+  });
 
   Logger.log('更新対象: ' + updateList.length + 'ページ  スキップ: ' + totalSkip);
   if (updateList.length === 0) { invalidateIndexCache_(); return; }
 
-  // ── Notion本文取得（Phase2: ブロックの2段階ページネーション） ───────────────
-  // Drive側は fetchDriveFolderPages_ 内で本文取得済みのため item.body に直接入っている。
-  var notionItems = updateList.filter(function(item) { return item.source === 'notion'; });
-  if (notionItems.length > 0) {
-    var bodyReqs = notionItems.map(function(item) {
-      return {
-        url: 'https://api.notion.com/v1/blocks/' + item.pd.page_id + '/children?page_size=100',
-        method: 'get', headers: nHeaders, muteHttpExceptions: true,
-      };
-    });
-    var bodyResps   = UrlFetchApp.fetchAll(bodyReqs);
-    var TEXT_TYPES  = { paragraph:1, heading_1:1, heading_2:1, heading_3:1, bulleted_list_item:1, numbered_list_item:1, quote:1, callout:1, toggle:1, code:1 };
-
-    var extractLines_ = function(blocks) {
-      return blocks.reduce(function(acc, b) {
-        if (!TEXT_TYPES[b.type]) return acc;
-        var line = ((b[b.type] || {}).rich_text || []).map(function(t) { return t.plain_text || ''; }).join('');
-        if (line.trim()) acc.push(line);
-        return acc;
-      }, []);
+  var bodyReqs = updateList.map(function(item) {
+    return {
+      url: 'https://api.notion.com/v1/blocks/' + item.pd.page_id + '/children?page_size=100',
+      method: 'get', headers: nHeaders, muteHttpExceptions: true,
     };
+  });
+  var bodyResps   = UrlFetchApp.fetchAll(bodyReqs);
+  var TEXT_TYPES  = { paragraph:1, heading_1:1, heading_2:1, heading_3:1, bulleted_list_item:1, numbered_list_item:1, quote:1, callout:1, toggle:1, code:1 };
 
-    var bodies = bodyResps.map(function(res, i) {
-      if (res.getResponseCode() !== 200) return '';
-      var d     = JSON.parse(res.getContentText());
-      var lines = extractLines_(d.results || []);
-      if (!d.has_more) return lines.join('\n').substring(0, 8000);
-      notionItems[i].p2cursor = d.next_cursor;
-      notionItems[i].p1lines  = lines;
-      return null;
-    });
-
-    var p2idx = [], p2reqs = [];
-    notionItems.forEach(function(item, i) {
-      if (!item.p2cursor) return;
-      p2idx.push(i);
-      p2reqs.push({ url: 'https://api.notion.com/v1/blocks/' + item.pd.page_id + '/children?page_size=100&start_cursor=' + item.p2cursor, method: 'get', headers: nHeaders, muteHttpExceptions: true });
-    });
-    if (p2reqs.length > 0) {
-      UrlFetchApp.fetchAll(p2reqs).forEach(function(res, j) {
-        var idx   = p2idx[j];
-        var extra = (res.getResponseCode() === 200) ? extractLines_(JSON.parse(res.getContentText()).results || []) : [];
-        bodies[idx] = notionItems[idx].p1lines.concat(extra).join('\n').substring(0, 8000);
-      });
-    }
-    notionItems.forEach(function(item, i) {
-      item.body = bodies[i] === null ? '' : bodies[i];
-    });
+  function extractLines_(blocks) {
+    return blocks.reduce(function(acc, b) {
+      if (!TEXT_TYPES[b.type]) return acc;
+      var line = ((b[b.type] || {}).rich_text || []).map(function(t) { return t.plain_text || ''; }).join('');
+      if (line.trim()) acc.push(line);
+      return acc;
+    }, []);
   }
 
-  // ── チャンク化・埋め込み生成・シート書き込み（ソース共通） ─────────────────
+  var bodies = bodyResps.map(function(res, i) {
+    if (res.getResponseCode() !== 200) return '';
+    var d     = JSON.parse(res.getContentText());
+    var lines = extractLines_(d.results || []);
+    if (!d.has_more) return lines.join('\n').substring(0, 8000);
+    updateList[i].p2cursor = d.next_cursor;
+    updateList[i].p1lines  = lines;
+    return null;
+  });
+
+  var p2idx = [], p2reqs = [];
+  updateList.forEach(function(item, i) {
+    if (!item.p2cursor) return;
+    p2idx.push(i);
+    p2reqs.push({ url: 'https://api.notion.com/v1/blocks/' + item.pd.page_id + '/children?page_size=100&start_cursor=' + item.p2cursor, method: 'get', headers: nHeaders, muteHttpExceptions: true });
+  });
+  if (p2reqs.length > 0) {
+    UrlFetchApp.fetchAll(p2reqs).forEach(function(res, j) {
+      var idx   = p2idx[j];
+      var extra = (res.getResponseCode() === 200) ? extractLines_(JSON.parse(res.getContentText()).results || []) : [];
+      bodies[idx] = updateList[idx].p1lines.concat(extra).join('\n').substring(0, 8000);
+    });
+  }
+  bodies = bodies.map(function(b) { return b === null ? '' : b; });
+
   var allChunks = [];
-  updateList.forEach(function(item) {
-    var full   = item.pd.meta_text + (item.body ? '\n\n' + item.body : '');
+  updateList.forEach(function(item, i) {
+    var full   = item.pd.meta_text + (bodies[i] ? '\n\n' + bodies[i] : '');
     var chunks = chunkText_(full, 500, 100);
     chunks.forEach(function(chunk, k) {
       allChunks.push({ text: chunk, page_id: item.pd.page_id, db: item.pd.db, title: item.pd.title, last_edited: item.pd.last_edited, k: k });
@@ -1163,6 +996,176 @@ function syncAllSources_() {
   invalidateIndexCache_();
 }
 
+// ─────────────────────────────────────────────
+// Google Drive 同期（Notionに追加するデータソース）
+//
+// DRIVE_KEY_MAP で dbKey ごとに紐付けたフォルダ（直下のファイルのみ、
+// サブフォルダは対象外）を走査し、Notion同期と同じ RAG_Index シートに
+// チャンク化・埋め込みして追記する。page_id 相当は 'drive_' + ファイルID。
+// 変更検知は Drive のファイル更新日時（getLastUpdated）を Notion の
+// last_edited 相当として使い、前回と同じなら再変換をスキップする。
+// ─────────────────────────────────────────────
+
+/** Notion 同期（GASエディタから手動実行、または時間主導トリガー） */
+function syncDriveToSheets() {
+  var props = getProps_();
+  var sheet = getSheet_();
+  var data  = sheet.getDataRange().getValues();
+
+  var existingMap = {};
+  for (var i = 1; i < data.length; i++) {
+    var baseId = String(data[i][0]).split('::')[0];
+    if (!existingMap[baseId]) existingMap[baseId] = { rowIndices: [], lastEdited: data[i][4] };
+    existingMap[baseId].rowIndices.push(i + 1);
+  }
+
+  var rowsToDelete = [], newRows = [], totalOk = 0, totalSkip = 0, totalErr = 0, foldersUsed = 0;
+
+  Object.keys(DRIVE_KEY_MAP).forEach(function(dbKey) {
+    var folderId = props.getProperty(DRIVE_KEY_MAP[dbKey]);
+    if (!folderId) return;
+    foldersUsed++;
+
+    var folder;
+    try { folder = DriveApp.getFolderById(folderId); }
+    catch(e) { Logger.log('[drive:' + dbKey + '] フォルダを開けません: ' + e.message); totalErr++; return; }
+
+    var files = folder.getFiles();
+    while (files.hasNext()) {
+      var file = files.next();
+      if (file.isTrashed()) continue;
+      var fileId      = 'drive_' + file.getId();
+      var lastEdited  = file.getLastUpdated().toISOString();
+      var existing    = existingMap[fileId];
+      if (existing && existing.lastEdited === lastEdited) { totalSkip++; continue; }
+
+      var text = '';
+      try { text = extractDriveFileText_(file); }
+      catch(e) { Logger.log('[drive] 抽出失敗 ' + file.getName() + ': ' + e.message); totalErr++; continue; }
+      if (!text || !text.trim()) { totalErr++; continue; }
+
+      if (existing) rowsToDelete = rowsToDelete.concat(existing.rowIndices);
+
+      var chunks = chunkText_('# ' + file.getName() + '\n' + text.substring(0, 40000), 500, 100);
+      chunks.forEach(function(chunk, k) {
+        var emb = embedDoc_(chunk.substring(0, 2000));
+        if (!emb) return;
+        newRows.push([fileId + '::' + k, dbKey, file.getName(), chunk, lastEdited, JSON.stringify(emb)]);
+        totalOk++;
+      });
+    }
+  });
+
+  rowsToDelete.sort(function(a, b) { return b - a; });
+  rowsToDelete.forEach(function(ri) { sheet.deleteRow(ri); });
+  if (newRows.length > 0) sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 6).setValues(newRows);
+  Logger.log('Drive同期完了  フォルダ:' + foldersUsed + '  チャンク:' + totalOk + '  スキップ:' + totalSkip + '  エラー:' + totalErr);
+  invalidateIndexCache_();
+  return { folders: foldersUsed, chunks: totalOk, skipped: totalSkip, errors: totalErr };
+}
+
+/** Driveファイル1件からテキストを抽出する。Googleネイティブ形式はそのまま、それ以外はOCR変換 */
+function extractDriveFileText_(file) {
+  var mime = file.getMimeType();
+  var native = _extractNativeGoogleText_(file.getId(), mime);
+  if (native) return native;
+  if (mime === MimeType.PLAIN_TEXT || mime === 'text/markdown' || mime === MimeType.CSV) {
+    return file.getBlob().getDataAsString('UTF-8');
+  }
+  return _convertBinaryBlobToText_(file.getBlob(), file.getName());
+}
+
+/** Drive同期を今すぐ実行する（管理者のみ、WebAppから呼び出し可能） */
+function adminSyncDrive(apiKey) {
+  requireAdmin_(apiKey);
+  return syncDriveToSheets();
+}
+
+/** DBキーごとに設定されているDriveフォルダIDの一覧を返す（管理者のみ） */
+function adminGetDriveFolders(apiKey) {
+  requireAdmin_(apiKey);
+  var props = getProps_();
+  var out = {};
+  Object.keys(DRIVE_KEY_MAP).forEach(function(dbKey) {
+    out[dbKey] = props.getProperty(DRIVE_KEY_MAP[dbKey]) || '';
+  });
+  return out;
+}
+
+/** DBキーに対応するDriveフォルダIDを設定・解除する（管理者のみ） */
+function adminSetDriveFolder(apiKey, dbKey, folderId) {
+  requireAdmin_(apiKey);
+  if (!DRIVE_KEY_MAP[dbKey]) throw new Error('無効なdbKeyです: ' + dbKey);
+  var props = getProps_();
+  folderId = (folderId || '').trim();
+  if (!folderId) {
+    props.deleteProperty(DRIVE_KEY_MAP[dbKey]);
+    return { ok: true, cleared: true };
+  }
+  // フォルダIDの妥当性を確認（アクセスできない/存在しない場合はエラー）
+  try { DriveApp.getFolderById(folderId); }
+  catch(e) { throw new Error('このフォルダIDにアクセスできません。共有設定を確認してください: ' + folderId); }
+  props.setProperty(DRIVE_KEY_MAP[dbKey], folderId);
+  return { ok: true, cleared: false };
+}
+
+// ─────────────────────────────────────────────
+// バックアップ（管理者向け）
+//
+// RAG_Index は Notion から syncNotionToSheets() で再生成できるが、
+// RAG_Memory（ユーザーの過去Q&A・評価履歴）・KB_Log（ナレッジ登録履歴）・
+// API_KEYS_CONFIG（発行済みAPIキー一覧）はこのスプレッドシート/スクリプト
+// プロパティにしか存在しない、再生成不可能なデータである。
+// GASエディタから backupCriticalData_() を手動実行するか、時間主導トリガー
+// で定期実行することを想定している。
+// ─────────────────────────────────────────────
+
+/** シートの全内容をCSV文字列に変換する */
+function sheetToCsv_(sheet) {
+  var data = sheet.getDataRange().getValues();
+  return data.map(function(row) {
+    return row.map(function(cell) {
+      var s = String(cell == null ? '' : cell).replace(/"/g, '""');
+      return '"' + s + '"';
+    }).join(',');
+  }).join('\n');
+}
+
+/**
+ * RAG_Memory・KB_Log・API_KEYS_CONFIG をGoogle Driveの専用フォルダに
+ * タイムスタンプ付きでエクスポートする（管理者のみ、GASエディタから手動実行）。
+ */
+function backupCriticalData_() {
+  var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Etc/UTC', 'yyyyMMdd_HHmmss');
+  var folder = DriveApp.createFolder('rag_backup_' + timestamp);
+  var filesCreated = [];
+
+  var memSheet = getMemorySheet_();
+  if (memSheet && memSheet.getLastRow() > 0) {
+    var memFile = folder.createFile('RAG_Memory_' + timestamp + '.csv', sheetToCsv_(memSheet), MimeType.CSV);
+    filesCreated.push(memFile.getName());
+  }
+
+  var kbSheet = getKbLogSheet_();
+  if (kbSheet && kbSheet.getLastRow() > 0) {
+    var kbFile = folder.createFile('KB_Log_' + timestamp + '.csv', sheetToCsv_(kbSheet), MimeType.CSV);
+    filesCreated.push(kbFile.getName());
+  }
+
+  var apiKeysJson = JSON.stringify(getApiKeysConfig_(), null, 2);
+  var keyFile = folder.createFile('API_KEYS_CONFIG_' + timestamp + '.json', apiKeysJson, MimeType.PLAIN_TEXT);
+  filesCreated.push(keyFile.getName());
+
+  Logger.log('バックアップ完了: ' + folder.getUrl() + '  ファイル: ' + filesCreated.join(', '));
+  return { folderUrl: folder.getUrl(), files: filesCreated };
+}
+
+/** バックアップを管理画面（WebApp）から実行するための管理者API */
+function adminBackupNow(apiKey) {
+  requireAdmin_(apiKey);
+  return backupCriticalData_();
+}
+
 function extractPageData_(page, dbKey) {
   var props   = page.properties || {};
   var title   = ((props.title   || {}).title     || []).map(function(t) { return t.plain_text || ''; }).join('');
@@ -1177,80 +1180,6 @@ function extractPageData_(page, dbKey) {
   return { page_id: page.id, db: dbKey, title: title, meta_text: parts.join('\n'), last_edited: page.last_edited_time || '' };
 }
 
-/**
- * Markdown先頭の簡易frontmatter（--- key: value ... ---）を解析する。
- * localRAG/_templates/ の各テンプレートと同じ `title` / `summary` / `tags` / `source_url`
- * キーのみサポートする軽量パーサー（フルYAML対応ではない）。
- */
-function parseFrontmatter_(text) {
-  var m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
-  if (!m) return { meta: {}, body: text };
-  var meta = {};
-  m[1].split('\n').forEach(function(line) {
-    var kv = /^([a-zA-Z_][\w-]*)\s*:\s*(.*)$/.exec(line);
-    if (kv) meta[kv[1]] = kv[2].trim();
-  });
-  return { meta: meta, body: m[2] };
-}
-
-/** Google Drive のファイル1件を Notion の extractPageData_ と同じ形の pd オブジェクトに変換する */
-function extractDrivePageData_(file, dbKey, rawText) {
-  var parsed  = parseFrontmatter_(rawText);
-  var meta    = parsed.meta;
-  var title   = meta.title || file.getName().replace(/\.(md|txt)$/i, '');
-  var tags    = meta.tags ? meta.tags.replace(/[\[\]]/g, '').split(',').map(function(t) { return t.trim(); }).filter(Boolean) : [];
-  var parts   = ['# ' + title];
-  if (meta.summary)    parts.push(meta.summary);
-  if (tags.length)     parts.push('タグ: ' + tags.join(', '));
-  if (meta.source_url) parts.push('参照: ' + meta.source_url);
-  return {
-    page_id:     'drive_' + file.getId(),
-    db:          dbKey,
-    title:       title,
-    meta_text:   parts.join('\n'),
-    body:        parsed.body,
-    last_edited: file.getLastUpdated().toISOString(),
-  };
-}
-
-/**
- * Google Drive フォルダ配下の Markdown（.md/.txt）・Google ドキュメントを走査し、
- * Notionと同じ差分同期ロジック（既存 page_id との last_edited 比較）で更新対象を抽出する。
- * PDF・画像など非対応形式のファイルは無視する。サブフォルダは辿らない（フラット走査）。
- */
-function fetchDriveFolderPages_(folderId, dbKey, existingMap) {
-  var updateList = [], rowsToDelete = [], totalSkip = 0, total = 0;
-  var folder;
-  try {
-    folder = DriveApp.getFolderById(folderId);
-  } catch (e) {
-    Logger.log('[' + dbKey + '] Driveフォルダが見つかりません（ID誤りまたは共有未設定）: ' + folderId);
-    return { updateList: updateList, rowsToDelete: rowsToDelete, totalSkip: totalSkip, total: total };
-  }
-
-  var files = folder.getFiles();
-  while (files.hasNext()) {
-    var file = files.next();
-    var mime = file.getMimeType();
-    var name = file.getName();
-    var isSupported = (mime === MimeType.GOOGLE_DOCS) || (mime === 'text/markdown') || (mime === 'text/plain') || /\.(md|txt)$/i.test(name);
-    if (!isSupported) continue;
-    total++;
-
-    var rawText = (mime === MimeType.GOOGLE_DOCS)
-      ? DocumentApp.openById(file.getId()).getBody().getText()
-      : file.getBlob().getDataAsString('UTF-8');
-
-    var pd = extractDrivePageData_(file, dbKey, rawText);
-    var ex = existingMap[pd.page_id];
-    if (ex && ex.lastEdited === pd.last_edited) { totalSkip++; continue; }
-    if (ex) rowsToDelete = rowsToDelete.concat(ex.rowIndices);
-    updateList.push({ pd: pd, source: 'drive', body: pd.body });
-  }
-
-  return { updateList: updateList, rowsToDelete: rowsToDelete, totalSkip: totalSkip, total: total };
-}
-
 function chunkText_(text, size, overlap) {
   size    = size    || 350;
   overlap = overlap || 70;
@@ -1262,6 +1191,400 @@ function chunkText_(text, size, overlap) {
     start += size - overlap;
   }
   return chunks;
+}
+
+// ─────────────────────────────────────────────
+// ナレッジ登録（管理者向け）
+//
+// 登録先は namespace の source 設定（NAMESPACE_SOURCE_MAP）に従う。
+// 既定（"notion"）は従来通り Notion のみ、"drive" は Google ドライブのみ、
+// "both" は両方に登録する（Driveにも同じ内容が溜まる）。
+// 作成したページ/ドキュメントはその場でチャンク化・埋め込みして
+// RAG_Index シートにも反映するため、次回の syncNotionToSheets /
+// syncDriveToSheets を待たずに検索可能になる。
+// 操作は KB_Log シートに記録し、ロールバック時は登録先（Notion/Drive）
+// それぞれのアーカイブ・削除 + インデックス行の削除を行う。
+// ─────────────────────────────────────────────
+
+var KB_LOG_SHEET = 'KB_Log';
+
+function notionHeaders_() {
+  return {
+    'Authorization':  'Bearer ' + getProps_().getProperty('NOTION_API_KEY'),
+    'Notion-Version': '2022-06-28',
+  };
+}
+
+function getKbLogSheet_() {
+  var ss    = SpreadsheetApp.openById(getProps_().getProperty('SHEETS_ID'));
+  var sheet = ss.getSheetByName(KB_LOG_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(KB_LOG_SHEET);
+    sheet.appendRow(['op_id', 'timestamp', 'type', 'db', 'title', 'page_ids', 'status']);
+    sheet.getRange(1, 1, 1, 7).setFontWeight('bold');
+  }
+  return sheet;
+}
+
+function kbNewOpId_() {
+  return new Date().getTime().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+/** namespaceのNotion DB IDを取得する（未設定ならnull） */
+function kbNotionDbId_(dbKey) { return getProps_().getProperty(DB_KEY_MAP[dbKey]) || null; }
+/** namespaceのDrive保存先フォルダIDを取得する（未設定ならnull） */
+function kbDriveFolderId_(dbKey) { return getProps_().getProperty(DRIVE_KEY_MAP[dbKey]) || null; }
+
+/** namespaceのsource設定に応じて、登録先が正しく設定されているか検証する（未設定ならthrow） */
+function kbCheckDb_(apiKey, dbKey) {
+  requireAdmin_(apiKey);
+  if (!DB_KEY_MAP[dbKey]) throw new Error('保存先DBを選択してください: ' + dbKey);
+  if (_usesNotion_(dbKey) && !kbNotionDbId_(dbKey)) {
+    throw new Error('このDBのNotion IDが未設定です: ' + dbKey);
+  }
+  if (_usesDrive_(dbKey) && !kbDriveFolderId_(dbKey)) {
+    throw new Error('このDBのDriveフォルダが未設定です: ' + dbKey);
+  }
+}
+
+/** Notion にページを作成して { id, lastEdited } を返す */
+function kbCreateNotionPage_(dbId, title, summary, sourceUrl, bodyText) {
+  var properties = { title: { title: [{ text: { content: title.substring(0, 200) } }] } };
+  if (summary)   properties.summary    = { rich_text: [{ text: { content: summary.substring(0, 1900) } }] };
+  if (sourceUrl) properties.source_url = { url: sourceUrl };
+
+  var children = [];
+  var body = (bodyText || '').substring(0, 40000);
+  for (var i = 0; i < body.length && children.length < 95; i += 1800) {
+    children.push({ object: 'block', type: 'paragraph',
+      paragraph: { rich_text: [{ text: { content: body.substring(i, i + 1800) } }] } });
+  }
+
+  function create_(props) {
+    return UrlFetchApp.fetch('https://api.notion.com/v1/pages', {
+      method: 'post', headers: notionHeaders_(), contentType: 'application/json',
+      payload: JSON.stringify({ parent: { database_id: dbId }, properties: props, children: children }),
+      muteHttpExceptions: true,
+    });
+  }
+  var res = create_(properties);
+  if (res.getResponseCode() === 400 && (summary || sourceUrl)) {
+    // summary / source_url プロパティがないDBでは title のみで再試行
+    res = create_({ title: properties.title });
+  }
+  if (res.getResponseCode() !== 200) {
+    throw new Error('Notionページの作成に失敗しました: ' + res.getContentText().substring(0, 300));
+  }
+  var page = JSON.parse(res.getContentText());
+  return { id: page.id, lastEdited: page.last_edited_time || new Date().toISOString() };
+}
+
+/** 作成したページをその場でチャンク化・埋め込みしてインデックスに追加する */
+function kbIndexPage_(pageId, lastEdited, dbKey, title, fullText) {
+  var sheet  = getSheet_();
+  var chunks = chunkText_('# ' + title + '\n' + fullText, 500, 100);
+  var rows   = [];
+  chunks.forEach(function(chunk, k) {
+    var emb = embedDoc_(chunk.substring(0, 2000));
+    if (!emb) return;
+    rows.push([pageId + '::' + k, dbKey, title, chunk, lastEdited, JSON.stringify(emb)]);
+  });
+  if (rows.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+  }
+  invalidateIndexCache_();
+  return rows.length;
+}
+
+/**
+ * 指定フォルダにGoogleドキュメントを新規作成する。
+ * DocumentApp.create() はマイドライブ直下に作成するため、作成後に
+ * 対象フォルダへ付け替える（GASの定石パターン）。
+ * 戻り値は syncDriveToSheets の extractDriveFileText_ でそのまま再抽出できる形式。
+ */
+function kbCreateDriveDoc_(folderId, title, bodyText) {
+  var doc = DocumentApp.create(title.substring(0, 200));
+  doc.getBody().setText(bodyText || '');
+  doc.saveAndClose();
+  var file = DriveApp.getFileById(doc.getId());
+  DriveApp.getFolderById(folderId).addFile(file);
+  try { DriveApp.getRootFolder().removeFile(file); } catch(e) {}
+  return { id: file.getId(), lastEdited: new Date().toISOString() };
+}
+
+/**
+ * namespaceのsource設定（notion/drive/both）に応じて1件をNotion/Drive
+ * （またはその両方）へ書き込み、即時インデックスする。KB_Logへの記録は
+ * 呼び出し元（kbRegister_ または一括登録のループ）が行う。
+ */
+function kbWriteAndIndex_(dbKey, title, summary, sourceUrl, bodyText) {
+  var fullText = (summary ? summary + '\n' : '') + bodyText;
+  var targets  = []; // { source: 'notion'|'drive', id, lastEdited }
+  var chunks   = 0;
+
+  if (_usesNotion_(dbKey)) {
+    var page = kbCreateNotionPage_(kbNotionDbId_(dbKey), title, summary, sourceUrl, bodyText);
+    chunks += kbIndexPage_(page.id, page.lastEdited, dbKey, title, fullText);
+    targets.push({ source: 'notion', id: page.id, lastEdited: page.lastEdited });
+  }
+  if (_usesDrive_(dbKey)) {
+    var doc = kbCreateDriveDoc_(kbDriveFolderId_(dbKey), title, fullText);
+    // syncDriveToSheets と同じ 'drive_' + fileId 形式のIDでインデックスし、
+    // ロールバック・重複判定の互換性を保つ。
+    chunks += kbIndexPage_('drive_' + doc.id, doc.lastEdited, dbKey, title, fullText);
+    targets.push({ source: 'drive', id: doc.id, lastEdited: doc.lastEdited });
+  }
+  return { targets: targets, chunks: chunks };
+}
+
+/** 登録の共通パス（単発）: source設定に応じて書き込み → KB_Log 記録 */
+function kbRegister_(dbKey, title, summary, sourceUrl, bodyText, type, opId) {
+  opId = opId || kbNewOpId_();
+  var result = kbWriteAndIndex_(dbKey, title, summary, sourceUrl, bodyText);
+  getKbLogSheet_().appendRow([opId, new Date().toISOString(), type, dbKey,
+                              title.substring(0, 100), JSON.stringify(result.targets), 'done']);
+  return { opId: opId, targets: result.targets, title: title, chunks: result.chunks };
+}
+
+/** HTMLからテキストを抽出する簡易パーサ */
+function kbStripHtml_(html) {
+  var text = String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr)[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  return text.replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
+}
+
+/** URL取り込み（社内Wiki・Webページ） */
+function adminKbImportUrl(apiKey, dbKey, url) {
+  kbCheckDb_(apiKey, dbKey);
+  if (!/^https?:\/\//.test(url || '')) throw new Error('URLは http:// または https:// で始まる必要があります');
+  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+  if (res.getResponseCode() !== 200) throw new Error('ページを取得できませんでした（HTTP ' + res.getResponseCode() + '）');
+  var html  = res.getContentText();
+  var m     = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  var title = m ? kbStripHtml_(m[1]).substring(0, 100) : url;
+  var text  = kbStripHtml_(html);
+  if (!text) throw new Error('ページからテキストを抽出できませんでした');
+  return kbRegister_(dbKey, title || url, '', url, text.substring(0, 40000), 'url');
+}
+
+/** FAQ手入力 */
+function adminKbAddFaq(apiKey, dbKey, question, answer) {
+  kbCheckDb_(apiKey, dbKey);
+  question = (question || '').trim();
+  answer   = (answer   || '').trim();
+  if (!question || !answer) throw new Error('質問と回答の両方を入力してください');
+  var body = '質問: ' + question + '\n\n回答: ' + answer;
+  return kbRegister_(dbKey, 'Q: ' + question.substring(0, 90), answer.substring(0, 200), '', body, 'faq');
+}
+
+/** Q&A CSV 一括登録（1列目=質問、2列目=回答。ヘッダー行は自動判定） */
+function adminKbImportQaCsv(apiKey, dbKey, csvText) {
+  kbCheckDb_(apiKey, dbKey);
+  var rows = Utilities.parseCsv(csvText || '');
+  if (!rows.length) throw new Error('CSVを読み取れませんでした');
+  var start  = 0;
+  var head0  = String(rows[0][0] || '').toLowerCase();
+  var head1  = String((rows[0][1] || '')).toLowerCase();
+  if (['question', '質問', 'q'].indexOf(head0) !== -1 || ['answer', '回答', 'a'].indexOf(head1) !== -1) start = 1;
+
+  var pairs = [];
+  for (var i = start; i < rows.length; i++) {
+    var q = String(rows[i][0] || '').trim();
+    var a = String(rows[i][1] || '').trim();
+    if (q && a) pairs.push([q, a]);
+  }
+  if (!pairs.length) throw new Error('有効なQ&A行が見つかりませんでした（1列目=質問、2列目=回答）');
+  if (pairs.length > 100) throw new Error('一度に登録できるのは100行までです（' + pairs.length + '行あります）。分割してください');
+
+  var opId = kbNewOpId_(), allTargets = [], chunks = 0;
+  pairs.forEach(function(p) {
+    var result = kbWriteAndIndex_(dbKey, 'Q: ' + p[0].substring(0, 90), p[1].substring(0, 200), '',
+                                  '質問: ' + p[0] + '\n\n回答: ' + p[1]);
+    chunks += result.chunks;
+    allTargets = allTargets.concat(result.targets);
+  });
+  getKbLogSheet_().appendRow([opId, new Date().toISOString(), 'qa_csv', dbKey,
+                              'Q&A CSV ' + pairs.length + '件', JSON.stringify(allTargets), 'done']);
+  return { opId: opId, pages: allTargets.length, chunks: chunks, title: 'Q&A CSV ' + pairs.length + '件' };
+}
+
+/** YouTube動画（字幕の自動取得を試み、失敗時は文字起こしの貼り付けを促す） */
+function adminKbImportYoutube(apiKey, dbKey, videoUrl, transcript) {
+  kbCheckDb_(apiKey, dbKey);
+  var m = String(videoUrl || '').match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w\-]{6,})/);
+  if (!m) throw new Error('YouTubeのURLを入力してください（例: https://www.youtube.com/watch?v=...）');
+  var videoId = m[1];
+
+  var text = (transcript || '').trim();
+  if (!text) {
+    // 公開字幕の取得を試みる（自動生成字幕は取得できないことが多い）
+    var langs = ['ja', 'en'];
+    for (var i = 0; i < langs.length && !text; i++) {
+      try {
+        var res = UrlFetchApp.fetch('https://video.google.com/timedtext?v=' + videoId + '&lang=' + langs[i],
+                                    { muteHttpExceptions: true });
+        if (res.getResponseCode() === 200) {
+          var xml = res.getContentText();
+          var parts = xml.match(/<text[^>]*>([\s\S]*?)<\/text>/g) || [];
+          text = parts.map(function(t) { return kbStripHtml_(t); }).join(' ').trim();
+        }
+      } catch(e) {}
+    }
+  }
+  if (!text) {
+    throw new Error('この動画の字幕を自動取得できませんでした。動画の文字起こしテキストを「文字起こしを貼り付け」欄に貼ってから再実行してください');
+  }
+  return kbRegister_(dbKey, 'YouTube: ' + videoId, '', videoUrl, text.substring(0, 40000), 'youtube');
+}
+
+/**
+ * ドキュメントアップロード（PDF・Word・Excel・PPT・画像）
+ * Drive API（拡張サービス）でGoogle形式に変換してテキスト抽出する。
+ * GASエディタの「サービス」から Drive API を追加しておくこと。
+ */
+/** Google形式ファイル（Doc/Sheet/Slide）からテキストを抽出する共通ヘルパー。非対応形式は空文字を返す */
+function _extractNativeGoogleText_(fileId, mimeType) {
+  if (mimeType === 'application/vnd.google-apps.document') {
+    return DocumentApp.openById(fileId).getBody().getText();
+  }
+  if (mimeType === 'application/vnd.google-apps.spreadsheet') {
+    var out = '';
+    SpreadsheetApp.openById(fileId).getSheets().forEach(function(sh) {
+      sh.getDataRange().getValues().forEach(function(row) {
+        var line = row.filter(function(c) { return String(c).trim(); }).join(' | ');
+        if (line) out += line + '\n';
+      });
+    });
+    return out;
+  }
+  if (mimeType === 'application/vnd.google-apps.presentation') {
+    var out2 = '';
+    SlidesApp.openById(fileId).getSlides().forEach(function(slide) {
+      slide.getShapes().forEach(function(shape) {
+        try { out2 += shape.getText().asString() + '\n'; } catch(e) {}
+      });
+    });
+    return out2;
+  }
+  return '';
+}
+
+/**
+ * バイナリ（PDF・Word・Excel・PowerPoint・画像等）を Drive API でOCR変換してテキスト抽出する。
+ * 変換で作られる一時ファイルは抽出後に削除する。
+ */
+function _convertBinaryBlobToText_(blob, displayName) {
+  if (typeof Drive === 'undefined') {
+    throw new Error('この形式の取り込みには Drive API が必要です。GASエディタ左の「サービス +」から Drive API を追加してください');
+  }
+  var converted = Drive.Files.insert({ title: '[RAG一時] ' + displayName }, blob, { convert: true, ocr: true });
+  try {
+    var text = _extractNativeGoogleText_(converted.id, converted.mimeType);
+    if (!text) {
+      try { text = DriveApp.getFileById(converted.id).getBlob().getDataAsString('UTF-8'); } catch(e) {}
+    }
+    return text;
+  } finally {
+    try { Drive.Files.remove(converted.id); }
+    catch(e) { try { DriveApp.getFileById(converted.id).setTrashed(true); } catch(e2) {} }
+  }
+}
+
+function adminKbUploadDoc(apiKey, dbKey, filename, base64Data, mimeType) {
+  kbCheckDb_(apiKey, dbKey);
+  var blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType || 'application/octet-stream', filename);
+  var text = _convertBinaryBlobToText_(blob, filename);
+  if (!text || !text.trim()) throw new Error('ファイルからテキストを抽出できませんでした: ' + filename);
+  var title = String(filename).replace(/\.[^.]+$/, '');
+  return kbRegister_(dbKey, title, '', '', text.substring(0, 40000), 'file');
+}
+
+/** 登録履歴 */
+function adminKbHistory(apiKey, limit) {
+  requireAdmin_(apiKey);
+  limit = limit || 50;
+  var data = getKbLogSheet_().getDataRange().getValues();
+  var out  = [];
+  for (var i = data.length - 1; i >= 1 && out.length < limit; i--) {
+    var pages = 0;
+    try { pages = JSON.parse(String(data[i][5]) || '[]').length; } catch(e) {}
+    out.push({
+      opId:      String(data[i][0]),
+      timestamp: String(data[i][1]),
+      type:      String(data[i][2]),
+      db:        String(data[i][3]),
+      title:     String(data[i][4]),
+      pages:     pages,
+      status:    String(data[i][6]),
+    });
+  }
+  return out;
+}
+
+/** ロールバック: 登録先（Notionページ・Driveファイル）を削除し、インデックス行を削除する */
+function adminKbRollback(apiKey, opId) {
+  requireAdmin_(apiKey);
+  var logSheet = getKbLogSheet_();
+  var data     = logSheet.getDataRange().getValues();
+  var rowIdx   = -1;
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (opId) { if (String(data[i][0]) === opId) { rowIdx = i; break; } }
+    else if (String(data[i][6]) === 'done') { rowIdx = i; break; }
+  }
+  if (rowIdx === -1) throw new Error('取り消せる操作が見つかりません');
+  if (String(data[rowIdx][6]) !== 'done') throw new Error('この操作は既に取り消し済みです');
+
+  var raw = [];
+  try { raw = JSON.parse(String(data[rowIdx][5]) || '[]'); } catch(e) {}
+  // 旧形式（Notionページidの文字列配列）・新形式（{source, id}オブジェクト配列）の両方に対応
+  var targets = raw.map(function(t) {
+    return (typeof t === 'string') ? { source: 'notion', id: t } : t;
+  });
+  var notionIds = [], driveIds = [];
+  targets.forEach(function(t) {
+    if (t.source === 'drive') driveIds.push(t.id); else notionIds.push(t.id);
+  });
+
+  // Notion ページをアーカイブ（ゴミ箱へ。Notion側から復元は可能）
+  notionIds.forEach(function(pid) {
+    try {
+      UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + pid, {
+        method: 'patch', headers: notionHeaders_(), contentType: 'application/json',
+        payload: JSON.stringify({ archived: true }), muteHttpExceptions: true,
+      });
+    } catch(e) {}
+  });
+
+  // Driveファイルをゴミ箱へ（Drive側から復元は可能）
+  driveIds.forEach(function(fid) {
+    try { DriveApp.getFileById(fid).setTrashed(true); } catch(e) {}
+  });
+
+  // インデックス行を削除（Notionはハイフン有無どちらの形式でも照合、Driveは 'drive_' + fileId で照合）
+  var idSet = {};
+  notionIds.forEach(function(p) { idSet[p] = true; idSet[String(p).replace(/-/g, '')] = true; });
+  driveIds.forEach(function(f) { idSet['drive_' + f] = true; });
+  var idxSheet = getSheet_();
+  var idxData  = idxSheet.getDataRange().getValues();
+  var toDelete = [];
+  for (var r = 1; r < idxData.length; r++) {
+    var base = String(idxData[r][0]).split('::')[0];
+    if (idSet[base] || idSet[base.replace(/-/g, '')]) toDelete.push(r + 1);
+  }
+  toDelete.sort(function(a, b) { return b - a; });
+  toDelete.forEach(function(ri) { idxSheet.deleteRow(ri); });
+
+  logSheet.getRange(rowIdx + 1, 7).setValue('rolled_back');
+  invalidateIndexCache_();
+  return {
+    ok: true, opId: String(data[rowIdx][0]),
+    archivedPages: notionIds.length, deletedDriveFiles: driveIds.length, deletedRows: toDelete.length,
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -1412,6 +1735,10 @@ function getChatHtml_() {
 '.extract-summary{font-size:11px;color:var(--text-light);padding:5px 11px;background:#f8fafc;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px}',
 '.extract-bar{height:4px;border-radius:2px;background:#e2e8f0;flex:1;overflow:hidden}',
 '.extract-fill{height:100%;border-radius:2px;background:#6366f1;transition:width .4s}',
+'.breakdown-wrap{padding:7px 11px;background:#f8fafc;border-bottom:1px solid var(--border)}',
+'.breakdown-label{font-size:10px;color:var(--text-light);margin-bottom:4px}',
+'.breakdown-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:#e2e8f0}',
+'.breakdown-seg{height:100%;transition:width .4s;min-width:2px}',
 '.input-area{padding:10px 14px;background:var(--white);border-top:1px solid var(--border);',
 '  display:flex;gap:8px;align-items:flex-end;flex-shrink:0}',
 'textarea{flex:1;padding:9px 13px;border:1.5px solid var(--border);border-radius:12px;',
@@ -1422,6 +1749,19 @@ function getChatHtml_() {
 '  border-radius:12px;cursor:pointer;font-size:18px;display:flex;align-items:center;',
 '  justify-content:center;transition:background .2s;flex-shrink:0}',
 '#sbtn:hover{background:var(--primary-dark)}#sbtn:disabled{background:#c7d2fe;cursor:not-allowed}',
+'#mic-btn{width:42px;height:42px;background:var(--white);color:var(--text);border:1.5px solid var(--border);',
+'  border-radius:12px;cursor:pointer;font-size:16px;display:flex;align-items:center;',
+'  justify-content:center;transition:all .2s;flex-shrink:0}',
+'#mic-btn:hover{border-color:var(--primary)}',
+'#mic-btn.recording{background:#fee2e2;border-color:#dc2626;color:#dc2626;animation:mic-pulse 1s infinite}',
+'@keyframes mic-pulse{0%,100%{opacity:1}50%{opacity:.5}}',
+'.speak-btn{background:none;border:none;color:var(--text-light);cursor:pointer;font-size:13px;',
+'  padding:2px 4px;margin-left:4px}',
+'.speak-btn:hover{color:var(--primary)}',
+'.speak-btn.speaking{color:var(--primary);animation:mic-pulse 1s infinite}',
+'.voice-toggle{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-light);',
+'  cursor:pointer;user-select:none;white-space:nowrap}',
+'.voice-toggle input{accent-color:var(--primary);cursor:pointer}',
 
 '/* グラフ */',
 '.graph-toolbar{padding:8px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #1e293b;flex-shrink:0;flex-wrap:wrap}',
@@ -1507,6 +1847,9 @@ function getChatHtml_() {
 '<header>',
 '  <div class="hicon">🔍</div>',
 '  <div class="htext"><h1>RAG チャット</h1><p>Notion × Gemini ベクトル検索</p></div>',
+'  <label class="voice-toggle" id="auto-read-wrap" style="display:none">',
+'    <input type="checkbox" id="auto-read-check"> 🔊 自動読み上げ',
+'  </label>',
 '  <span class="user-badge" id="user-name-badge">—</span>',
 '  <button class="logout-btn" onclick="doLogout()">⏻ ログアウト</button>',
 '</header>',
@@ -1527,6 +1870,7 @@ function getChatHtml_() {
 '  </div>',
 '  <div class="input-area">',
 '    <textarea id="q" placeholder="質問を入力... (Ctrl+Enter で送信)" rows="1"></textarea>',
+'    <button id="mic-btn" onclick="toggleMic()" style="display:none" title="音声入力">🎤</button>',
 '    <button id="sbtn" onclick="send()">↑</button>',
 '  </div>',
 '</div>',
@@ -1563,7 +1907,9 @@ function getChatHtml_() {
 '  <div id="admin-flash" class="admin-flash"></div>',
 '  <div class="admin-sub-bar">',
 '    <button class="admin-sub-btn active" id="asub-keys-btn" onclick="switchAdminSub(\'keys\')">🔑 APIキー管理</button>',
-'    <button class="admin-sub-btn" id="asub-knowledge-btn" onclick="switchAdminSub(\'knowledge\')">📚 ナレッジ管理</button>',
+'    <button class="admin-sub-btn" id="asub-kb-btn" onclick="switchAdminSub(\'kb\')">📚 ナレッジ登録</button>',
+'    <button class="admin-sub-btn" id="asub-drive-btn" onclick="switchAdminSub(\'drive\')">🗂 Drive連携</button>',
+'    <button class="admin-sub-btn" id="asub-ratings-btn" onclick="switchAdminSub(\'ratings\')">📊 評価</button>',
 '    <button class="admin-sub-btn" id="asub-guide-btn" onclick="switchAdminSub(\'guide\')">📖 使い方</button>',
 '  </div>',
 '  <!-- サブタブ: APIキー管理 -->',
@@ -1590,57 +1936,99 @@ function getChatHtml_() {
 '    </table>',
 '  </div>',
 '  </div>',
-'  <!-- サブタブ: ナレッジ管理 -->',
-'  <div class="admin-sub-panel" id="asub-knowledge">',
-'  <div class="admin-section">',
-'    <h3>❓ FAQ手入力</h3>',
-'    <p style="font-size:.78rem;color:#64748b;margin-bottom:10px">1件ずつ質問と回答を登録します。すぐに検索対象になります。</p>',
-'    <div style="margin-bottom:10px">',
-'      <label style="font-size:.75rem;color:#64748b;display:block;margin-bottom:4px">登録先 Namespace</label>',
-'      <select class="admin-input" id="faq-ns"></select>',
+'  <!-- サブタブ: ナレッジ登録 -->',
+'  <div class="admin-sub-panel" id="asub-kb">',
+'  <div class="admin-section" style="border-color:var(--accent)">',
+'    <h3>📁 覚えさせた知識のしまい先</h3>',
+'    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">',
+'      <select class="admin-input" id="kb-db" style="width:auto;min-width:200px"></select>',
+'      <span style="font-size:.75rem;color:#64748b">※ 下のどの方法で追加しても、ここで選んだDB（Notion）に保存されます</span>',
 '    </div>',
-'    <div style="margin-bottom:10px">',
-'      <label style="font-size:.75rem;color:#64748b;display:block;margin-bottom:4px">Question</label>',
-'      <input class="admin-input" id="faq-question" type="text" placeholder="例: 定休日はいつですか？">',
-'    </div>',
-'    <div style="margin-bottom:14px">',
-'      <label style="font-size:.75rem;color:#64748b;display:block;margin-bottom:4px">Answer</label>',
-'      <textarea class="admin-input" id="faq-answer" rows="3" placeholder="例: 毎週水曜日です"></textarea>',
-'    </div>',
-'    <button class="btn-admin btn-primary" onclick="submitFaq()">登録する</button>',
 '  </div>',
-'  <div class="admin-section">',
-'    <h3>📋 Q&amp;A CSV一括インポート</h3>',
-'    <p style="font-size:.78rem;color:#64748b;margin-bottom:10px">1行目にヘッダー（<code>question,answer</code>）が必要です。1ファイルで複数のFAQをまとめて登録できます。</p>',
-'    <div style="margin-bottom:10px">',
-'      <label style="font-size:.75rem;color:#64748b;display:block;margin-bottom:4px">登録先 Namespace</label>',
-'      <select class="admin-input" id="csv-ns"></select>',
-'    </div>',
-'    <div style="margin-bottom:14px">',
-'      <input type="file" id="csv-file" accept=".csv,text/csv">',
-'    </div>',
-'    <button class="btn-admin btn-primary" onclick="submitCsv()">インポート実行</button>',
-'    <div id="csv-status" style="font-size:.78rem;color:#94a3b8;margin-top:8px"></div>',
+'  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">',
+'  <div class="admin-section" style="margin-bottom:0">',
+'    <h3>🌐 Webページを覚えさせる</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:10px">社内WikiやWebページのURLを貼り付けるだけで、内容を読み取って覚えます。</p>',
+'    <input class="admin-input" id="kb-url" type="text" placeholder="https://... を貼り付け" style="margin-bottom:10px">',
+'    <button class="btn-admin btn-primary" onclick="kbImportUrl()">このページを覚える</button>',
+'    <div id="kb-url-status" style="font-size:.76rem;margin-top:8px;min-height:16px"></div>',
 '  </div>',
-'  <div class="admin-section">',
-'    <h3>📎 ファイルアップロード</h3>',
-'    <p style="font-size:.78rem;color:#64748b;margin-bottom:10px">Word・Excel・PowerPoint・PDF・画像・Markdownに対応。アップロードすると自動でテキストを抽出し、検索対象に追加します（画像・PDFはOCRで文字起こしします）。</p>',
-'    <div style="margin-bottom:10px">',
-'      <label style="font-size:.75rem;color:#64748b;display:block;margin-bottom:4px">登録先 Namespace</label>',
-'      <select class="admin-input" id="upload-ns"></select>',
-'    </div>',
-'    <div style="margin-bottom:14px">',
-'      <input type="file" id="upload-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.md,.txt,image/*">',
-'    </div>',
-'    <button class="btn-admin btn-primary" onclick="submitUpload()">アップロード実行</button>',
-'    <div id="upload-status" style="font-size:.78rem;color:#94a3b8;margin-top:8px"></div>',
+'  <div class="admin-section" style="margin-bottom:0">',
+'    <h3>📄 資料ファイルを覚えさせる</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:10px">PDF・Word・Excel・PowerPoint・画像（文字入り）を選ぶと、内容を読み取って覚えます。</p>',
+'    <input type="file" id="kb-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.png,.jpg,.jpeg" style="color:#94a3b8;font-size:.8rem;margin-bottom:10px;max-width:100%">',
+'    <button class="btn-admin btn-primary" onclick="kbUploadDoc()">このファイルを覚える</button>',
+'    <div id="kb-file-status" style="font-size:.76rem;margin-top:8px;min-height:16px"></div>',
 '  </div>',
-'  <div class="admin-section">',
-'    <h3>🕒 更新履歴</h3>',
+'  <div class="admin-section" style="margin-bottom:0">',
+'    <h3>❓ FAQを書いて覚えさせる</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:10px">「この質問が来たらこう答えてほしい」を1件ずつ登録できます。</p>',
+'    <input class="admin-input" id="kb-faq-q" type="text" placeholder="質問（例: 営業時間は？）" style="margin-bottom:8px">',
+'    <textarea class="admin-input" id="kb-faq-a" rows="3" placeholder="回答（例: 平日10時〜19時です）" style="margin-bottom:10px;resize:vertical;font-family:inherit"></textarea>',
+'    <button class="btn-admin btn-primary" onclick="kbAddFaq()">このFAQを覚える</button>',
+'    <div id="kb-faq-status" style="font-size:.76rem;margin-top:8px;min-height:16px"></div>',
+'  </div>',
+'  <div class="admin-section" style="margin-bottom:0">',
+'    <h3>📋 Q&A表（CSV）をまとめて覚えさせる</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:10px">1列目=質問、2列目=回答のCSV（Excelから「CSVで保存」）で、最大100件を一度に登録できます。</p>',
+'    <input type="file" id="kb-csv" accept=".csv,.txt" style="color:#94a3b8;font-size:.8rem;margin-bottom:10px;max-width:100%">',
+'    <button class="btn-admin btn-primary" onclick="kbImportCsv()">このCSVを覚える</button>',
+'    <div id="kb-csv-status" style="font-size:.76rem;margin-top:8px;min-height:16px"></div>',
+'  </div>',
+'  <div class="admin-section" style="margin-bottom:0">',
+'    <h3>▶️ YouTube動画を覚えさせる</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:10px">動画URLを貼り付けると字幕の取得を試みます。取得できない場合は、動画の「文字起こしを表示」からコピーして下の欄に貼ってください。</p>',
+'    <input class="admin-input" id="kb-yt-url" type="text" placeholder="https://www.youtube.com/watch?v=..." style="margin-bottom:8px">',
+'    <textarea class="admin-input" id="kb-yt-transcript" rows="3" placeholder="（任意）文字起こしを貼り付け" style="margin-bottom:10px;resize:vertical;font-family:inherit"></textarea>',
+'    <button class="btn-admin btn-primary" onclick="kbImportYoutube()">この動画を覚える</button>',
+'    <div id="kb-yt-status" style="font-size:.76rem;margin-top:8px;min-height:16px"></div>',
+'  </div>',
+'  </div>',
+'  <div class="admin-section" style="margin-top:16px">',
+'    <h3>📜 覚えさせた履歴</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:10px">間違えて覚えさせたときは「なかったことにする」で、その学習だけを取り消せます（Notionページはゴミ箱に移動します）。</p>',
 '    <table class="admin-table">',
-'      <thead><tr><th>日時</th><th>種別</th><th>Namespace</th><th>内容</th><th>チャンク数</th></tr></thead>',
-'      <tbody id="knowledge-log-tbody"><tr><td colspan="5" style="color:#64748b;padding:12px">「ナレッジ管理」タブを開くと読み込まれます</td></tr></tbody>',
+'      <thead><tr><th>いつ</th><th>方法</th><th>内容</th><th>DB</th><th>状態</th><th></th></tr></thead>',
+'      <tbody id="kb-hist-tbody"><tr><td colspan="6" style="color:#64748b;padding:12px">「ナレッジ登録」タブを開くと読み込まれます</td></tr></tbody>',
 '    </table>',
+'  </div>',
+'  </div>',
+'  <!-- サブタブ: Drive連携 -->',
+'  <div class="admin-sub-panel" id="asub-drive">',
+'  <div class="admin-section">',
+'    <h3>🗂 Google Drive をデータソースに追加</h3>',
+'    <p style="font-size:.78rem;color:#94a3b8;margin-bottom:6px">DBごとにGoogle Driveのフォルダを1つ紐付けると、そのフォルダ直下のファイル（PDF・Word・Excel・PowerPoint・Googleドキュメント等）もNotionと同じように検索対象になります。サブフォルダは対象外です。</p>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:14px">※ フォルダはこのGASを実行しているGoogleアカウントと共有しておく必要があります。PDF・Word等の変換にはGASエディタで Drive API サービスの追加が必要です。</p>',
+'    <table class="admin-table">',
+'      <thead><tr><th>DB</th><th>DriveフォルダID</th><th></th></tr></thead>',
+'      <tbody id="drive-folder-tbody"><tr><td colspan="3" style="color:#64748b;padding:12px">「Drive連携」タブを開くと読み込まれます</td></tr></tbody>',
+'    </table>',
+'  </div>',
+'  <div class="admin-section">',
+'    <h3>🔄 今すぐ同期</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:12px">登録したフォルダを読み直し、変更があったファイルだけをチャンク化・埋め込みして反映します。ファイル数が多いと数分かかることがあります。</p>',
+'    <button class="btn-admin btn-primary" onclick="driveSyncNow()">今すぐ同期する</button>',
+'    <div id="drive-sync-status" style="font-size:.78rem;margin-top:10px;color:#94a3b8"></div>',
+'  </div>',
+'  <div class="admin-section">',
+'    <h3>💾 重要データのバックアップ</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:12px">会話履歴（RAG_Memory）・ナレッジ登録履歴（KB_Log）・発行済みAPIキー一覧は、このスプレッドシート/スクリプトプロパティにしか存在せず、Notionから再生成できません。実行すると、このGASを実行しているGoogleアカウントのDriveに「rag_backup_日時」フォルダを作成してCSV/JSONで保存します。</p>',
+'    <button class="btn-admin btn-primary" onclick="backupNow()">今すぐバックアップする</button>',
+'    <div id="backup-status" style="font-size:.78rem;margin-top:10px;color:#94a3b8"></div>',
+'  </div>',
+'  </div>',
+'  <!-- サブタブ: 評価 -->',
+'  <div class="admin-sub-panel" id="asub-ratings">',
+'  <div class="admin-section">',
+'    <h3>📊 評価（👍/👎）の集計</h3>',
+'    <p style="font-size:.78rem;color:#94a3b8;margin-bottom:14px">この集計はMIN_SCORE閾値・HyDE重み等のグローバルなチューニングパラメータには自動反映されません。👎が多いDBがあれば、そのDBのHyDEドメインヒント（<code>hydePromptFor_</code>）や検索閾値（<code>MIN_SCORE</code>）を見直す判断材料にしてください。詳細は「使い方」タブ、またはdocs/cloud-rag.md §7.5を参照。</p>',
+'    <div id="ratings-summary" style="display:flex;gap:24px;margin-bottom:16px;font-size:.85rem;color:#e2e8f0">読み込み中...</div>',
+'    <h3 style="font-size:.85rem;margin-bottom:8px">👎 が多いDB（要チューニング候補）</h3>',
+'    <table class="admin-table">',
+'      <thead><tr><th>DB</th><th style="text-align:right">👎件数</th></tr></thead>',
+'      <tbody id="ratings-bydb-tbody"><tr><td colspan="2" style="color:#64748b">「評価」タブを開くと読み込まれます</td></tr></tbody>',
+'    </table>',
+'    <button class="btn-admin" style="background:var(--dark3);color:#e2e8f0;margin-top:12px" onclick="loadRatingStats()">更新</button>',
 '  </div>',
 '  </div>',
 '  <!-- サブタブ: 使い方 -->',
@@ -1719,6 +2107,60 @@ function getChatHtml_() {
 'var chatHistory = [];',
 'if(typeof marked !== "undefined") marked.setOptions({breaks:true, gfm:true});',
 
+'// ── 音声（バーバルコミュニケーション対応） ──',
+'var _SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;',
+'var _sttSupported = !!_SpeechRecognition;',
+'var _ttsSupported = "speechSynthesis" in window;',
+'var _recognizer = null;',
+'var _recording  = false;',
+'var _speakingBtn = null;',
+
+'function toggleMic() {',
+'  if (!_sttSupported) return;',
+'  if (_recording) { _recognizer && _recognizer.stop(); return; }',
+'  _recognizer = new _SpeechRecognition();',
+'  _recognizer.lang = "ja-JP";',
+'  _recognizer.interimResults = false;',
+'  _recognizer.maxAlternatives = 1;',
+'  var btn = document.getElementById("mic-btn");',
+'  _recognizer.onstart = function() { _recording = true; btn.classList.add("recording"); };',
+'  _recognizer.onresult = function(e) {',
+'    var said = e.results[0][0].transcript;',
+'    ta.value = (ta.value ? ta.value + " " : "") + said;',
+'    ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px";',
+'  };',
+'  _recognizer.onerror = function(e) {',
+'    if (e.error !== "aborted" && e.error !== "no-speech") console.log("音声入力エラー: " + e.error);',
+'  };',
+'  _recognizer.onend = function() { _recording = false; btn.classList.remove("recording"); };',
+'  _recognizer.start();',
+'}',
+
+'function speak(text) {',
+'  if (!_ttsSupported) return null;',
+'  window.speechSynthesis.cancel();',
+'  var plain = String(text || "").replace(/[#*`_>-]/g, " ").replace(/\\s+/g, " ").trim();',
+'  if (!plain) return null;',
+'  var utter = new SpeechSynthesisUtterance(plain);',
+'  utter.lang = "ja-JP"; utter.rate = 1.0;',
+'  window.speechSynthesis.speak(utter);',
+'  return utter;',
+'}',
+
+'function toggleSpeak(btn, text) {',
+'  if (!_ttsSupported) return;',
+'  if (_speakingBtn === btn && window.speechSynthesis.speaking) {',
+'    window.speechSynthesis.cancel();',
+'    btn.classList.remove("speaking"); _speakingBtn = null;',
+'    return;',
+'  }',
+'  if (_speakingBtn) _speakingBtn.classList.remove("speaking");',
+'  var utter = speak(text);',
+'  if (!utter) return;',
+'  _speakingBtn = btn; btn.classList.add("speaking");',
+'  utter.onend = function() { btn.classList.remove("speaking"); if (_speakingBtn === btn) _speakingBtn = null; };',
+'}',
+
 '// ── ログイン ──',
 '(function init() {',
 '  var saved = localStorage.getItem("rag_api_key");',
@@ -1767,6 +2209,8 @@ function getChatHtml_() {
 '  var adminBtn = document.getElementById("admin-tab-btn");',
 '  if (adminBtn) adminBtn.style.display = _user.isAdmin ? "" : "none";',
 '  if (_user.isAdmin) { buildNsCheckboxes(); loadAdminKeys(); }',
+'  if (_sttSupported) document.getElementById("mic-btn").style.display = "";',
+'  if (_ttsSupported) document.getElementById("auto-read-wrap").style.display = "flex";',
 '}',
 
 'function doLogout() {',
@@ -1781,6 +2225,8 @@ function getChatHtml_() {
 '  document.getElementById("login-btn").disabled = false;',
 '  var adminBtn = document.getElementById("admin-tab-btn");',
 '  if (adminBtn) adminBtn.style.display = "none";',
+'  if (_ttsSupported) window.speechSynthesis.cancel();',
+'  if (_recording && _recognizer) _recognizer.stop();',
 '  switchTab("chat");',
 '}',
 
@@ -1855,6 +2301,12 @@ function getChatHtml_() {
 '    bubble.innerHTML = \'<div class="dots"><span></span><span></span><span></span></div>\';',
 '  } else if (role === "bot") {',
 '    bubble.innerHTML = md(content);',
+'    if (_ttsSupported) {',
+'      var sbtn = document.createElement("button");',
+'      sbtn.className = "speak-btn"; sbtn.title = "読み上げ"; sbtn.textContent = "🔊";',
+'      sbtn.onclick = function() { toggleSpeak(sbtn, content); };',
+'      bubble.appendChild(sbtn);',
+'    }',
 '  } else {',
 '    bubble.textContent = content;',
 '  }',
@@ -1863,6 +2315,28 @@ function getChatHtml_() {
 '  msg.appendChild(av); msg.appendChild(wrap);',
 '  chatEl.appendChild(msg); chatEl.scrollTop = chatEl.scrollHeight;',
 '  return { bubble: bubble, wrap: wrap };',
+'}',
+
+'// 引用元ごとの相対的な貢献度（スコア比）を積み上げバーで可視化する',
+'var BREAKDOWN_PALETTE_ = ["#6366f1","#8b5cf6","#ec4899","#f59e0b","#10b981","#06b6d4","#f43f5e","#84cc16"];',
+'function buildBreakdown_(sources) {',
+'  var cited = sources.filter(function(s) { return s.cited; });',
+'  if (cited.length < 2) return null;',
+'  var total = cited.reduce(function(sum, s) { return sum + Math.max(s.score, 0.01); }, 0);',
+'  var wrap  = document.createElement("div"); wrap.className = "breakdown-wrap";',
+'  var label = document.createElement("div"); label.className = "breakdown-label";',
+'  label.textContent = "📊 引用元の内訳（貢献度の比率）";',
+'  var bar = document.createElement("div"); bar.className = "breakdown-bar";',
+'  cited.forEach(function(s, i) {',
+'    var pct = Math.round(Math.max(s.score, 0.01) / total * 100);',
+'    var seg = document.createElement("div"); seg.className = "breakdown-seg";',
+'    seg.style.width = pct + "%";',
+'    seg.style.background = BREAKDOWN_PALETTE_[i % BREAKDOWN_PALETTE_.length];',
+'    seg.title = s.title + "（" + s.db + "）: " + pct + "%";',
+'    bar.appendChild(seg);',
+'  });',
+'  wrap.appendChild(label); wrap.appendChild(bar);',
+'  return wrap;',
 '}',
 
 'function buildSources_(sources, extractionRate) {',
@@ -1879,6 +2353,9 @@ function getChatHtml_() {
 '    bar.innerHTML = \'<span>情報抽出度</span><div class="extract-bar"><div class="extract-fill" style="width:\' + extractionRate + \'%"></div></div><span style="font-weight:600;color:\' + (extractionRate >= 75 ? "#16a34a" : extractionRate >= 50 ? "#d97706" : "#94a3b8") + \'">\' + extractionRate + \'%</span>\';',
 '    list.appendChild(bar);',
 '  }',
+'  // 引用元の内訳（どこからどのくらい引き出したかを可視化）',
+'  var breakdown = buildBreakdown_(sources);',
+'  if (breakdown) list.appendChild(breakdown);',
 '  sources.forEach(function(s, i) {',
 '    var pct  = (s.score * 100).toFixed(1);',
 '    var cls  = s.score >= 0.75 ? "high" : s.score >= 0.5 ? "mid" : "low";',
@@ -1914,10 +2391,18 @@ function getChatHtml_() {
 '  google.script.run',
 '    .withSuccessHandler(function(result) {',
 '      isSending = false; document.getElementById("sbtn").disabled = false;',
-'      bot.bubble.innerHTML = md(result.answer || "");',
+'      var answerText = result.answer || "";',
+'      bot.bubble.innerHTML = md(answerText);',
+'      if (_ttsSupported) {',
+'        var sbtn = document.createElement("button");',
+'        sbtn.className = "speak-btn"; sbtn.title = "読み上げ"; sbtn.textContent = "🔊";',
+'        sbtn.onclick = function() { toggleSpeak(sbtn, answerText); };',
+'        bot.bubble.appendChild(sbtn);',
+'        if (document.getElementById("auto-read-check").checked) speak(answerText);',
+'      }',
 '      if (result.sources && result.sources.length) bot.wrap.appendChild(buildSources_(result.sources, result.extractionRate));',
 '      chatHistory.push({role:"user", text:q});',
-'      chatHistory.push({role:"bot",  text:result.answer||""});',
+'      chatHistory.push({role:"bot",  text:answerText});',
 '      if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);',
 '      document.getElementById("chat").scrollTop = 99999;',
 '    })',
@@ -2099,16 +2584,42 @@ function getChatHtml_() {
 
 '// ── 管理サブタブ ──',
 'function switchAdminSub(tab) {',
-'  ["keys","knowledge","guide"].forEach(function(t) {',
+'  ["keys","kb","drive","ratings","guide"].forEach(function(t) {',
 '    var panel = document.getElementById("asub-"+t);',
 '    var btn   = document.getElementById("asub-"+t+"-btn");',
 '    if (panel) panel.classList.toggle("active", t === tab);',
 '    if (btn)   btn.classList.toggle("active",   t === tab);',
 '  });',
-'  if (tab === "knowledge") {',
-'    populateNsSelects();',
-'    loadKnowledgeLog();',
-'  }',
+'  if (tab === "kb") kbInitCloud();',
+'  if (tab === "drive") driveInit();',
+'  if (tab === "ratings") loadRatingStats();',
+'}',
+
+'function loadRatingStats() {',
+'  var summary = document.getElementById("ratings-summary");',
+'  var tbody   = document.getElementById("ratings-bydb-tbody");',
+'  google.script.run',
+'    .withSuccessHandler(function(s) {',
+'      var rated = s.up + s.down;',
+'      var upPct = rated ? Math.round(s.up / rated * 100) : 0;',
+'      summary.innerHTML =',
+'        "<div>合計: <strong>" + s.total + "</strong>件</div>" +',
+'        "<div style=\\"color:#4ade80\\">👍 " + s.up + "件</div>" +',
+'        "<div style=\\"color:#f87171\\">👎 " + s.down + "件</div>" +',
+'        "<div style=\\"color:#64748b\\">未評価 " + s.unrated + "件</div>" +',
+'        "<div>評価済みの👍率: <strong>" + upPct + "%</strong></div>";',
+'      var entries = Object.keys(s.downByDb).map(function(db) { return [db, s.downByDb[db]]; });',
+'      entries.sort(function(a, b) { return b[1] - a[1]; });',
+'      if (!entries.length) {',
+'        tbody.innerHTML = \'<tr><td colspan="2" style="color:#64748b">👎はまだありません</td></tr>\';',
+'        return;',
+'      }',
+'      tbody.innerHTML = entries.map(function(e) {',
+'        return "<tr><td>" + (DB_LABELS[e[0]] || e[0]) + "</td><td style=\\"text-align:right\\">" + e[1] + "</td></tr>";',
+'      }).join("");',
+'    })',
+'    .withFailureHandler(function(e) { summary.textContent = "読み込み失敗: " + e.message; })',
+'    .adminRatingStats(_apiKey);',
 '}',
 
 '// ── 管理画面 ──',
@@ -2203,111 +2714,206 @@ function getChatHtml_() {
 '  navigator.clipboard.writeText(key).then(function() { adminFlash("コピーしました"); });',
 '}',
 
-'// ── ナレッジ管理 ──',
-'function populateNsSelects() {',
-'  ["faq-ns","csv-ns","upload-ns"].forEach(function(id) {',
-'    var sel = document.getElementById(id);',
-'    if (!sel || sel.options.length > 0) return;',
-'    ALL_NAMESPACES.forEach(function(ns) {',
-'      var opt = document.createElement("option");',
-'      opt.value = ns; opt.textContent = DB_LABELS[ns] || ns;',
-'      sel.appendChild(opt);',
-'    });',
-'  });',
+'function closeKeyModal() { document.getElementById("key-modal").classList.remove("show"); }',
+
+'// ── ナレッジ登録 ──',
+'var KB_TYPE_LABELS = { url: "🌐 Webページ", youtube: "▶️ YouTube", file: "📄 ファイル", faq: "❓ FAQ", qa_csv: "📋 Q&A CSV" };',
+'var _kbCloudInited = false;',
+
+'function kbInitCloud() {',
+'  if (!_kbCloudInited) {',
+'    _kbCloudInited = true;',
+'    var sel = document.getElementById("kb-db");',
+'    var nsList = (_user && _user.namespaces && _user.namespaces.length) ? _user.namespaces : ALL_NAMESPACES;',
+'    sel.innerHTML = nsList.map(function(ns) {',
+'      return \'<option value="\' + ns + \'">\' + (DB_LABELS[ns] || ns) + \'</option>\';',
+'    }).join("");',
+'  }',
+'  kbLoadHistory();',
 '}',
 
-'function submitFaq() {',
-'  var ns = document.getElementById("faq-ns").value;',
-'  var q  = document.getElementById("faq-question").value.trim();',
-'  var a  = document.getElementById("faq-answer").value.trim();',
-'  if (!q || !a) { adminFlash("QuestionとAnswerを入力してください", true); return; }',
+'function kbDb() { return document.getElementById("kb-db").value; }',
+
+'function kbStatus(id, msg, color) {',
+'  var el = document.getElementById(id);',
+'  if (el) { el.textContent = msg; el.style.color = color || "#94a3b8"; }',
+'}',
+
+'function kbImportUrl() {',
+'  var url = document.getElementById("kb-url").value.trim();',
+'  if (!url) { kbStatus("kb-url-status", "URLを貼り付けてください", "#f87171"); return; }',
+'  kbStatus("kb-url-status", "読み取り中です。少しお待ちください…", "#f59e0b");',
 '  google.script.run',
-'    .withSuccessHandler(function(res) {',
-'      adminFlash("FAQを登録しました（" + res.chunks + "チャンク）");',
-'      document.getElementById("faq-question").value = "";',
-'      document.getElementById("faq-answer").value = "";',
-'      loadKnowledgeLog();',
+'    .withSuccessHandler(function(r) {',
+'      kbStatus("kb-url-status", "✅ 覚えました: " + r.title + "（" + r.chunks + "チャンク）", "#4ade80");',
+'      document.getElementById("kb-url").value = "";',
+'      kbLoadHistory();',
 '    })',
-'    .withFailureHandler(function(e) { adminFlash(e.message, true); })',
-'    .adminAddFaq(_apiKey, ns, q, a);',
+'    .withFailureHandler(function(e) { kbStatus("kb-url-status", "❌ " + e.message, "#f87171"); })',
+'    .adminKbImportUrl(_apiKey, kbDb(), url);',
 '}',
 
-'function readFileAsBase64_(file, cb) {',
-'  var reader = new FileReader();',
-'  reader.onload = function() { cb(reader.result.split(",")[1]); };',
-'  reader.readAsDataURL(file);',
-'}',
-'function readFileAsText_(file, cb) {',
-'  var reader = new FileReader();',
-'  reader.onload = function() { cb(reader.result); };',
-'  reader.readAsText(file, "UTF-8");',
-'}',
-
-'function submitCsv() {',
-'  var ns   = document.getElementById("csv-ns").value;',
-'  var file = document.getElementById("csv-file").files[0];',
-'  var status = document.getElementById("csv-status");',
-'  if (!file) { adminFlash("CSVファイルを選択してください", true); return; }',
-'  status.textContent = "インポート中...";',
-'  readFileAsText_(file, function(text) {',
-'    google.script.run',
-'      .withSuccessHandler(function(res) {',
-'        status.textContent = "";',
-'        adminFlash(res.total + "件中 " + res.success + "件を登録しました" + (res.error > 0 ? "（失敗: " + res.error + "件）" : ""));',
-'        document.getElementById("csv-file").value = "";',
-'        loadKnowledgeLog();',
-'      })',
-'      .withFailureHandler(function(e) { status.textContent = ""; adminFlash(e.message, true); })',
-'      .adminImportFaqCsv(_apiKey, ns, text);',
-'  });',
-'}',
-
-'function submitUpload() {',
-'  var ns   = document.getElementById("upload-ns").value;',
-'  var file = document.getElementById("upload-file").files[0];',
-'  var status = document.getElementById("upload-status");',
-'  if (!file) { adminFlash("ファイルを選択してください", true); return; }',
-'  status.textContent = "アップロード・解析中...（ファイルによっては数十秒かかります）";',
-'  readFileAsBase64_(file, function(base64) {',
-'    google.script.run',
-'      .withSuccessHandler(function(res) {',
-'        status.textContent = "";',
-'        adminFlash(file.name + " を登録しました（" + res.chunks + "チャンク）");',
-'        document.getElementById("upload-file").value = "";',
-'        loadKnowledgeLog();',
-'      })',
-'      .withFailureHandler(function(e) { status.textContent = ""; adminFlash(e.message, true); })',
-'      .adminUploadKnowledgeFile(_apiKey, base64, file.name, file.type || "application/octet-stream", ns);',
-'  });',
-'}',
-
-'function loadKnowledgeLog() {',
+'function kbAddFaq() {',
+'  var q = document.getElementById("kb-faq-q").value.trim();',
+'  var a = document.getElementById("kb-faq-a").value.trim();',
+'  if (!q || !a) { kbStatus("kb-faq-status", "質問と回答の両方を入力してください", "#f87171"); return; }',
+'  kbStatus("kb-faq-status", "登録中…", "#f59e0b");',
 '  google.script.run',
-'    .withSuccessHandler(function(rows) {',
-'      var tbody = document.getElementById("knowledge-log-tbody");',
+'    .withSuccessHandler(function(r) {',
+'      kbStatus("kb-faq-status", "✅ 覚えました", "#4ade80");',
+'      document.getElementById("kb-faq-q").value = "";',
+'      document.getElementById("kb-faq-a").value = "";',
+'      kbLoadHistory();',
+'    })',
+'    .withFailureHandler(function(e) { kbStatus("kb-faq-status", "❌ " + e.message, "#f87171"); })',
+'    .adminKbAddFaq(_apiKey, kbDb(), q, a);',
+'}',
+
+'function kbImportCsv() {',
+'  var input = document.getElementById("kb-csv");',
+'  if (!input.files.length) { kbStatus("kb-csv-status", "CSVファイルを選んでください", "#f87171"); return; }',
+'  kbStatus("kb-csv-status", "登録中です。件数が多いと数分かかります…", "#f59e0b");',
+'  var reader = new FileReader();',
+'  reader.onload = function() {',
+'    google.script.run',
+'      .withSuccessHandler(function(r) {',
+'        kbStatus("kb-csv-status", "✅ " + r.title + " を覚えました", "#4ade80");',
+'        input.value = "";',
+'        kbLoadHistory();',
+'      })',
+'      .withFailureHandler(function(e) { kbStatus("kb-csv-status", "❌ " + e.message, "#f87171"); })',
+'      .adminKbImportQaCsv(_apiKey, kbDb(), String(reader.result));',
+'  };',
+'  reader.readAsText(input.files[0]);',
+'}',
+
+'function kbImportYoutube() {',
+'  var url = document.getElementById("kb-yt-url").value.trim();',
+'  var transcript = document.getElementById("kb-yt-transcript").value.trim();',
+'  if (!url) { kbStatus("kb-yt-status", "動画のURLを貼り付けてください", "#f87171"); return; }',
+'  kbStatus("kb-yt-status", "字幕を読み取り中…", "#f59e0b");',
+'  google.script.run',
+'    .withSuccessHandler(function(r) {',
+'      kbStatus("kb-yt-status", "✅ 覚えました（" + r.chunks + "チャンク）", "#4ade80");',
+'      document.getElementById("kb-yt-url").value = "";',
+'      document.getElementById("kb-yt-transcript").value = "";',
+'      kbLoadHistory();',
+'    })',
+'    .withFailureHandler(function(e) { kbStatus("kb-yt-status", "❌ " + e.message, "#f87171"); })',
+'    .adminKbImportYoutube(_apiKey, kbDb(), url, transcript);',
+'}',
+
+'function kbUploadDoc() {',
+'  var input = document.getElementById("kb-file");',
+'  if (!input.files.length) { kbStatus("kb-file-status", "ファイルを選んでください", "#f87171"); return; }',
+'  var f = input.files[0];',
+'  if (f.size > 20 * 1024 * 1024) { kbStatus("kb-file-status", "ファイルが大きすぎます（上限 20MB）", "#f87171"); return; }',
+'  kbStatus("kb-file-status", "読み取り中です。少しお待ちください…", "#f59e0b");',
+'  var reader = new FileReader();',
+'  reader.onload = function() {',
+'    var b64 = String(reader.result).split(",")[1] || "";',
+'    google.script.run',
+'      .withSuccessHandler(function(r) {',
+'        kbStatus("kb-file-status", "✅ 覚えました: " + r.title + "（" + r.chunks + "チャンク）", "#4ade80");',
+'        input.value = "";',
+'        kbLoadHistory();',
+'      })',
+'      .withFailureHandler(function(e) { kbStatus("kb-file-status", "❌ " + e.message, "#f87171"); })',
+'      .adminKbUploadDoc(_apiKey, kbDb(), f.name, b64, f.type);',
+'  };',
+'  reader.readAsDataURL(f);',
+'}',
+
+'function kbLoadHistory() {',
+'  google.script.run',
+'    .withSuccessHandler(function(hist) {',
+'      var tbody = document.getElementById("kb-hist-tbody");',
 '      if (!tbody) return;',
-'      if (!rows || rows.length === 0) {',
-'        tbody.innerHTML = \'<tr><td colspan="5" style="color:#64748b;padding:12px">まだ履歴がありません</td></tr>\';',
+'      if (!hist || !hist.length) {',
+'        tbody.innerHTML = \'<tr><td colspan="6" style="color:#64748b;padding:12px">まだ何も覚えさせていません</td></tr>\';',
 '        return;',
 '      }',
-'      tbody.innerHTML = "";',
-'      rows.forEach(function(r) {',
-'        var tr = document.createElement("tr");',
-'        var ts = r.timestamp ? new Date(r.timestamp).toLocaleString("ja-JP") : "";',
-'        tr.innerHTML =',
-'          "<td style=\\"font-size:.75rem;color:#94a3b8\\">" + ts + "</td>" +',
-'          "<td>" + r.type + "</td>" +',
-'          "<td>" + (DB_LABELS[r.db] || r.db) + "</td>" +',
-'          "<td style=\\"max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\\">" + r.label + "</td>" +',
-'          "<td>" + r.chunkCount + "</td>";',
-'        tbody.appendChild(tr);',
-'      });',
+'      tbody.innerHTML = hist.map(function(op) {',
+'        var done  = op.status === "done";',
+'        var badge = done ? \'<span style="font-size:.7rem;background:#14532d;color:#4ade80;padding:2px 8px;border-radius:99px;white-space:nowrap">覚えています</span>\'',
+'                         : \'<span style="font-size:.7rem;background:#3f3f46;color:#94a3b8;padding:2px 8px;border-radius:99px;white-space:nowrap">取り消し済み</span>\';',
+'        var btn   = done ? \'<button class="btn-admin btn-danger btn-sm" onclick="kbRollback(\\\'\' + op.opId + \'\\\')">なかったことにする</button>\' : "";',
+'        return "<tr>" +',
+'          \'<td style="color:#64748b;white-space:nowrap;font-size:.74rem">\' + (op.timestamp || "").slice(0, 19).replace("T", " ") + "</td>" +',
+'          \'<td style="white-space:nowrap">\' + (KB_TYPE_LABELS[op.type] || op.type) + "</td>" +',
+'          \'<td><div style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="\' + (op.title || "") + \'">\' + (op.title || "") + "</div></td>" +',
+'          \'<td style="font-size:.74rem">\' + (DB_LABELS[op.db] || op.db) + "</td>" +',
+'          "<td>" + badge + "</td>" +',
+'          "<td>" + btn + "</td></tr>";',
+'      }).join("");',
 '    })',
 '    .withFailureHandler(function(e) { adminFlash("履歴取得失敗: " + e.message, true); })',
-'    .adminGetKnowledgeLog(_apiKey, 30);',
+'    .adminKbHistory(_apiKey, 50);',
 '}',
 
-'function closeKeyModal() { document.getElementById("key-modal").classList.remove("show"); }',
+'function kbRollback(opId) {',
+'  if (!confirm("この学習を取り消しますか？\\n（覚えた内容が検索に出なくなり、Notionページはゴミ箱に移動します）")) return;',
+'  google.script.run',
+'    .withSuccessHandler(function(r) {',
+'      adminFlash("取り消しました（ページ " + r.archivedPages + " 件・インデックス " + r.deletedRows + " 行）");',
+'      kbLoadHistory();',
+'    })',
+'    .withFailureHandler(function(e) { adminFlash(e.message, true); })',
+'    .adminKbRollback(_apiKey, opId);',
+'}',
+
+'// ── Drive連携 ──',
+'var _driveInited = false;',
+'function driveInit() {',
+'  loadDriveFolders();',
+'}',
+
+'function loadDriveFolders() {',
+'  var tbody = document.getElementById("drive-folder-tbody");',
+'  google.script.run',
+'    .withSuccessHandler(function(folders) {',
+'      tbody.innerHTML = ALL_NAMESPACES.map(function(ns) {',
+'        return "<tr>" +',
+'          "<td>" + (DB_LABELS[ns] || ns) + "</td>" +',
+'          \'<td><input class="admin-input" id="drive-folder-\' + ns + \'" type="text" placeholder="フォルダIDを貼り付け（空欄で解除）" value="\' + (folders[ns] || "") + \'"></td>\' +',
+'          \'<td><button class="btn-admin btn-primary btn-sm" onclick="saveDriveFolder(\\\'\' + ns + \'\\\')">保存</button></td>\' +',
+'        "</tr>";',
+'      }).join("");',
+'    })',
+'    .withFailureHandler(function(e) { tbody.innerHTML = \'<tr><td colspan="3" style="color:#f87171">読み込み失敗: \' + e.message + "</td></tr>"; })',
+'    .adminGetDriveFolders(_apiKey);',
+'}',
+
+'function saveDriveFolder(ns) {',
+'  var input = document.getElementById("drive-folder-" + ns);',
+'  var val = input.value.trim();',
+'  google.script.run',
+'    .withSuccessHandler(function(r) { adminFlash(r.cleared ? "解除しました" : "保存しました: " + (DB_LABELS[ns] || ns)); })',
+'    .withFailureHandler(function(e) { adminFlash(e.message, true); })',
+'    .adminSetDriveFolder(_apiKey, ns, val);',
+'}',
+
+'function driveSyncNow() {',
+'  var status = document.getElementById("drive-sync-status");',
+'  status.textContent = "同期中です。ファイル数によっては数分かかります…";',
+'  google.script.run',
+'    .withSuccessHandler(function(r) {',
+'      status.textContent = "✅ 完了: フォルダ" + r.folders + "件 / チャンク" + r.chunks + "件更新 / スキップ" + r.skipped + "件" + (r.errors ? " / エラー" + r.errors + "件" : "");',
+'    })',
+'    .withFailureHandler(function(e) { status.textContent = "❌ " + e.message; })',
+'    .adminSyncDrive(_apiKey);',
+'}',
+
+'function backupNow() {',
+'  var status = document.getElementById("backup-status");',
+'  status.textContent = "バックアップ中です…";',
+'  google.script.run',
+'    .withSuccessHandler(function(r) {',
+'      status.innerHTML = "✅ 完了: <a href=\\"" + r.folderUrl + "\\" target=\\"_blank\\" style=\\"color:var(--accent)\\">Driveフォルダを開く</a>（" + r.files.length + "ファイル）";',
+'    })',
+'    .withFailureHandler(function(e) { status.textContent = "❌ " + e.message; })',
+'    .adminBackupNow(_apiKey);',
+'}',
 
 'function adminFlash(msg, isErr) {',
 '  var el = document.getElementById("admin-flash");',
