@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>houdini21チュートリアル自動生成 — Cloud RAG対応・実機検証レポート</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1117;
+    --panel: #171a23;
+    --border: #2a2e3a;
+    --text: #e6e8ee;
+    --muted: #9aa1b4;
+    --accent: #7aa2ff;
+    --good: #6fd08c;
+    --bad: #ef7a7a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --border: #e1e4ec;
+      --text: #1b1e27;
+      --muted: #5b6270;
+      --accent: #3358d6;
+      --good: #1f8a4c;
+      --bad: #c23a3a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    line-height: 1.75;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+  header.hero {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  header.hero h1 { font-size: 1.6rem; margin: 0 0 .5rem; }
+  header.hero .meta { color: var(--muted); font-size: .9rem; }
+  .badge {
+    display: inline-block;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: .15rem .7rem;
+    font-size: .78rem;
+    color: var(--accent);
+    margin-right: .4rem;
+  }
+  nav.toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.3rem;
+    margin-bottom: 2.5rem;
+  }
+  nav.toc summary { cursor: pointer; font-weight: 600; }
+  nav.toc ol { margin: .8rem 0 0; padding-left: 1.3rem; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  section { margin-bottom: 3rem; }
+  h2 {
+    font-size: 1.25rem;
+    border-left: 4px solid var(--accent);
+    padding-left: .6rem;
+    margin-top: 0;
+  }
+  h3 { font-size: 1.05rem; color: var(--text); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: .92rem;
+    overflow-x: auto;
+    display: block;
+  }
+  table thead { display: table; width: 100%; table-layout: fixed; }
+  table tbody { display: table; width: 100%; table-layout: fixed; }
+  th, td {
+    border: 1px solid var(--border);
+    padding: .5rem .7rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--panel); color: var(--accent); }
+  code {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: .1rem .35rem;
+    font-size: .88em;
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: .85rem;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  .diff-add { color: var(--good); }
+  .diff-del { color: var(--bad); }
+  .mermaid { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; overflow-x: auto; }
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--panel);
+    padding: .8rem 1rem;
+    border-radius: 0 8px 8px 0;
+    margin: 1rem 0;
+    font-size: .92rem;
+  }
+  .callout.ok { border-color: var(--good); }
+  footer { color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); padding-top: 1.2rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="badge">技術資料</span><span class="badge">実機検証レポート</span>
+  <h1>houdini21チュートリアル自動生成 — Cloud RAG対応・実機検証レポート</h1>
+  <div class="meta">作成日: 2026-07-23　｜　対象機能: houdini21動的チュートリアル生成（docs/content-generation.md §2）</div>
+</header>
+
+<nav class="toc">
+  <details open>
+  <summary>目次</summary>
+  <ol>
+    <li><a href="#s1">概要</a></li>
+    <li><a href="#s2">実装内容</a></li>
+    <li><a href="#s3">検証1回目：反復上限による打ち切り</a></li>
+    <li><a href="#s4">原因分析と修正</a></li>
+    <li><a href="#s5">検証2回目：生成成功</a></li>
+    <li><a href="#s6">Houdini実機での確認手順と結果</a></li>
+    <li><a href="#s7">わかったこと・今後の改善事項</a></li>
+  </ol>
+  </details>
+</nav>
+
+<section id="s1">
+  <h2>1. 概要</h2>
+  <p>houdini21チュートリアル自動生成機能に <strong>Cloud RAG（GAS WebApp経由）モード</strong> を追加し、Houdini実機上で最初のエンドツーエンド検証を実施した。1回目の生成は反復上限に達して未完成のまま打ち切られたが、原因を特定してパラメータを調整した結果、2回目は完全なノードグラフ（地形生成 → 岩の散布 → 岩のコピー配置）を生成できた。生成結果はHoudini操作に不慣れなユーザー（初心者ロール）の視点で実際にネットワークエディタを操作し、視覚的に意図した通りの絵（地形上に散布された岩）が得られることを確認した。</p>
+  <div class="mermaid">
+flowchart LR
+    A[要件] --> B[Cloud RAG検索モード実装]
+    B --> C[検証1回目]
+    C -->|反復上限到達・未完成| D[原因分析]
+    D --> E[MODEL / MAX_ITERATIONS 調整]
+    E --> F[検証2回目]
+    F -->|完了| G[Houdini実機で目視確認]
+    G -->|Mergeノード追加で地形+岩を確認| H[検証完了]
+  </div>
+</section>
+
+<section id="s2">
+  <h2>2. 実装内容</h2>
+
+  <h3>2.1 Cloud RAG検索モードの追加（tutorial_agent.py）</h3>
+  <p>これまでhoudini21チュートリアル生成のRAG検索は <code>rag_local_bridge.py</code> の <code>/search</code> エンドポイント（Local RAG）のみに対応していた。CloudRAG側に蓄積されたドキュメントが多いという運用実態に合わせ、<code>gas_cloud_rag.js</code> を検索元として使えるようにした。</p>
+
+  <div class="mermaid">
+sequenceDiagram
+    participant UI as rag_chatbot.py（Tutorialタブ）
+    participant Agent as TutorialAgent
+    participant GAS as gas_cloud_rag.js（mode:'raw'）
+    participant Claude as Claude API（Tool Use）
+    participant Houdini as houdini_tools.py（サンドボックス）
+
+    UI->>Agent: generate(topic, rag_mode="cloud")
+    Agent->>GAS: POST { query, dbKey:"houdini21", mode:"raw" }
+    GAS-->>Agent: sources[]（db, title, score, text）
+    Agent->>Agent: db=="houdini21" 以外を除外
+    Agent->>Claude: RAGコンテキスト + tools定義
+    loop 反復（最大MAX_ITERATIONS回）
+        Claude->>Houdini: tool_use（create_node/set_parameter/...）
+        Houdini-->>Claude: 実行結果（cookエラー検知含む）
+    end
+    Claude->>Agent: finish_tutorial
+    Agent-->>UI: Markdownチュートリアル + NodeGraphAsset JSON
+  </div>
+
+  <ul>
+    <li><code>rag_mode</code> を <code>"local"</code> / <code>"cloud"</code> で切り替え（既存のSettingsタブの <code>mode</code>/<code>gas_url</code>/<code>gas_api_key</code> を再利用、UI追加なし）</li>
+    <li><code>mode:'raw'</code> はGAS側の最終回答生成（Gemini呼び出し）をスキップし、検索結果のみを返す軽量パス</li>
+    <li>GAS側はAPIキーにhoudini21権限がないと <code>dbKey</code> を <code>"all"</code> にフォールバックしてしまうため、応答の <code>sources</code> を <code>db=="houdini21"</code> のものだけに絞り込む処理をクライアント側にも実装し、ホワイトリスト方針を二重に強制している</li>
+  </ul>
+
+  <h3>2.2 付随バグ修正：cook成功メッセージの誤検知</h3>
+  <p>「ハマりポイント」自動抽出のフィルタが <code>"エラー" in str(entry["result"])</code> という部分文字列判定だったため、cook成功時のメッセージ <code>"cook 成功: ...（エラー・警告なし）"</code> にも <code>"エラー"</code> という文字列が含まれることを検知し、成功ログが誤って「ハマりポイント」として混入していた。判定を <code>"[エラー]" in str(entry["result"])</code>（cook失敗行にのみ付与される接頭辞）に変更して修正した。</p>
+</section>
+
+<section id="s3">
+  <h2>3. 検証1回目：反復上限による打ち切り</h2>
+  <p><strong>リクエスト:</strong> 「岩を地形に散布するプロシージャルセットアップ」　<strong>設定:</strong> <code>MODEL = "claude-sonnet-4-6"</code> / <code>MAX_ITERATIONS = 25</code></p>
+
+  <table>
+    <thead><tr><th>項目</th><th>結果</th></tr></thead>
+    <tbody>
+      <tr><td>RAG検索</td><td>Cloud RAGで houdini21 ドキュメント5件を取得</td></tr>
+      <tr><td>生成結果</td><td>反復上限（25回）に到達し打ち切り</td></tr>
+      <tr><td>消費</td><td>37イテレーション相当のツール呼び出し／$0.327</td></tr>
+      <tr><td>完成度</td><td>地形・岩の形状・散布ポイント・スケールランダム化までは完了。<strong>Copy to Pointsが未実行のまま終了</strong></td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">原因は明確で、序盤の <code>list_available_node_types</code> によるノードタイプ検索に反復予算の3割以上を使い、本題（岩のコピー配置）にたどり着く前に上限を消費した。</div>
+</section>
+
+<section id="s4">
+  <h2>4. 原因分析と修正</h2>
+  <p>2つの独立した改善レバーを適用した（tutorial_agent.py:41-42）。</p>
+  <pre><code><span class="diff-del">- MODEL = "claude-sonnet-4-6"   # 設計判断（§4.1）。変更はコストが変わるため要ユーザー確認
+- MAX_ITERATIONS = 25           # 反復上限（§2.6）</span>
+<span class="diff-add">+ MODEL = "claude-sonnet-5"     # 設計判断（§4.1）。変更はコストが変わるため要ユーザー確認
++ MAX_ITERATIONS = 40           # 反復上限（§2.6）</span></code></pre>
+
+  <table>
+    <thead><tr><th>変更</th><th>狙い</th></tr></thead>
+    <tbody>
+      <tr><td><code>MAX_ITERATIONS</code>: 25 → 40</td><td>単純に反復回数の余裕を増やす</td></tr>
+      <tr><td><code>MODEL</code>: Sonnet 4.6 → Sonnet 5</td><td>agentic・コーディング性能の向上により、同じタスクをより少ない反復で終える期待。加えて導入価格（$2/$10 per MTok、2026-08-31まで）がSonnet 4.6（$3/$15）より安く、性能向上とコスト減を両立</td></tr>
+    </tbody>
+  </table>
+  <p><code>COST_LIMIT_USD = 0.50</code>（自動打ち切り上限）は今回変更していない。反復上限を増やした分、理論上はコスト上限が先に効く可能性があるため、今後の運用で頻発する場合は合わせて見直す。</p>
+</section>
+
+<section id="s5">
+  <h2>5. 検証2回目：生成成功</h2>
+  <p>同じリクエストで再実行した結果、反復上限に達することなく <code>finish_tutorial</code> まで到達した。</p>
+
+  <table>
+    <thead><tr><th>項目</th><th>検証1回目</th><th>検証2回目</th></tr></thead>
+    <tbody>
+      <tr><td>MODEL</td><td>claude-sonnet-4-6</td><td>claude-sonnet-5</td></tr>
+      <tr><td>MAX_ITERATIONS</td><td>25</td><td>40</td></tr>
+      <tr><td>結果</td><td>反復上限で打ち切り</td><td><strong>完了</strong></td></tr>
+      <tr><td>消費イテレーション</td><td>37</td><td>47</td></tr>
+      <tr><td>コスト</td><td>$0.327</td><td>$0.445</td></tr>
+      <tr><td>最終ステップ（Copy to Points）</td><td>未実行</td><td>実行済み</td></tr>
+    </tbody>
+  </table>
+
+  <p>生成されたノードグラフ（サンドボックス: <code>/obj/ai_tutorial_20260722_232252/geo1</code>）:</p>
+
+  <div class="mermaid">
+flowchart TB
+    grid["terrain_grid<br/>Grid<br/>20x20, 50x50分割"]
+    mountain["terrain_mountain<br/>Mountain::2.0<br/>height=3, elementsize=5"]
+    scatter["scatter_points<br/>Scatter::2.0<br/>npts=200"]
+    randomize["randomize_scale<br/>Attribute Randomize<br/>pscale 0.7〜1.5"]
+    sphere["rock_base<br/>Sphere<br/>polymesh, rad=0.3"]
+    rockmtn["rock_mountain<br/>Mountain::2.0<br/>height=0.08, elementsize=0.8"]
+    copy["scatter_rocks<br/>Copy to Points::2.0"]
+
+    grid --> mountain --> scatter --> randomize
+    sphere --> rockmtn
+    rockmtn -->|"input 0: テンプレート"| copy
+    randomize -->|"input 1: 配置先ポイント"| copy
+  </div>
+
+  <p>チュートリアル本文はRAG検索で取得したhoudini21ドキュメント5件のうち関連する項目を「参考」として自動引用し、「ハマりポイント」節には以下が自動生成された（要約）:</p>
+  <ul>
+    <li>Sphereのデフォルトタイプは変形できない形式なので <code>polymesh</code> に変更が必要</li>
+    <li>Mountainの<code>height</code>はオブジェクトのスケールに依存する（地形とミニチュアの岩で値が2桁違う）</li>
+    <li>Copy to Pointsの入力順序（0=テンプレート、1=配置先ポイント）を逆にすると意図しない結果になる</li>
+    <li><code>pscale</code>属性の命名・class指定を忘れるとスケールランダム化が反映されない</li>
+  </ul>
+</section>
+
+<section id="s6">
+  <h2>6. Houdini実機での確認手順と結果</h2>
+  <p>Houdini操作に不慣れなユーザーの視点で、生成結果を実際に確認する手順を実施した。この過程で判明した「初心者にとって非自明な操作」を記録する。</p>
+
+  <div class="mermaid">
+flowchart LR
+    A["Network Editorを開く"] --> B["サンドボックスパスに移動"]
+    B --> C["geo1にダブルクリックで潜る"]
+    C --> D["scatter_rocksのDisplay flagをON"]
+    D --> E{"見える絵は?"}
+    E -->|"散布された岩のみ<br/>地形は非表示"| F["Mergeノードで terrain_mountain + scatter_rocksを結合"]
+    F --> G["起伏のある地形+岩を確認"]
+  </div>
+
+  <table>
+    <thead><tr><th>ステップ</th><th>判明したこと</th></tr></thead>
+    <tbody>
+      <tr><td>サンドボックス直下を開く</td><td>サンドボックスはSubnetworkで、Sub-Network Input×4個 + geo1のみが見える。実体はgeo1のさらに1階層下</td></tr>
+      <tr><td>ノードのフラグ操作</td><td>ノードにマウスを乗せると扇形の「フラグメニュー」が出現し、青い目アイコンがDisplay flag。初見でわかりにくい</td></tr>
+      <tr><td>Copy to Pointsの出力の性質</td><td>Copy to Pointsは複製されたインスタンスのみを出力し、元の地形サーフェス自体は出力に含まれない。3Dビューの「地面」はHoudiniの基準グリッドであり、生成された地形メッシュではない</td></tr>
+      <tr><td>Tabメニューでのノード検索</td><td>ノード名の打ち間違い（marge→merge）で見つからず。Tabメニューは文字列完全一致寄りの絞り込みのため、スペルミスに弱い</td></tr>
+      <tr><td>Mergeノード追加後</td><td>terrain_mountain（地形）+ scatter_rocks（岩）をMergeし、その表示フラグをONにすることで、起伏のある地形上に岩が散布された最終的な絵を確認</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout ok"><strong>結論:</strong> 生成されたノードグラフ・パラメータは意図通りに動作しており、機能としては成功。ただし「地形と散布結果を同時に見せる」には現状ユーザー側での追加操作（Mergeノード）が必要で、チュートリアルとしての完成度に改善余地がある。</div>
+</section>
+
+<section id="s7">
+  <h2>7. わかったこと・今後の改善事項</h2>
+
+  <h3>7.1 今回確認できたこと</h3>
+  <ul>
+    <li>Cloud RAGモードでのhoudini21ドキュメント検索 → エージェントループ → ノードグラフ生成の一連の流れが実機で動作する</li>
+    <li>MODEL/MAX_ITERATIONSの調整で、同一タスクが「打ち切り」から「完了」に改善した</li>
+    <li>生成されたノードグラフ・パラメータは技術的に正しく、意図した結果（起伏地形への岩の散布）が得られる</li>
+    <li>生成されたチュートリアル本文の「ハマりポイント」節は、実際に手を動かした際に意味のある注意点を言語化できている</li>
+  </ul>
+
+  <h3>7.2 今後の改善事項</h3>
+  <table>
+    <thead><tr><th>#</th><th>項目</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>反復予算の使われ方</td><td>list_available_node_typesの検索だけで反復予算の3割超を消費した。よく使うSopノードタイプをあらかじめキャッシュ／プロンプトに含めるなど、検索コストを減らす余地がある</td></tr>
+      <tr><td>2</td><td>視覚的完成度（Merge省略問題）</td><td>Copy to Points/Scatterパターンでは最終出力に元サーフェスが含まれず「何も表示されていないように見える」誤解を生みやすい。地形系タスクでは自動でMergeノードを追加する、もしくはチュートリアル本文に明記するルールを追加すべき</td></tr>
+      <tr><td>3</td><td>COST_LIMIT_USDの見直し</td><td>MAX_ITERATIONSを25→40に増やしたがCOST_LIMIT_USD=0.50は未変更。反復回数を使い切る前にコスト上限で打ち切られるケースが今後出てくる可能性があり、要観察</td></tr>
+      <tr><td>4</td><td>打ち切り時の挙動</td><td>反復・コスト上限到達時は単純に打ち切って未完成のまま出力する。残り予算が少ない時点で残タスクを簡略化する優先順位付けを検討する余地がある</td></tr>
+      <tr><td>5</td><td>初心者向けのUI操作説明不足</td><td>チュートリアルはノード・パラメータ指示のみで、Houdini自体の基本操作（潜る・Display flag等）は説明されない。学習効果検証テストの要件に反映すべき</td></tr>
+      <tr><td>6</td><td>rag_local_bridge.pyの--no-authバグ</td><td>別件で発見済みだが未修正: --no-authモードでself.authがNoneのままlist_users()を呼び出しAttributeErrorになる</td></tr>
+      <tr><td>7</td><td>Houdiniパネルの反映漏れ</td><td>default.pypanelは保存時にコードを埋め込む方式のため、.pyファイル編集だけではパネルに反映されない。既知の運用上の注意点として継続フォロー</td></tr>
+      <tr><td>8</td><td>進捗の可視化</td><td>反復中にリアルタイムでコスト消費率を表示できれば、あとどれくらいで打ち切られそうかを把握しやすくなる</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  関連ドキュメント: <a href="content-generation.md">docs/content-generation.md</a> §2 ／ <a href="houdini21-learning-effect-study.md">docs/houdini21-learning-effect-study.md</a>
+</footer>
+
+</div>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default') });
+</script>
+</body>
+</html>
