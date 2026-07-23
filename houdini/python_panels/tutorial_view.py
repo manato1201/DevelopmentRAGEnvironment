@@ -40,6 +40,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import token_usage
+
 # ─── 生成ワーカー ────────────────────────────────────────────────────────────────
 
 class TutorialWorker(QThread):
@@ -86,6 +88,11 @@ class TutorialGeneratePanel(QWidget):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setSpacing(4)
+
+        # 累積トークン消費量ゲージ
+        self._usage_widget = token_usage.TokenUsageWidget()
+        layout.addWidget(self._usage_widget)
+        self._refresh_usage()
 
         # トピック入力行
         input_row = QHBoxLayout()
@@ -140,6 +147,12 @@ class TutorialGeneratePanel(QWidget):
         self._topic_edit.setText(topic)
         self._on_generate()
 
+    def _refresh_usage(self) -> None:
+        cfg = self._cfg_getter()
+        bridge_dir = cfg.get("local_bridge_dir", "")
+        budget = int(cfg.get("token_budget", token_usage.DEFAULT_TOKEN_BUDGET))
+        self._usage_widget.refresh(bridge_dir, budget)
+
     # ── 生成 ────────────────────────────────────────────────────────────────────
 
     def _on_generate(self) -> None:
@@ -187,6 +200,12 @@ class TutorialGeneratePanel(QWidget):
 
     def _on_done(self, result) -> None:
         self._result = result
+        token_usage.record_usage(
+            self._cfg_getter().get("local_bridge_dir", ""),
+            self._topic_edit.text().strip(),
+            result,
+        )
+        self._refresh_usage()
         self._preview.setMarkdown(result.markdown)
         self._generate_btn.setEnabled(True)
         for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn):
