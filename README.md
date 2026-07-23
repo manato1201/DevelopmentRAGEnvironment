@@ -77,7 +77,7 @@ uv run python scripts\rag_local_bridge.py
 
 ### Houdiniでチュートリアルを自動生成したい
 
-1. `houdini_tools.py` / `tutorial_agent.py` / `tutorial_view.py` も `rag_chatbot.py` と同じ Python Panels フォルダにコピー
+1. `houdini_tools.py` / `tutorial_agent.py` / `tutorial_view.py` / `token_usage.py` も `rag_chatbot.py` と同じ Python Panels フォルダにコピー
 2. `ANTHROPIC_API_KEY` を環境変数に設定（Houdini 起動前）してから `rag_local_bridge.py` を起動・再起動
 3. Houdini パネルの **Tutorial** タブでトピックを入力、または Chat タブで `/tutorial <トピック>` と入力
 4. RAG検索（houdini21 名前空間のみ・Local/Cloud両対応）→ エージェントループ（最大40回・$0.50 上限）でノードグラフを組み立て → Markdown プレビュー →「保存」を押すと `localRAG/tutorials/` に `.md`＋`.json` を保存
@@ -123,7 +123,8 @@ DevelopmentRAGEnvironment/
 │       ├── graph_view.py              # QGraphicsView によるグラフビュー
 │       ├── houdini_tools.py            # ★ houラッパー8ツール（サンドボックス強制・監査ログ・NodeGraphAssetエクスポート）
 │       ├── tutorial_agent.py           # ★ チュートリアル生成オーケストレーター（RAG検索→エージェントループ）
-│       └── tutorial_view.py            # ★ Tutorial/Historyタブ UI（Markdownプレビュー・保存確認）
+│       ├── tutorial_view.py            # ★ Tutorial/Historyタブ UI（Markdownプレビュー・保存確認）
+│       └── token_usage.py              # ★ トークン消費量トラッキング＆ドーナツゲージ可視化
 │
 ├── scripts/                            # ユーティリティスクリプト
 │   ├── rag_local_bridge.py             # ★ ローカル HTTP ブリッジ（Unity/Houdini → RAGService 直接呼び出し、/search でLLMなし生検索）
