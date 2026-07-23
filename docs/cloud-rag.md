@@ -488,8 +488,10 @@ Unity・Houdini UI では引用バッジ（✓ 3/5 ソース）と進捗バー�
 
 | サブタブ | 内容 |
 |---------|------|
-| 🔑 APIキー管理 | 新規キー発行フォーム・発行済みキー一覧・失効操作・**名前空間権限の編集** |
+| 🔑 APIキー管理 | 新規キー発行フォーム・発行済みキー一覧・失効操作・**名前空間権限の編集・トークン上限/チャージ**（§8.7参照） |
 | 📚 ナレッジ管理 | FAQ手入力・Q&A CSV一括インポート・ファイルアップロード（Word/Excel/PPT/PDF/画像）・更新履歴（§5.4参照） |
+| 🗄 DB管理 | namespace（DB）の追加・編集、Notion DB IDの紐付け・自動作成、Driveフォルダ紐付け、同期実行、バックアップ（§5.5参照） |
+| 💰 使用量 | APIキー単位のトークン使用量集計・ログ保持期限クリーンアップ（§8.6参照） |
 | 📖 使い方 | HTTP POST リクエスト形式・レスポンス形式・エラーコード一覧 |
 
 ### 5.2 既存APIキーの名前空間権限を編集する（adminUpdateKey）
@@ -529,6 +531,25 @@ Unity・Houdini UI では引用バッジ（✓ 3/5 ソース）と進捗バー�
 
 > Markdown（`.md`）・テキスト（`.txt`）ファイルのアップロードはこの設定なしでも動作する。Word/Excel/PPT/PDF/画像の変換にのみ必要。
 > 設定を忘れた場合、アップロード実行時に「Advanced Drive Service が必要です」というエラーメッセージが表示される。
+
+### 5.5 DB管理タブ（namespace CRUD）
+
+従来、新規namespace（DB）の追加やNotion DB IDの紐付けは、GASエディタの「スクリプトプロパティ」画面で`NAMESPACE_CONFIG`のJSONを直接編集する必要があった。「🗄 DB管理」タブから、管理画面上でnamespaceの追加・編集が完結する。
+
+**新規DBを追加:**
+
+1. namespace（英小文字始まりの半角英数字・アンダースコアのみ、2〜30文字）とラベルを入力
+2. 登録先（source）を選択: `Notion` / `Drive単独` / `両方`
+3. Notion DBは「既存DBのIDを入力」または「Notionで新規DBを自動作成する」を選択
+   - 自動作成には、新規DBの作成先とする親ページのIDをスクリプトプロパティ`NOTION_PARENT_PAGE_ID`に設定し、そのページにIntegrationを接続しておく必要がある（未設定の場合は明確なエラーメッセージが返る）
+   - 自動作成されるDBは既存namespace用DBと同じ標準スキーマ（title / summary / tags / source_url）を持つ
+4. Driveフォルダ ID（任意）を指定
+5. 「BM25+RRFハイブリッド検索を有効化」（任意。§8.11参照）
+6. 「追加する」→ 即座に`NAMESPACE_CONFIG`スクリプトプロパティに反映される（**次回のGAS実行から有効** — `DB_KEY_MAP`等はスクリプト読み込み時に一度だけ計算されるグローバル変数のため、追加した直後の同一実行内では反映されない。ブラウザ経由の操作は毎回別のGAS実行になるため、通常の運用フローでは意識する必要はない）
+
+**既存DB一覧:** ラベル・登録先・Notion DB ID・DriveフォルダID・ハイブリッド検索のON/OFFを行ごとに編集して「保存」で反映できる。
+
+> **注意:** 一覧に出てこない・追加した直後に反映されないように見える場合は、ページを再読み込みしてタブを開き直せば最新の`NAMESPACE_CONFIG`が読み込まれる。
 
 ---
 
@@ -849,6 +870,8 @@ API キー（外部サービスにアクセスするためのパスワード）�
 | Houdini | `rag_config.json`（Houdini の設定フォルダ内） | プロジェクトとは別のフォルダに置くことで Git に含まれない |
 | GAS | GAS のスクリプトプロパティ | Google のサーバー側に保存、コードに直書きしない |
 
+**Cloud RAGが発行したAPIキー自体（`API_KEYS_CONFIG`）はSHA-256ハッシュのみを保存する。** 平文は発行時に一度だけ呼び出し元へ返し、`keyHash`（比較用）と`keyPreview`（管理画面の一覧表示用、先頭8文字）のみを`API_KEYS_CONFIG`スクリプトプロパティに残す（`_hashApiKey_()`/`validateApiKey_()` in `gas_cloud_rag.js`）。これにより、GASプロジェクトのスクリプトプロパティ閲覧権限を持つ人でも、発行済みAPIキーの平文を見ることはできない。過去に発行された旧形式（平文`key`フィールド）のエントリも認証時に後方互換で照合されるため、再発行は不要。
+
 ### 8.2 .env ファイルを使わないポリシー
 
 `.env` ファイルに API キーを書いてしまうと、`.gitignore` の設定ミス 1 つで GitHub に流出するリスクがある。このプロジェクトでは各ツールのネイティブな設定ストレージ（EditorPrefs・JSON 設定ファイル・GASスクリプトプロパティ）を使うことで、**そもそもキーがファイルとして存在しない** 状態にしている。
@@ -900,6 +923,76 @@ houdini21 専用ドキュメントDBは、クラウド・ローカル双方の�
 | PEP アクセス制御 | admin/developer/user 全ロールにアクセス許可 |
 
 `sync_houdini21_db.py` が Notion の houdini21DB から `localRAG/houdini21/` フォルダに同期する役割を持つ。
+
+### 8.5 レート制限（`isRateLimited_()`）
+
+APIキーごとに、直近1分間のリクエスト数を`CacheService`で数え、スクリプトプロパティ`RATE_LIMIT_MAX_REQUESTS`（例: `30`）を超えたら検索処理（Gemini API呼び出し）自体を実行せず`status:"rate_limited"`を返す。**未設定の場合は無制限（既定オフ）** なので既存デプロイに影響しない。悪用や誤実装によるリトライループで無駄なGemini API課金が発生するのを防ぐのが目的。キャッシュキーにはAPIキーそのものではなくハッシュ値を使っており、キャッシュの内容が漏れてもAPIキーの露出経路にはならない。
+
+### 8.6 トークン使用量トラッキング（`RAG_TokenUsage`）
+
+`recordTokenUsage_()`が、クエリのたびにHyDE仮説文書生成・最終回答生成（`generateContent`）のトークン数をGemini APIの`usageMetadata.totalTokenCount`から実測し、`RAG_TokenUsage`シートにAPIキー単位で記録する（`timestamp / apiKeyPrefix / dbKey / mode / hydeTokens / answerTokens / embedCharsQuery / embedCharsHypo / totalMeasuredTokens`）。埋め込み（`embedContent`）はレスポンスに`usageMetadata`が含まれないため実測できず、`embedChars*`は入力文字数の目安値として記録する。
+
+`mode:"raw"`（Function Calling経由、質問文/回答文自体は`saveMemory_`を通らず保存しない）も、使用量集計だけは独立して行う。
+
+管理画面「💰 使用量」タブから`adminTokenUsageStats()`でAPIキーごとの集計（クエリ数・raw/full比率・実測トークン合計・埋め込み文字数）を確認できる。
+
+保持期限はスクリプトプロパティ`TOKEN_USAGE_RETENTION_DAYS`（日数、未設定なら無期限・既定オフ）で管理し、「💰 使用量」タブの「今すぐクリーンアップする」ボタン、または`adminPurgeExpiredTokenUsage()`で期限切れ行を削除できる。`RAG_TokenUsage`は`backupCriticalData_()`のバックアップ対象にも含まれる。
+
+### 8.7 APIキー単位のトークン上限（予算）管理
+
+外部データストア（Firestore等）を増やさない方針のため、既存の`API_KEYS_CONFIG`（スクリプトプロパティ）に`capacity`（上限）と`balance`（残高）を追加するだけで予算管理を実現している。
+
+- **既定は無制限**（`capacity`が`null`/未設定）。既存キーへの後方互換があり、上限を設定しない限り動作は変わらない。
+- 管理画面「🔑 APIキー管理」タブの「編集」モーダルからキーごとに上限（トークン数）を設定できる。上限を変更した時点で残高は満タン（=上限）にリセットされる。
+- クエリのたびに`recordTokenUsage_()`内で実測トークン数分だけ`balance`を減らす（`_consumeKeyBudget_()`）。
+- 残高が尽きると、ブラウザ経由（`ragQueryWithKey`）はエラーを、HTTP POST経由（`doPost`）は`status:"quota_exceeded"`を返し、それ以降のGemini呼び出しを行わない（`_hasQuotaRemaining_()`による事前チェック。厳密な使用量の先読みはできないため、「クエリ実行前の時点で既に残高が尽きているか」だけを判定する簡易実装）。
+- キー一覧の「チャージ」ボタン（`adminChargeKeyBalance()`）で残高を追加できる（上限を超えては加算されない）。無制限キーへのチャージは拒否される。
+
+### 8.8 機微情報対策（`logMemory` / `MEMORY_RETENTION_DAYS`）
+
+問診・健康関連など機微な内容を扱うnamespaceでは、会話ログ（`RAG_Memory`）への記録自体を抑制・自動削除できる。
+
+- **記録の抑制:** 「🗄 DB管理」タブでnamespaceの`NAMESPACE_CONFIG`に`{"logMemory": false}`相当の設定をすると、そのnamespace宛のクエリは`saveMemory_()`が何もせず空文字を返し、質問文・回答文が一切保存されない（既定は`true`＝記録する。既存デプロイの動作は変わらない）。
+- **保持期限による自動削除:** スクリプトプロパティ`MEMORY_RETENTION_DAYS`（日数）を設定すると、それを過ぎた`RAG_Memory`の行を「🗄 DB管理」タブの「🧹 会話ログの保持期限クリーンアップ」ボタン、または`adminPurgeExpiredMemory()`で削除できる（未設定なら既定オフ）。
+
+### 8.9 MIN_SCORE閾値のnamespace別上書き（`minScoreFor_()`）
+
+検索類似度の閾値（`MIN_SCORE`）は既定で単一DB指定時0.58・全DB横断時0.62だが、スクリプトプロパティ`MIN_SCORE_<namespace大文字>`（例: `MIN_SCORE_BRAINTQ=0.65`）でnamespaceごとに上書きできる。`adminRatingStats()`が返す👍/👎それぞれの平均類似度スコア（`avgScoreUp`/`avgScoreDown`。「📊 評価」タブに表示）を見て、👎の平均スコアが👍と近い・高いようであれば閾値を上げる、といった人間による判断・チューニングに使う。
+
+### 8.10 監視・アラート（`recordHealthSample_()`）
+
+`doPost`の成否とレイテンシを直近5分間のウィンドウでCacheServiceに集計し、以下のいずれかを超えたら管理者へメール通知する。
+
+| 閾値 | 既定値 |
+|---|---|
+| 最小サンプル数（これ未満では判定しない） | 5件 |
+| エラー率 | 30%以上 |
+| 最大レイテンシ | 15秒以上 |
+
+通知先はスクリプトプロパティ`HEALTH_ALERT_EMAIL`（メールアドレス）に設定する。**未設定の場合は何も送信されない（既定オフ）**ので、既存デプロイに影響はない。同一ウィンドウ内での連続通知は30分間抑制される（`MailApp.sendEmail`を使うため追加のサービス連携は不要）。
+
+### 8.11 BM25+RRFハイブリッド検索（`_usesHybridSearch_()`）
+
+ベクトル検索（コサイン類似度）だけでは、クエリとドキュメントの語彙が重なっていても意味的に離れていると判定され取りこぼすことがある。namespaceごとに`NAMESPACE_CONFIG`で`{"hybridSearch": true}`を指定すると、ベクトル検索とBM25（キーワード一致）の結果をReciprocal Rank Fusion（RRF、k=60）でマージするハイブリッド検索に切り替わる（既定はfalse＝従来通りベクトル検索のみ）。
+
+- GASには形態素解析ライブラリが無いため、日本語（CJK）は2文字スライド窓のbigramでトークン化する（例:「コネクトライン」→「コネ」「ネク」「クト」「トラ」「ライ」「イン」）。助詞込みの自然文クエリでも、固有名詞・キーワード部分の重なりでBM25スコアが機能する。英数字・型番（`BTQ-116`等）は通常のトークンとしてそのまま扱う。
+- BM25用のトークンはインデックス読み込み時（`loadIndexFromSheet_()`）に事前計算してキャッシュに含める（毎クエリでの再トークン化を避けるため）。
+- 「🗄 DB管理」タブのnamespace追加・編集画面で「BM25+RRFハイブリッド検索を有効化」チェックボックスから切り替えられる。
+
+### 8.12 ナレッジ取り消し（rollback）の失敗検知
+
+`adminKbRollback()`はNotion/Drive側の削除が実際に成功したかどうか（Notionはレスポンスコード200、Driveは例外の有無）を確認して件数をカウントする。一部だけ失敗した場合は`ok:false`と`failedTargets`（失敗したID一覧）を返し、管理画面にも「一部失敗しました」と表示される。インデックス行自体は成否に関わらず削除されるため、失敗した対象はNotion/Drive側に実体だけが残った状態になり、手動確認が必要になる。
+
+### 8.13 デプロイバージョン確認（デプロイドリフト検知）
+
+`gas_cloud_rag.js`を複数のGASプロジェクトへ手動コピペでデプロイする運用の場合、修正を加えても一部のデプロイ先にしか反映し忘れる「デプロイドリフト」が起こり得る。
+
+これに気づけるよう、ファイル冒頭の`GAS_CODE_VERSION`定数（編集のたびに手動で更新する運用）を、以下の2通りで確認できる。
+
+- 管理画面「⚙ 管理」タブ上部に表示される
+- 認証不要で`doPost`に`{"action":"version"}`をPOSTすると`{"version":"...", "status":"ok"}`が返る（複数デプロイをスクリプトやcurlで突き合わせたい場合用）
+
+新しいコードを貼り付けてデプロイしたら、各デプロイ先の値が一致しているか確認する運用を推奨する。
 
 ---
 

@@ -12,6 +12,22 @@
  *
  *   API_KEYS_CONFIG    ← 自動管理（管理画面で操作）
  *
+ *   （以下は任意設定。未設定なら既定値・既定オフで動作し、既存デプロイに影響しない）
+ *   RATE_LIMIT_MAX_REQUESTS     APIキーごとの1分間あたり最大リクエスト数（例: 30）
+ *   TOKEN_USAGE_RETENTION_DAYS RAG_TokenUsageの保持日数。これを過ぎた行はadminPurgeExpiredTokenUsage()で削除対象になる
+ *   NOTION_PARENT_PAGE_ID       管理画面「🗄 DB管理」タブでNotion DBを新規自動作成する際の
+ *                               作成先ページID（未設定でも既存DB IDの手入力によるnamespace追加は可能）
+ *   MIN_SCORE_<NS大文字>        namespaceごとの検索類似度閾値の上書き（例: MIN_SCORE_BRAINTQ=0.65）
+ *   MEMORY_RETENTION_DAYS       RAG_Memoryの保持日数。これを過ぎた行は adminPurgeExpiredMemory() で削除対象になる
+ *   HEALTH_ALERT_EMAIL          エラー率・レイテンシ異常時のアラート送信先メールアドレス
+ *
+ * ── デプロイドリフト検知 ─────────────────────────────────────────────
+ *   このファイルを複数のGASプロジェクトへ手動コピペでデプロイする運用の場合、
+ *   GAS_CODE_VERSION定数（このファイル上部）を編集のたびに更新すること。
+ *   各デプロイの管理画面（⚙ 管理タブ上部）、または doPost に
+ *   { "action": "version" } をPOSTした応答で値を突き合わせれば、
+ *   デプロイし忘れているデプロイ先に気づける。
+ *
  * ── 初回セットアップ ─────────────────────────────────────────────────
  *   1. 上記スクリプトプロパティを設定（NAMESPACE_CONFIGは新規テナント導入時
  *      のみ設定。未設定なら下記のAXTechCare向けデフォルト構成が使われる）
@@ -76,13 +92,33 @@ var DB_LABELS     = {};
 var DRIVE_KEY_MAP = {};
 // namespaceごとの登録先モード: "notion"（既定・従来通り） / "drive"（Drive単独運用） / "both"（両方に登録）
 var NAMESPACE_SOURCE_MAP = {};
+// namespaceごとにRAG_Memory（会話ログ）へ記録するかどうか。既定はtrue（従来通り）。
+// 問診・健康関連など機微な内容を扱うnamespaceは、NAMESPACE_CONFIGで
+// {"logMemory": false} を指定することでログ保存自体を止められる。
+var NAMESPACE_LOG_MEMORY_MAP = {};
+// namespaceごとにBM25+RRFハイブリッド検索を使うか。既定はfalse（従来通りコサイン類似度のみ）。
+// NAMESPACE_CONFIGで {"hybridSearch": true} を指定したnamespaceだけ有効になる。
+var NAMESPACE_HYBRID_MAP = {};
 Object.keys(_NAMESPACE_CONFIG_).forEach(function(ns) {
   var suffix = _namespacePropSuffix_(ns);
   DB_KEY_MAP[ns]    = 'DB_' + suffix;
   DRIVE_KEY_MAP[ns] = 'DRIVE_' + suffix;
   DB_LABELS[ns]     = (_NAMESPACE_CONFIG_[ns] && _NAMESPACE_CONFIG_[ns].label) || ns;
   NAMESPACE_SOURCE_MAP[ns] = (_NAMESPACE_CONFIG_[ns] && _NAMESPACE_CONFIG_[ns].source) || 'notion';
+  NAMESPACE_LOG_MEMORY_MAP[ns] =
+    !(_NAMESPACE_CONFIG_[ns] && _NAMESPACE_CONFIG_[ns].logMemory === false);
+  NAMESPACE_HYBRID_MAP[ns] = !!(_NAMESPACE_CONFIG_[ns] && _NAMESPACE_CONFIG_[ns].hybridSearch);
 });
+
+/** このnamespaceの問い合わせをRAG_Memoryに記録してよいか（既定true。dbKey='all'等の未知キーもtrue扱い） */
+function _shouldLogMemory_(dbKey) {
+  return NAMESPACE_LOG_MEMORY_MAP.hasOwnProperty(dbKey) ? NAMESPACE_LOG_MEMORY_MAP[dbKey] : true;
+}
+
+/** このnamespaceでBM25+RRFハイブリッド検索を使うか（既定false。dbKey='all'横断検索では無効） */
+function _usesHybridSearch_(dbKey) {
+  return !!NAMESPACE_HYBRID_MAP[dbKey];
+}
 
 /** このnamespaceがNotionを使うか（"notion" / "both"。既定はnotion） */
 function _usesNotion_(dbKey) { return NAMESPACE_SOURCE_MAP[dbKey] !== 'drive'; }
@@ -92,12 +128,19 @@ function _usesDrive_(dbKey) {
   return s === 'drive' || s === 'both';
 }
 
-var ALL_NAMESPACES   = Object.keys(DB_KEY_MAP);
-var SHEET_NAME       = 'RAG_Index';
-var MEMORY_SHEET     = 'RAG_Memory';
-var IDX_CACHE_KEY    = 'rag_idx_v2';
-var CACHE_TTL        = 21600;
-var CACHE_CHUNK      = 90000;
+// gas_cloud_rag.js を編集するたびに手動で更新すること。複数のGASプロジェクトに
+// 同じコードを手動コピペでデプロイしている場合、各デプロイの管理画面（⚙ 管理 →
+// 🔑 APIキー管理タブ上部）に表示されるこの値を突き合わせることで、「片方だけ
+// 更新し忘れた」というデプロイドリフトに気づけるようにする。
+var GAS_CODE_VERSION = '2026-07-24-01';
+
+var ALL_NAMESPACES    = Object.keys(DB_KEY_MAP);
+var SHEET_NAME        = 'RAG_Index';
+var MEMORY_SHEET      = 'RAG_Memory';
+var TOKEN_USAGE_SHEET = 'RAG_TokenUsage';
+var IDX_CACHE_KEY     = 'rag_idx_v3'; // v3: 各行にBM25用のtokensを追加（v2形式との互換なし、キー名変更で自然に無効化）
+var CACHE_TTL         = 21600;
+var CACHE_CHUNK       = 90000;
 
 // 許可された DB キーの一覧。不正値は "all" にフォールバックして安全に処理する。
 var VALID_DB_KEYS_ = ["all"].concat(ALL_NAMESPACES);
@@ -129,11 +172,41 @@ function saveApiKeysConfig_(keys) {
 // 認証ヘルパー
 // ─────────────────────────────────────────────
 
+function _bytesToHex_(bytes) {
+  var hex = '';
+  for (var i = 0; i < bytes.length; i++) {
+    var b = bytes[i];
+    if (b < 0) b += 256;
+    var h = b.toString(16);
+    hex += (h.length === 1 ? '0' + h : h);
+  }
+  return hex;
+}
+
+/** APIキーの平文をSHA-256ハッシュに変換する（API_KEYS_CONFIGに平文を残さないため） */
+function _hashApiKey_(key) {
+  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, key, Utilities.Charset.UTF_8);
+  return _bytesToHex_(digest);
+}
+
+/** APIキーエントリの表示用プレフィックス（新形式keyPreview優先、旧形式keyへの後方互換あり） */
+function _keyPreviewOf_(k) {
+  return k.keyPreview || (k.key ? k.key.substring(0, 8) : '');
+}
+
+/**
+ * APIキーを検証する。新規発行分はkeyHash（SHA-256）で照合し、平文はどこにも保存しない。
+ * bootstrapFirstAdminKey()等で過去に発行された旧形式（平文keyフィールド）のエントリとも
+ * 後方互換で照合できる。
+ */
 function validateApiKey_(key) {
   if (!key) return null;
+  var hash = _hashApiKey_(key);
   var keys = getApiKeysConfig_();
   for (var i = 0; i < keys.length; i++) {
-    if (keys[i].key === key) return keys[i];
+    var k = keys[i];
+    if (k.keyHash && k.keyHash === hash) return k;
+    if (!k.keyHash && k.key && k.key === key) return k; // 旧形式（平文）との後方互換
   }
   return null;
 }
@@ -164,8 +237,11 @@ function getNamespacesForKey(apiKey) {
 function ragQueryWithKey(query, dbKey, history, apiKey) {
   var config = validateApiKey_(apiKey);
   if (!config) throw new Error('認証エラー: 無効なAPIキーです');
+  if (!_hasQuotaRemaining_(config)) {
+    throw new Error('トークンの利用上限に達しています。管理者にチャージを依頼してください。');
+  }
   var result = ragQueryInternal_(query, dbKey, history, config.namespaces || [], apiKey);
-  try { result.memoryId = saveMemory_(apiKey, query, result.answer, result.sources); } catch(e) {}
+  try { result.memoryId = saveMemory_(apiKey, query, result.answer, result.sources, dbKey); } catch(e) {}
   return result;
 }
 
@@ -230,10 +306,14 @@ function rateMemoryEntry(apiKey, id, rating) {
 function adminRatingStats(apiKey) {
   requireAdmin_(apiKey);
   var sheet = getMemorySheet_();
-  var stats = { total: 0, up: 0, down: 0, unrated: 0, downByDb: {} };
+  var stats = {
+    total: 0, up: 0, down: 0, unrated: 0, downByDb: {},
+    avgScoreUp: null, avgScoreDown: null,
+  };
   if (!sheet) return stats;
 
   var data = sheet.getDataRange().getValues();
+  var scoreSumUp = 0, scoreCountUp = 0, scoreSumDown = 0, scoreCountDown = 0;
   for (var i = 1; i < data.length; i++) {
     var rating = String(data[i][6]);
     stats.total++;
@@ -241,17 +321,154 @@ function adminRatingStats(apiKey) {
     else if (rating === 'down') stats.down++;
     else stats.unrated++;
 
+    var sources = [];
+    try { sources = JSON.parse(String(data[i][5]) || '[]'); } catch(e) {}
+
     if (rating === 'down') {
-      try {
-        var sources = JSON.parse(String(data[i][5]) || '[]');
-        sources.forEach(function(s) {
-          var db = s.db || '(不明)';
-          stats.downByDb[db] = (stats.downByDb[db] || 0) + 1;
-        });
-      } catch(e) {}
+      sources.forEach(function(s) {
+        var db = s.db || '(不明)';
+        stats.downByDb[db] = (stats.downByDb[db] || 0) + 1;
+      });
     }
+
+    // スコアはsaveMemory_で新しく記録されるようになったフィールド。
+    // 旧データ（score未記録）はここで自動的に読み飛ばされる。
+    sources.forEach(function(s) {
+      if (typeof s.score !== 'number') return;
+      if (rating === 'up')   { scoreSumUp   += s.score; scoreCountUp++;   }
+      if (rating === 'down') { scoreSumDown += s.score; scoreCountDown++; }
+    });
   }
+  if (scoreCountUp   > 0) stats.avgScoreUp   = scoreSumUp   / scoreCountUp;
+  if (scoreCountDown > 0) stats.avgScoreDown = scoreSumDown / scoreCountDown;
   return stats;
+}
+
+// ─────────────────────────────────────────────
+// トークン使用量トラッキング（APIキー単位の管理用集計）
+//
+// RAG_Memoryとは別シートに記録する。mode:"raw"（Function Calling経由、
+// 実運用の大半を占める想定）はプライバシー・レイテンシ対策として質問文/回答文を
+// 一切保存しない設計（saveMemory_を通らない）だが、使用量集計はraw/full両方で
+// 必要なため、質問文/回答文を含まない軽量な記録として独立させている。
+// 埋め込み（embedContent）はAPIレスポンスにusageMetadataが含まれないため
+// トークン数を実測できない。embedChars* は入力文字数（あくまで目安、正確な
+// トークン数ではない）。
+// ─────────────────────────────────────────────
+
+function getTokenUsageSheet_() {
+  var sheetsId = getProps_().getProperty('SHEETS_ID');
+  if (!sheetsId) return null;
+  try {
+    var ss    = SpreadsheetApp.openById(sheetsId);
+    var sheet = ss.getSheetByName(TOKEN_USAGE_SHEET);
+    if (!sheet) {
+      sheet = ss.insertSheet(TOKEN_USAGE_SHEET);
+      sheet.appendRow([
+        'timestamp', 'apiKeyPrefix', 'dbKey', 'mode',
+        'hydeTokens', 'answerTokens', 'embedCharsQuery', 'embedCharsHypo', 'totalMeasuredTokens',
+      ]);
+      sheet.getRange(1, 1, 1, 9).setFontWeight('bold');
+    }
+    return sheet;
+  } catch(e) {
+    Logger.log('getTokenUsageSheet_ error: ' + e.message);
+    return null;
+  }
+}
+
+function recordTokenUsage_(apiKey, dbKey, mode, hydeTokens, answerTokens, embedCharsQuery, embedCharsHypo) {
+  try {
+    var sheet = getTokenUsageSheet_();
+    if (!sheet) return;
+    var prefix = String(apiKey || '').substring(0, 8);
+    var total  = (hydeTokens || 0) + (answerTokens || 0);
+    sheet.appendRow([
+      new Date().toISOString(), prefix, dbKey || '', mode || 'full',
+      hydeTokens || 0, answerTokens || 0, embedCharsQuery || 0, embedCharsHypo || 0, total,
+    ]);
+  } catch(e) {
+    Logger.log('recordTokenUsage_ error: ' + e.message);
+  }
+  // シート書き込みの成否に関わらず、予算消費は別処理として必ず試みる
+  try {
+    _consumeKeyBudget_(apiKey, (hydeTokens || 0) + (answerTokens || 0));
+  } catch(e) {
+    Logger.log('_consumeKeyBudget_ error: ' + e.message);
+  }
+}
+
+/**
+ * APIキー（apiKeyPrefix）ごとのトークン使用量集計（管理者のみ）。
+ * totalMeasuredTokensはHyDE生成+最終回答生成の実測合計（埋め込み分は含まない）。
+ * displayNameはAPI_KEYS_CONFIGと突き合わせて解決する。
+ */
+function adminTokenUsageStats(apiKey) {
+  requireAdmin_(apiKey);
+  var sheet = getTokenUsageSheet_();
+  var byKey = {};
+  if (!sheet) return { rows: [] };
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    var prefix = String(data[i][1]);
+    if (!prefix) continue;
+    if (!byKey[prefix]) {
+      byKey[prefix] = {
+        apiKeyPrefix: prefix, queries: 0, rawQueries: 0, fullQueries: 0,
+        hydeTokens: 0, answerTokens: 0, embedCharsTotal: 0, totalMeasuredTokens: 0,
+      };
+    }
+    var row = byKey[prefix];
+    row.queries++;
+    if (String(data[i][3]) === 'raw') row.rawQueries++; else row.fullQueries++;
+    row.hydeTokens          += Number(data[i][4]) || 0;
+    row.answerTokens        += Number(data[i][5]) || 0;
+    row.embedCharsTotal     += (Number(data[i][6]) || 0) + (Number(data[i][7]) || 0);
+    row.totalMeasuredTokens += Number(data[i][8]) || 0;
+  }
+
+  // API_KEYS_CONFIGのdisplayNameと突き合わせる（削除済み・未知キーはprefixのまま表示）
+  var nameByPrefix = {};
+  getApiKeysConfig_().forEach(function(k) {
+    nameByPrefix[_keyPreviewOf_(k)] = k.displayName || '';
+  });
+
+  var rows = Object.keys(byKey).map(function(prefix) {
+    var r = byKey[prefix];
+    r.displayName = nameByPrefix[prefix] || '(不明なキー)';
+    return r;
+  });
+  rows.sort(function(a, b) { return b.totalMeasuredTokens - a.totalMeasuredTokens; });
+  return { rows: rows };
+}
+
+/**
+ * RAG_TokenUsageの保持期限（日数）を過ぎた行を削除する。
+ * スクリプトプロパティ TOKEN_USAGE_RETENTION_DAYS が未設定（0以下）なら何もしない。
+ */
+function purgeExpiredTokenUsage_() {
+  var days = parseInt(getProps_().getProperty('TOKEN_USAGE_RETENTION_DAYS') || '0', 10);
+  if (!days || days <= 0) return { purged: 0, enabled: false };
+  var sheet = getTokenUsageSheet_();
+  if (!sheet) return { purged: 0, enabled: true };
+
+  var cutoff = new Date().getTime() - days * 24 * 60 * 60 * 1000;
+  var data   = sheet.getDataRange().getValues();
+  var toDelete = [];
+  for (var r = 1; r < data.length; r++) {
+    var ts = Date.parse(String(data[r][0]));
+    if (!isNaN(ts) && ts < cutoff) toDelete.push(r + 1);
+  }
+  toDelete.sort(function(a, b) { return b - a; });
+  toDelete.forEach(function(ri) { sheet.deleteRow(ri); });
+  return { purged: toDelete.length, enabled: true };
+}
+
+/** 管理UI/手動実行用: RAG_TokenUsageの期限切れ行を即時削除する */
+function adminPurgeExpiredTokenUsage(apiKey) {
+  requireAdmin_(apiKey);
+  return purgeExpiredTokenUsage_();
 }
 
 /** グラフデータ（ブラウザ用） */
@@ -266,11 +483,13 @@ function adminListKeys(apiKey) {
   requireAdmin_(apiKey);
   return getApiKeysConfig_().map(function(k) {
     return {
-      keyPreview:  k.key.substring(0, 8) + '...',
+      keyPreview:  _keyPreviewOf_(k) + '...',
       displayName: k.displayName || '',
       namespaces:  k.namespaces  || [],
       isAdmin:     k.isAdmin     || false,
       createdAt:   k.createdAt   || '',
+      capacity:    (k.capacity == null) ? null : k.capacity,
+      balance:     (k.capacity == null) ? null : (typeof k.balance === 'number' ? k.balance : k.capacity),
     };
   });
 }
@@ -285,7 +504,8 @@ function adminCreateKey(apiKey, displayName, namespaces, isAdmin) {
   var newKey = Utilities.getUuid().replace(/-/g, ''); // 32文字hex
   var keys   = getApiKeysConfig_();
   keys.push({
-    key:         newKey,
+    keyHash:     _hashApiKey_(newKey),
+    keyPreview:  newKey.substring(0, 8),
     displayName: displayName,
     namespaces:  namespaces  || [],
     isAdmin:     isAdmin     || false,
@@ -300,7 +520,7 @@ function adminDeleteKey(apiKey, keyPreview) {
   requireAdmin_(apiKey);
   var prefix = keyPreview.replace('...', '');
   var keys   = getApiKeysConfig_().filter(function(k) {
-    return k.key.substring(0, 8) !== prefix;
+    return _keyPreviewOf_(k) !== prefix;
   });
   saveApiKeysConfig_(keys);
   return { ok: true };
@@ -315,11 +535,185 @@ function adminUpdateKey(apiKey, keyPreview, newNamespaces) {
   var keys   = getApiKeysConfig_();
   var found  = false;
   keys.forEach(function(k) {
-    if (k.key.substring(0, 8) === prefix) { k.namespaces = newNamespaces; found = true; }
+    if (_keyPreviewOf_(k) === prefix) { k.namespaces = newNamespaces; found = true; }
   });
   if (!found) throw new Error('キーが見つかりません: ' + keyPreview);
   saveApiKeysConfig_(keys);
   return { ok: true };
+}
+
+// ─────────────────────────────────────────────
+// APIキーごとのトークン上限（予算）管理
+//
+// chatbot_token_control（別リポジトリ）のFirestoreベースのcapacity/deposit方式と
+// 同じ考え方を、GAS側のストレージ（API_KEYS_CONFIG）だけで完結させたもの。
+// 外部データストアを増やさない方針のため、Firestoreは使わず既存の
+// PropertiesService(API_KEYS_CONFIG)にcapacity（上限）とbalance（残高）を
+// 追加するだけにしている。
+//
+// capacity: null/未設定 = 無制限（既定。既存キーへの後方互換）
+// balance:  残高。クエリのたびにrecordTokenUsage_内で消費した実測トークン数分だけ減らす。
+//           capacity変更時は満タン（=capacity）にリセットする。
+// 事前チェック（doPost）はGemini呼び出し前に行うが、そのクエリ自体の消費量は
+// 呼び出し後でないと分からないため、「既に残高が尽きているか」だけを判定する
+// （isRateLimited_と同様、厳密な使用量の先読みはできない前提の簡易実装）。
+// ─────────────────────────────────────────────
+
+/** true: 予算内（許容） / false: 残高が尽きている（拒否すべき）。capacity未設定なら常にtrue */
+function _hasQuotaRemaining_(config) {
+  if (!config || config.capacity == null) return true;
+  var balance = typeof config.balance === 'number' ? config.balance : config.capacity;
+  return balance > 0;
+}
+
+/** クエリ1件で消費したトークン数分だけ、該当APIキーのbalanceを減らす（capacity未設定のキーは何もしない） */
+function _consumeKeyBudget_(apiKey, amount) {
+  if (!amount || amount <= 0) return;
+  var keys = getApiKeysConfig_();
+  var hash = _hashApiKey_(apiKey);
+  var changed = false;
+  keys.forEach(function(k) {
+    var matches = k.keyHash ? k.keyHash === hash : (k.key === apiKey);
+    if (!matches || k.capacity == null) return;
+    var current = typeof k.balance === 'number' ? k.balance : k.capacity;
+    k.balance = Math.max(0, current - amount);
+    changed = true;
+  });
+  if (changed) saveApiKeysConfig_(keys);
+}
+
+/**
+ * キーのトークン上限を設定（管理者のみ）。capacityにnull/未指定を渡すと無制限に戻す。
+ * 上限を変更した時点でbalanceは満タン（=capacity）にリセットする。
+ */
+function adminSetKeyCapacity(apiKey, keyPreview, capacity) {
+  requireAdmin_(apiKey);
+  var prefix = keyPreview.replace('...', '');
+  var keys   = getApiKeysConfig_();
+  var found  = false;
+  keys.forEach(function(k) {
+    if (_keyPreviewOf_(k) !== prefix) return;
+    found = true;
+    if (capacity === null || capacity === undefined || capacity === '') {
+      k.capacity = null;
+      delete k.balance;
+    } else {
+      var cap = Number(capacity);
+      if (!isFinite(cap) || cap < 0) throw new Error('上限は0以上の数値で指定してください');
+      k.capacity = cap;
+      k.balance  = cap;
+    }
+  });
+  if (!found) throw new Error('キーが見つかりません: ' + keyPreview);
+  saveApiKeysConfig_(keys);
+  return { ok: true };
+}
+
+/** キーの残高にチャージ（上限を超えない範囲で加算、管理者のみ）。無制限キーには使えない */
+function adminChargeKeyBalance(apiKey, keyPreview, amount) {
+  requireAdmin_(apiKey);
+  var amt = Number(amount);
+  if (!isFinite(amt) || amt <= 0) throw new Error('チャージ量は正の数値で指定してください');
+  var prefix = keyPreview.replace('...', '');
+  var keys   = getApiKeysConfig_();
+  var found  = false, newBalance = null;
+  keys.forEach(function(k) {
+    if (_keyPreviewOf_(k) !== prefix) return;
+    found = true;
+    if (k.capacity == null) throw new Error('無制限のキーにはチャージ不要です: ' + keyPreview);
+    var current = typeof k.balance === 'number' ? k.balance : k.capacity;
+    k.balance = Math.max(0, Math.min(k.capacity, current + amt));
+    newBalance = k.balance;
+  });
+  if (!found) throw new Error('キーが見つかりません: ' + keyPreview);
+  saveApiKeysConfig_(keys);
+  return { ok: true, balance: newBalance };
+}
+
+// ─────────────────────────────────────────────
+// レート制限
+//
+// APIキーごとに、直近1分間のリクエスト数をCacheServiceで数え、
+// 上限を超えたら検索処理（Gemini API呼び出し）そのものをスキップして拒否する。
+// スクリプトプロパティ RATE_LIMIT_MAX_REQUESTS が未設定なら無効（既定オフ）。
+// ─────────────────────────────────────────────
+
+var RATE_LIMIT_WINDOW_SEC = 60;
+
+/** true: 上限超過（拒否すべき） / false: 許容範囲内（既定オフ時も常にfalse） */
+function isRateLimited_(apiKey) {
+  var maxReqRaw = getProps_().getProperty('RATE_LIMIT_MAX_REQUESTS');
+  if (!maxReqRaw) return false; // 未設定なら無効（既定オフ・既存デプロイに影響しない）
+  var maxReq = parseInt(maxReqRaw, 10);
+  if (!maxReq || maxReq <= 0) return false;
+
+  var cache  = CacheService.getScriptCache();
+  var bucket = Math.floor(new Date().getTime() / 1000 / RATE_LIMIT_WINDOW_SEC);
+  // apiKey自体をキャッシュキーに使わない（キャッシュの内容が漏れた場合の露出経路を増やさないため）
+  var key    = 'ratelimit_' + _hashApiKey_(apiKey).substring(0, 16) + '_' + bucket;
+  var count  = parseInt(cache.get(key) || '0', 10) + 1;
+  cache.put(key, String(count), RATE_LIMIT_WINDOW_SEC * 2);
+  return count > maxReq;
+}
+
+// ─────────────────────────────────────────────
+// 監視・アラート
+//
+// クエリ1件ごとの成否・レイテンシを直近ウィンドウ分だけCacheServiceに
+// 集計し、エラー率または最大レイテンシが閾値を超えたら管理者へメール通知する。
+// スクリプトプロパティ HEALTH_ALERT_EMAIL が未設定なら何もしない（既定オフ）。
+// ─────────────────────────────────────────────
+
+var HEALTH_WINDOW_SEC          = 300;   // 集計ウィンドウ（5分）
+var HEALTH_MIN_SAMPLES          = 5;    // このサンプル数未満では判定しない
+var HEALTH_ERROR_RATE_THRESHOLD = 0.3;  // エラー率30%以上でアラート
+var HEALTH_LATENCY_WARN_MS      = 15000; // 最大レイテンシ15秒以上でアラート
+var HEALTH_ALERT_COOLDOWN_SEC   = 1800; // 同一アラートの再送を30分間抑制
+
+function _healthWindowKey_() {
+  var bucket = Math.floor(new Date().getTime() / 1000 / HEALTH_WINDOW_SEC);
+  return 'health_' + bucket;
+}
+
+/** doPost内から呼ぶ。1件のクエリの成否・所要時間を直近ウィンドウの集計に加算する */
+function recordHealthSample_(ok, latencyMs) {
+  var cache = CacheService.getScriptCache();
+  var key   = _healthWindowKey_();
+  var raw   = cache.get(key);
+  var data  = raw ? JSON.parse(raw) : { total: 0, errors: 0, maxLatency: 0 };
+  data.total += 1;
+  if (!ok) data.errors += 1;
+  if (latencyMs > data.maxLatency) data.maxLatency = latencyMs;
+  cache.put(key, JSON.stringify(data), HEALTH_WINDOW_SEC * 2);
+  checkHealthAndAlert_(data);
+}
+
+function checkHealthAndAlert_(data) {
+  if (data.total < HEALTH_MIN_SAMPLES) return;
+  var errorRate = data.errors / data.total;
+  var problems = [];
+  if (errorRate >= HEALTH_ERROR_RATE_THRESHOLD) {
+    problems.push('エラー率 ' + Math.round(errorRate * 100) + '%（' + data.errors + '/' + data.total + '件、直近' + (HEALTH_WINDOW_SEC / 60) + '分）');
+  }
+  if (data.maxLatency >= HEALTH_LATENCY_WARN_MS) {
+    problems.push('最大レイテンシ ' + Math.round(data.maxLatency / 1000) + '秒');
+  }
+  if (problems.length === 0) return;
+  sendHealthAlert_(problems.join(' / '));
+}
+
+function sendHealthAlert_(message) {
+  var to = getProps_().getProperty('HEALTH_ALERT_EMAIL');
+  if (!to) return; // 未設定なら通知しない（既定オフ）
+  var cache = CacheService.getScriptCache();
+  var cooldownKey = 'health_alert_sent';
+  if (cache.get(cooldownKey)) return; // クールダウン中は再送しない
+  try {
+    MailApp.sendEmail(to, '[Cloud RAG] 異常検知アラート', message + '\n\n対象デプロイ: ' + ScriptApp.getScriptId());
+    cache.put(cooldownKey, '1', HEALTH_ALERT_COOLDOWN_SEC);
+  } catch(e) {
+    Logger.log('sendHealthAlert_ error: ' + e.message);
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -333,10 +727,17 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  var __healthStart = new Date().getTime();
   try {
     var body    = JSON.parse(e.postData.contents);
     var apiKey  = body.apiKey  || '';
     var action  = body.action  || 'query';
+
+    // バージョン確認アクション: { action:'version' }（認証不要。デプロイドリフト検知用）
+    if (action === 'version') {
+      return ContentService.createTextOutput(JSON.stringify({ version: GAS_CODE_VERSION, status: 'ok' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
 
     // 評価アクション: { action:'rate', apiKey, memoryId, rating:'up'|'down' }
     if (action === 'rate') {
@@ -374,11 +775,26 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (isRateLimited_(apiKey)) {
+      return ContentService.createTextOutput(JSON.stringify({
+        answer: 'リクエストが多すぎます。しばらく待ってから再試行してください。',
+        sources: [], status: 'rate_limited',
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (!_hasQuotaRemaining_(config)) {
+      return ContentService.createTextOutput(JSON.stringify({
+        answer: 'トークンの利用上限に達しています。管理者にチャージを依頼してください。',
+        sources: [], status: 'quota_exceeded',
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var result  = ragQueryInternal_(query, dbKey, history, allowed, apiKey, { skipAnswer: isRaw });
     var memId   = '';
     if (!isRaw) {
-      try { memId = saveMemory_(apiKey, query, result.answer, result.sources); } catch(e) {}
+      try { memId = saveMemory_(apiKey, query, result.answer, result.sources, dbKey); } catch(e) {}
     }
+    try { recordHealthSample_(true, new Date().getTime() - __healthStart); } catch(e) {}
     return ContentService.createTextOutput(JSON.stringify({
       answer:            result.answer,
       sources:           result.sources,
@@ -391,6 +807,7 @@ function doPost(e) {
 
   } catch(err) {
     Logger.log('doPost error: ' + err.message);
+    try { recordHealthSample_(false, new Date().getTime() - __healthStart); } catch(e) {}
     return ContentService.createTextOutput(JSON.stringify({
       answer: 'エラー: ' + err.message, sources: [], status: 'error',
     })).setMimeType(ContentService.MimeType.JSON);
@@ -414,8 +831,8 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey, opt
   }
 
   // HyDE で検索精度を向上させた埋め込みを生成してから検索（dbKey でドメインを指定）
-  var hydeEmb = hydeExpand_(query, dbKey);
-  var results = searchByEmbedding_(query, dbKey, 5, allowedNamespaces, hydeEmb);
+  var hyde    = hydeExpand_(query, dbKey);
+  var results = searchByEmbedding_(query, dbKey, 5, allowedNamespaces, hyde.emb);
 
   // raw モード: Function Calling 等、呼び出し元が自分で最終回答を組み立てる場合に使う。
   // 検索結果のテキストだけを返し、最終回答生成のGemini呼び出し(直列で一番重い)を丸ごと省略してレイテンシを削減する。
@@ -428,6 +845,7 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey, opt
         rawSources.push({ title: r.title, db: r.db, score: r.score, text: r.text });
       }
     });
+    recordTokenUsage_(apiKey, dbKey, 'raw', hyde.hydeTokens, 0, hyde.embedCharsQuery, hyde.embedCharsHypo);
     return { answer: '', sources: rawSources };
   }
 
@@ -463,7 +881,8 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey, opt
   });
   contents.push({ role: 'user', parts: [{ text: query }] });
 
-  var answer = callGemini_(contents);
+  var genResult = callGemini_(contents);
+  var answer    = genResult.text;
 
   // 情報抽出度: 回答中の [1][2] 引用を解析
   var extraction = parseExtractionRate_(answer, results.length);
@@ -476,12 +895,27 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey, opt
       sources.push({ title: r.title, db: r.db, score: r.score, cited: extraction.cited[i] });
     }
   });
+  recordTokenUsage_(apiKey, dbKey, 'full', hyde.hydeTokens, genResult.tokens, hyde.embedCharsQuery, hyde.embedCharsHypo);
   return { answer: answer, sources: sources, extractionRate: extraction.rate, extractionDetail: extraction.citedCount + '/' + extraction.total };
 }
 
 // ─────────────────────────────────────────────
 // 検索
 // ─────────────────────────────────────────────
+
+/**
+ * MIN_SCORE閾値を返す。スクリプトプロパティ MIN_SCORE_<namespace大文字> で
+ * namespaceごとに上書きできる（例: MIN_SCORE_BRAINTQ=0.55）。未設定なら
+ * 従来通りの既定値（単一DB指定0.58 / 全DB横断0.62）にフォールバックする。
+ * adminRatingStatsのavgScoreUp/avgScoreDownを見て手動でチューニングする運用を想定。
+ */
+function minScoreFor_(dbKey) {
+  var fallback = (dbKey && dbKey !== 'all') ? 0.58 : 0.62;
+  if (!dbKey || dbKey === 'all' || !DB_KEY_MAP[dbKey]) return fallback;
+  var override = getProps_().getProperty('MIN_SCORE_' + _namespacePropSuffix_(dbKey));
+  var parsed = parseFloat(override);
+  return isNaN(parsed) ? fallback : parsed;
+}
 
 function searchByEmbedding_(query, dbKey, limit, allowedNamespaces, preEmb) {
   limit = limit || 5;
@@ -490,19 +924,39 @@ function searchByEmbedding_(query, dbKey, limit, allowedNamespaces, preEmb) {
   var idx = loadIndex_();
   if (!idx.length) return [];
 
-  // DB指定時は低め（多様なチャンクが少ない小規模DBに対応）、全DB横断は高め
-  var MIN_SCORE = (dbKey && dbKey !== 'all') ? 0.58 : 0.62;
+  var MIN_SCORE = minScoreFor_(dbKey);
   var FETCH_K   = limit * 3;    // ページ重複排除前の候補数
 
-  var candidates = [];
+  var filtered = [];
   idx.forEach(function(row) {
     if (allowedNamespaces && allowedNamespaces.indexOf(row.db) === -1) return;
     if (dbKey && dbKey !== 'all' && row.db !== dbKey) return;
-    var score = cosineSimilarity_(qv, row.emb);
-    if (score < MIN_SCORE) return;
-    candidates.push({ score: score, db: row.db, title: row.title, text: row.text });
+    filtered.push(row);
   });
-  candidates.sort(function(a, b) { return b.score - a.score; });
+
+  var candidates;
+  if (_usesHybridSearch_(dbKey)) {
+    // BM25+RRFハイブリッド: ベクトル候補（MIN_SCOREでフィルタ）とBM25候補
+    // （キーワード一致の実証があるためスコアでフィルタしない）をRRFでマージする。
+    var vectorCandidates = [];
+    filtered.forEach(function(row) {
+      var score = cosineSimilarity_(qv, row.emb);
+      if (score < MIN_SCORE) return;
+      vectorCandidates.push({ score: score, db: row.db, title: row.title, text: row.text });
+    });
+    vectorCandidates.sort(function(a, b) { return b.score - a.score; });
+
+    var bm25Candidates = _bm25SearchCandidates_(query, filtered, FETCH_K);
+    candidates = _rrfMerge_(vectorCandidates.slice(0, FETCH_K), bm25Candidates, FETCH_K);
+  } else {
+    candidates = [];
+    filtered.forEach(function(row) {
+      var score = cosineSimilarity_(qv, row.emb);
+      if (score < MIN_SCORE) return;
+      candidates.push({ score: score, db: row.db, title: row.title, text: row.text });
+    });
+    candidates.sort(function(a, b) { return b.score - a.score; });
+  }
 
   // ページ単位重複排除: 同タイトルは最高スコアのチャンクのみ残す
   var titleSeen = {}, deduped = [];
@@ -517,6 +971,112 @@ function cosineSimilarity_(a, b) {
   for (var i = 0; i < a.length; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }
   var d = Math.sqrt(na) * Math.sqrt(nb);
   return d === 0 ? 0 : dot / d;
+}
+
+// ─────────────────────────────────────────────
+// BM25 + RRF ハイブリッド検索
+//
+// GASには形態素解析ライブラリ（SudachiPy等）が無い。当初はLocal RAG
+// （scripts/vector_database.py の _tokenize）のregexフォールバックと同じ
+// 「CJK連続runを1トークンとして扱う」方式を移植したが、実際の質問文
+// （例:「コネクトラインについて教えて」）は助詞込みで句読点が無いため
+// 全体が1つの巨大トークンになってしまい、ドキュメント側の短いトークン
+// （例:「コネクトライン」）と一切一致しないことがテストで判明した。
+// そのため、CJKの連続runは2文字スライド窓のbigramに分割する方式に変更した
+// （検索エンジンのCJK対応で広く使われる標準的な手法）。多少ノイズは増えるが、
+// 助詞の有無に関わらず固有名詞・キーワード部分の重なりでBM25スコアが機能する。
+// 英数字・型番（BTQ-116等）は従来通りそのままトークン化する。
+// ─────────────────────────────────────────────
+
+function _bm25Tokenize_(text) {
+  var tokens = [];
+  var alphaMatches = String(text).match(/[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+)*/g) || [];
+  alphaMatches.forEach(function(t) { if (t.length > 1) tokens.push(t.toLowerCase()); });
+  var cjkMatches = String(text).match(/[぀-ヿ一-鿿]{2,}/g) || [];
+  cjkMatches.forEach(function(run) {
+    if (run.length <= 2) { tokens.push(run); return; }
+    for (var i = 0; i < run.length - 1; i++) tokens.push(run.substring(i, i + 2));
+  });
+  var seen = {}, out = [];
+  tokens.forEach(function(t) { if (!seen[t]) { seen[t] = true; out.push(t); } });
+  return out.length ? out : String(text).split(/\s+/).filter(function(s) { return s; });
+}
+
+/** BM25スコア（Okapi BM25、k1=1.5, b=0.75の標準的な値） */
+function _bm25Score_(queryTokens, docTokens, df, avgdl, N) {
+  var k1 = 1.5, b = 0.75;
+  var docLen = docTokens.length || 1;
+  var termFreq = {};
+  docTokens.forEach(function(t) { termFreq[t] = (termFreq[t] || 0) + 1; });
+  var score = 0;
+  queryTokens.forEach(function(qt) {
+    var f = termFreq[qt] || 0;
+    if (f === 0) return;
+    var n = df[qt] || 0;
+    var idf = Math.log(1 + (N - n + 0.5) / (n + 0.5));
+    score += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * (docLen / avgdl)));
+  });
+  return score;
+}
+
+/**
+ * filtered（namespace/dbKeyで絞り込み済みの候補、row.tokensを含む）に対して
+ * BM25スコアを計算し、スコア>0（クエリ語を1つ以上含む）の候補を上位limit件返す。
+ */
+function _bm25SearchCandidates_(query, filtered, limit) {
+  var queryTokens = _bm25Tokenize_(query);
+  if (!queryTokens.length || !filtered.length) return [];
+
+  var N = filtered.length;
+  var df = {};
+  filtered.forEach(function(row) {
+    var seen = {};
+    (row.tokens || []).forEach(function(t) {
+      if (seen[t]) return;
+      seen[t] = true;
+      df[t] = (df[t] || 0) + 1;
+    });
+  });
+  var totalLen = 0;
+  filtered.forEach(function(row) { totalLen += (row.tokens || []).length; });
+  var avgdl = totalLen / N || 1;
+
+  var scored = filtered.map(function(row) {
+    return {
+      score: _bm25Score_(queryTokens, row.tokens || [], df, avgdl, N),
+      db: row.db, title: row.title, text: row.text,
+    };
+  }).filter(function(c) { return c.score > 0; });
+  scored.sort(function(a, b) { return b.score - a.score; });
+  return scored.slice(0, limit);
+}
+
+/**
+ * Reciprocal Rank Fusion でベクトル検索とBM25の結果をマージする。
+ * RRF score = 1/(k + vector_rank) + 1/(k + bm25_rank)、k=60（Local RAGと同じ標準値）。
+ */
+function _rrfMerge_(vectorResults, bm25Results, limit) {
+  var rrfScores = {}, itemMap = {};
+  var k = 60;
+  function keyOf(r) { return r.db + '::' + r.title; }
+
+  vectorResults.forEach(function(r, rank) {
+    var key = keyOf(r);
+    rrfScores[key] = (rrfScores[key] || 0) + 1 / (k + rank + 1);
+    itemMap[key] = r;
+  });
+  bm25Results.forEach(function(r, rank) {
+    var key = keyOf(r);
+    rrfScores[key] = (rrfScores[key] || 0) + 1 / (k + rank + 1);
+    if (!itemMap[key]) itemMap[key] = r;
+  });
+
+  var merged = Object.keys(rrfScores).map(function(key) {
+    var item = itemMap[key];
+    return { score: rrfScores[key], db: item.db, title: item.title, text: item.text };
+  });
+  merged.sort(function(a, b) { return b.score - a.score; });
+  return merged.slice(0, limit);
 }
 
 /**
@@ -546,7 +1106,15 @@ function hydePromptFor_(dbKey) {
 // HyDEの仮説文書がハルシネーションを起こし埋め込みを誤誘導するため、クエリ側の重みを高くする。
 var FACT_HEAVY_DOMAINS = ['afuri', 'braintq', 'fourteen'];
 
+/**
+ * 戻り値は { emb, hydeTokens, embedCharsQuery, embedCharsHypo }。
+ * hydeTokensはHyDE仮説文書生成（generateContent）のusageMetadata.totalTokenCountの実測値。
+ * embedContentのレスポンスにはusageMetadataが含まれないため、埋め込み2回分は
+ * トークン数を実測できず、代わりに入力文字数（目安値。正確なトークン数ではない）を返す。
+ * ユーザーごとのトークン使用量集計（recordTokenUsage_）で使う。
+ */
 function hydeExpand_(query, dbKey) {
+  var embedCharsQuery = Math.min(query.length, 2000);
   try {
     var apiKey = getProps_().getProperty('GEMINI_API_KEY');
     var url    = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
@@ -556,8 +1124,13 @@ function hydeExpand_(query, dbKey) {
       generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
     });
     var res = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: payload, muteHttpExceptions: true });
-    if (res.getResponseCode() !== 200) return embedQuery_(query);
-    var hypoDoc  = JSON.parse(res.getContentText()).candidates[0].content.parts[0].text;
+    if (res.getResponseCode() !== 200) {
+      return { emb: embedQuery_(query), hydeTokens: 0, embedCharsQuery: embedCharsQuery, embedCharsHypo: 0 };
+    }
+    var genBody    = JSON.parse(res.getContentText());
+    var hypoDoc    = genBody.candidates[0].content.parts[0].text;
+    var hydeTokens = (genBody.usageMetadata && genBody.usageMetadata.totalTokenCount) || 0;
+    var embedCharsHypo = Math.min(hypoDoc.length, 2000);
     // クエリと仮説文書の埋め込みは互いに独立しているため、直列fetchではなくfetchAllで並列実行する
     var embResps = UrlFetchApp.fetchAll([
       embedRequest_(query, 'RETRIEVAL_QUERY'),
@@ -565,15 +1138,18 @@ function hydeExpand_(query, dbKey) {
     ]);
     var queryEmb = parseEmbedResponse_(embResps[0]);
     var hypoEmb  = parseEmbedResponse_(embResps[1]);
-    if (!queryEmb || !hypoEmb) return queryEmb;
+    if (!queryEmb || !hypoEmb) {
+      return { emb: queryEmb, hydeTokens: hydeTokens, embedCharsQuery: embedCharsQuery, embedCharsHypo: embedCharsHypo };
+    }
     // 固有事実ドメインはクエリ80%+仮説20%（仮説のハルシネーション影響を抑制）、
     // 技術ドメインはクエリ40%+仮説60%（仮説文書が語彙ギャップを橋渡しする効果を活かす）
     var queryWeight = FACT_HEAVY_DOMAINS.indexOf(dbKey) !== -1 ? 0.8 : 0.4;
     var hypoWeight  = 1 - queryWeight;
-    return queryEmb.map(function(v, i) { return v * queryWeight + hypoEmb[i] * hypoWeight; });
+    var merged = queryEmb.map(function(v, i) { return v * queryWeight + hypoEmb[i] * hypoWeight; });
+    return { emb: merged, hydeTokens: hydeTokens, embedCharsQuery: embedCharsQuery, embedCharsHypo: embedCharsHypo };
   } catch(e) {
     Logger.log('HyDE fallback: ' + e.message);
-    return embedQuery_(query);
+    return { emb: embedQuery_(query), hydeTokens: 0, embedCharsQuery: embedCharsQuery, embedCharsHypo: 0 };
   }
 }
 
@@ -669,20 +1245,58 @@ function getMemorySheet_() {
   }
 }
 
-function saveMemory_(apiKey, query, answer, sources) {
+/**
+ * dbKeyのnamespaceがlogMemory:falseの場合は何も保存せず空文字を返す
+ * （問診・健康関連など機微な内容を扱うnamespace向け。docs/cloud-rag.md参照）。
+ */
+function saveMemory_(apiKey, query, answer, sources, dbKey) {
+  if (dbKey && !_shouldLogMemory_(dbKey)) return '';
   try {
     var sheet  = getMemorySheet_();
     if (!sheet) return '';
     var id     = new Date().getTime().toString(36) + Math.random().toString(36).slice(2, 5);
     var prefix = apiKey.substring(0, 8);
     var ts     = new Date().toISOString();
-    var srcStr = JSON.stringify((sources || []).slice(0, 5).map(function(s) { return { title: s.title, db: s.db }; }));
+    // score も保存しておくことで、adminRatingStats側で👍/👎とスコアの相関を見て
+    // MIN_SCORE閾値のチューニング判断ができるようにする。
+    var srcStr = JSON.stringify((sources || []).slice(0, 5).map(function(s) {
+      return { title: s.title, db: s.db, score: s.score };
+    }));
     sheet.appendRow([id, prefix, ts, query.substring(0, 500), answer.substring(0, 1000), srcStr, '', 0.5]);
     return id;
   } catch(e) {
     Logger.log('saveMemory_ error: ' + e.message);
     return '';
   }
+}
+
+/**
+ * RAG_Memoryの保持期限（日数）を過ぎた行を削除する。
+ * スクリプトプロパティ MEMORY_RETENTION_DAYS が未設定（0以下）なら何もしない
+ * （既定オフ・既存デプロイの挙動は変えない）。
+ */
+function purgeExpiredMemory_() {
+  var days = parseInt(getProps_().getProperty('MEMORY_RETENTION_DAYS') || '0', 10);
+  if (!days || days <= 0) return { purged: 0, enabled: false };
+  var sheet = getMemorySheet_();
+  if (!sheet) return { purged: 0, enabled: true };
+
+  var cutoff = new Date().getTime() - days * 24 * 60 * 60 * 1000;
+  var data   = sheet.getDataRange().getValues();
+  var toDelete = [];
+  for (var r = 1; r < data.length; r++) {
+    var ts = Date.parse(String(data[r][2]));
+    if (!isNaN(ts) && ts < cutoff) toDelete.push(r + 1);
+  }
+  toDelete.sort(function(a, b) { return b - a; });
+  toDelete.forEach(function(ri) { sheet.deleteRow(ri); });
+  return { purged: toDelete.length, enabled: true };
+}
+
+/** 管理UI/手動実行用: RAG_Memoryの期限切れ行を即時削除する */
+function adminPurgeExpiredMemory(apiKey) {
+  requireAdmin_(apiKey);
+  return purgeExpiredMemory_();
 }
 
 function searchMemory_(query, apiKey, limit) {
@@ -733,6 +1347,7 @@ function searchMemory_(query, apiKey, limit) {
 // Gemini
 // ─────────────────────────────────────────────
 
+/** 戻り値は { text, tokens }。tokensはusageMetadata.totalTokenCountの実測値（取得できなければ0）。 */
 function callGemini_(contents) {
   var apiKey  = getProps_().getProperty('GEMINI_API_KEY');
   var url     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
@@ -754,16 +1369,22 @@ function callGemini_(contents) {
       payload: payload, muteHttpExceptions: true,
     });
     var code = res.getResponseCode();
-    if (code === 200) return JSON.parse(res.getContentText()).candidates[0].content.parts[0].text;
+    if (code === 200) {
+      var body = JSON.parse(res.getContentText());
+      return {
+        text: body.candidates[0].content.parts[0].text,
+        tokens: (body.usageMetadata && body.usageMetadata.totalTokenCount) || 0,
+      };
+    }
     if ((code === 429 || code === 503) && i < maxRetries - 1) {
       var ra   = parseInt(((res.getHeaders() || {})['Retry-After'] || '0'), 10);
       var wait = ra > 0 ? ra * 1000 : Math.min(baseDelay * Math.pow(2, i), maxDelay) + Math.floor(Math.random() * 1000);
       Utilities.sleep(wait);
       continue;
     }
-    return '（Gemini APIエラー: ' + code + '）';
+    return { text: '（Gemini APIエラー: ' + code + '）', tokens: 0 };
   }
-  return '（リトライ上限に達しました）';
+  return { text: '（リトライ上限に達しました）', tokens: 0 };
 }
 
 // ─────────────────────────────────────────────
@@ -826,7 +1447,11 @@ function loadIndexFromSheet_() {
   for (var i = 1; i < data.length; i++) {
     var embStr = data[i][5];
     if (!embStr) continue;
-    rows.push({ db: data[i][1], title: data[i][2], text: String(data[i][3]).substring(0, 600), emb: JSON.parse(embStr) });
+    var title = data[i][2];
+    var text  = String(data[i][3]).substring(0, 600);
+    // BM25用のトークンも合わせて事前計算しキャッシュに含める（毎クエリでの再トークン化を避ける）。
+    // hybridSearch未使用のnamespaceでも計算コストは小さいため常に付与する。
+    rows.push({ db: data[i][1], title: title, text: text, emb: JSON.parse(embStr), tokens: _bm25Tokenize_(title + ' ' + text) });
   }
   saveIndexToCache_(rows);
   return rows;
@@ -886,11 +1511,12 @@ function syncNotionToSheets() {
     existingMap[baseId].rowIndices.push(i + 1);
   }
 
-  var reqKeys = [], listReqs = [];
+  var reqKeys = [], listReqs = [], dbIdByKey = {};
   Object.keys(DB_KEY_MAP).forEach(function(key) {
     var dbId = props.getProperty(DB_KEY_MAP[key]);
     if (!dbId) { Logger.log('DB未設定: ' + key); return; }
     reqKeys.push(key);
+    dbIdByKey[key] = dbId;
     listReqs.push({
       url: 'https://api.notion.com/v1/databases/' + dbId + '/query',
       method: 'post', headers: nHeaders, contentType: 'application/json',
@@ -904,8 +1530,30 @@ function syncNotionToSheets() {
   listResps.forEach(function(res, i) {
     var key = reqKeys[i];
     if (res.getResponseCode() !== 200) { Logger.log('[' + key + '] エラー: ' + res.getResponseCode()); return; }
-    var pages = JSON.parse(res.getContentText()).results || [];
-    Logger.log('[' + key + '] ' + pages.length + 'ページ');
+    var body  = JSON.parse(res.getContentText());
+    var pages = body.results || [];
+
+    // 101件目以降がある場合はhas_more/next_cursorで残りを取得する。
+    // 並列取得できるのは1ページ目まで（2ページ目以降はcursorが前ページの結果に
+    // 依存するため直列にならざるを得ない）。安全のため最大1000ページ（10万件相当）で打ち切る。
+    var hasMore = body.has_more, cursor = body.next_cursor, pageCount = 1;
+    while (hasMore && cursor && pageCount < 1000) {
+      var nextRes = UrlFetchApp.fetch('https://api.notion.com/v1/databases/' + dbIdByKey[key] + '/query', {
+        method: 'post', headers: nHeaders, contentType: 'application/json',
+        payload: JSON.stringify({ page_size: 100, start_cursor: cursor }), muteHttpExceptions: true,
+      });
+      if (nextRes.getResponseCode() !== 200) {
+        Logger.log('[' + key + '] 追加ページ取得エラー（' + pages.length + '件までで打ち切り）: ' + nextRes.getResponseCode());
+        break;
+      }
+      var nextBody = JSON.parse(nextRes.getContentText());
+      pages = pages.concat(nextBody.results || []);
+      hasMore = nextBody.has_more;
+      cursor  = nextBody.next_cursor;
+      pageCount++;
+    }
+
+    Logger.log('[' + key + '] ' + pages.length + 'ページ' + (pageCount > 1 ? '（' + pageCount + 'リクエストに分割）' : ''));
     pages.forEach(function(page) {
       var pd = extractPageData_(page, key);
       if (!pd) return;
@@ -1081,17 +1729,6 @@ function adminSyncDrive(apiKey) {
   return syncDriveToSheets();
 }
 
-/** DBキーごとに設定されているDriveフォルダIDの一覧を返す（管理者のみ） */
-function adminGetDriveFolders(apiKey) {
-  requireAdmin_(apiKey);
-  var props = getProps_();
-  var out = {};
-  Object.keys(DRIVE_KEY_MAP).forEach(function(dbKey) {
-    out[dbKey] = props.getProperty(DRIVE_KEY_MAP[dbKey]) || '';
-  });
-  return out;
-}
-
 /** DBキーに対応するDriveフォルダIDを設定・解除する（管理者のみ） */
 function adminSetDriveFolder(apiKey, dbKey, folderId) {
   requireAdmin_(apiKey);
@@ -1107,6 +1744,163 @@ function adminSetDriveFolder(apiKey, dbKey, folderId) {
   catch(e) { throw new Error('このフォルダIDにアクセスできません。共有設定を確認してください: ' + folderId); }
   props.setProperty(DRIVE_KEY_MAP[dbKey], folderId);
   return { ok: true, cleared: false };
+}
+
+// ─────────────────────────────────────────────
+// namespace管理（管理者向け）
+//
+// これまで新規namespaceの追加・Notion DB IDの紐付けはGASエディタの
+// スクリプトプロパティ画面での手作業（NAMESPACE_CONFIGのJSON直接編集）が
+// 必須だった。ここでは管理画面から namespace の追加・編集・Notion DB の
+// 新規作成/紐付けまで行えるようにする。
+// ─────────────────────────────────────────────
+
+var NAMESPACE_NAME_RE = /^[a-z][a-z0-9_]{1,29}$/;
+
+/**
+ * NAMESPACE_CONFIGスクリプトプロパティに1 namespace分のパッチをマージして保存する。
+ * NAMESPACE_CONFIG未設定（デフォルト構成のまま）の場合は、まずDEFAULT_NAMESPACE_CONFIG_を
+ * ベースにコピーしてから保存する（既存namespaceの設定を失わないため）。
+ * 変更はこの関数を呼んだ実行内では反映されない（DB_KEY_MAP等はスクリプト読み込み時に
+ * 一度だけ計算されるグローバル変数のため）。次回のGAS実行（次のリクエスト）から有効になる。
+ */
+function _saveNamespaceConfigEntry_(ns, patch) {
+  var merged = {};
+  Object.keys(_NAMESPACE_CONFIG_).forEach(function(k) { merged[k] = _NAMESPACE_CONFIG_[k]; });
+  merged[ns] = Object.assign({}, merged[ns] || {}, patch);
+  getProps_().setProperty('NAMESPACE_CONFIG', JSON.stringify(merged));
+  return merged;
+}
+
+/** 全namespaceの現在の設定を一覧で返す（管理者のみ）。DB管理タブの表示に使う。 */
+function adminListNamespaces(apiKey) {
+  requireAdmin_(apiKey);
+  var props = getProps_();
+  return ALL_NAMESPACES.map(function(ns) {
+    return {
+      ns:            ns,
+      label:         DB_LABELS[ns] || ns,
+      source:        NAMESPACE_SOURCE_MAP[ns] || 'notion',
+      hybridSearch:  !!NAMESPACE_HYBRID_MAP[ns],
+      logMemory:     NAMESPACE_LOG_MEMORY_MAP[ns] !== false,
+      notionDbId:    props.getProperty(DB_KEY_MAP[ns]) || '',
+      driveFolderId: props.getProperty(DRIVE_KEY_MAP[ns]) || '',
+    };
+  });
+}
+
+/**
+ * 新規namespaceを追加する（管理者のみ）。
+ * opts: { source, hybridSearch, logMemory, notionDbId, createNotionDb, driveFolderId }
+ * createNotionDb:true の場合、NOTION_PARENT_PAGE_ID配下に新規Notion DBを自動作成して紐付ける
+ * （notionDbIdが指定されていればそちらを優先し、新規作成はしない）。
+ */
+function adminCreateNamespace(apiKey, ns, label, opts) {
+  requireAdmin_(apiKey);
+  opts = opts || {};
+  ns = String(ns || '').trim();
+  label = String(label || '').trim();
+  if (!NAMESPACE_NAME_RE.test(ns)) {
+    throw new Error('namespaceは英小文字で始まる半角英数字・アンダースコアのみ、2〜30文字で指定してください: ' + ns);
+  }
+  if (ALL_NAMESPACES.indexOf(ns) !== -1) {
+    throw new Error('このnamespaceは既に存在します: ' + ns);
+  }
+  if (!label) throw new Error('ラベルは必須です');
+
+  var patch = { label: label };
+  if (opts.source === 'drive' || opts.source === 'both') patch.source = opts.source;
+  if (opts.hybridSearch) patch.hybridSearch = true;
+  if (opts.logMemory === false) patch.logMemory = false;
+  _saveNamespaceConfigEntry_(ns, patch);
+
+  var suffix = _namespacePropSuffix_(ns);
+  var result = { ns: ns, notionDbId: '', driveFolderId: '' };
+
+  if (opts.createNotionDb && !opts.notionDbId) {
+    result.notionDbId = _createNotionDatabase_(label);
+    getProps_().setProperty('DB_' + suffix, result.notionDbId);
+  } else if (opts.notionDbId) {
+    result.notionDbId = String(opts.notionDbId).trim();
+    getProps_().setProperty('DB_' + suffix, result.notionDbId);
+  }
+
+  if (opts.driveFolderId) {
+    var folderId = String(opts.driveFolderId).trim();
+    try { DriveApp.getFolderById(folderId); }
+    catch(e) { throw new Error('Driveフォルダにアクセスできません。共有設定を確認してください: ' + folderId); }
+    result.driveFolderId = folderId;
+    getProps_().setProperty('DRIVE_' + suffix, result.driveFolderId);
+  }
+
+  return result;
+}
+
+/** 既存namespaceのラベル・source・hybridSearch・logMemoryを更新する（管理者のみ） */
+function adminUpdateNamespace(apiKey, ns, patch) {
+  requireAdmin_(apiKey);
+  patch = patch || {};
+  if (ALL_NAMESPACES.indexOf(ns) === -1) throw new Error('存在しないnamespaceです: ' + ns);
+  var label = String(patch.label || '').trim();
+  if (!label) throw new Error('ラベルは必須です');
+
+  // source・hybridSearch・logMemoryは常に明示的に上書きする（例えばsourceを
+  // 'notion'に戻す・hybridSearchをOFFに戻す操作も反映されるように。
+  // _saveNamespaceConfigEntry_はパッチをマージするだけなので、値を省略すると
+  // 既存の値が残ってしまい既定値に戻せなくなる）
+  var clean = {
+    label:        label,
+    source:       (patch.source === 'drive' || patch.source === 'both') ? patch.source : 'notion',
+    hybridSearch: !!patch.hybridSearch,
+    logMemory:    patch.logMemory !== false,
+  };
+  _saveNamespaceConfigEntry_(ns, clean);
+  return { ok: true };
+}
+
+/** namespaceに対応するNotion DB IDを設定・解除する（管理者のみ。adminSetDriveFolderのNotion版） */
+function adminSetNotionDbId(apiKey, ns, dbId) {
+  requireAdmin_(apiKey);
+  if (!DB_KEY_MAP[ns]) throw new Error('無効なnamespaceです: ' + ns);
+  var props = getProps_();
+  dbId = (dbId || '').trim();
+  if (!dbId) {
+    props.deleteProperty(DB_KEY_MAP[ns]);
+    return { ok: true, cleared: true };
+  }
+  props.setProperty(DB_KEY_MAP[ns], dbId);
+  return { ok: true, cleared: false };
+}
+
+/**
+ * Notion APIで新規データベースを作成する。スクリプトプロパティNOTION_PARENT_PAGE_ID
+ * （新規DBの作成先の親ページID）が必須。作成するDBは既存のnamespace用DBと同じ標準スキーマ
+ * （title / summary(rich_text) / tags(multi_select) / source_url(url)）を持つ。
+ * 親ページに対してNotion Integrationの接続（共有設定）が事前に必要（Notion側の手動操作）。
+ */
+function _createNotionDatabase_(title) {
+  var parentPageId = getProps_().getProperty('NOTION_PARENT_PAGE_ID');
+  if (!parentPageId) {
+    throw new Error('NOTION_PARENT_PAGE_ID が未設定です。新規DBの作成先とするNotionページのIDをスクリプトプロパティに設定し、そのページにIntegrationを接続してください。');
+  }
+  var payload = {
+    parent: { type: 'page_id', page_id: parentPageId },
+    title:  [{ type: 'text', text: { content: title } }],
+    properties: {
+      title:      { title: {} },
+      summary:    { rich_text: {} },
+      tags:       { multi_select: {} },
+      source_url: { url: {} },
+    },
+  };
+  var res = UrlFetchApp.fetch('https://api.notion.com/v1/databases', {
+    method: 'post', headers: notionHeaders_(), contentType: 'application/json',
+    payload: JSON.stringify(payload), muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) {
+    throw new Error('Notion DBの作成に失敗しました: ' + res.getContentText().substring(0, 300));
+  }
+  return JSON.parse(res.getContentText()).id;
 }
 
 // ─────────────────────────────────────────────
@@ -1132,8 +1926,8 @@ function sheetToCsv_(sheet) {
 }
 
 /**
- * RAG_Memory・KB_Log・API_KEYS_CONFIG をGoogle Driveの専用フォルダに
- * タイムスタンプ付きでエクスポートする（管理者のみ、GASエディタから手動実行）。
+ * RAG_Memory・KB_Log・RAG_TokenUsage・API_KEYS_CONFIG をGoogle Driveの専用
+ * フォルダにタイムスタンプ付きでエクスポートする（管理者のみ、GASエディタから手動実行）。
  */
 function backupCriticalData_() {
   var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Etc/UTC', 'yyyyMMdd_HHmmss');
@@ -1150,6 +1944,12 @@ function backupCriticalData_() {
   if (kbSheet && kbSheet.getLastRow() > 0) {
     var kbFile = folder.createFile('KB_Log_' + timestamp + '.csv', sheetToCsv_(kbSheet), MimeType.CSV);
     filesCreated.push(kbFile.getName());
+  }
+
+  var usageSheet = getTokenUsageSheet_();
+  if (usageSheet && usageSheet.getLastRow() > 0) {
+    var usageFile = folder.createFile('RAG_TokenUsage_' + timestamp + '.csv', sheetToCsv_(usageSheet), MimeType.CSV);
+    filesCreated.push(usageFile.getName());
   }
 
   var apiKeysJson = JSON.stringify(getApiKeysConfig_(), null, 2);
@@ -1550,19 +2350,26 @@ function adminKbRollback(apiKey, opId) {
     if (t.source === 'drive') driveIds.push(t.id); else notionIds.push(t.id);
   });
 
-  // Notion ページをアーカイブ（ゴミ箱へ。Notion側から復元は可能）
+  // Notion ページをアーカイブ（ゴミ箱へ。Notion側から復元は可能）。
+  // 実際にAPIが成功したかどうか（レスポンスコード200）を見て件数をカウントする
+  // （以前はtry/catchで例外だけ握りつぶし、失敗しても「成功」扱いで返していた）。
+  var notionArchived = 0, notionFailed = [];
   notionIds.forEach(function(pid) {
     try {
-      UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + pid, {
+      var res = UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + pid, {
         method: 'patch', headers: notionHeaders_(), contentType: 'application/json',
         payload: JSON.stringify({ archived: true }), muteHttpExceptions: true,
       });
-    } catch(e) {}
+      if (res.getResponseCode() === 200) notionArchived++;
+      else notionFailed.push(pid);
+    } catch(e) { notionFailed.push(pid); }
   });
 
   // Driveファイルをゴミ箱へ（Drive側から復元は可能）
+  var driveDeleted = 0, driveFailed = [];
   driveIds.forEach(function(fid) {
-    try { DriveApp.getFileById(fid).setTrashed(true); } catch(e) {}
+    try { DriveApp.getFileById(fid).setTrashed(true); driveDeleted++; }
+    catch(e) { driveFailed.push(fid); }
   });
 
   // インデックス行を削除（Notionはハイフン有無どちらの形式でも照合、Driveは 'drive_' + fileId で照合）
@@ -1582,8 +2389,17 @@ function adminKbRollback(apiKey, opId) {
   logSheet.getRange(rowIdx + 1, 7).setValue('rolled_back');
   invalidateIndexCache_();
   return {
-    ok: true, opId: String(data[rowIdx][0]),
-    archivedPages: notionIds.length, deletedDriveFiles: driveIds.length, deletedRows: toDelete.length,
+    // 一部でもNotion/Driveの削除に失敗した場合はokをfalseにし、失敗したID一覧を
+    // failedTargetsで返す（管理画面側で「一部失敗」を表示できるように）。
+    // インデックス行の削除自体は対象ID全件に対して行うため、失敗があってもRAG_Indexからは
+    // 検索対象外になる（Notion/Drive側の実体だけが残ってしまう状態）。
+    ok: notionFailed.length === 0 && driveFailed.length === 0,
+    opId: String(data[rowIdx][0]),
+    archivedPages: notionArchived,
+    deletedDriveFiles: driveDeleted,
+    deletedRows: toDelete.length,
+    failedTargets: notionFailed.map(function(id) { return { source: 'notion', id: id }; })
+      .concat(driveFailed.map(function(id) { return { source: 'drive', id: id }; })),
   };
 }
 
@@ -1904,12 +2720,14 @@ function getChatHtml_() {
 '  <div id="history-list"></div>',
 '</div>',
 '<div id="tab-admin">',
+'  <div style="font-size:.72rem;color:#64748b;margin-bottom:8px">コードバージョン: <code>' + GAS_CODE_VERSION + '</code>（他のデプロイと突き合わせてデプロイ漏れがないか確認できます）</div>',
 '  <div id="admin-flash" class="admin-flash"></div>',
 '  <div class="admin-sub-bar">',
 '    <button class="admin-sub-btn active" id="asub-keys-btn" onclick="switchAdminSub(\'keys\')">🔑 APIキー管理</button>',
 '    <button class="admin-sub-btn" id="asub-kb-btn" onclick="switchAdminSub(\'kb\')">📚 ナレッジ登録</button>',
-'    <button class="admin-sub-btn" id="asub-drive-btn" onclick="switchAdminSub(\'drive\')">🗂 Drive連携</button>',
+'    <button class="admin-sub-btn" id="asub-drive-btn" onclick="switchAdminSub(\'drive\')">🗄 DB管理</button>',
 '    <button class="admin-sub-btn" id="asub-ratings-btn" onclick="switchAdminSub(\'ratings\')">📊 評価</button>',
+'    <button class="admin-sub-btn" id="asub-usage-btn" onclick="switchAdminSub(\'usage\')">💰 使用量</button>',
 '    <button class="admin-sub-btn" id="asub-guide-btn" onclick="switchAdminSub(\'guide\')">📖 使い方</button>',
 '  </div>',
 '  <!-- サブタブ: APIキー管理 -->',
@@ -1931,8 +2749,8 @@ function getChatHtml_() {
 '  <div class="admin-section">',
 '    <h3>発行済みキー一覧</h3>',
 '    <table class="admin-table">',
-'      <thead><tr><th>キー（先頭8文字）</th><th>名前</th><th>Namespace</th><th></th></tr></thead>',
-'      <tbody id="key-tbody"><tr><td colspan="4" style="color:#64748b;padding:12px">読み込み中...</td></tr></tbody>',
+'      <thead><tr><th>キー（先頭8文字）</th><th>名前</th><th>Namespace</th><th>トークン上限/残高</th><th></th></tr></thead>',
+'      <tbody id="key-tbody"><tr><td colspan="5" style="color:#64748b;padding:12px">読み込み中...</td></tr></tbody>',
 '    </table>',
 '  </div>',
 '  </div>',
@@ -1993,15 +2811,37 @@ function getChatHtml_() {
 '    </table>',
 '  </div>',
 '  </div>',
-'  <!-- サブタブ: Drive連携 -->',
+'  <!-- サブタブ: DB管理 -->',
 '  <div class="admin-sub-panel" id="asub-drive">',
 '  <div class="admin-section">',
-'    <h3>🗂 Google Drive をデータソースに追加</h3>',
-'    <p style="font-size:.78rem;color:#94a3b8;margin-bottom:6px">DBごとにGoogle Driveのフォルダを1つ紐付けると、そのフォルダ直下のファイル（PDF・Word・Excel・PowerPoint・Googleドキュメント等）もNotionと同じように検索対象になります。サブフォルダは対象外です。</p>',
-'    <p style="font-size:.76rem;color:#64748b;margin-bottom:14px">※ フォルダはこのGASを実行しているGoogleアカウントと共有しておく必要があります。PDF・Word等の変換にはGASエディタで Drive API サービスの追加が必要です。</p>',
+'    <h3>➕ 新規DB（namespace）を追加</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:12px">従来はGASエディタのスクリプトプロパティ画面でNAMESPACE_CONFIGのJSONを直接編集する必要があったが、ここから追加できる。Notion DBは既存のIDを指定するか、下の「Notionで新規DBを自動作成する」を使えば新規作成もできる（要NOTION_PARENT_PAGE_ID設定・親ページへのIntegration接続）。</p>',
+'    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">',
+'      <div><label style="font-size:.74rem;color:#94a3b8">namespace（英数字・アンダースコアのみ）</label><input class="admin-input" id="new-ns-key" type="text" placeholder="product_docs"></div>',
+'      <div><label style="font-size:.74rem;color:#94a3b8">ラベル</label><input class="admin-input" id="new-ns-label" type="text" placeholder="📦 製品ドキュメント"></div>',
+'    </div>',
+'    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">',
+'      <div><label style="font-size:.74rem;color:#94a3b8">登録先（source）</label>',
+'        <select class="admin-input" id="new-ns-source"><option value="notion">Notion</option><option value="drive">Drive単独</option><option value="both">両方</option></select>',
+'      </div>',
+'      <div style="display:flex;align-items:flex-end;padding-bottom:8px"><label style="font-size:.8rem;color:#e2e8f0"><input type="checkbox" id="new-ns-hybrid"> BM25+RRFハイブリッド検索を有効化</label></div>',
+'    </div>',
+'    <div style="margin-bottom:10px">',
+'      <label style="font-size:.74rem;color:#94a3b8">Notion DB</label><br>',
+'      <label style="font-size:.8rem;color:#e2e8f0;margin-right:16px"><input type="radio" name="new-ns-db-mode" value="existing" checked onchange="toggleNewNsDbMode()"> 既存DBのIDを入力</label>',
+'      <label style="font-size:.8rem;color:#e2e8f0"><input type="radio" name="new-ns-db-mode" value="auto" onchange="toggleNewNsDbMode()"> Notionで新規DBを自動作成する</label>',
+'      <input class="admin-input" id="new-ns-dbid" type="text" placeholder="Notion DB ID（空欄可）" style="margin-top:6px">',
+'    </div>',
+'    <div style="margin-bottom:14px"><label style="font-size:.74rem;color:#94a3b8">Driveフォルダ ID（任意）</label><input class="admin-input" id="new-ns-folder" type="text" placeholder="空欄可"></div>',
+'    <button class="btn-admin btn-primary" onclick="createNamespace()">追加する</button>',
+'    <div id="new-ns-status" style="font-size:.78rem;margin-top:10px;color:#94a3b8"></div>',
+'  </div>',
+'  <div class="admin-section">',
+'    <h3>📋 既存DB一覧</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:12px">ラベル・登録先・Notion DB ID・DriveフォルダIDは行ごとに編集して「保存」で反映できる。Driveフォルダは、このGASを実行しているGoogleアカウントと共有しておく必要がある。</p>',
 '    <table class="admin-table">',
-'      <thead><tr><th>DB</th><th>DriveフォルダID</th><th></th></tr></thead>',
-'      <tbody id="drive-folder-tbody"><tr><td colspan="3" style="color:#64748b;padding:12px">「Drive連携」タブを開くと読み込まれます</td></tr></tbody>',
+'      <thead><tr><th>namespace</th><th>ラベル</th><th>source</th><th>Notion DB ID</th><th>DriveフォルダID</th><th>Hybrid</th><th></th></tr></thead>',
+'      <tbody id="namespace-tbody"><tr><td colspan="7" style="color:#64748b;padding:12px">「DB管理」タブを開くと読み込まれます</td></tr></tbody>',
 '    </table>',
 '  </div>',
 '  <div class="admin-section">',
@@ -2016,12 +2856,18 @@ function getChatHtml_() {
 '    <button class="btn-admin btn-primary" onclick="backupNow()">今すぐバックアップする</button>',
 '    <div id="backup-status" style="font-size:.78rem;margin-top:10px;color:#94a3b8"></div>',
 '  </div>',
+'  <div class="admin-section">',
+'    <h3>🧹 会話ログ（RAG_Memory）の保持期限クリーンアップ</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:12px">スクリプトプロパティ<code>MEMORY_RETENTION_DAYS</code>（日数）を設定している場合のみ、期限切れの会話ログを削除します。未設定の場合はボタンを押しても何も削除されません（既定オフ）。問診等の機微な内容を扱うnamespaceは、<code>NAMESPACE_CONFIG</code>で<code>logMemory:false</code>を指定すればそもそも記録されなくなります。</p>',
+'    <button class="btn-admin" style="background:var(--dark3);color:#e2e8f0" onclick="purgeMemoryNow()">今すぐクリーンアップする</button>',
+'    <div id="purge-memory-status" style="font-size:.78rem;margin-top:10px;color:#94a3b8"></div>',
+'  </div>',
 '  </div>',
 '  <!-- サブタブ: 評価 -->',
 '  <div class="admin-sub-panel" id="asub-ratings">',
 '  <div class="admin-section">',
 '    <h3>📊 評価（👍/👎）の集計</h3>',
-'    <p style="font-size:.78rem;color:#94a3b8;margin-bottom:14px">この集計はMIN_SCORE閾値・HyDE重み等のグローバルなチューニングパラメータには自動反映されません。👎が多いDBがあれば、そのDBのHyDEドメインヒント（<code>hydePromptFor_</code>）や検索閾値（<code>MIN_SCORE</code>）を見直す判断材料にしてください。詳細は「使い方」タブ、またはdocs/cloud-rag.md §7.5を参照。</p>',
+'    <p style="font-size:.78rem;color:#94a3b8;margin-bottom:14px">この集計はMIN_SCORE閾値・HyDE重み等のグローバルなチューニングパラメータには自動反映されません。👎が多いDBがあれば、そのDBのHyDEドメインヒント（<code>hydePromptFor_</code>）や検索閾値（<code>MIN_SCORE</code>）を見直す判断材料にしてください。👍/👎それぞれの平均スコアが近い・👎の方が高いようであれば、MIN_SCOREが低すぎる可能性があります。閾値はスクリプトプロパティ<code>MIN_SCORE_&lt;namespace大文字&gt;</code>（例: <code>MIN_SCORE_BRAINTQ</code>）でnamespaceごとに上書きできます。詳細は「使い方」タブ、またはdocs/cloud-rag.md §7.5を参照。</p>',
 '    <div id="ratings-summary" style="display:flex;gap:24px;margin-bottom:16px;font-size:.85rem;color:#e2e8f0">読み込み中...</div>',
 '    <h3 style="font-size:.85rem;margin-bottom:8px">👎 が多いDB（要チューニング候補）</h3>',
 '    <table class="admin-table">',
@@ -2029,6 +2875,24 @@ function getChatHtml_() {
 '      <tbody id="ratings-bydb-tbody"><tr><td colspan="2" style="color:#64748b">「評価」タブを開くと読み込まれます</td></tr></tbody>',
 '    </table>',
 '    <button class="btn-admin" style="background:var(--dark3);color:#e2e8f0;margin-top:12px" onclick="loadRatingStats()">更新</button>',
+'  </div>',
+'  </div>',
+'  <!-- サブタブ: 使用量 -->',
+'  <div class="admin-sub-panel" id="asub-usage">',
+'  <div class="admin-section">',
+'    <h3>💰 APIキーごとのトークン使用量</h3>',
+'    <p style="font-size:.78rem;color:#94a3b8;margin-bottom:14px">HyDE仮説文書生成・最終回答生成（generateContent）はGemini APIのusageMetadataから実測したトークン数です。埋め込み（embedContent）はレスポンスにusageMetadataが含まれないため実測できず、「埋め込み文字数」は目安（正確なトークン数ではない）として参考表示しています。mode:"raw"（Function Calling経由）は最終回答生成を行わないため、その分のトークンは発生しません。</p>',
+'    <table class="admin-table">',
+'      <thead><tr><th>APIキー</th><th style="text-align:right">クエリ数</th><th style="text-align:right">raw/full</th><th style="text-align:right">実測トークン合計</th><th style="text-align:right">埋め込み文字数(目安)</th></tr></thead>',
+'      <tbody id="usage-tbody"><tr><td colspan="5" style="color:#64748b">「使用量」タブを開くと読み込まれます</td></tr></tbody>',
+'    </table>',
+'    <button class="btn-admin" style="background:var(--dark3);color:#e2e8f0;margin-top:12px" onclick="loadTokenUsageStats()">更新</button>',
+'  </div>',
+'  <div class="admin-section">',
+'    <h3>🧹 使用量ログの保持期限クリーンアップ</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:12px">スクリプトプロパティ<code>TOKEN_USAGE_RETENTION_DAYS</code>（日数）を設定している場合のみ、期限切れの使用量ログを削除します。未設定の場合はボタンを押しても何も削除されません（既定オフ）。</p>',
+'    <button class="btn-admin" style="background:var(--dark3);color:#e2e8f0" onclick="purgeTokenUsageNow()">今すぐクリーンアップする</button>',
+'    <div id="purge-usage-status" style="font-size:.78rem;margin-top:10px;color:#94a3b8"></div>',
 '  </div>',
 '  </div>',
 '  <!-- サブタブ: 使い方 -->',
@@ -2090,6 +2954,10 @@ function getChatHtml_() {
 '    <h3 style="margin-bottom:4px;color:#e2e8f0">🔑 namespace 編集</h3>',
 '    <p style="font-size:.78rem;color:#64748b;margin-bottom:14px">キー: <span id="edit-ns-preview" style="font-family:monospace;color:#94a3b8"></span></p>',
 '    <div id="edit-ns-checkboxes" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;padding:10px;background:var(--dark3);border-radius:8px;border:1px solid var(--dborder)"></div>',
+'    <div style="margin-bottom:16px">',
+'      <label style="font-size:.75rem;color:#64748b;display:block;margin-bottom:4px">トークン上限（空欄=無制限。変更すると残高は満タンにリセットされます）</label>',
+'      <input class="admin-input" id="edit-ns-capacity" type="number" min="0" step="1000" placeholder="例: 100000">',
+'    </div>',
 '    <div style="display:flex;gap:8px">',
 '      <button class="btn-admin btn-primary" onclick="saveEditNs()">保存</button>',
 '      <button class="btn-admin" style="background:var(--dark3);color:#e2e8f0" onclick="closeEditNs()">キャンセル</button>',
@@ -2584,7 +3452,7 @@ function getChatHtml_() {
 
 '// ── 管理サブタブ ──',
 'function switchAdminSub(tab) {',
-'  ["keys","kb","drive","ratings","guide"].forEach(function(t) {',
+'  ["keys","kb","drive","ratings","usage","guide"].forEach(function(t) {',
 '    var panel = document.getElementById("asub-"+t);',
 '    var btn   = document.getElementById("asub-"+t+"-btn");',
 '    if (panel) panel.classList.toggle("active", t === tab);',
@@ -2593,6 +3461,7 @@ function getChatHtml_() {
 '  if (tab === "kb") kbInitCloud();',
 '  if (tab === "drive") driveInit();',
 '  if (tab === "ratings") loadRatingStats();',
+'  if (tab === "usage") loadTokenUsageStats();',
 '}',
 
 'function loadRatingStats() {',
@@ -2607,7 +3476,9 @@ function getChatHtml_() {
 '        "<div style=\\"color:#4ade80\\">👍 " + s.up + "件</div>" +',
 '        "<div style=\\"color:#f87171\\">👎 " + s.down + "件</div>" +',
 '        "<div style=\\"color:#64748b\\">未評価 " + s.unrated + "件</div>" +',
-'        "<div>評価済みの👍率: <strong>" + upPct + "%</strong></div>";',
+'        "<div>評価済みの👍率: <strong>" + upPct + "%</strong></div>" +',
+'        (s.avgScoreUp   !== null ? "<div style=\\"color:#4ade80\\">👍平均スコア: " + s.avgScoreUp.toFixed(3)   + "</div>" : "") +',
+'        (s.avgScoreDown !== null ? "<div style=\\"color:#f87171\\">👎平均スコア: " + s.avgScoreDown.toFixed(3) + "</div>" : "");',
 '      var entries = Object.keys(s.downByDb).map(function(db) { return [db, s.downByDb[db]]; });',
 '      entries.sort(function(a, b) { return b[1] - a[1]; });',
 '      if (!entries.length) {',
@@ -2620,6 +3491,39 @@ function getChatHtml_() {
 '    })',
 '    .withFailureHandler(function(e) { summary.textContent = "読み込み失敗: " + e.message; })',
 '    .adminRatingStats(_apiKey);',
+'}',
+
+'function loadTokenUsageStats() {',
+'  var tbody = document.getElementById("usage-tbody");',
+'  google.script.run',
+'    .withSuccessHandler(function(res) {',
+'      var rows = res.rows || [];',
+'      if (!rows.length) {',
+'        tbody.innerHTML = \'<tr><td colspan="5" style="color:#64748b">記録がまだありません</td></tr>\';',
+'        return;',
+'      }',
+'      tbody.innerHTML = rows.map(function(r) {',
+'        return "<tr><td>" + r.displayName + " <span style=\\"color:#64748b;font-size:.72rem\\">(" + r.apiKeyPrefix + "...)</span></td>" +',
+'          "<td style=\\"text-align:right\\">" + r.queries + "</td>" +',
+'          "<td style=\\"text-align:right;color:#64748b\\">" + r.rawQueries + " / " + r.fullQueries + "</td>" +',
+'          "<td style=\\"text-align:right\\"><strong>" + r.totalMeasuredTokens.toLocaleString() + "</strong></td>" +',
+'          "<td style=\\"text-align:right;color:#64748b\\">" + r.embedCharsTotal.toLocaleString() + "</td></tr>";',
+'      }).join("");',
+'    })',
+'    .withFailureHandler(function(e) { tbody.innerHTML = \'<tr><td colspan="5" style="color:var(--warn)">読み込み失敗: \' + e.message + "</td></tr>"; })',
+'    .adminTokenUsageStats(_apiKey);',
+'}',
+
+'function purgeTokenUsageNow() {',
+'  var status = document.getElementById("purge-usage-status");',
+'  status.textContent = "確認中です…";',
+'  google.script.run',
+'    .withSuccessHandler(function(r) {',
+'      if (!r.enabled) { status.textContent = "TOKEN_USAGE_RETENTION_DAYSが未設定のため、何も削除していません。"; return; }',
+'      status.textContent = "✅ " + r.purged + "件削除しました。";',
+'    })',
+'    .withFailureHandler(function(e) { status.textContent = "❌ " + e.message; })',
+'    .adminPurgeExpiredTokenUsage(_apiKey);',
 '}',
 
 '// ── 管理画面 ──',
@@ -2635,12 +3539,19 @@ function getChatHtml_() {
 '        var ns  = (k.namespaces || []).join(", ") || "(なし)";',
 '        var adm = k.isAdmin ? \'<span class="badge-admin">管理者</span>\' : "";',
 '        var currentNsJson = JSON.stringify(k.namespaces || []).replace(/"/g, "&quot;");',
+'        var cap = (k.capacity == null)',
+'          ? \'<span style="color:#64748b">無制限</span>\'',
+'          : (Number(k.balance).toLocaleString() + " / " + Number(k.capacity).toLocaleString());',
+'        var chargeBtn = (k.capacity == null) ? "" :',
+'          \'<button class="btn-admin btn-sm" style="background:#334155;color:#e2e8f0" onclick="chargeKeyBalance(\\\'\' + k.keyPreview + \'\\\')">チャージ</button>\';',
 '        tr.innerHTML =',
 '          \'<td style="font-family:monospace">\' + k.keyPreview + \'</td>\' +',
 '          \'<td>\' + k.displayName + adm + \'</td>\' +',
 '          \'<td style="font-size:.72rem;color:#94a3b8">\' + ns + \'</td>\' +',
-'          \'<td style="display:flex;gap:6px">\' +',
-'            \'<button class="btn-admin btn-sm" style="background:#334155;color:#e2e8f0" onclick="openEditNs(\\\'\' + k.keyPreview + \'\\\',\' + currentNsJson.replace(/\'/g,"\\\\\'") + \')">編集</button>\' +',
+'          \'<td style="font-size:.76rem">\' + cap + \'</td>\' +',
+'          \'<td style="display:flex;gap:6px;flex-wrap:wrap">\' +',
+'            \'<button class="btn-admin btn-sm" style="background:#334155;color:#e2e8f0" onclick="openEditNs(\\\'\' + k.keyPreview + \'\\\',\' + currentNsJson.replace(/\'/g,"\\\\\'") + \',\' + (k.capacity == null ? "null" : k.capacity) + \')">編集</button>\' +',
+'            chargeBtn +',
 '            \'<button class="btn-admin btn-danger btn-sm" onclick="deleteKey(\\\'\' + k.keyPreview + \'\\\')">削除</button></td>\';',
 '        tbody.appendChild(tr);',
 '      });',
@@ -2676,8 +3587,10 @@ function getChatHtml_() {
 '}',
 '',
 'var _editNsPreview = null;',
-'function openEditNs(preview, currentNs) {',
+'var _editNsOrigCapacity = null;',
+'function openEditNs(preview, currentNs, currentCapacity) {',
 '  _editNsPreview = preview;',
+'  _editNsOrigCapacity = (currentCapacity === undefined) ? null : currentCapacity;',
 '  var modal = document.getElementById("edit-ns-modal");',
 '  if (!modal) return;',
 '  var wrap = document.getElementById("edit-ns-checkboxes");',
@@ -2693,20 +3606,41 @@ function getChatHtml_() {
 '    wrap.appendChild(chk);',
 '  });',
 '  document.getElementById("edit-ns-preview").textContent = preview;',
+'  document.getElementById("edit-ns-capacity").value = (currentCapacity == null) ? "" : currentCapacity;',
 '  modal.classList.add("show");',
 '}',
 'function closeEditNs() {',
 '  var modal = document.getElementById("edit-ns-modal");',
 '  if (modal) modal.classList.remove("show");',
 '  _editNsPreview = null;',
+'  _editNsOrigCapacity = null;',
 '}',
 'function saveEditNs() {',
 '  if (!_editNsPreview) return;',
 '  var ns = Array.from(document.querySelectorAll("#edit-ns-checkboxes input:checked")).map(function(i) { return i.value; });',
+'  var capRaw = document.getElementById("edit-ns-capacity").value.trim();',
+'  var newCapacity = capRaw === "" ? null : Number(capRaw);',
 '  google.script.run',
-'    .withSuccessHandler(function() { adminFlash("namespace を更新しました"); closeEditNs(); loadAdminKeys(); })',
+'    .withSuccessHandler(function() {',
+'      if (newCapacity === _editNsOrigCapacity) { adminFlash("namespace を更新しました"); closeEditNs(); loadAdminKeys(); return; }',
+'      google.script.run',
+'        .withSuccessHandler(function() { adminFlash("namespace / トークン上限を更新しました"); closeEditNs(); loadAdminKeys(); })',
+'        .withFailureHandler(function(e) { adminFlash(e.message, true); })',
+'        .adminSetKeyCapacity(_apiKey, _editNsPreview, newCapacity);',
+'    })',
 '    .withFailureHandler(function(e) { adminFlash(e.message, true); })',
 '    .adminUpdateKey(_apiKey, _editNsPreview, ns);',
+'}',
+
+'function chargeKeyBalance(preview) {',
+'  var amountRaw = prompt(preview + " にチャージするトークン数を入力してください（上限は超えません）");',
+'  if (amountRaw === null) return;',
+'  var amount = Number(amountRaw);',
+'  if (!isFinite(amount) || amount <= 0) { adminFlash("正の数値を入力してください", true); return; }',
+'  google.script.run',
+'    .withSuccessHandler(function() { adminFlash("チャージしました"); loadAdminKeys(); })',
+'    .withFailureHandler(function(e) { adminFlash(e.message, true); })',
+'    .adminChargeKeyBalance(_apiKey, preview, amount);',
 '}',
 
 'function copyModalKey() {',
@@ -2855,42 +3789,98 @@ function getChatHtml_() {
 '  if (!confirm("この学習を取り消しますか？\\n（覚えた内容が検索に出なくなり、Notionページはゴミ箱に移動します）")) return;',
 '  google.script.run',
 '    .withSuccessHandler(function(r) {',
-'      adminFlash("取り消しました（ページ " + r.archivedPages + " 件・インデックス " + r.deletedRows + " 行）");',
+'      if (r.ok) {',
+'        adminFlash("取り消しました（ページ " + r.archivedPages + " 件・インデックス " + r.deletedRows + " 行）");',
+'      } else {',
+'        adminFlash("一部失敗しました（成功: ページ" + r.archivedPages + "件/Drive" + r.deletedDriveFiles + "件、失敗: " + r.failedTargets.length + "件。手動確認してください）", true);',
+'      }',
 '      kbLoadHistory();',
 '    })',
 '    .withFailureHandler(function(e) { adminFlash(e.message, true); })',
 '    .adminKbRollback(_apiKey, opId);',
 '}',
 
-'// ── Drive連携 ──',
-'var _driveInited = false;',
+'// ── DB管理（namespace / Notion DB / Driveフォルダ） ──',
 'function driveInit() {',
-'  loadDriveFolders();',
+'  loadNamespaces();',
 '}',
 
-'function loadDriveFolders() {',
-'  var tbody = document.getElementById("drive-folder-tbody");',
+'function toggleNewNsDbMode() {',
+'  var mode = document.querySelector(\'input[name="new-ns-db-mode"]:checked\').value;',
+'  var input = document.getElementById("new-ns-dbid");',
+'  input.disabled = (mode === "auto");',
+'  if (mode === "auto") input.value = "";',
+'}',
+
+'function createNamespace() {',
+'  var ns     = document.getElementById("new-ns-key").value.trim();',
+'  var label  = document.getElementById("new-ns-label").value.trim();',
+'  var source = document.getElementById("new-ns-source").value;',
+'  var hybrid = document.getElementById("new-ns-hybrid").checked;',
+'  var dbMode = document.querySelector(\'input[name="new-ns-db-mode"]:checked\').value;',
+'  var dbId   = document.getElementById("new-ns-dbid").value.trim();',
+'  var folder = document.getElementById("new-ns-folder").value.trim();',
+'  var status = document.getElementById("new-ns-status");',
+'  status.textContent = "追加中…";',
 '  google.script.run',
-'    .withSuccessHandler(function(folders) {',
-'      tbody.innerHTML = ALL_NAMESPACES.map(function(ns) {',
+'    .withSuccessHandler(function(r) {',
+'      status.textContent = "✅ 追加しました: " + r.ns + (r.notionDbId ? "（Notion DB: " + r.notionDbId + "）" : "");',
+'      document.getElementById("new-ns-key").value = "";',
+'      document.getElementById("new-ns-label").value = "";',
+'      document.getElementById("new-ns-dbid").value = "";',
+'      document.getElementById("new-ns-folder").value = "";',
+'      loadNamespaces();',
+'    })',
+'    .withFailureHandler(function(e) { status.textContent = "❌ " + e.message; })',
+'    .adminCreateNamespace(_apiKey, ns, label, {',
+'      source: source, hybridSearch: hybrid,',
+'      createNotionDb: (dbMode === "auto"), notionDbId: dbId, driveFolderId: folder,',
+'    });',
+'}',
+
+'function loadNamespaces() {',
+'  var tbody = document.getElementById("namespace-tbody");',
+'  google.script.run',
+'    .withSuccessHandler(function(list) {',
+'      if (!list.length) { tbody.innerHTML = \'<tr><td colspan="7" style="color:#64748b">namespaceがありません</td></tr>\'; return; }',
+'      tbody.innerHTML = list.map(function(r) {',
+'        function opt(v, text) { return "<option value=\\"" + v + "\\"" + (r.source === v ? " selected" : "") + ">" + text + "</option>"; }',
 '        return "<tr>" +',
-'          "<td>" + (DB_LABELS[ns] || ns) + "</td>" +',
-'          \'<td><input class="admin-input" id="drive-folder-\' + ns + \'" type="text" placeholder="フォルダIDを貼り付け（空欄で解除）" value="\' + (folders[ns] || "") + \'"></td>\' +',
-'          \'<td><button class="btn-admin btn-primary btn-sm" onclick="saveDriveFolder(\\\'\' + ns + \'\\\')">保存</button></td>\' +',
+'          \'<td style="font-family:monospace;font-size:.76rem">\' + r.ns + "</td>" +',
+'          \'<td><input class="admin-input" id="ns-label-\' + r.ns + \'" type="text" value="\' + r.label.replace(/"/g, "&quot;") + \'"></td>\' +',
+'          \'<td><select class="admin-input" id="ns-source-\' + r.ns + \'">\' + opt("notion", "Notion") + opt("drive", "Drive") + opt("both", "両方") + "</select></td>" +',
+'          \'<td><input class="admin-input" id="ns-dbid-\' + r.ns + \'" type="text" placeholder="未設定" value="\' + r.notionDbId + \'"></td>\' +',
+'          \'<td><input class="admin-input" id="ns-folder-\' + r.ns + \'" type="text" placeholder="未設定" value="\' + r.driveFolderId + \'"></td>\' +',
+'          \'<td style="text-align:center"><input type="checkbox" id="ns-hybrid-\' + r.ns + \'"\' + (r.hybridSearch ? " checked" : "") + "></td>" +',
+'          \'<td><button class="btn-admin btn-primary btn-sm" onclick="saveNamespaceRow(\\\'\' + r.ns + \'\\\')">保存</button></td>\' +',
 '        "</tr>";',
 '      }).join("");',
 '    })',
-'    .withFailureHandler(function(e) { tbody.innerHTML = \'<tr><td colspan="3" style="color:#f87171">読み込み失敗: \' + e.message + "</td></tr>"; })',
-'    .adminGetDriveFolders(_apiKey);',
+'    .withFailureHandler(function(e) { tbody.innerHTML = \'<tr><td colspan="7" style="color:var(--warn)">読み込み失敗: \' + e.message + "</td></tr>"; })',
+'    .adminListNamespaces(_apiKey);',
 '}',
 
-'function saveDriveFolder(ns) {',
-'  var input = document.getElementById("drive-folder-" + ns);',
-'  var val = input.value.trim();',
+'function saveNamespaceRow(ns) {',
+'  var label  = document.getElementById("ns-label-" + ns).value.trim();',
+'  var source = document.getElementById("ns-source-" + ns).value;',
+'  var hybrid = document.getElementById("ns-hybrid-" + ns).checked;',
+'  var dbId   = document.getElementById("ns-dbid-" + ns).value.trim();',
+'  var folder = document.getElementById("ns-folder-" + ns).value.trim();',
+'  adminFlash("保存中…");',
 '  google.script.run',
-'    .withSuccessHandler(function(r) { adminFlash(r.cleared ? "解除しました" : "保存しました: " + (DB_LABELS[ns] || ns)); })',
-'    .withFailureHandler(function(e) { adminFlash(e.message, true); })',
-'    .adminSetDriveFolder(_apiKey, ns, val);',
+'    .withSuccessHandler(function() {',
+'      google.script.run',
+'        .withSuccessHandler(function() {',
+'          google.script.run',
+'            .withSuccessHandler(function() { adminFlash("保存しました: " + label); loadNamespaces(); })',
+'            .withFailureHandler(function(e) { adminFlash("Driveフォルダの保存に失敗: " + e.message, true); })',
+'            .adminSetDriveFolder(_apiKey, ns, folder);',
+'        })',
+'        .withFailureHandler(function(e) { adminFlash("Notion DB IDの保存に失敗: " + e.message, true); })',
+'        .adminSetNotionDbId(_apiKey, ns, dbId);',
+'    })',
+'    .withFailureHandler(function(e) { adminFlash("保存に失敗: " + e.message, true); })',
+'    .adminUpdateNamespace(_apiKey, ns, { label: label, source: source, hybridSearch: hybrid });',
 '}',
 
 'function driveSyncNow() {',
@@ -2913,6 +3903,18 @@ function getChatHtml_() {
 '    })',
 '    .withFailureHandler(function(e) { status.textContent = "❌ " + e.message; })',
 '    .adminBackupNow(_apiKey);',
+'}',
+
+'function purgeMemoryNow() {',
+'  var status = document.getElementById("purge-memory-status");',
+'  status.textContent = "確認中です…";',
+'  google.script.run',
+'    .withSuccessHandler(function(r) {',
+'      if (!r.enabled) { status.textContent = "MEMORY_RETENTION_DAYSが未設定のため、何も削除していません。"; return; }',
+'      status.textContent = "✅ " + r.purged + "件削除しました。";',
+'    })',
+'    .withFailureHandler(function(e) { status.textContent = "❌ " + e.message; })',
+'    .adminPurgeExpiredMemory(_apiKey);',
 '}',
 
 'function adminFlash(msg, isErr) {',
@@ -2948,7 +3950,8 @@ function bootstrapFirstAdminKey() {
   }
   var newKey = Utilities.getUuid().replace(/-/g, '');
   existing.push({
-    key:         newKey,
+    keyHash:     _hashApiKey_(newKey),
+    keyPreview:  newKey.substring(0, 8),
     displayName: '管理者',
     namespaces:  ALL_NAMESPACES,
     isAdmin:     true,
