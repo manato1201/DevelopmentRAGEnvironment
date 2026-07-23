@@ -76,6 +76,7 @@ Houdiniチャットパネル（rag_chatbot.py）に「チュートリアル生�
 | `rag_chatbot.py`への追加 | 「チュートリアル生成」モード／`/tutorial`コマンド。進行状況（どのツールを呼んでいるか）をリアルタイム表示 |
 | ノードグラフJSONエクスポーター | 完成したノード構成を NodeGraphAsset 互換のJSONへ変換 |
 | Houdiniパネルの「過去のチュートリアル」タブ | 保存済みチュートリアルの一覧 → 選択するとノードグラフを`QGraphicsView`で表示 |
+| `houdini/python_panels/token_usage.py` | チュートリアル生成の累積トークン消費量を`logs/houdini_token_usage.jsonl`に永続化し、Tutorialタブ上部に「残量ドーナツゲージ」（`QPainter`直描画）として可視化。予算はSettingsタブの「トークン予算」で変更可能（既定500,000トークン） |
 
 ### 2.3 ツールスキーマ（houdini_tools.py）
 
