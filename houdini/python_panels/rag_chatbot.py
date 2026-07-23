@@ -550,6 +550,12 @@ class RAGChatbotPanel(QWidget):
         )
         layout.addWidget(self._video_factory_exe_edit)
 
+        # トークン予算（チュートリアル生成の累積消費量ゲージに使う）
+        layout.addWidget(QLabel("トークン予算（累積・チュートリアル生成用）:"))
+        self._token_budget_edit = QLineEdit(str(self._cfg.get("token_budget", 500_000)))
+        self._token_budget_edit.setPlaceholderText("例: 500000")
+        layout.addWidget(self._token_budget_edit)
+
         # 操作ボタン
         save_btn = QPushButton("設定を保存")
         save_btn.clicked.connect(self._on_save_settings)

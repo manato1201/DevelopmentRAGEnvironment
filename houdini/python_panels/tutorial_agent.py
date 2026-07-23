@@ -46,7 +46,9 @@ RAG_NAMESPACES = ["houdini21"]  # 生成機能が参照してよい namespace �
 RAG_LIMIT = 6
 CLOUD_RAG_DB_KEY = "houdini21"  # Cloud RAG（GAS）に問い合わせる際の dbKey
 
-# Sonnet 4.6 の単価（USD / 1M tokens）。コスト上限判定の実測計算に使う
+# MODEL の単価（USD / 1M tokens）。コスト上限判定の実測計算に使う。
+# claude-sonnet-5 は標準価格が $3/$15（導入価格 $2/$10 は2026-08-31まで、
+# 過大評価になるだけで安全側なのでここでは標準価格を採用）
 _PRICE = {
     "input": 3.00,
     "output": 15.00,
@@ -86,6 +88,10 @@ class TutorialResult:
         self.slug: str = "tutorial"
         self.sandbox_path: str = ""
         self.cost_usd: float = 0.0
+        self.input_tokens: int = 0
+        self.output_tokens: int = 0
+        self.cache_write_tokens: int = 0
+        self.cache_read_tokens: int = 0
         self.iterations: int = 0
         self.completed: bool = False   # finish_tutorial まで到達したか
         self.abort_reason: str = ""    # 打ち切り理由（上限到達など）
@@ -94,6 +100,13 @@ class TutorialResult:
     def file_basename(self) -> str:
         date = datetime.datetime.now().strftime("%Y%m%d")
         return f"{self.slug}_{date}"
+
+    @property
+    def total_tokens(self) -> int:
+        return (
+            self.input_tokens + self.output_tokens
+            + self.cache_write_tokens + self.cache_read_tokens
+        )
 
 
 # ─── エージェント本体 ─────────────────────────────────────────────────────────────
@@ -301,7 +314,12 @@ class TutorialAgent:
     ) -> None:
         for iteration in range(1, MAX_ITERATIONS + 1):
             response = self._call_api(api_key, system_blocks, tools, messages)
-            result.cost_usd += self._usage_cost(response.get("usage", {}))
+            usage = response.get("usage", {})
+            result.cost_usd += self._usage_cost(usage)
+            result.input_tokens += usage.get("input_tokens", 0)
+            result.output_tokens += usage.get("output_tokens", 0)
+            result.cache_write_tokens += usage.get("cache_creation_input_tokens", 0)
+            result.cache_read_tokens += usage.get("cache_read_input_tokens", 0)
 
             content = response.get("content", [])
             messages.append({"role": "assistant", "content": content})

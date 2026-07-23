@@ -129,11 +129,41 @@ function saveApiKeysConfig_(keys) {
 // 認証ヘルパー
 // ─────────────────────────────────────────────
 
+function _bytesToHex_(bytes) {
+  var hex = '';
+  for (var i = 0; i < bytes.length; i++) {
+    var b = bytes[i];
+    if (b < 0) b += 256;
+    var h = b.toString(16);
+    hex += (h.length === 1 ? '0' + h : h);
+  }
+  return hex;
+}
+
+/** APIキーの平文をSHA-256ハッシュに変換する（API_KEYS_CONFIGに平文を残さないため） */
+function _hashApiKey_(key) {
+  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, key, Utilities.Charset.UTF_8);
+  return _bytesToHex_(digest);
+}
+
+/** APIキーエントリの表示用プレフィックス（新形式keyPreview優先、旧形式keyへの後方互換あり） */
+function _keyPreviewOf_(k) {
+  return k.keyPreview || (k.key ? k.key.substring(0, 8) : '');
+}
+
+/**
+ * APIキーを検証する。新規発行分はkeyHash（SHA-256）で照合し、平文はどこにも保存しない。
+ * bootstrapFirstAdminKey()等で過去に発行された旧形式（平文keyフィールド）のエントリとも
+ * 後方互換で照合できる。
+ */
 function validateApiKey_(key) {
   if (!key) return null;
+  var hash = _hashApiKey_(key);
   var keys = getApiKeysConfig_();
   for (var i = 0; i < keys.length; i++) {
-    if (keys[i].key === key) return keys[i];
+    var k = keys[i];
+    if (k.keyHash && k.keyHash === hash) return k;
+    if (!k.keyHash && k.key && k.key === key) return k; // 旧形式（平文）との後方互換
   }
   return null;
 }
@@ -266,7 +296,7 @@ function adminListKeys(apiKey) {
   requireAdmin_(apiKey);
   return getApiKeysConfig_().map(function(k) {
     return {
-      keyPreview:  k.key.substring(0, 8) + '...',
+      keyPreview:  _keyPreviewOf_(k) + '...',
       displayName: k.displayName || '',
       namespaces:  k.namespaces  || [],
       isAdmin:     k.isAdmin     || false,
@@ -285,7 +315,8 @@ function adminCreateKey(apiKey, displayName, namespaces, isAdmin) {
   var newKey = Utilities.getUuid().replace(/-/g, ''); // 32文字hex
   var keys   = getApiKeysConfig_();
   keys.push({
-    key:         newKey,
+    keyHash:     _hashApiKey_(newKey),
+    keyPreview:  newKey.substring(0, 8),
     displayName: displayName,
     namespaces:  namespaces  || [],
     isAdmin:     isAdmin     || false,
@@ -300,7 +331,7 @@ function adminDeleteKey(apiKey, keyPreview) {
   requireAdmin_(apiKey);
   var prefix = keyPreview.replace('...', '');
   var keys   = getApiKeysConfig_().filter(function(k) {
-    return k.key.substring(0, 8) !== prefix;
+    return _keyPreviewOf_(k) !== prefix;
   });
   saveApiKeysConfig_(keys);
   return { ok: true };
@@ -315,11 +346,37 @@ function adminUpdateKey(apiKey, keyPreview, newNamespaces) {
   var keys   = getApiKeysConfig_();
   var found  = false;
   keys.forEach(function(k) {
-    if (k.key.substring(0, 8) === prefix) { k.namespaces = newNamespaces; found = true; }
+    if (_keyPreviewOf_(k) === prefix) { k.namespaces = newNamespaces; found = true; }
   });
   if (!found) throw new Error('キーが見つかりません: ' + keyPreview);
   saveApiKeysConfig_(keys);
   return { ok: true };
+}
+
+// ─────────────────────────────────────────────
+// レート制限
+//
+// APIキーごとに、直近1分間のリクエスト数をCacheServiceで数え、
+// 上限を超えたら検索処理（Gemini API呼び出し）そのものをスキップして拒否する。
+// スクリプトプロパティ RATE_LIMIT_MAX_REQUESTS が未設定なら無効（既定オフ）。
+// ─────────────────────────────────────────────
+
+var RATE_LIMIT_WINDOW_SEC = 60;
+
+/** true: 上限超過（拒否すべき） / false: 許容範囲内（既定オフ時も常にfalse） */
+function isRateLimited_(apiKey) {
+  var maxReqRaw = getProps_().getProperty('RATE_LIMIT_MAX_REQUESTS');
+  if (!maxReqRaw) return false; // 未設定なら無効（既定オフ・既存デプロイに影響しない）
+  var maxReq = parseInt(maxReqRaw, 10);
+  if (!maxReq || maxReq <= 0) return false;
+
+  var cache  = CacheService.getScriptCache();
+  var bucket = Math.floor(new Date().getTime() / 1000 / RATE_LIMIT_WINDOW_SEC);
+  // apiKey自体をキャッシュキーに使わない（キャッシュの内容が漏れた場合の露出経路を増やさないため）
+  var key    = 'ratelimit_' + _hashApiKey_(apiKey).substring(0, 16) + '_' + bucket;
+  var count  = parseInt(cache.get(key) || '0', 10) + 1;
+  cache.put(key, String(count), RATE_LIMIT_WINDOW_SEC * 2);
+  return count > maxReq;
 }
 
 // ─────────────────────────────────────────────
@@ -371,6 +428,13 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({
         answer: 'アクセス権限がありません: ' + dbKey,
         sources: [], status: 'forbidden', allowedNamespaces: allowed,
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (isRateLimited_(apiKey)) {
+      return ContentService.createTextOutput(JSON.stringify({
+        answer: 'リクエストが多すぎます。しばらく待ってから再試行してください。',
+        sources: [], status: 'rate_limited',
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -886,11 +950,12 @@ function syncNotionToSheets() {
     existingMap[baseId].rowIndices.push(i + 1);
   }
 
-  var reqKeys = [], listReqs = [];
+  var reqKeys = [], listReqs = [], dbIdByKey = {};
   Object.keys(DB_KEY_MAP).forEach(function(key) {
     var dbId = props.getProperty(DB_KEY_MAP[key]);
     if (!dbId) { Logger.log('DB未設定: ' + key); return; }
     reqKeys.push(key);
+    dbIdByKey[key] = dbId;
     listReqs.push({
       url: 'https://api.notion.com/v1/databases/' + dbId + '/query',
       method: 'post', headers: nHeaders, contentType: 'application/json',
@@ -904,8 +969,30 @@ function syncNotionToSheets() {
   listResps.forEach(function(res, i) {
     var key = reqKeys[i];
     if (res.getResponseCode() !== 200) { Logger.log('[' + key + '] エラー: ' + res.getResponseCode()); return; }
-    var pages = JSON.parse(res.getContentText()).results || [];
-    Logger.log('[' + key + '] ' + pages.length + 'ページ');
+    var body  = JSON.parse(res.getContentText());
+    var pages = body.results || [];
+
+    // 101件目以降がある場合はhas_more/next_cursorで残りを取得する。
+    // 並列取得できるのは1ページ目まで（2ページ目以降はcursorが前ページの結果に
+    // 依存するため直列にならざるを得ない）。安全のため最大1000ページ（10万件相当）で打ち切る。
+    var hasMore = body.has_more, cursor = body.next_cursor, pageCount = 1;
+    while (hasMore && cursor && pageCount < 1000) {
+      var nextRes = UrlFetchApp.fetch('https://api.notion.com/v1/databases/' + dbIdByKey[key] + '/query', {
+        method: 'post', headers: nHeaders, contentType: 'application/json',
+        payload: JSON.stringify({ page_size: 100, start_cursor: cursor }), muteHttpExceptions: true,
+      });
+      if (nextRes.getResponseCode() !== 200) {
+        Logger.log('[' + key + '] 追加ページ取得エラー（' + pages.length + '件までで打ち切り）: ' + nextRes.getResponseCode());
+        break;
+      }
+      var nextBody = JSON.parse(nextRes.getContentText());
+      pages = pages.concat(nextBody.results || []);
+      hasMore = nextBody.has_more;
+      cursor  = nextBody.next_cursor;
+      pageCount++;
+    }
+
+    Logger.log('[' + key + '] ' + pages.length + 'ページ' + (pageCount > 1 ? '（' + pageCount + 'リクエストに分割）' : ''));
     pages.forEach(function(page) {
       var pd = extractPageData_(page, key);
       if (!pd) return;
@@ -2948,7 +3035,8 @@ function bootstrapFirstAdminKey() {
   }
   var newKey = Utilities.getUuid().replace(/-/g, '');
   existing.push({
-    key:         newKey,
+    keyHash:     _hashApiKey_(newKey),
+    keyPreview:  newKey.substring(0, 8),
     displayName: '管理者',
     namespaces:  ALL_NAMESPACES,
     isAdmin:     true,
