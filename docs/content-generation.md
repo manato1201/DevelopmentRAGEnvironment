@@ -155,7 +155,7 @@ node_graph_json = export_node_graph(sandbox)  # NodeGraphAsset形式
 | 成果物形式 | `localRAG/tutorials/<slug>_<date>.md` ＋ 同名 `.json`（NodeGraphAsset形式）のペアが必ず生成される |
 | プレビュー | チャット上でMarkdownがプレビューされ、ユーザーが明示的に「保存」を押すまでファイル書き込みしない |
 | 安全性 | 生成過程で `/obj/ai_tutorial_<timestamp>` 以外のノードに一切触れていないことをログで確認できる |
-| コスト上限 | 1回の生成が **$0.50 を超えたら自動打ち切り**、ユーザーに途中経過を提示 |
+| コスト上限 | 1回の生成が **$5.00 を超えたら自動打ち切り**（ローカル側フェイルセーフ。実際の利用上限はGAS側の`claudeCapacity`が唯一の正で、管理画面から調整する）、ユーザーに途中経過を提示 |
 | 知識還流 | 生成物が `localRAG/` 配下に置かれ watchdog が自動インデックス化することを確認済み |
 
 #### 委任範囲

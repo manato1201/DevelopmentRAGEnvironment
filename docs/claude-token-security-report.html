@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude API トークンセキュリティ強化 — GAS二重予算制・自動回復レポート</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1117;
+    --panel: #171a23;
+    --border: #2a2e3a;
+    --text: #e6e8ee;
+    --muted: #9aa1b4;
+    --accent: #7aa2ff;
+    --good: #6fd08c;
+    --bad: #ef7a7a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --border: #e1e4ec;
+      --text: #1b1e27;
+      --muted: #5b6270;
+      --accent: #3358d6;
+      --good: #1f8a4c;
+      --bad: #c23a3a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    line-height: 1.75;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+  header.hero {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  header.hero h1 { font-size: 1.6rem; margin: 0 0 .5rem; }
+  header.hero .meta { color: var(--muted); font-size: .9rem; }
+  .badge {
+    display: inline-block;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: .15rem .7rem;
+    font-size: .78rem;
+    color: var(--accent);
+    margin-right: .4rem;
+  }
+  nav.toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.3rem;
+    margin-bottom: 2.5rem;
+  }
+  nav.toc summary { cursor: pointer; font-weight: 600; }
+  nav.toc ol { margin: .8rem 0 0; padding-left: 1.3rem; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  section { margin-bottom: 3rem; }
+  h2 {
+    font-size: 1.25rem;
+    border-left: 4px solid var(--accent);
+    padding-left: .6rem;
+    margin-top: 0;
+  }
+  h3 { font-size: 1.05rem; color: var(--text); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: .92rem;
+    overflow-x: auto;
+    display: block;
+  }
+  table thead { display: table; width: 100%; table-layout: fixed; }
+  table tbody { display: table; width: 100%; table-layout: fixed; }
+  th, td {
+    border: 1px solid var(--border);
+    padding: .5rem .7rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--panel); color: var(--accent); }
+  code {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: .1rem .35rem;
+    font-size: .88em;
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: .85rem;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  .mermaid { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; overflow-x: auto; }
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--panel);
+    padding: .8rem 1rem;
+    border-radius: 0 8px 8px 0;
+    margin: 1rem 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-color: var(--bad); }
+  footer { color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); padding-top: 1.2rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="badge">技術資料</span><span class="badge">セキュリティ強化</span>
+  <h1>Claude API トークンセキュリティ強化 — GAS二重予算制・自動回復レポート</h1>
+  <div class="meta">作成日: 2026-07-25　｜　対象機能: houdini21チュートリアル自動生成のClaude API呼び出し全体</div>
+</header>
+
+<nav class="toc">
+  <details open>
+  <summary>目次</summary>
+  <ol>
+    <li><a href="#s1">概要</a></li>
+    <li><a href="#s2">背景にあった問題</a></li>
+    <li><a href="#s3">アーキテクチャ全体像</a></li>
+    <li><a href="#s4">二重トークン予算（RAG／Claude独立バケット）</a></li>
+    <li><a href="#s5">自動回復（resetIntervalHours / resetAt）</a></li>
+    <li><a href="#s6">管理画面UI</a></li>
+    <li><a href="#s7">Houdini側の表示</a></li>
+    <li><a href="#s8">テスト</a></li>
+    <li><a href="#s9">変更ファイル一覧</a></li>
+    <li><a href="#s10">運用上の注意・今後の改善事項</a></li>
+  </ol>
+  </details>
+</nav>
+
+<section id="s1">
+  <h2>1. 概要</h2>
+  <p>houdini21チュートリアル自動生成のClaude API呼び出しを、<strong>必ずGAS（gas_cloud_rag.js）経由</strong>にする構成へ移行した。これにより、クライアント（Houdini）は生の<code>ANTHROPIC_API_KEY</code>を一切保持せず、APIキーごとのトークン利用上限は常にGAS側が唯一の正として強制する。加えて、RAG（Gemini）用とは独立したClaude専用の予算バケットを追加し、管理画面から上限設定・チャージ・<strong>自動回復間隔の設定</strong>ができるようにした。</p>
+  <div class="mermaid">
+flowchart LR
+    A["実証実験の実施が決定"] --> B["クライアント側でトークン上限を自己申告・改ざんできる構成が発覚"]
+    B --> C["GASを唯一の判定者にする設計に変更"]
+    C --> D["RAG/Claude 二重予算バケット追加"]
+    D --> E["残高の自動回復機能を追加"]
+    E --> F["Node.js vm 6ファイル・Pythonテストで検証"]
+    F --> G["ドキュメント更新・コミット"]
+  </div>
+</section>
+
+<section id="s2">
+  <h2>2. 背景にあった問題</h2>
+  <p>以前はHoudiniクライアントが<code>ANTHROPIC_API_KEY</code>をOS環境変数として直接保持し、Claude APIを直接呼んでいた。トークン消費の「予算」は<code>token_usage.py</code>側のローカル数値・ログでしか管理されておらず、単なる目安表示に過ぎなかった。</p>
+  <ul>
+    <li>ユーザーがローカル設定やログファイルを書き換えれば、実質無制限に使える</li>
+    <li>上限は「サーバー側で強制」されておらず、クライアントの自己申告に依存していた</li>
+    <li>実証実験の対象者には非技術者も含まれるため、悪意がなくても誤操作で大量消費するリスクがあった</li>
+  </ul>
+  <div class="mermaid">
+flowchart TB
+    subgraph Before["変更前"]
+        H1["Houdiniクライアント"] -->|"ANTHROPIC_API_KEYを直接保持"| C1["Claude API"]
+        H1 -.->|"ローカル設定値・目安表示のみ"| L1["token_usage.py<br/>ローカルJSONログ"]
+    end
+    subgraph After["変更後"]
+        H2["Houdiniクライアント<br/>生キーを一切持たない"] -->|"action:claude_messages"| G2["GAS<br/>gas_cloud_rag.js"]
+        G2 -->|"事前にclaudeBalanceを判定"| Q2{"残高 > 0?"}
+        Q2 -->|Yes| C2["Claude API"]
+        Q2 -->|No| R2["quota_exceeded を返す<br/>Claude APIは一切呼ばない"]
+        G2 -->|"消費後の残高を返す<br/>表示専用"| H2
+    end
+  </div>
+  <div class="callout warn">クライアント側の設定・ログをどう書き換えても、GASの検証を通らない限りAnthropicへのリクエストは発生しない構成にした。</div>
+</section>
+
+<section id="s3">
+  <h2>3. アーキテクチャ全体像</h2>
+  <div class="mermaid">
+sequenceDiagram
+    participant UI as tutorial_view.py（Tutorialタブ）
+    participant Agent as TutorialAgent（tutorial_agent.py）
+    participant GAS as gas_cloud_rag.js（doPost action:'claude_messages'）
+    participant Anthropic as Claude API（api.anthropic.com）
+
+    UI->>Agent: generate(topic)
+    Agent->>Agent: gas_url / gas_api_key 未設定なら即エラー
+    loop 反復（最大MAX_ITERATIONS回）
+        Agent->>GAS: POST { action:'claude_messages', apiKey, model, system, tools, messages }
+        GAS->>GAS: validateApiKey_() でAPIキー検証 + 自動回復チェック
+        GAS->>GAS: _hasClaudeQuotaRemaining_() で事前チェック
+        alt 残高あり
+            GAS->>Anthropic: callClaudeProxy_()（429/500/529は最大3回リトライ）
+            Anthropic-->>GAS: content / usage
+            GAS->>GAS: recordClaudeUsage_() で実測トークン数を減算
+            GAS-->>Agent: status:ok, content, usage, claudeQuota
+        else 残高なし
+            GAS-->>Agent: status:quota_exceeded（Claude APIは一切呼ばれない）
+        end
+        Agent->>Agent: result.claude_balance / claude_reset_at 等を更新
+    end
+    Agent-->>UI: TutorialResult（Markdown + 残高情報）
+  </div>
+  <p>ポイントは、<strong>GASのAPIキー検証（validateApiKey_）が全リクエストの唯一の関所</strong>になっていること。ここを通らない限りAnthropicへのリクエストは発生しないため、クライアント側でHoudiniの設定・ログファイルをどう書き換えても上限を迂回できない。</p>
+</section>
+
+<section id="s4">
+  <h2>4. 二重トークン予算（RAG／Claude独立バケット）</h2>
+  <p><code>API_KEYS_CONFIG</code>（スクリプトプロパティ、JSON配列）に、既存のRAG（Gemini）用フィールドと構造的に対称なClaude専用フィールドを追加した。</p>
+  <table>
+    <thead><tr><th>バケット</th><th>上限</th><th>残高</th><th>回復間隔</th><th>次回回復予定</th></tr></thead>
+    <tbody>
+      <tr><td>RAG（Gemini）</td><td><code>capacity</code></td><td><code>balance</code></td><td><code>resetIntervalHours</code></td><td><code>resetAt</code></td></tr>
+      <tr><td>Claude</td><td><code>claudeCapacity</code></td><td><code>claudeBalance</code></td><td><code>claudeResetIntervalHours</code></td><td><code>claudeResetAt</code></td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>2つのバケットは<strong>完全に独立</strong>して消費・チャージ・上限設定ができる</li>
+    <li><code>capacity</code>/<code>claudeCapacity</code>が<code>null</code>のキーは「無制限」として扱われる</li>
+    <li>管理画面「🔑 APIキー管理」タブでは、キーごとに2つの円ゲージを独立して表示・編集できる</li>
+  </ul>
+</section>
+
+<section id="s5">
+  <h2>5. 自動回復（resetIntervalHours / resetAt）</h2>
+  <p>管理者が上限を設定する際、任意で「自動回復間隔（時間）」を指定できる。指定すると、その時間ごとに残高が上限まで自動で満タンに回復する。空欄のままなら自動回復オフ（手動チャージのみ）。</p>
+
+  <h3>5.1 実装方式：時間トリガーではなくプル型</h3>
+  <p>GASの時間主導トリガーは使っていない。かわりに、全リクエストが通る唯一の関所である<code>validateApiKey_()</code>が、呼ばれるたびに「このキーのresetAtはもう過ぎているか？」をチェックし、過ぎていればその場で残高を戻す（<code>_applyScheduledReset_</code>）。</p>
+  <div class="mermaid">
+flowchart TD
+    Start(["validateApiKey_ が呼ばれる"]) --> Check{"capacityが設定済み<br/>かつ resetIntervalHours > 0?"}
+    Check -->|No| Skip["何もしない<br/>無制限 or 自動回復オフ"]
+    Check -->|Yes| HasAt{"resetAtが未設定?"}
+    HasAt -->|Yes| Init["resetAt = 今 + interval（初回スケジュール）"]
+    HasAt -->|No| Loop{"now >= resetAt?"}
+    Loop -->|No| NoOp["まだ回復タイミングではない<br/>残高はそのまま"]
+    Loop -->|Yes| Recover["balance = capacity に戻す<br/>resetAt += interval"]
+    Recover --> Loop
+    Loop -->|"now < resetAt になったら終了"| Save["変更があれば保存"]
+  </div>
+  <p>ループ構造がポイントで、複数回分のインターバルを取りこぼしていても、過ぎている分だけ<code>resetAt</code>を進めながら残高を満タンにし続け、最終的に必ず「未来の時刻」に<code>resetAt</code>を再設定してから終了する。</p>
+
+  <h3>5.2 遅延特性（重要な運用上の注意）</h3>
+  <p>プル型のため、誰も呼ばないキーはresetAtを過ぎても実際には残高が回復しない。次にそのキーが使われた瞬間（Claude呼び出し、または管理画面のキー一覧表示）にまとめて反映される。管理画面のキー一覧（<code>adminListKeys()</code>）も表示時に同じ回復処理を通すため、実運用では「管理画面を開けば最新残高が見える」ため実害は小さい。</p>
+
+  <h3>5.3 レスポンス・表示への反映</h3>
+  <pre><code>{
+  "status": "ok",
+  "content": [...],
+  "usage": {"input_tokens": 1000, "output_tokens": 500},
+  "claudeQuota": {
+    "balance": 8500,
+    "capacity": 10000,
+    "resetIntervalHours": 24,
+    "resetAt": "2026-07-26T00:00:00.000Z"
+  }
+}</code></pre>
+</section>
+
+<section id="s6">
+  <h2>6. 管理画面UI</h2>
+  <p>「🔑 APIキー管理」タブのキー編集モーダルに、RAG用・Claude用それぞれの上限入力欄と「自動回復間隔（時間）」入力欄を追加した。空欄なら自動回復オフ。</p>
+  <p>キー一覧テーブルのミニ円ゲージ（<code>conic-gradient</code>のCSSで描画、残量15%以下で赤に変化）の下に、「次回回復: 2026-07-26 09:00（24時間毎）」または「自動回復なし（手動チャージ）」を小さく表示する。</p>
+</section>
+
+<section id="s7">
+  <h2>7. Houdini側の表示</h2>
+  <p><code>token_usage.py</code>のパネルは、<strong>GASが返した実際の残高をそのまま表示するだけ</strong>で、上限の判定には一切使わない。</p>
+  <table>
+    <thead><tr><th>状態</th><th>表示例</th></tr></thead>
+    <tbody>
+      <tr><td>無制限キー</td><td>「無制限」</td></tr>
+      <tr><td>上限あり・残量十分</td><td>「8,500 / 10,000」＋「次回自動回復: 2026-07-26 09:00（24時間毎）」</td></tr>
+      <tr><td>上限あり・自動回復オフ</td><td>「8,500 / 10,000」＋「自動回復は設定されていません（管理者にチャージを依頼してください）」</td></tr>
+    </tbody>
+  </table>
+  <p>以前のクライアント側で編集可能だった「トークン予算」数値フィールド（Settingsタブ）は削除済み。上限調整は管理画面（GAS Admin UI）が唯一の変更経路になっている。</p>
+</section>
+
+<section id="s8">
+  <h2>8. テスト</h2>
+  <table>
+    <thead><tr><th>ファイル</th><th>対象</th></tr></thead>
+    <tbody>
+      <tr><td>test_gas_apikey.js</td><td>APIキーのハッシュ化・レート制限</td></tr>
+      <tr><td>test_gas_token_usage.js</td><td>RAGトークン使用量・予算ライフサイクル</td></tr>
+      <tr><td>test_gas_namespace_mgmt.js</td><td>namespace CRUD</td></tr>
+      <tr><td>test_gas_hybrid_health.js</td><td>ハイブリッド検索・ヘルスアラート</td></tr>
+      <tr><td>test_gas_rollback_version.js</td><td>ロールバック・versionエンドポイント</td></tr>
+      <tr><td>test_gas_claude_proxy.js</td><td><strong>Claudeプロキシ・二重予算・自動回復（今回拡張）</strong></td></tr>
+    </tbody>
+  </table>
+  <p>自動回復について追加したケース: 初回スケジュール／過去のresetAtからの回復／早すぎない回復／複数インターバルのキャッチアップ／無制限キーは影響を受けない／<code>adminListKeys()</code>単体でも回復が反映される。</p>
+  <div class="mermaid">
+flowchart LR
+    A["node --check<br/>gas_cloud_rag.js"] --> B["6スイート<br/>Node.js vmテスト"]
+    B --> C["python -m py_compile"]
+    C --> D["python -m unittest"]
+    D --> E["全通過を確認してからコミット"]
+  </div>
+</section>
+
+<section id="s9">
+  <h2>9. 変更ファイル一覧</h2>
+  <table>
+    <thead><tr><th>ファイル</th><th>変更内容</th></tr></thead>
+    <tbody>
+      <tr><td>scripts/gas_cloud_rag.js</td><td>Claudeプロキシ・二重予算バケット・自動回復・管理画面UI</td></tr>
+      <tr><td>houdini/python_panels/tutorial_agent.py</td><td>Claude呼び出しをGAS経由に変更、回復タイミングを結果に追加、COST_LIMIT_USDを緩和</td></tr>
+      <tr><td>houdini/python_panels/token_usage.py</td><td>サーバー残高＋回復タイミングの表示・キャッシュロジック</td></tr>
+      <tr><td>houdini/python_panels/tutorial_view.py</td><td>生成完了時に回復タイミング情報もキャッシュへ保存</td></tr>
+      <tr><td>houdini/python_panels/rag_chatbot.py</td><td>クライアント側の「トークン予算」編集フィールドを削除</td></tr>
+      <tr><td>docs/cloud-rag.md §8.14</td><td>アーキテクチャ・自動回復方式の技術資料としての記述</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s10">
+  <h2>10. 運用上の注意・今後の改善事項</h2>
+  <table>
+    <thead><tr><th>#</th><th>項目</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>COST_LIMIT_USDの位置づけ変更</td><td>$0.50→$5.00に緩和。実際の利用上限は常にGAS側のclaudeCapacityが唯一の正</td></tr>
+      <tr><td>2</td><td>自動回復の遅延特性</td><td>長期間使われないキーはresetAtを過ぎても即座には回復しない</td></tr>
+      <tr><td>3</td><td>上限変更時の残高リセット</td><td>上限や回復間隔だけを変更しても残高は満タンにリセットされる仕様</td></tr>
+      <tr><td>4</td><td>参加者ごとのキー発行</td><td>実証実験では参加者ごとに個別のAPIキーを発行し、上限・回復間隔を個別に設定することを推奨</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  関連ドキュメント: <a href="cloud-rag.md">docs/cloud-rag.md</a> §8.14 ／ <a href="content-generation.md">docs/content-generation.md</a>
+</footer>
+
+</div>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default') });
+</script>
+</body>
+</html>

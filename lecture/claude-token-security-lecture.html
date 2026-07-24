@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>クライアントを信用しない設計 — Claude API トークンセキュリティ完全解説</title>
+<style>
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --surface: #21262d;
+  --border: #30363d; --text: #e6edf3; --muted: #7d8590;
+  --accent: #58a6ff; --green: #3fb950; --amber: #d29922;
+  --red: #f85149; --purple: #bc8cff; --teal: #2ea043; --cyan: #39c5cf;
+  --mono: 'JetBrains Mono','Cascadia Code','Fira Code','Consolas',monospace;
+  --sans: 'Inter','Noto Sans JP',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.75;}
+
+/* ===== HEADER ===== */
+header{background:linear-gradient(135deg,var(--bg2) 0%,#0d1f35 100%);border-bottom:1px solid var(--border);padding:60px 40px 50px;position:relative;overflow:hidden;}
+header::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 60% 80% at 70% -10%,rgba(88,166,255,.08) 0%,transparent 60%);}
+.header-inner{max-width:900px;margin:0 auto;position:relative;}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+.eyebrow-dot{width:6px;height:6px;border-radius:50%;background:var(--amber);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+header h1{font-size:clamp(22px,4vw,42px);font-weight:700;line-height:1.2;letter-spacing:-.03em;margin-bottom:16px;}
+header h1 .acc{color:var(--amber);}
+header h1 .acc2{color:var(--accent);}
+.header-desc{color:var(--muted);max-width:600px;font-size:14.5px;margin-bottom:28px;line-height:1.8;}
+.meta-row{display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:var(--muted);font-family:var(--mono);}
+.meta-tag{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:3px 10px;}
+
+/* ===== NAV ===== */
+nav{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 40px;position:sticky;top:0;z-index:50;overflow-x:auto;}
+nav ul{max-width:900px;margin:0 auto;display:flex;list-style:none;}
+nav a{display:block;padding:12px 11px;font-size:11.5px;font-family:var(--mono);color:var(--muted);text-decoration:none;white-space:nowrap;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;}
+nav a:hover{color:var(--text);border-color:var(--amber);}
+
+/* ===== MAIN ===== */
+main{max-width:900px;margin:0 auto;padding:0 40px 100px;}
+
+/* ===== SECTION ===== */
+.section{padding:60px 0 0;}
+.section-eye{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin-bottom:8px;}
+.section>h2{font-size:24px;font-weight:700;letter-spacing:-.015em;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border);}
+h3{font-size:15px;font-weight:600;color:var(--amber);margin:36px 0 12px;}
+h4{font-size:13px;font-weight:600;color:var(--cyan);margin:20px 0 8px;}
+p{color:var(--text);margin-bottom:14px;font-size:14px;}
+ul.body-list{font-size:14px;padding-left:22px;margin-bottom:14px;}
+ul.body-list li{margin-bottom:6px;color:var(--text);}
+
+/* ===== STEP ===== */
+.step-group{margin:24px 0;}
+.step{display:flex;gap:0;margin-bottom:2px;position:relative;}
+.step-rail{display:flex;flex-direction:column;align-items:center;width:44px;flex-shrink:0;}
+.step-badge{width:30px;height:30px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:700;color:var(--amber);flex-shrink:0;margin-top:10px;position:relative;z-index:1;}
+.step-line{width:1px;flex:1;background:var(--border);margin-top:4px;min-height:20px;}
+.step:last-child .step-line{display:none;}
+.step-content{flex:1;padding:8px 0 28px 12px;}
+.step-title{font-size:14.5px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.step-body{font-size:13.5px;color:var(--muted);}
+.step-body p{font-size:13.5px;color:var(--muted);margin-bottom:8px;}
+
+/* ===== CODE ===== */
+pre{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:16px 20px;overflow-x:auto;margin:10px 0;}
+pre code{font-family:var(--mono);font-size:12.5px;line-height:1.7;color:#adbac7;}
+code{font-family:var(--mono);font-size:12px;background:var(--surface);padding:1px 6px;border-radius:3px;border:1px solid var(--border);}
+.kw{color:#f47067;} .str{color:#96d0ff;} .cm{color:#636e7b;font-style:italic;}
+.fn{color:#dcbdfb;} .key{color:#6cb6ff;} .ok{color:var(--green);} .num{color:#f69d50;}
+
+/* ===== BADGE ===== */
+.badge{display:inline-flex;align-items:center;font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600;gap:4px;}
+.badge-amber{background:rgba(210,153,34,.12);color:var(--amber);border:1px solid rgba(210,153,34,.3);}
+.badge-blue{background:rgba(88,166,255,.12);color:var(--accent);border:1px solid rgba(88,166,255,.3);}
+.badge-purple{background:rgba(188,140,255,.12);color:var(--purple);border:1px solid rgba(188,140,255,.3);}
+.badge-green{background:rgba(63,185,80,.1);color:var(--green);border:1px solid rgba(63,185,80,.25);}
+.badge-red{background:rgba(248,81,73,.1);color:var(--red);border:1px solid rgba(248,81,73,.25);}
+
+/* ===== CALLOUT ===== */
+.callout{border-radius:8px;padding:14px 18px;margin:16px 0;font-size:13.5px;border-left:3px solid;}
+.callout-note{background:rgba(88,166,255,.07);border-color:var(--accent);}
+.callout-warn{background:rgba(210,153,34,.08);border-color:var(--amber);}
+.callout-tip{background:rgba(63,185,80,.07);border-color:var(--green);}
+.callout-key{background:rgba(188,140,255,.07);border-color:var(--purple);}
+.callout p{margin:0;color:var(--muted);}
+.callout p:first-child{color:var(--text);margin-bottom:5px;font-weight:600;}
+
+/* ===== TABLE ===== */
+.tbl-wrap{overflow-x:auto;margin:16px 0;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{background:var(--surface);color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;padding:9px 14px;text-align:left;border-bottom:1px solid var(--border);}
+td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;font-size:13px;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(255,255,255,.02);}
+
+/* ===== GRID ===== */
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin:16px 0;}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:16px 0;}
+.card{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:18px;}
+.card-icon{font-size:22px;margin-bottom:10px;}
+.card-title{font-size:13.5px;font-weight:700;margin-bottom:8px;color:var(--text);}
+.card-subtitle{font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:8px;}
+.card ul{font-size:12.5px;color:var(--muted);padding-left:16px;}
+.card li{margin-bottom:4px;}
+.card p{font-size:13px;color:var(--muted);margin-bottom:0;}
+
+/* ===== PROPS TABLE ===== */
+.props{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:16px 0;}
+.props-row{display:grid;grid-template-columns:220px 90px 1fr;border-bottom:1px solid var(--border);font-size:12.5px;}
+.props-row:last-child{border-bottom:none;}
+.props-row.header{background:var(--surface);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
+.props-row > div{padding:9px 13px;}
+.props-row .name{font-family:var(--mono);color:var(--accent);}
+.props-row .type{color:var(--purple);}
+.props-row .desc{color:var(--muted);}
+
+/* ===== CONCEPT FLOW ===== */
+.concept-flow{display:flex;align-items:center;gap:0;margin:18px 0;flex-wrap:wrap;}
+.cf-node{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 18px;font-size:13px;font-weight:600;text-align:center;min-width:110px;}
+.cf-node.highlight{border-color:var(--accent);background:rgba(88,166,255,.06);}
+.cf-node.danger{border-color:var(--red);background:rgba(248,81,73,.06);}
+.cf-node.ok{border-color:var(--green);background:rgba(63,185,80,.06);}
+.cf-arrow{color:var(--muted);font-family:var(--mono);font-size:18px;padding:0 8px;flex-shrink:0;}
+.cf-label{font-size:11px;color:var(--muted);font-family:var(--mono);display:block;margin-top:4px;}
+
+/* ===== PHASE LIST ===== */
+.phase-list{list-style:none;padding:0;margin:14px 0;}
+.phase-item{display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid var(--border);font-size:13.5px;}
+.phase-item:last-child{border-bottom:none;}
+.phase-num{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--amber);background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.2);border-radius:4px;padding:3px 8px;white-space:nowrap;flex-shrink:0;margin-top:1px;}
+.phase-title{font-weight:600;color:var(--text);margin-bottom:2px;}
+.phase-desc{color:var(--muted);font-size:12.5px;}
+
+/* ===== ACCORDION ===== */
+details{background:var(--bg3);border:1px solid var(--border);border-radius:8px;margin:10px 0;overflow:hidden;}
+details[open]{border-color:rgba(88,166,255,.35);}
+summary{padding:14px 18px;font-size:14px;font-weight:600;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;user-select:none;}
+summary::-webkit-details-marker{display:none;}
+summary::after{content:'›';font-size:18px;color:var(--muted);transition:transform .2s;}
+details[open] summary::after{transform:rotate(90deg);}
+.details-body{padding:0 18px 18px;font-size:13.5px;color:var(--muted);}
+.details-body p{color:var(--muted);font-size:13.5px;}
+
+/* ===== HIGHLIGHT METRIC ===== */
+.metric-row{display:flex;gap:16px;flex-wrap:wrap;margin:16px 0;}
+.metric{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:16px 20px;flex:1;min-width:140px;}
+.metric-value{font-family:var(--mono);font-size:28px;font-weight:700;margin-bottom:4px;}
+.metric-label{font-size:11.5px;color:var(--muted);}
+.metric-green .metric-value{color:var(--green);}
+.metric-amber .metric-value{color:var(--amber);}
+.metric-blue .metric-value{color:var(--accent);}
+.metric-purple .metric-value{color:var(--purple);}
+.metric-red .metric-value{color:var(--red);}
+
+/* ===== DIFF ROW ===== */
+.diff-row{display:flex;gap:14px;margin:16px 0;flex-wrap:wrap;}
+.diff-col{flex:1;min-width:200px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:16px;}
+.diff-col-title{font-size:12px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;}
+.diff-col ul{font-size:13px;color:var(--text);padding-left:16px;}
+.diff-col li{margin-bottom:5px;}
+
+/* ===== MISC ===== */
+a{color:var(--accent);}
+.star{color:var(--amber);}
+footer{background:var(--bg2);border-top:1px solid var(--border);padding:30px 40px;text-align:center;font-size:12px;font-family:var(--mono);color:var(--muted);margin-top:40px;}
+footer a{color:var(--accent);text-decoration:none;}
+@media(max-width:640px){
+  header,nav{padding-left:20px;padding-right:20px;}
+  main{padding:0 20px 60px;}
+  .props-row{grid-template-columns:140px 70px 1fr;}
+  .diff-row{flex-direction:column;}
+  .concept-flow{flex-direction:column;align-items:flex-start;}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header>
+<div class="header-inner">
+  <div class="eyebrow"><span class="eyebrow-dot"></span> Lecture Slides · Applied Security for AI Tooling</div>
+  <h1>クライアントを<span class="acc">信用しない</span>設計<br>
+    <span class="acc2">Claude API トークンセキュリティ</span> 完全解説
+  </h1>
+  <p class="header-desc">
+    houdini21チュートリアル自動生成の実証実験を控え、「クライアント側の設定を書き換えれば
+    上限を突破できてしまう」という構成を、GASを唯一の判定者にする設計へどう作り替えたかを、
+    セキュリティ設計の基本原則から順に解説します。
+  </p>
+  <div class="meta-row">
+    <span class="meta-tag">対象: ゲーム開発エンジニア・ツール開発者</span>
+    <span class="meta-tag">houdini21 / gas_cloud_rag.js</span>
+    <span class="meta-tag">Updated: 2026-07-25</span>
+  </div>
+</div>
+</header>
+
+<!-- ===== NAV ===== -->
+<nav>
+<ul>
+  <li><a href="#ch1">第1章: 問題</a></li>
+  <li><a href="#ch2">第2章: 信頼境界</a></li>
+  <li><a href="#ch3">第3章: 二重予算</a></li>
+  <li><a href="#ch4">第4章: 自動回復</a></li>
+  <li><a href="#ch5">第5章: UI表示</a></li>
+  <li><a href="#ch6">第6章: テスト戦略</a></li>
+  <li><a href="#ch7">第7章: まとめ</a></li>
+</ul>
+</nav>
+
+<main>
+
+<!-- =========================================================
+     第1章: 問題
+     ========================================================= -->
+<div class="section" id="ch1">
+  <div class="section-eye">Chapter 01</div>
+  <h2>「クライアント側の上限」はなぜ上限になっていなかったのか</h2>
+
+  <p>
+    houdini21チュートリアル自動生成は、以前はHoudiniクライアントが<code>ANTHROPIC_API_KEY</code>を
+    OS環境変数として直接保持し、Claude APIを直接呼び出していました。トークン消費の「予算」は
+    <code>token_usage.py</code>側のローカル数値・JSONログでしか管理されていませんでした。
+  </p>
+
+  <div class="callout callout-warn">
+    <p>この構成の本質的な問題</p>
+    <p>「上限」がクライアント（ユーザーの手元のマシン）の中だけで管理されている場合、それは
+    セキュリティ上の制約ではなく<strong>ただの目安表示</strong>に過ぎません。ユーザーが設定値を
+    書き換えたり、ログファイルを削除したりすれば、実質無制限に使えてしまいます。</p>
+  </div>
+
+  <div class="concept-flow">
+    <div class="cf-node danger">Houdiniクライアント<span class="cf-label">生キーを保持</span></div>
+    <div class="cf-arrow">→</div>
+    <div class="cf-node danger">Claude API<span class="cf-label">直接呼び出し</span></div>
+  </div>
+  <div class="concept-flow">
+    <div class="cf-node">token_usage.py<span class="cf-label">ローカルJSONログ</span></div>
+    <div class="cf-arrow">⇢</div>
+    <div class="cf-node danger">単なる目安表示<span class="cf-label">強制力なし</span></div>
+  </div>
+
+  <h3>なぜこれが実証実験前に問題になるのか</h3>
+  <div class="diff-row">
+    <div class="diff-col">
+      <div class="diff-col-title" style="color:var(--red)">実証実験の前提条件</div>
+      <ul>
+        <li>対象者は外部・非技術者を含む</li>
+        <li>「悪意」がなくても誤操作で大量消費するリスクがある</li>
+        <li>1人あたりのコストを事前に見積もり、予算内に収めたい</li>
+      </ul>
+    </div>
+    <div class="diff-col" style="border-color:rgba(248,81,73,.35)">
+      <div class="diff-col-title" style="color:var(--red)">クライアント管理型の限界</div>
+      <ul>
+        <li>設定ファイルの書き換えで上限を無効化できる</li>
+        <li>ログを消せば「使用量ゼロ」からやり直せる</li>
+        <li>N人が同時に使うと、合計コストが誰にも見えない</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout callout-key">
+    <p>この講義で扱う中心原則</p>
+    <p><strong>「強制する側」と「使う側」を分離する</strong> — 上限を判定・強制するロジックは、
+    ユーザーが触れない場所（サーバー）に置く。クライアントはサーバーが許可した結果を
+    表示するだけの受け手にする。</p>
+  </div>
+</div>
+
+<!-- =========================================================
+     第2章: 信頼境界
+     ========================================================= -->
+<div class="section" id="ch2">
+  <div class="section-eye">Chapter 02</div>
+  <h2>信頼境界をどこに引くか — GASを唯一の関所にする</h2>
+
+  <p>
+    今回の設計変更の核心は、「Claude APIを呼べる場所」を1つに絞ったことです。
+    Houdiniクライアントは生の<code>ANTHROPIC_API_KEY</code>を一切持たず、必ずGAS
+    （<code>gas_cloud_rag.js</code>）を経由してClaude Messages APIを呼びます。
+  </p>
+
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">Houdiniクライアントはリクエストを組み立てるだけ</div>
+        <div class="step-body"><p><code>tutorial_agent.py</code>の<code>_call_api()</code>は、
+        <code>action:'claude_messages'</code>と自分の<strong>RAG用APIキー</strong>（Claudeの実キーではない）
+        を添えてGASにPOSTするだけ。</p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">GASが唯一の関所（validateApiKey_）を通す</div>
+        <div class="step-body"><p>すべての認証済みリクエストは<code>validateApiKey_()</code>を通る。
+        ここでAPIキーの正当性・レート制限・残高チェック・自動回復の適用がすべて行われる。</p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">3</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">残高が尽きていればAnthropicには一切繋がない</div>
+        <div class="step-body"><p><code>_hasClaudeQuotaRemaining_()</code>が事前チェックし、
+        残高0なら<code>status:'quota_exceeded'</code>を返してそこで終わる。
+        <strong>Anthropicへのネットワークリクエストすら発生しない。</strong></p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">4</div></div>
+      <div class="step-content">
+        <div class="step-title">実キーを持つのはGASだけ</div>
+        <div class="step-body"><p><code>ANTHROPIC_API_KEY</code>はGASのスクリプトプロパティにのみ存在する。
+        <code>callClaudeProxy_()</code>がクライアントに代わって呼び出すため、
+        レスポンスにも実キーが一切含まれない（テストでも文字列検索して確認済み）。</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-tip">
+    <p>設計原則: 「判定」と「表示」を分ける</p>
+    <p>クライアント側の数字（token_usage.pyのゲージ）は、GASが返してきた「事後の結果」を
+    表示しているだけであり、その数字自体が許可・拒否を決めているわけではない。
+    許可・拒否は毎回GAS側のチェックがゼロから判定する。</p>
+  </div>
+</div>
+
+<!-- =========================================================
+     第3章: 二重予算
+     ========================================================= -->
+<div class="section" id="ch3">
+  <div class="section-eye">Chapter 03</div>
+  <h2>1つのAPIキーに2つの予算 — RAG（Gemini）とClaudeを分ける理由</h2>
+
+  <p>
+    このRAGシステムは、Gemini（検索・回答生成）とClaude（Houdiniエージェント）という
+    2つの異なるLLMプロバイダーを使っています。もし予算を1つのバケットで共有していたら、
+    「チャット機能を少し使っただけでチュートリアル生成用の予算が尽きる」といった
+    使い勝手の悪さが生まれます。そこで、APIキー1件ごとに<strong>完全に独立した2つの予算バケット</strong>
+    を持たせました。
+  </p>
+
+  <div class="props">
+    <div class="props-row header"><div>フィールド名（RAG/Gemini）</div><div>型</div><div>Claude側の対応フィールド</div></div>
+    <div class="props-row"><div class="name">capacity</div><div class="type">number|null</div><div class="desc"><code>claudeCapacity</code> — 上限（null=無制限）</div></div>
+    <div class="props-row"><div class="name">balance</div><div class="type">number</div><div class="desc"><code>claudeBalance</code> — 現在の残高</div></div>
+    <div class="props-row"><div class="name">resetIntervalHours</div><div class="type">number|null</div><div class="desc"><code>claudeResetIntervalHours</code> — 自動回復間隔（時間）</div></div>
+    <div class="props-row"><div class="name">resetAt</div><div class="type">string|null</div><div class="desc"><code>claudeResetAt</code> — 次回自動回復予定時刻（ISO文字列）</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-icon">🔵</div>
+      <div class="card-title">RAGバケットを使う操作</div>
+      <div class="card-subtitle">gas_cloud_rag.js の通常チャット・検索</div>
+      <ul>
+        <li>RAGChatBotタブでの質問応答</li>
+        <li>houdini21ドキュメントの検索（mode:'raw'）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-icon">🟣</div>
+      <div class="card-title">Claudeバケットを使う操作</div>
+      <div class="card-subtitle">action:'claude_messages'</div>
+      <ul>
+        <li>houdini21チュートリアル自動生成のエージェントループ</li>
+        <li>1回の生成で複数ターン（最大40反復）分を消費</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout callout-note">
+    <p>独立性はテストで検証済み</p>
+    <p>Node.jsのvmテストで「RAGバケットを大量に消費してもClaudeバケットの残高は変化しない」
+    「Claudeバケットを使い切ってもRAGバケットは使える」の両方をアサートしている
+    （<code>test_gas_claude_proxy.js</code>）。</p>
+  </div>
+</div>
+
+<!-- =========================================================
+     第4章: 自動回復
+     ========================================================= -->
+<div class="section" id="ch4">
+  <div class="section-eye">Chapter 04</div>
+  <h2>残高の自動回復 — 「見張り番」ではなく「通りすがりに確認する」方式</h2>
+
+  <p>
+    上限に達したら、そのまま手動チャージを待つだけでは実証実験の運用が回りません。
+    そこで「N時間ごとに残高を自動で満タンに戻す」機能を追加しました。ここで重要なのは
+    <strong>実装方式の選び方</strong>です。
+  </p>
+
+  <h3>選ばれなかった方法：時間主導トリガー</h3>
+  <div class="diff-row">
+    <div class="diff-col">
+      <div class="diff-col-title" style="color:var(--red)">GASの時間主導トリガー（不採用）</div>
+      <ul>
+        <li>「毎時0分に全キーをチェックする」ような定期実行を仕込む</li>
+        <li>GASの実行時間・実行回数のクオータを消費する</li>
+        <li>キーの数が増えるほど、1回の実行で処理する量が増える</li>
+      </ul>
+    </div>
+    <div class="diff-col" style="border-color:rgba(63,185,80,.35)">
+      <div class="diff-col-title" style="color:var(--green)">プル型（採用）</div>
+      <ul>
+        <li>誰かがそのキーを使った瞬間にだけチェックする</li>
+        <li>使われないキーの分の計算コストがゼロ</li>
+        <li>既存の「唯一の関所」（validateApiKey_）にロジックを足すだけで済む</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>アルゴリズム: 取りこぼしても必ず未来に着地する</h3>
+  <div class="step-group">
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">1</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">resetAtが未設定なら、まず1回分先にスケジュールする</div>
+        <div class="step-body"><p>回復間隔が新規設定された直後は、<code>resetAt = 今 + interval</code>を1回だけ書き込む。</p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">2</div><div class="step-line"></div></div>
+      <div class="step-content">
+        <div class="step-title">now &gt;= resetAt の間、ループして回復し続ける</div>
+        <div class="step-body"><p>1回のチェックで「過ぎているインターバル」の分だけ<code>balance = capacity</code>と
+        <code>resetAt += interval</code>を繰り返す。これにより、システムが長時間使われず
+        複数回分のインターバルを取りこぼしていても、1回のチェックでまとめてキャッチアップできる。</p></div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-rail"><div class="step-badge">3</div></div>
+      <div class="step-content">
+        <div class="step-title">ループを抜けた時点で、resetAtは必ず未来を指している</div>
+        <div class="step-body"><p>ループの終了条件が<code>now &lt; resetAt</code>なので、
+        「1回進めたが依然過去のまま」という半端な状態が発生しない。</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-warn">
+    <p>この方式のトレードオフ（覚えておくべき遅延特性）</p>
+    <p>誰も呼ばないキーは、<code>resetAt</code>を過ぎても実際には残高が回復<strong>しない</strong>。
+    次にそのキーが使われた瞬間（Claude呼び出し、または管理画面のキー一覧表示）に
+    まとめて反映される。GASの定期実行クオータを消費しない代わりに、この遅延特性を
+    受け入れる設計判断をしている。</p>
+  </div>
+</div>
+
+<!-- =========================================================
+     第5章: UI表示
+     ========================================================= -->
+<div class="section" id="ch5">
+  <div class="section-eye">Chapter 05</div>
+  <h2>Houdini側のゲージは「サーバーの結果を映すだけ」</h2>
+
+  <p>
+    <code>token_usage.py</code>のドーナツゲージは、GASが返した<code>claudeQuota</code>
+    （消費後の残高・上限・回復タイミング）を、そのまま表示するだけです。ローカルで
+    上限を計算したり、判定に使ったりする処理は一切ありません。
+  </p>
+
+  <div class="metric-row">
+    <div class="metric metric-blue">
+      <div class="metric-value">無制限</div>
+      <div class="metric-label">capacity == null のキー</div>
+    </div>
+    <div class="metric metric-green">
+      <div class="metric-value">8,500 / 10,000</div>
+      <div class="metric-label">残量十分・次回回復あり</div>
+    </div>
+    <div class="metric metric-amber">
+      <div class="metric-value">1,200 / 10,000</div>
+      <div class="metric-label">残量15%以下 → 赤系の警告表示</div>
+    </div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>状態</th><th>詳細テキスト（sub表示）</th></tr>
+      <tr><td>無制限キー</td><td>「このAPIキーにはClaudeトークン上限が設定されていません」</td></tr>
+      <tr><td>上限あり・自動回復あり</td><td>「次回自動回復: 2026-07-26 09:00（24時間毎）」</td></tr>
+      <tr><td>上限あり・自動回復オフ</td><td>「自動回復は設定されていません（管理者にチャージを依頼してください）」</td></tr>
+    </table>
+  </div>
+
+  <div class="callout callout-tip">
+    <p>クライアント側の「トークン予算」入力欄は削除した</p>
+    <p>以前はSettingsタブにユーザーが編集できる予算数値フィールドがあったが、これは
+    「セキュリティ上意味のない飾り」だったため撤去した。上限の変更経路は
+    管理画面（GAS Admin UI）の1本に統一されている。</p>
+  </div>
+</div>
+
+<!-- =========================================================
+     第6章: テスト戦略
+     ========================================================= -->
+<div class="section" id="ch6">
+  <div class="section-eye">Chapter 06</div>
+  <h2>「サーバーだけが正しく判定する」ことをどう検証するか</h2>
+
+  <p>
+    GAS（Google Apps Script）はローカルで実行できないため、Node.jsの<code>vm</code>
+    モジュールで<code>PropertiesService</code>や<code>UrlFetchApp</code>等のGASグローバルを
+    モックし、仮想サンドボックス上で<code>gas_cloud_rag.js</code>をそのまま読み込んでテストしている。
+  </p>
+
+  <div class="phase-list">
+    <li class="phase-item">
+      <span class="phase-num">01</span>
+      <div><div class="phase-title">サーバー鍵の非漏洩を文字列検索で確認</div>
+      <div class="phase-desc">レスポンス全体をJSON文字列化し、実Anthropicキーの文字列が
+      含まれていないことをアサートする — 「漏れていないはず」ではなく機械的に検証する。</div></div>
+    </li>
+    <li class="phase-item">
+      <span class="phase-num">02</span>
+      <div><div class="phase-title">バケットの独立性を両方向で確認</div>
+      <div class="phase-desc">RAGバケットを大量消費してもClaudeバケットが減らないこと、
+      逆方向も両方テストする。</div></div>
+    </li>
+    <li class="phase-item">
+      <span class="phase-num">03</span>
+      <div><div class="phase-title">自動回復の3パターンを個別に検証</div>
+      <div class="phase-desc">早すぎない（resetAtが未来なら回復しない）／ちょうど過ぎたら回復する／
+      複数インターバル分の取りこぼしからでもキャッチアップする、を別々のテストケースで確認。</div></div>
+    </li>
+    <li class="phase-item">
+      <span class="phase-num">04</span>
+      <div><div class="phase-title">クライアント側もモックでテスト</div>
+      <div class="phase-desc">Python側は<code>urllib.request.urlopen</code>をモックし、
+      GASへのリクエスト形状・エラーメッセージ・<code>TutorialResult</code>への
+      伝播を確認する。</div></div>
+    </li>
+  </div>
+
+  <div class="callout callout-key">
+    <p>教訓: セキュリティ機能は「壊れていないこと」を機械的に証明できる形でテストする</p>
+    <p>「実キーが漏れていないはず」という主観的な確認ではなく、
+    「レスポンス文字列にその値が含まれていないことをアサートする」という
+    機械的な検証に落とし込むことで、将来のリファクタで壊れたら即座にテストが失敗する。</p>
+  </div>
+</div>
+
+<!-- =========================================================
+     第7章: まとめ
+     ========================================================= -->
+<div class="section" id="ch7">
+  <div class="section-eye">Chapter 07</div>
+  <h2>まとめ — この設計から持ち帰れる原則</h2>
+
+  <div class="grid3">
+    <div class="card">
+      <div class="card-icon">🔒</div>
+      <div class="card-title">信頼境界を1箇所に集約する</div>
+      <p>実キー・判定ロジックはクライアントが触れない場所に置き、
+      すべてのリクエストを1つの関所（validateApiKey_）に通す。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🪣</div>
+      <div class="card-title">用途ごとに予算を分ける</div>
+      <p>1つの数字で複数機能の予算を共有すると、使い勝手とセキュリティの
+      両方が事故りやすくなる。用途単位で独立したバケットにする。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔁</div>
+      <div class="card-title">遅延特性を隠さず明記する</div>
+      <p>プル型の自動回復は実装が単純な代わりに遅延特性がある。
+      その特性を「バグ」ではなく「設計上の既知のトレードオフ」として文書化する。</p>
+    </div>
+  </div>
+
+  <div class="callout callout-note">
+    <p>関連資料</p>
+    <p><a href="../docs/claude-token-security-report.md">docs/claude-token-security-report.md</a>
+    （技術レポート・mermaid図解）／
+    <a href="../docs/cloud-rag.md">docs/cloud-rag.md</a> §8.14（実装の技術資料）</p>
+  </div>
+</div>
+
+</main>
+
+<footer>
+  houdini21 / DevelopmentRAGEnvironment — Claude Token Security Lecture · Updated 2026-07-25
+</footer>
+
+</body>
+</html>
