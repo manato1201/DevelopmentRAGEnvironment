@@ -44,7 +44,10 @@ from houdini_tools import HOUDINI_TOOLS, HoudiniToolExecutor
 
 MODEL = "claude-sonnet-5"     # 設計判断（§4.1）。変更はコストが変わるため要ユーザー確認
 MAX_ITERATIONS = 40           # 反復上限（§2.6）
-COST_LIMIT_USD = 0.50         # 自動打ち切り上限（§2.7）
+COST_LIMIT_USD = 5.00         # ローカル側の実測コスト打ち切り上限（§2.7）。実際の利用上限は
+                               # GAS側のclaudeCapacity（管理画面で調整）が唯一の正であり、
+                               # これはネットワーク断・GAS未応答時などに暴走を防ぐための
+                               # クライアント側のフェイルセーフに過ぎない
 MAX_TOKENS_PER_TURN = 4096
 RAG_NAMESPACES = ["houdini21"]  # 生成機能が参照してよい namespace のホワイトリスト（§5）
 RAG_LIMIT = 6
