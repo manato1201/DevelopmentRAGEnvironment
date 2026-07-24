@@ -17,16 +17,35 @@ LearningQt の動画生成エンジン（video_factory_cloudrag_poc.exe）が右
 いずれの関数もベストエフォート: 失敗時は例外を投げず False を返すだけ
 （呼び出し元の tutorial_view.py::_on_save がチュートリアル保存そのものを
 失敗させないため）。
+
+2026-07-24 実機初回検証: 両キャプチャとも失敗し、PNGも作られずコンソールにも
+何も出ない事例が確認された。Houdiniがコンソール非接続のGUIプロセスとして
+起動されていると print() の行き先が無く消えるため、_log() でファイルにも
+書くようにした（video_factory_bridge.py 側が <slug>_capture.log のパスを渡す）。
 """
 
 from __future__ import annotations
 
+import datetime
 from pathlib import Path
 
 import hou
 
 
-def focus_network_on(node_path: str) -> None:
+def _log(message: str, log_path: Path | None) -> None:
+    """print() に加えてファイルへも書く（ファイル書き込み失敗は無視する）。"""
+    line = f"[screen_capture] {message}"
+    print(line)
+    if log_path is None:
+        return
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now().isoformat()} {line}\n")
+    except OSError:
+        pass
+
+
+def focus_network_on(node_path: str, log_path: Path | None = None) -> None:
     """
     ネットワークエディタのペインを指定ノード配下にフォーカス・フレームする。
     スクリーンショット撮影前に呼ぶことで、サンドボックス以外の無関係な
@@ -35,18 +54,22 @@ def focus_network_on(node_path: str) -> None:
     try:
         node = hou.node(node_path)
         if node is None:
+            _log(f"focus_network_on: node not found: {node_path}", log_path)
             return
         network_editor = hou.ui.paneTabOfType(hou.paneTabType.NetworkEditor)
         if network_editor is None:
+            _log("focus_network_on: no NetworkEditor pane found", log_path)
             return
         network_editor.setCurrentNode(node)
         network_editor.setPwd(node)
         network_editor.homeToSelection()
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
-        print(f"[screen_capture] focus_network_on failed: {exc}")
+        _log(f"focus_network_on failed: {exc!r}", log_path)
 
 
-def capture_viewport(output_path: Path, width: int = 1280, height: int = 720) -> bool:
+def capture_viewport(
+    output_path: Path, width: int = 1280, height: int = 720, log_path: Path | None = None
+) -> bool:
     """
     現在の3Dビューポートを1枚の静止画として output_path に保存する。
     hou.SceneViewer.flipbook()（Houdiniの標準ビューポート書き出しAPI）を
@@ -55,7 +78,7 @@ def capture_viewport(output_path: Path, width: int = 1280, height: int = 720) ->
     try:
         scene_viewer = hou.ui.paneTabOfType(hou.paneTabType.SceneViewer)
         if scene_viewer is None:
-            print("[screen_capture] no SceneViewer pane found")
+            _log("no SceneViewer pane found in the current desktop", log_path)
             return False
         settings = hou.FlipbookSettings()
         current_frame = hou.frame()
@@ -64,14 +87,17 @@ def capture_viewport(output_path: Path, width: int = 1280, height: int = 720) ->
         settings.outputToMPlay(False)
         settings.resolution((width, height))
         scene_viewer.flipbook(scene_viewer.curViewport(), settings)
-        return output_path.exists()
+        exists = output_path.exists()
+        if not exists:
+            _log(f"flipbook() returned without raising but no file at {output_path}", log_path)
+        return exists
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
-        print(f"[screen_capture] viewport capture failed: {exc}")
+        _log(f"viewport capture failed: {exc!r}", log_path)
         return False
 
 
 def capture_network_editor(
-    output_path: Path, width: int = 1280, height: int = 720
+    output_path: Path, width: int = 1280, height: int = 720, log_path: Path | None = None
 ) -> bool:
     """
     現在のネットワークエディタペインをスクリーンショットとして保存する。
@@ -80,11 +106,19 @@ def capture_network_editor(
     try:
         network_editor = hou.ui.paneTabOfType(hou.paneTabType.NetworkEditor)
         if network_editor is None:
-            print("[screen_capture] no NetworkEditor pane found")
+            _log("no NetworkEditor pane found in the current desktop", log_path)
+            return False
+        if not hasattr(network_editor, "qtWidget"):
+            _log(
+                "NetworkEditor pane tab has no qtWidget() method on this Houdini "
+                "build -- run dir(hou.ui.paneTabOfType(hou.paneTabType.NetworkEditor)) "
+                "in the Python Shell to find the right accessor",
+                log_path,
+            )
             return False
         widget = network_editor.qtWidget()
         if widget is None:
-            print("[screen_capture] NetworkEditor pane has no qtWidget()")
+            _log("NetworkEditor pane's qtWidget() returned None", log_path)
             return False
         pixmap = widget.grab()
         if width and height:
@@ -96,7 +130,10 @@ def capture_network_editor(
                 QtNamespace.KeepAspectRatio,
                 QtNamespace.SmoothTransformation,
             )
-        return bool(pixmap.save(str(output_path), "PNG"))
+        saved = bool(pixmap.save(str(output_path), "PNG"))
+        if not saved:
+            _log(f"pixmap.save() returned False for {output_path}", log_path)
+        return saved
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
-        print(f"[screen_capture] network editor capture failed: {exc}")
+        _log(f"network editor capture failed: {exc!r}", log_path)
         return False
