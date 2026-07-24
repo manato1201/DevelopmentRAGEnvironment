@@ -50,12 +50,16 @@ Houdiniチャットパネル（rag_chatbot.py）に「チュートリアル生�
   │     いずれのモードでも取得後に db=="houdini21" 以外を除外し、
   │     ホワイトリスト方針をクライアント側でも強制する
   │
-  ├─ ② エージェントループ（Claude Sonnet 4.6 + Tool Use）
+  ├─ ② エージェントループ（MODEL定数のClaudeモデル + Tool Use）
   │     - houdini_tools.py（hou モジュールのラッパー）
   │     - サンドボックスサブネット内でのみノード操作
-  │     - cookエラーを自己修正ループにフィードバック（最大25回）
+  │     - cookエラーを自己修正ループにフィードバック（最大MAX_ITERATIONS回）
   │     - プロンプトキャッシュ：システムプロンプト＋ツール定義＋RAGコンテキストを
   │       cache_control で固定し、繰り返しコストを抑制
+  │     - Claude API呼び出しは必ず gas_cloud_rag.js 経由（action:'claude_messages'）。
+  │       Houdiniクライアントは生のANTHROPIC_API_KEYを持たず、GAS側がAPIキーごとの
+  │       Claude専用トークン予算（claudeCapacity/claudeBalance）を強制する。
+  │       rag_mode="local"でもこの呼び出し自体はCloud（GAS）経由（docs/cloud-rag.md §8.14）
   │
   ├─ ③ 生成完了後、ノード構成を NodeGraphAsset 形式の JSON にエクスポート
   │     （hou.node()を辿ってnodes/edges/params/positionを抽出）
@@ -236,7 +240,7 @@ Phase 1で構築する「RAG検索→構造化コンテンツ生成→バリデ�
 
 ### 4.1 モデル選定
 
-ツール呼び出しを伴うエージェントループには、単発チャット（現状Haiku使用）より高度な推論が必要なため **Claude Sonnet 4.6** を使用する。
+ツール呼び出しを伴うエージェントループには、単発チャット（現状Haiku使用）より高度な推論が必要なため **Claude Sonnet 5**（`tutorial_agent.py`の`MODEL`定数）を使用する。
 
 ### 4.2 コスト見積もり（houdini21の試算、参考値）
 

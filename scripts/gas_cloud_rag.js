@@ -4,6 +4,9 @@
  * ── スクリプトプロパティ ──────────────────────────────────────────────
  *   NOTION_API_KEY     Notion Integration Token
  *   GEMINI_API_KEY     Google AI Studio API Key
+ *   ANTHROPIC_API_KEY  Anthropic Console で発行したAPIキー。houdini21チュートリアル
+ *                      生成（action:'claude_messages'）用。クライアントには渡さず、
+ *                      GASだけが保持する（§8.14参照）
  *   SHEETS_ID          ベクトル保存用スプレッドシートID
  *   NAMESPACE_CONFIG   namespace定義（JSON、省略可。テナント導入手順書参照）
  *   DB_TOOL_DOCS / DB_GAME_INFO / DB_RESEARCH / DB_TEAM_NOTES
@@ -15,6 +18,7 @@
  *   （以下は任意設定。未設定なら既定値・既定オフで動作し、既存デプロイに影響しない）
  *   RATE_LIMIT_MAX_REQUESTS     APIキーごとの1分間あたり最大リクエスト数（例: 30）
  *   TOKEN_USAGE_RETENTION_DAYS RAG_TokenUsageの保持日数。これを過ぎた行はadminPurgeExpiredTokenUsage()で削除対象になる
+ *   CLAUDE_USAGE_RETENTION_DAYS RAG_ClaudeUsageの保持日数。これを過ぎた行はadminPurgeExpiredClaudeUsage()で削除対象になる
  *   NOTION_PARENT_PAGE_ID       管理画面「🗄 DB管理」タブでNotion DBを新規自動作成する際の
  *                               作成先ページID（未設定でも既存DB IDの手入力によるnamespace追加は可能）
  *   MIN_SCORE_<NS大文字>        namespaceごとの検索類似度閾値の上書き（例: MIN_SCORE_BRAINTQ=0.65）
@@ -138,6 +142,7 @@ var ALL_NAMESPACES    = Object.keys(DB_KEY_MAP);
 var SHEET_NAME        = 'RAG_Index';
 var MEMORY_SHEET      = 'RAG_Memory';
 var TOKEN_USAGE_SHEET = 'RAG_TokenUsage';
+var CLAUDE_USAGE_SHEET = 'RAG_ClaudeUsage';
 var IDX_CACHE_KEY     = 'rag_idx_v3'; // v3: 各行にBM25用のtokensを追加（v2形式との互換なし、キー名変更で自然に無効化）
 var CACHE_TTL         = 21600;
 var CACHE_CHUNK       = 90000;
@@ -194,10 +199,64 @@ function _keyPreviewOf_(k) {
   return k.keyPreview || (k.key ? k.key.substring(0, 8) : '');
 }
 
+// ─────────────────────────────────────────────
+// トークン予算の自動回復（RAG=Gemini用capacity/balance、Claude用
+// claudeCapacity/claudeBalanceの両バケットに共通）
+//
+// GASには常駐プロセスが無いため、時間主導トリガーではなく「次にそのAPIキーで
+// 何か（クエリ・Claude呼び出し・管理操作）が呼ばれた時に、期限が来ていれば
+// その場でリセットする」遅延評価方式にしている（isRateLimited_と同じ考え方）。
+// resetAtを過ぎた回数分だけ繰り越し計算し、次回のresetAtを未来の時刻まで
+// 進める（サーバーが長時間呼ばれなかった場合でも狂わない）。
+// ─────────────────────────────────────────────
+
+/**
+ * 1バケット分の自動回復を必要なら適用する。変更した場合はtrueを返す
+ * （呼び出し元がAPI_KEYS_CONFIGを保存し直す必要があることを示す）。
+ * capacity未設定（無制限）または intervalField 未設定（自動回復オフ）なら何もしない。
+ */
+function _applyScheduledReset_(k, capField, balField, intervalField, atField) {
+  if (k[capField] == null) return false;
+  var interval = Number(k[intervalField]) || 0;
+  if (interval <= 0) return false;
+
+  var now = Date.now();
+  var atRaw = k[atField];
+  var at = atRaw ? new Date(atRaw).getTime() : NaN;
+  if (!atRaw || isNaN(at)) {
+    // 自動回復を有効化した直後などでresetAtがまだ無い場合は、次回の時刻を
+    // セットするだけ（設定した瞬間に残高を満タンにする処理は
+    // adminSetKeyCapacity/adminSetClaudeCapacity側で既に行っている）。
+    k[atField] = new Date(now + interval * 3600 * 1000).toISOString();
+    return true;
+  }
+
+  var intervalMs = interval * 3600 * 1000;
+  var changed = false;
+  while (now >= at) {
+    k[balField] = k[capField];
+    at += intervalMs;
+    changed = true;
+  }
+  if (changed) k[atField] = new Date(at).toISOString();
+  return changed;
+}
+
+/** キー1件分、RAG（Gemini）・Claude両バケットの自動回復を適用する */
+function _applyScheduledResets_(k) {
+  var a = _applyScheduledReset_(k, 'capacity', 'balance', 'resetIntervalHours', 'resetAt');
+  var b = _applyScheduledReset_(k, 'claudeCapacity', 'claudeBalance', 'claudeResetIntervalHours', 'claudeResetAt');
+  return a || b;
+}
+
 /**
  * APIキーを検証する。新規発行分はkeyHash（SHA-256）で照合し、平文はどこにも保存しない。
  * bootstrapFirstAdminKey()等で過去に発行された旧形式（平文keyフィールド）のエントリとも
  * 後方互換で照合できる。
+ *
+ * 見つかったキーには自動回復（_applyScheduledResets_）を必ず適用してから返す。
+ * validateApiKey_はdoPost/ragQueryWithKey/requireAdmin_など全ての経路が通る
+ *唯一の入口なので、ここに集約することで「呼び出し忘れ」を防いでいる。
  */
 function validateApiKey_(key) {
   if (!key) return null;
@@ -205,8 +264,10 @@ function validateApiKey_(key) {
   var keys = getApiKeysConfig_();
   for (var i = 0; i < keys.length; i++) {
     var k = keys[i];
-    if (k.keyHash && k.keyHash === hash) return k;
-    if (!k.keyHash && k.key && k.key === key) return k; // 旧形式（平文）との後方互換
+    var matches = k.keyHash ? k.keyHash === hash : (!k.keyHash && k.key === key); // 旧形式（平文）との後方互換
+    if (!matches) continue;
+    if (_applyScheduledResets_(k)) saveApiKeysConfig_(keys);
+    return k;
   }
   return null;
 }
@@ -471,6 +532,131 @@ function adminPurgeExpiredTokenUsage(apiKey) {
   return purgeExpiredTokenUsage_();
 }
 
+// ─────────────────────────────────────────────
+// Claudeトークン使用量トラッキング（RAG_TokenUsageと対称の別シート）
+//
+// RAG_TokenUsage（Gemini/HyDE用）とは記録項目が異なる（inputTokens/outputTokens/
+// cacheWriteTokens/cacheReadTokensの実測値のみで、HyDEや埋め込み文字数の概念は
+// Claude側には無い）ため、あえて別シート・別関数として対称に実装している。
+// ─────────────────────────────────────────────
+
+function getClaudeUsageSheet_() {
+  var sheetsId = getProps_().getProperty('SHEETS_ID');
+  if (!sheetsId) return null;
+  try {
+    var ss    = SpreadsheetApp.openById(sheetsId);
+    var sheet = ss.getSheetByName(CLAUDE_USAGE_SHEET);
+    if (!sheet) {
+      sheet = ss.insertSheet(CLAUDE_USAGE_SHEET);
+      sheet.appendRow([
+        'timestamp', 'apiKeyPrefix', 'model', 'purpose',
+        'inputTokens', 'outputTokens', 'cacheWriteTokens', 'cacheReadTokens', 'totalMeasuredTokens',
+      ]);
+      sheet.getRange(1, 1, 1, 9).setFontWeight('bold');
+    }
+    return sheet;
+  } catch(e) {
+    Logger.log('getClaudeUsageSheet_ error: ' + e.message);
+    return null;
+  }
+}
+
+function recordClaudeUsage_(apiKey, model, purpose, usage) {
+  usage = usage || {};
+  var inputTokens  = usage.input_tokens || 0;
+  var outputTokens = usage.output_tokens || 0;
+  var cacheWrite   = usage.cache_creation_input_tokens || 0;
+  var cacheRead    = usage.cache_read_input_tokens || 0;
+  var total        = inputTokens + outputTokens + cacheWrite + cacheRead;
+  try {
+    var sheet = getClaudeUsageSheet_();
+    if (sheet) {
+      var prefix = String(apiKey || '').substring(0, 8);
+      sheet.appendRow([
+        new Date().toISOString(), prefix, model || '', purpose || '',
+        inputTokens, outputTokens, cacheWrite, cacheRead, total,
+      ]);
+    }
+  } catch(e) {
+    Logger.log('recordClaudeUsage_ error: ' + e.message);
+  }
+  // シート書き込みの成否に関わらず、予算消費（input+outputのみ。キャッシュ分は
+  // 実コストが小さいためRAG側のrecordTokenUsage_と同じ考え方で予算対象からは外す）
+  try {
+    _consumeClaudeBudget_(apiKey, inputTokens + outputTokens);
+  } catch(e) {
+    Logger.log('_consumeClaudeBudget_ error: ' + e.message);
+  }
+  return total;
+}
+
+/** APIキー（apiKeyPrefix）ごとのClaudeトークン使用量集計（管理者のみ） */
+function adminClaudeUsageStats(apiKey) {
+  requireAdmin_(apiKey);
+  var sheet = getClaudeUsageSheet_();
+  var byKey = {};
+  if (!sheet) return { rows: [] };
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    var prefix = String(data[i][1]);
+    if (!prefix) continue;
+    if (!byKey[prefix]) {
+      byKey[prefix] = {
+        apiKeyPrefix: prefix, calls: 0,
+        inputTokens: 0, outputTokens: 0, cacheTokens: 0, totalMeasuredTokens: 0,
+      };
+    }
+    var row = byKey[prefix];
+    row.calls++;
+    row.inputTokens         += Number(data[i][4]) || 0;
+    row.outputTokens        += Number(data[i][5]) || 0;
+    row.cacheTokens         += (Number(data[i][6]) || 0) + (Number(data[i][7]) || 0);
+    row.totalMeasuredTokens += Number(data[i][8]) || 0;
+  }
+
+  var nameByPrefix = {};
+  getApiKeysConfig_().forEach(function(k) {
+    nameByPrefix[_keyPreviewOf_(k)] = k.displayName || '';
+  });
+
+  var rows = Object.keys(byKey).map(function(prefix) {
+    var r = byKey[prefix];
+    r.displayName = nameByPrefix[prefix] || '(不明なキー)';
+    return r;
+  });
+  rows.sort(function(a, b) { return b.totalMeasuredTokens - a.totalMeasuredTokens; });
+  return { rows: rows };
+}
+
+/**
+ * RAG_ClaudeUsageの保持期限（日数）を過ぎた行を削除する。
+ * スクリプトプロパティ CLAUDE_USAGE_RETENTION_DAYS が未設定（0以下）なら何もしない。
+ */
+function purgeExpiredClaudeUsage_() {
+  var days = parseInt(getProps_().getProperty('CLAUDE_USAGE_RETENTION_DAYS') || '0', 10);
+  if (!days || days <= 0) return { purged: 0, enabled: false };
+  var sheet = getClaudeUsageSheet_();
+  if (!sheet) return { purged: 0, enabled: true };
+
+  var cutoff = new Date().getTime() - days * 24 * 60 * 60 * 1000;
+  var data   = sheet.getDataRange().getValues();
+  var toDelete = [];
+  for (var r = 1; r < data.length; r++) {
+    var ts = Date.parse(String(data[r][0]));
+    if (!isNaN(ts) && ts < cutoff) toDelete.push(r + 1);
+  }
+  toDelete.sort(function(a, b) { return b - a; });
+  toDelete.forEach(function(ri) { sheet.deleteRow(ri); });
+  return { purged: toDelete.length, enabled: true };
+}
+
+/** 管理UI/手動実行用: RAG_ClaudeUsageの期限切れ行を即時削除する */
+function adminPurgeExpiredClaudeUsage(apiKey) {
+  requireAdmin_(apiKey);
+  return purgeExpiredClaudeUsage_();
+}
+
 /** グラフデータ（ブラウザ用） */
 function getGraphDataWithKey(apiKey) {
   var config = validateApiKey_(apiKey);
@@ -481,7 +667,14 @@ function getGraphDataWithKey(apiKey) {
 /** キー一覧（管理者のみ） */
 function adminListKeys(apiKey) {
   requireAdmin_(apiKey);
-  return getApiKeysConfig_().map(function(k) {
+  var keys = getApiKeysConfig_();
+  // 一覧表示のたびに自動回復の期限切れをチェックし、期限が来ている分は反映しておく
+  // （そのキー自体が呼ばれるまで待つと、管理画面に古い残高が表示され続けてしまう）。
+  var changed = false;
+  keys.forEach(function(k) { if (_applyScheduledResets_(k)) changed = true; });
+  if (changed) saveApiKeysConfig_(keys);
+
+  return keys.map(function(k) {
     return {
       keyPreview:  _keyPreviewOf_(k) + '...',
       displayName: k.displayName || '',
@@ -490,6 +683,12 @@ function adminListKeys(apiKey) {
       createdAt:   k.createdAt   || '',
       capacity:    (k.capacity == null) ? null : k.capacity,
       balance:     (k.capacity == null) ? null : (typeof k.balance === 'number' ? k.balance : k.capacity),
+      resetIntervalHours: (k.capacity == null) ? null : (k.resetIntervalHours || null),
+      resetAt:            (k.capacity == null) ? null : (k.resetAt || null),
+      claudeCapacity: (k.claudeCapacity == null) ? null : k.claudeCapacity,
+      claudeBalance:  (k.claudeCapacity == null) ? null : (typeof k.claudeBalance === 'number' ? k.claudeBalance : k.claudeCapacity),
+      claudeResetIntervalHours: (k.claudeCapacity == null) ? null : (k.claudeResetIntervalHours || null),
+      claudeResetAt:            (k.claudeCapacity == null) ? null : (k.claudeResetAt || null),
     };
   });
 }
@@ -585,8 +784,10 @@ function _consumeKeyBudget_(apiKey, amount) {
 /**
  * キーのトークン上限を設定（管理者のみ）。capacityにnull/未指定を渡すと無制限に戻す。
  * 上限を変更した時点でbalanceは満タン（=capacity）にリセットする。
+ * resetIntervalHoursを指定すると、その時間ごとに残高が自動で満タンに回復するように
+ * なる（null/0/未指定なら自動回復オフ＝手動チャージのみ）。
  */
-function adminSetKeyCapacity(apiKey, keyPreview, capacity) {
+function adminSetKeyCapacity(apiKey, keyPreview, capacity, resetIntervalHours) {
   requireAdmin_(apiKey);
   var prefix = keyPreview.replace('...', '');
   var keys   = getApiKeysConfig_();
@@ -597,11 +798,21 @@ function adminSetKeyCapacity(apiKey, keyPreview, capacity) {
     if (capacity === null || capacity === undefined || capacity === '') {
       k.capacity = null;
       delete k.balance;
+      delete k.resetIntervalHours;
+      delete k.resetAt;
     } else {
       var cap = Number(capacity);
       if (!isFinite(cap) || cap < 0) throw new Error('上限は0以上の数値で指定してください');
       k.capacity = cap;
       k.balance  = cap;
+      var interval = Number(resetIntervalHours) || 0;
+      if (interval > 0) {
+        k.resetIntervalHours = interval;
+        k.resetAt = new Date(Date.now() + interval * 3600 * 1000).toISOString();
+      } else {
+        delete k.resetIntervalHours;
+        delete k.resetAt;
+      }
     }
   });
   if (!found) throw new Error('キーが見つかりません: ' + keyPreview);
@@ -624,6 +835,97 @@ function adminChargeKeyBalance(apiKey, keyPreview, amount) {
     var current = typeof k.balance === 'number' ? k.balance : k.capacity;
     k.balance = Math.max(0, Math.min(k.capacity, current + amt));
     newBalance = k.balance;
+  });
+  if (!found) throw new Error('キーが見つかりません: ' + keyPreview);
+  saveApiKeysConfig_(keys);
+  return { ok: true, balance: newBalance };
+}
+
+// ─────────────────────────────────────────────
+// APIキーごとのClaudeトークン上限（予算） — RAG（Gemini）用capacity/balanceとは
+// 別バケットで管理する。houdini21チュートリアル生成（tutorial_agent.py）が
+// Claude APIを直接叩かず、必ずこのGAS経由（doPost action:'claude_messages'）で
+// 呼ぶようにすることで、クライアント側で上限を自己申告・改ざんできない構成にする
+// （§8.14参照）。フィールド名・関数の作りはRAG用のcapacity/balanceと意図的に対称にしてある。
+// ─────────────────────────────────────────────
+
+/** true: 予算内（許容） / false: 残高が尽きている（拒否すべき）。claudeCapacity未設定なら常にtrue */
+function _hasClaudeQuotaRemaining_(config) {
+  if (!config || config.claudeCapacity == null) return true;
+  var balance = typeof config.claudeBalance === 'number' ? config.claudeBalance : config.claudeCapacity;
+  return balance > 0;
+}
+
+/** Claude呼び出し1回で消費したトークン数分だけ、該当APIキーのclaudeBalanceを減らす（claudeCapacity未設定のキーは何もしない） */
+function _consumeClaudeBudget_(apiKey, amount) {
+  if (!amount || amount <= 0) return;
+  var keys = getApiKeysConfig_();
+  var hash = _hashApiKey_(apiKey);
+  var changed = false;
+  keys.forEach(function(k) {
+    var matches = k.keyHash ? k.keyHash === hash : (k.key === apiKey);
+    if (!matches || k.claudeCapacity == null) return;
+    var current = typeof k.claudeBalance === 'number' ? k.claudeBalance : k.claudeCapacity;
+    k.claudeBalance = Math.max(0, current - amount);
+    changed = true;
+  });
+  if (changed) saveApiKeysConfig_(keys);
+}
+
+/**
+ * キーのClaudeトークン上限を設定（管理者のみ）。claudeCapacityにnull/未指定を渡すと無制限に戻す。
+ * 上限を変更した時点でclaudeBalanceは満タン（=claudeCapacity）にリセットする。
+ * resetIntervalHoursを指定すると、その時間ごとに残高が自動で満タンに回復するように
+ * なる（null/0/未指定なら自動回復オフ＝手動チャージのみ）。
+ */
+function adminSetClaudeCapacity(apiKey, keyPreview, capacity, resetIntervalHours) {
+  requireAdmin_(apiKey);
+  var prefix = keyPreview.replace('...', '');
+  var keys   = getApiKeysConfig_();
+  var found  = false;
+  keys.forEach(function(k) {
+    if (_keyPreviewOf_(k) !== prefix) return;
+    found = true;
+    if (capacity === null || capacity === undefined || capacity === '') {
+      k.claudeCapacity = null;
+      delete k.claudeBalance;
+      delete k.claudeResetIntervalHours;
+      delete k.claudeResetAt;
+    } else {
+      var cap = Number(capacity);
+      if (!isFinite(cap) || cap < 0) throw new Error('上限は0以上の数値で指定してください');
+      k.claudeCapacity = cap;
+      k.claudeBalance  = cap;
+      var interval = Number(resetIntervalHours) || 0;
+      if (interval > 0) {
+        k.claudeResetIntervalHours = interval;
+        k.claudeResetAt = new Date(Date.now() + interval * 3600 * 1000).toISOString();
+      } else {
+        delete k.claudeResetIntervalHours;
+        delete k.claudeResetAt;
+      }
+    }
+  });
+  if (!found) throw new Error('キーが見つかりません: ' + keyPreview);
+  saveApiKeysConfig_(keys);
+  return { ok: true };
+}
+
+/** キーのClaude残高にチャージ（上限を超えない範囲で加算、管理者のみ）。無制限キーには使えない */
+function adminChargeClaudeBalance(apiKey, keyPreview, amount) {
+  requireAdmin_(apiKey);
+  var amt = Number(amount);
+  if (!isFinite(amt) || amt <= 0) throw new Error('チャージ量は正の数値で指定してください');
+  var prefix = keyPreview.replace('...', '');
+  var keys   = getApiKeysConfig_();
+  var found  = false, newBalance = null;
+  keys.forEach(function(k) {
+    if (_keyPreviewOf_(k) !== prefix) return;
+    found = true;
+    if (k.claudeCapacity == null) throw new Error('無制限のキーにはチャージ不要です: ' + keyPreview);
+    var current = typeof k.claudeBalance === 'number' ? k.claudeBalance : k.claudeCapacity;
+    k.claudeBalance = Math.max(0, Math.min(k.claudeCapacity, current + amt));
+    newBalance = k.claudeBalance;
   });
   if (!found) throw new Error('キーが見つかりません: ' + keyPreview);
   saveApiKeysConfig_(keys);
@@ -749,6 +1051,48 @@ function doPost(e) {
       var rateResult = rateMemoryEntry(apiKey, body.memoryId || '', body.rating || '');
       rateResult.status = rateResult.ok ? 'ok' : 'error';
       return ContentService.createTextOutput(JSON.stringify(rateResult))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Claude API プロキシ（houdini21チュートリアル生成等）:
+    // { action:'claude_messages', apiKey, model, max_tokens, system, tools, messages, purpose }
+    // クライアント（Houdini）は生のANTHROPIC_API_KEYを一切持たず、必ずこのGAS経由で
+    // Claude APIを呼ぶ。これによりAPIキーごとのClaude専用トークン予算（claudeCapacity/
+    // claudeBalance、RAG=Gemini用のcapacity/balanceとは別バケット）をクライアント側で
+    // 改ざん・迂回できない形で強制する（§8.14参照）。
+    if (action === 'claude_messages') {
+      var claudeConfig = validateApiKey_(apiKey);
+      if (!claudeConfig) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: 'auth_error', error: { message: '認証エラー: 無効なAPIキーです' },
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      if (isRateLimited_(apiKey)) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: 'rate_limited', error: { message: 'リクエストが多すぎます。しばらく待ってから再試行してください。' },
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      if (!_hasClaudeQuotaRemaining_(claudeConfig)) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: 'quota_exceeded', error: { message: 'Claudeトークンの利用上限に達しています。管理者にチャージを依頼してください。' },
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      var claudeResult = callClaudeProxy_(body);
+      if (claudeResult.status === 'ok') {
+        recordClaudeUsage_(apiKey, body.model || '', body.purpose || '', claudeResult.usage);
+        // 消費後の残高をレスポンスに含める。クライアント（Houdini）はこれを
+        // そのままゲージ表示に使う（ローカルで独自に上限を計算・保持させない）。
+        var updatedConfig = validateApiKey_(apiKey);
+        claudeResult.claudeQuota = {
+          capacity: (updatedConfig && updatedConfig.claudeCapacity != null) ? updatedConfig.claudeCapacity : null,
+          balance:  (updatedConfig && updatedConfig.claudeCapacity != null)
+            ? (typeof updatedConfig.claudeBalance === 'number' ? updatedConfig.claudeBalance : updatedConfig.claudeCapacity)
+            : null,
+          resetIntervalHours: (updatedConfig && updatedConfig.claudeCapacity != null) ? (updatedConfig.claudeResetIntervalHours || null) : null,
+          resetAt:            (updatedConfig && updatedConfig.claudeCapacity != null) ? (updatedConfig.claudeResetAt || null) : null,
+        };
+      }
+      return ContentService.createTextOutput(JSON.stringify(claudeResult))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -1341,6 +1685,61 @@ function searchMemory_(query, apiKey, limit) {
     Logger.log('searchMemory_ error: ' + e.message);
     return [];
   }
+}
+
+// ─────────────────────────────────────────────
+// Claude (Anthropic) プロキシ
+//
+// houdini21チュートリアル生成（tutorial_agent.py）用。クライアントは生の
+// ANTHROPIC_API_KEYを持たず、この関数がスクリプトプロパティ ANTHROPIC_API_KEY を
+// 使って代理でMessages APIを呼ぶ。doPost側で認証・レート制限・Claude専用トークン
+// 予算（claudeCapacity/claudeBalance）を先にチェックしてから呼ばれる。
+// ─────────────────────────────────────────────
+
+/**
+ * bodyはHoudini側から届いた { model, max_tokens, system, tools, messages } をそのまま使う
+ * （thinking等の追加パラメータもそのまま透過する）。
+ * 戻り値は成功時 { status:'ok', content, stop_reason, usage, model, ... }（Claude APIの
+ * レスポンスをそのまま展開しstatusを付加）、失敗時 { status:'error', error:{message} }。
+ */
+function callClaudeProxy_(body) {
+  var apiKey = getProps_().getProperty('ANTHROPIC_API_KEY');
+  if (!apiKey) {
+    return { status: 'error', error: { message: 'ANTHROPIC_API_KEY が未設定です（GASのスクリプトプロパティを確認してください）' } };
+  }
+  var payload = JSON.stringify({
+    model:      body.model,
+    max_tokens: body.max_tokens,
+    system:     body.system,
+    tools:      body.tools,
+    messages:   body.messages,
+  });
+  var maxRetries = 3, baseDelay = 2000, maxDelay = 20000;
+  var lastError = null;
+  for (var i = 0; i < maxRetries; i++) {
+    var res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post', contentType: 'application/json',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      payload: payload, muteHttpExceptions: true,
+    });
+    var code = res.getResponseCode();
+    if (code === 200) {
+      var claudeBody = JSON.parse(res.getContentText());
+      claudeBody.status = 'ok';
+      return claudeBody;
+    }
+    if ((code === 429 || code === 500 || code === 529) && i < maxRetries - 1) {
+      var wait = Math.min(baseDelay * Math.pow(2, i), maxDelay) + Math.floor(Math.random() * 1000);
+      Utilities.sleep(wait);
+      lastError = 'Claude API 過負荷（' + code + '）';
+      continue;
+    }
+    return { status: 'error', error: { message: 'Claude APIエラー ' + code + ': ' + res.getContentText().substring(0, 300) } };
+  }
+  return { status: 'error', error: { message: lastError || 'Claude APIリトライ上限到達' } };
 }
 
 // ─────────────────────────────────────────────
@@ -1950,6 +2349,12 @@ function backupCriticalData_() {
   if (usageSheet && usageSheet.getLastRow() > 0) {
     var usageFile = folder.createFile('RAG_TokenUsage_' + timestamp + '.csv', sheetToCsv_(usageSheet), MimeType.CSV);
     filesCreated.push(usageFile.getName());
+  }
+
+  var claudeUsageSheet = getClaudeUsageSheet_();
+  if (claudeUsageSheet && claudeUsageSheet.getLastRow() > 0) {
+    var claudeUsageFile = folder.createFile('RAG_ClaudeUsage_' + timestamp + '.csv', sheetToCsv_(claudeUsageSheet), MimeType.CSV);
+    filesCreated.push(claudeUsageFile.getName());
   }
 
   var apiKeysJson = JSON.stringify(getApiKeysConfig_(), null, 2);
@@ -2620,6 +3025,15 @@ function getChatHtml_() {
 '.admin-table th{padding:8px 12px;text-align:left;color:#64748b;border-bottom:1px solid var(--dborder);font-weight:500}',
 '.admin-table td{padding:8px 12px;border-bottom:1px solid var(--dborder);vertical-align:top}',
 '.admin-table tr:hover td{background:var(--dark3)}',
+'.mini-gauge-wrap{display:flex;align-items:center;gap:8px}',
+'.mini-gauge{width:34px;height:34px;border-radius:50%;flex-shrink:0;position:relative;',
+'  background:conic-gradient(var(--accent) calc(var(--pct,0)*1%), var(--dborder) 0)}',
+'.mini-gauge::before{content:"";position:absolute;inset:4px;background:var(--dark2);border-radius:50%}',
+'.mini-gauge span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;',
+'  font-size:.58rem;font-weight:700;color:#e2e8f0}',
+'.mini-gauge.low{background:conic-gradient(var(--warn) calc(var(--pct,0)*1%), var(--dborder) 0)}',
+'.mini-gauge.claude{background:conic-gradient(#c084fc calc(var(--pct,0)*1%), var(--dborder) 0)}',
+'.mini-gauge.claude.low{background:conic-gradient(var(--warn) calc(var(--pct,0)*1%), var(--dborder) 0)}',
 '.admin-input{background:var(--dark3);border:1px solid var(--dborder);border-radius:6px;color:#e2e8f0;padding:7px 10px;font-size:.82rem;width:100%;outline:none}',
 '.admin-input:focus{border-color:var(--accent)}',
 '.ns-check-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}',
@@ -2749,8 +3163,8 @@ function getChatHtml_() {
 '  <div class="admin-section">',
 '    <h3>発行済みキー一覧</h3>',
 '    <table class="admin-table">',
-'      <thead><tr><th>キー（先頭8文字）</th><th>名前</th><th>Namespace</th><th>トークン上限/残高</th><th></th></tr></thead>',
-'      <tbody id="key-tbody"><tr><td colspan="5" style="color:#64748b;padding:12px">読み込み中...</td></tr></tbody>',
+'      <thead><tr><th>キー（先頭8文字）</th><th>名前</th><th>Namespace</th><th>RAGトークン（Gemini）</th><th>Claudeトークン</th><th></th></tr></thead>',
+'      <tbody id="key-tbody"><tr><td colspan="6" style="color:#64748b;padding:12px">読み込み中...</td></tr></tbody>',
 '    </table>',
 '  </div>',
 '  </div>',
@@ -2880,7 +3294,7 @@ function getChatHtml_() {
 '  <!-- サブタブ: 使用量 -->',
 '  <div class="admin-sub-panel" id="asub-usage">',
 '  <div class="admin-section">',
-'    <h3>💰 APIキーごとのトークン使用量</h3>',
+'    <h3>💰 RAG（Gemini）トークン使用量</h3>',
 '    <p style="font-size:.78rem;color:#94a3b8;margin-bottom:14px">HyDE仮説文書生成・最終回答生成（generateContent）はGemini APIのusageMetadataから実測したトークン数です。埋め込み（embedContent）はレスポンスにusageMetadataが含まれないため実測できず、「埋め込み文字数」は目安（正確なトークン数ではない）として参考表示しています。mode:"raw"（Function Calling経由）は最終回答生成を行わないため、その分のトークンは発生しません。</p>',
 '    <table class="admin-table">',
 '      <thead><tr><th>APIキー</th><th style="text-align:right">クエリ数</th><th style="text-align:right">raw/full</th><th style="text-align:right">実測トークン合計</th><th style="text-align:right">埋め込み文字数(目安)</th></tr></thead>',
@@ -2889,10 +3303,25 @@ function getChatHtml_() {
 '    <button class="btn-admin" style="background:var(--dark3);color:#e2e8f0;margin-top:12px" onclick="loadTokenUsageStats()">更新</button>',
 '  </div>',
 '  <div class="admin-section">',
-'    <h3>🧹 使用量ログの保持期限クリーンアップ</h3>',
+'    <h3>🧹 RAG使用量ログの保持期限クリーンアップ</h3>',
 '    <p style="font-size:.76rem;color:#64748b;margin-bottom:12px">スクリプトプロパティ<code>TOKEN_USAGE_RETENTION_DAYS</code>（日数）を設定している場合のみ、期限切れの使用量ログを削除します。未設定の場合はボタンを押しても何も削除されません（既定オフ）。</p>',
 '    <button class="btn-admin" style="background:var(--dark3);color:#e2e8f0" onclick="purgeTokenUsageNow()">今すぐクリーンアップする</button>',
 '    <div id="purge-usage-status" style="font-size:.78rem;margin-top:10px;color:#94a3b8"></div>',
+'  </div>',
+'  <div class="admin-section">',
+'    <h3>🟣 Claudeトークン使用量（houdini21チュートリアル生成）</h3>',
+'    <p style="font-size:.78rem;color:#94a3b8;margin-bottom:14px">Claude APIをこのGAS経由（action:"claude_messages"）で呼んだ実測トークン数です。クライアント（Houdini）は生のANTHROPIC_API_KEYを持たないため、この数値がAPIキーごとの実際のClaude利用量です。</p>',
+'    <table class="admin-table">',
+'      <thead><tr><th>APIキー</th><th style="text-align:right">呼び出し回数</th><th style="text-align:right">input</th><th style="text-align:right">output</th><th style="text-align:right">cache</th><th style="text-align:right">合計</th></tr></thead>',
+'      <tbody id="claude-usage-tbody"><tr><td colspan="6" style="color:#64748b">「使用量」タブを開くと読み込まれます</td></tr></tbody>',
+'    </table>',
+'    <button class="btn-admin" style="background:var(--dark3);color:#e2e8f0;margin-top:12px" onclick="loadClaudeUsageStats()">更新</button>',
+'  </div>',
+'  <div class="admin-section">',
+'    <h3>🧹 Claude使用量ログの保持期限クリーンアップ</h3>',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:12px">スクリプトプロパティ<code>CLAUDE_USAGE_RETENTION_DAYS</code>（日数）を設定している場合のみ、期限切れの使用量ログを削除します。未設定の場合はボタンを押しても何も削除されません（既定オフ）。</p>',
+'    <button class="btn-admin" style="background:var(--dark3);color:#e2e8f0" onclick="purgeClaudeUsageNow()">今すぐクリーンアップする</button>',
+'    <div id="purge-claude-usage-status" style="font-size:.78rem;margin-top:10px;color:#94a3b8"></div>',
 '  </div>',
 '  </div>',
 '  <!-- サブタブ: 使い方 -->',
@@ -2955,8 +3384,16 @@ function getChatHtml_() {
 '    <p style="font-size:.78rem;color:#64748b;margin-bottom:14px">キー: <span id="edit-ns-preview" style="font-family:monospace;color:#94a3b8"></span></p>',
 '    <div id="edit-ns-checkboxes" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;padding:10px;background:var(--dark3);border-radius:8px;border:1px solid var(--dborder)"></div>',
 '    <div style="margin-bottom:16px">',
-'      <label style="font-size:.75rem;color:#64748b;display:block;margin-bottom:4px">トークン上限（空欄=無制限。変更すると残高は満タンにリセットされます）</label>',
+'      <label style="font-size:.75rem;color:#64748b;display:block;margin-bottom:4px">RAG（Gemini）トークン上限（空欄=無制限。変更すると残高は満タンにリセットされます）</label>',
 '      <input class="admin-input" id="edit-ns-capacity" type="number" min="0" step="1000" placeholder="例: 100000">',
+'      <label style="font-size:.72rem;color:#64748b;display:block;margin:6px 0 4px">自動回復間隔（時間。空欄=自動回復なし・要手動チャージ）</label>',
+'      <input class="admin-input" id="edit-ns-reset-hours" type="number" min="0" step="1" placeholder="例: 24">',
+'    </div>',
+'    <div style="margin-bottom:16px">',
+'      <label style="font-size:.75rem;color:#64748b;display:block;margin-bottom:4px">Claudeトークン上限（空欄=無制限。変更すると残高は満タンにリセットされます）</label>',
+'      <input class="admin-input" id="edit-ns-claude-capacity" type="number" min="0" step="1000" placeholder="例: 100000">',
+'      <label style="font-size:.72rem;color:#64748b;display:block;margin:6px 0 4px">自動回復間隔（時間。空欄=自動回復なし・要手動チャージ）</label>',
+'      <input class="admin-input" id="edit-ns-claude-reset-hours" type="number" min="0" step="1" placeholder="例: 24">',
 '    </div>',
 '    <div style="display:flex;gap:8px">',
 '      <button class="btn-admin btn-primary" onclick="saveEditNs()">保存</button>',
@@ -3461,7 +3898,7 @@ function getChatHtml_() {
 '  if (tab === "kb") kbInitCloud();',
 '  if (tab === "drive") driveInit();',
 '  if (tab === "ratings") loadRatingStats();',
-'  if (tab === "usage") loadTokenUsageStats();',
+'  if (tab === "usage") { loadTokenUsageStats(); loadClaudeUsageStats(); }',
 '}',
 
 'function loadRatingStats() {',
@@ -3526,6 +3963,57 @@ function getChatHtml_() {
 '    .adminPurgeExpiredTokenUsage(_apiKey);',
 '}',
 
+'function loadClaudeUsageStats() {',
+'  var tbody = document.getElementById("claude-usage-tbody");',
+'  google.script.run',
+'    .withSuccessHandler(function(res) {',
+'      var rows = res.rows || [];',
+'      if (!rows.length) {',
+'        tbody.innerHTML = \'<tr><td colspan="6" style="color:#64748b">記録がまだありません</td></tr>\';',
+'        return;',
+'      }',
+'      tbody.innerHTML = rows.map(function(r) {',
+'        return "<tr><td>" + r.displayName + " <span style=\\"color:#64748b;font-size:.72rem\\">(" + r.apiKeyPrefix + "...)</span></td>" +',
+'          "<td style=\\"text-align:right\\">" + r.calls + "</td>" +',
+'          "<td style=\\"text-align:right;color:#64748b\\">" + r.inputTokens.toLocaleString() + "</td>" +',
+'          "<td style=\\"text-align:right;color:#64748b\\">" + r.outputTokens.toLocaleString() + "</td>" +',
+'          "<td style=\\"text-align:right;color:#64748b\\">" + r.cacheTokens.toLocaleString() + "</td>" +',
+'          "<td style=\\"text-align:right\\"><strong>" + r.totalMeasuredTokens.toLocaleString() + "</strong></td></tr>";',
+'      }).join("");',
+'    })',
+'    .withFailureHandler(function(e) { tbody.innerHTML = \'<tr><td colspan="6" style="color:var(--warn)">読み込み失敗: \' + e.message + "</td></tr>"; })',
+'    .adminClaudeUsageStats(_apiKey);',
+'}',
+
+'function purgeClaudeUsageNow() {',
+'  var status = document.getElementById("purge-claude-usage-status");',
+'  status.textContent = "確認中です…";',
+'  google.script.run',
+'    .withSuccessHandler(function(r) {',
+'      if (!r.enabled) { status.textContent = "CLAUDE_USAGE_RETENTION_DAYSが未設定のため、何も削除していません。"; return; }',
+'      status.textContent = "✅ " + r.purged + "件削除しました。";',
+'    })',
+'    .withFailureHandler(function(e) { status.textContent = "❌ " + e.message; })',
+'    .adminPurgeExpiredClaudeUsage(_apiKey);',
+'}',
+
+'// resetAt/resetIntervalHoursから「次回回復」表示テキストを作る。自動回復が設定されていなければ手動チャージが必要な旨を表示。',
+'function renderResetInfo_(resetIntervalHours, resetAt) {',
+'  if (!resetIntervalHours) return \'<span style="color:#64748b;font-size:.68rem">自動回復なし（手動チャージ）</span>\';',
+'  var when = resetAt ? new Date(resetAt).toLocaleString("ja-JP") : "—";',
+'  return \'<span style="font-size:.68rem;color:#94a3b8">次回回復: \' + when + \'（\' + resetIntervalHours + \'時間毎）</span>\';',
+'}',
+
+'// RAG（Gemini）/ Claude 共通のミニ円ゲージ描画。capacity==nullなら「無制限」表示。',
+'function renderQuotaGauge_(balance, capacity, extraCls, resetIntervalHours, resetAt) {',
+'  if (capacity == null) return \'<span style="color:#64748b">無制限</span>\';',
+'  var pct = capacity > 0 ? Math.round((balance / capacity) * 100) : 0;',
+'  var cls = "mini-gauge" + (extraCls ? " " + extraCls : "") + (pct <= 15 ? " low" : "");',
+'  return \'<div class="mini-gauge-wrap"><div class="\' + cls + \'" style="--pct:\' + pct + \'"><span>\' + pct + \'%</span></div>\' +',
+'    \'<div><span style="font-size:.72rem;color:#94a3b8">\' + Number(balance).toLocaleString() + " / " + Number(capacity).toLocaleString() + \'</span><br>\' +',
+'    renderResetInfo_(resetIntervalHours, resetAt) + \'</div></div>\';',
+'}',
+
 '// ── 管理画面 ──',
 'function loadAdminKeys() {',
 '  if (!_user || !_user.isAdmin) return;',
@@ -3539,19 +4027,21 @@ function getChatHtml_() {
 '        var ns  = (k.namespaces || []).join(", ") || "(なし)";',
 '        var adm = k.isAdmin ? \'<span class="badge-admin">管理者</span>\' : "";',
 '        var currentNsJson = JSON.stringify(k.namespaces || []).replace(/"/g, "&quot;");',
-'        var cap = (k.capacity == null)',
-'          ? \'<span style="color:#64748b">無制限</span>\'',
-'          : (Number(k.balance).toLocaleString() + " / " + Number(k.capacity).toLocaleString());',
-'        var chargeBtn = (k.capacity == null) ? "" :',
-'          \'<button class="btn-admin btn-sm" style="background:#334155;color:#e2e8f0" onclick="chargeKeyBalance(\\\'\' + k.keyPreview + \'\\\')">チャージ</button>\';',
+'        var ragCap    = renderQuotaGauge_(k.balance, k.capacity, "", k.resetIntervalHours, k.resetAt);',
+'        var claudeCap = renderQuotaGauge_(k.claudeBalance, k.claudeCapacity, "claude", k.claudeResetIntervalHours, k.claudeResetAt);',
+'        var ragChargeBtn = (k.capacity == null) ? "" :',
+'          \'<button class="btn-admin btn-sm" style="background:#334155;color:#e2e8f0" onclick="chargeKeyBalance(\\\'\' + k.keyPreview + \'\\\')">RAGチャージ</button>\';',
+'        var claudeChargeBtn = (k.claudeCapacity == null) ? "" :',
+'          \'<button class="btn-admin btn-sm" style="background:#334155;color:#e2e8f0" onclick="chargeClaudeBalance(\\\'\' + k.keyPreview + \'\\\')">Claudeチャージ</button>\';',
 '        tr.innerHTML =',
 '          \'<td style="font-family:monospace">\' + k.keyPreview + \'</td>\' +',
 '          \'<td>\' + k.displayName + adm + \'</td>\' +',
 '          \'<td style="font-size:.72rem;color:#94a3b8">\' + ns + \'</td>\' +',
-'          \'<td style="font-size:.76rem">\' + cap + \'</td>\' +',
+'          \'<td style="font-size:.76rem">\' + ragCap + \'</td>\' +',
+'          \'<td style="font-size:.76rem">\' + claudeCap + \'</td>\' +',
 '          \'<td style="display:flex;gap:6px;flex-wrap:wrap">\' +',
-'            \'<button class="btn-admin btn-sm" style="background:#334155;color:#e2e8f0" onclick="openEditNs(\\\'\' + k.keyPreview + \'\\\',\' + currentNsJson.replace(/\'/g,"\\\\\'") + \',\' + (k.capacity == null ? "null" : k.capacity) + \')">編集</button>\' +',
-'            chargeBtn +',
+'            \'<button class="btn-admin btn-sm" style="background:#334155;color:#e2e8f0" onclick="openEditNs(\\\'\' + k.keyPreview + \'\\\',\' + currentNsJson.replace(/\'/g,"\\\\\'") + \',\' + (k.capacity == null ? "null" : k.capacity) + \',\' + (k.claudeCapacity == null ? "null" : k.claudeCapacity) + \',\' + (k.resetIntervalHours == null ? "null" : k.resetIntervalHours) + \',\' + (k.claudeResetIntervalHours == null ? "null" : k.claudeResetIntervalHours) + \')">編集</button>\' +',
+'            ragChargeBtn + claudeChargeBtn +',
 '            \'<button class="btn-admin btn-danger btn-sm" onclick="deleteKey(\\\'\' + k.keyPreview + \'\\\')">削除</button></td>\';',
 '        tbody.appendChild(tr);',
 '      });',
@@ -3588,9 +4078,15 @@ function getChatHtml_() {
 '',
 'var _editNsPreview = null;',
 'var _editNsOrigCapacity = null;',
-'function openEditNs(preview, currentNs, currentCapacity) {',
+'var _editNsOrigClaudeCapacity = null;',
+'var _editNsOrigResetHours = null;',
+'var _editNsOrigClaudeResetHours = null;',
+'function openEditNs(preview, currentNs, currentCapacity, currentClaudeCapacity, currentResetHours, currentClaudeResetHours) {',
 '  _editNsPreview = preview;',
 '  _editNsOrigCapacity = (currentCapacity === undefined) ? null : currentCapacity;',
+'  _editNsOrigClaudeCapacity = (currentClaudeCapacity === undefined) ? null : currentClaudeCapacity;',
+'  _editNsOrigResetHours = (currentResetHours === undefined) ? null : currentResetHours;',
+'  _editNsOrigClaudeResetHours = (currentClaudeResetHours === undefined) ? null : currentClaudeResetHours;',
 '  var modal = document.getElementById("edit-ns-modal");',
 '  if (!modal) return;',
 '  var wrap = document.getElementById("edit-ns-checkboxes");',
@@ -3607,6 +4103,9 @@ function getChatHtml_() {
 '  });',
 '  document.getElementById("edit-ns-preview").textContent = preview;',
 '  document.getElementById("edit-ns-capacity").value = (currentCapacity == null) ? "" : currentCapacity;',
+'  document.getElementById("edit-ns-claude-capacity").value = (currentClaudeCapacity == null) ? "" : currentClaudeCapacity;',
+'  document.getElementById("edit-ns-reset-hours").value = (currentResetHours == null) ? "" : currentResetHours;',
+'  document.getElementById("edit-ns-claude-reset-hours").value = (currentClaudeResetHours == null) ? "" : currentClaudeResetHours;',
 '  modal.classList.add("show");',
 '}',
 'function closeEditNs() {',
@@ -3614,22 +4113,64 @@ function getChatHtml_() {
 '  if (modal) modal.classList.remove("show");',
 '  _editNsPreview = null;',
 '  _editNsOrigCapacity = null;',
+'  _editNsOrigClaudeCapacity = null;',
+'  _editNsOrigResetHours = null;',
+'  _editNsOrigClaudeResetHours = null;',
 '}',
 'function saveEditNs() {',
 '  if (!_editNsPreview) return;',
 '  var ns = Array.from(document.querySelectorAll("#edit-ns-checkboxes input:checked")).map(function(i) { return i.value; });',
 '  var capRaw = document.getElementById("edit-ns-capacity").value.trim();',
 '  var newCapacity = capRaw === "" ? null : Number(capRaw);',
+'  var claudeCapRaw = document.getElementById("edit-ns-claude-capacity").value.trim();',
+'  var newClaudeCapacity = claudeCapRaw === "" ? null : Number(claudeCapRaw);',
+'  var resetHoursRaw = document.getElementById("edit-ns-reset-hours").value.trim();',
+'  var newResetHours = resetHoursRaw === "" ? null : Number(resetHoursRaw);',
+'  var claudeResetHoursRaw = document.getElementById("edit-ns-claude-reset-hours").value.trim();',
+'  var newClaudeResetHours = claudeResetHoursRaw === "" ? null : Number(claudeResetHoursRaw);',
+'  var preview = _editNsPreview;',
+'  var origCapacity = _editNsOrigCapacity;',
+'  var origClaudeCapacity = _editNsOrigClaudeCapacity;',
+'  var origResetHours = _editNsOrigResetHours;',
+'  var origClaudeResetHours = _editNsOrigClaudeResetHours;',
+'  function applyCapacityChanges() {',
+'    var tasks = [];',
+'    if (newCapacity !== origCapacity || newResetHours !== origResetHours) {',
+'      tasks.push(new Promise(function(resolve, reject) {',
+'        google.script.run',
+'          .withSuccessHandler(resolve)',
+'          .withFailureHandler(reject)',
+'          .adminSetKeyCapacity(_apiKey, preview, newCapacity, newResetHours);',
+'      }));',
+'    }',
+'    if (newClaudeCapacity !== origClaudeCapacity || newClaudeResetHours !== origClaudeResetHours) {',
+'      tasks.push(new Promise(function(resolve, reject) {',
+'        google.script.run',
+'          .withSuccessHandler(resolve)',
+'          .withFailureHandler(reject)',
+'          .adminSetClaudeCapacity(_apiKey, preview, newClaudeCapacity, newClaudeResetHours);',
+'      }));',
+'    }',
+'    if (!tasks.length) { adminFlash("namespace を更新しました"); closeEditNs(); loadAdminKeys(); return; }',
+'    Promise.all(tasks)',
+'      .then(function() { adminFlash("namespace / トークン上限を更新しました"); closeEditNs(); loadAdminKeys(); })',
+'      .catch(function(e) { adminFlash((e && e.message) || String(e), true); });',
+'  }',
 '  google.script.run',
-'    .withSuccessHandler(function() {',
-'      if (newCapacity === _editNsOrigCapacity) { adminFlash("namespace を更新しました"); closeEditNs(); loadAdminKeys(); return; }',
-'      google.script.run',
-'        .withSuccessHandler(function() { adminFlash("namespace / トークン上限を更新しました"); closeEditNs(); loadAdminKeys(); })',
-'        .withFailureHandler(function(e) { adminFlash(e.message, true); })',
-'        .adminSetKeyCapacity(_apiKey, _editNsPreview, newCapacity);',
-'    })',
+'    .withSuccessHandler(applyCapacityChanges)',
 '    .withFailureHandler(function(e) { adminFlash(e.message, true); })',
-'    .adminUpdateKey(_apiKey, _editNsPreview, ns);',
+'    .adminUpdateKey(_apiKey, preview, ns);',
+'}',
+
+'function chargeClaudeBalance(preview) {',
+'  var amountRaw = prompt(preview + " にチャージするClaudeトークン数を入力してください（上限は超えません）");',
+'  if (amountRaw === null) return;',
+'  var amount = Number(amountRaw);',
+'  if (!isFinite(amount) || amount <= 0) { adminFlash("正の数値を入力してください", true); return; }',
+'  google.script.run',
+'    .withSuccessHandler(function() { adminFlash("チャージしました"); loadAdminKeys(); })',
+'    .withFailureHandler(function(e) { adminFlash(e.message, true); })',
+'    .adminChargeClaudeBalance(_apiKey, preview, amount);',
 '}',
 
 'function chargeKeyBalance(preview) {',

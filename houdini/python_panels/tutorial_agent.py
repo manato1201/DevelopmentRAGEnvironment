@@ -10,10 +10,16 @@ docs/content-generation.md §2 の設計に基づく:
      どちらのモードでも取得後に db フィールドが houdini21 のものだけに
      絞り込む（GAS側は許可namespaceが無いと "all" に自動フォールバックする
      ため、呼び出し側でも二重にホワイトリストを強制する）
-  ② エージェントループ: Claude Sonnet 4.6 + HOUDINI_TOOLS（最大25回）
+  ② エージェントループ: MODEL 定数のClaudeモデル + HOUDINI_TOOLS（最大MAX_ITERATIONS回）
      プロンプトキャッシュ: システムプロンプト・ツール定義・RAGコンテキストを
      cache_control で固定
-  ③ コスト上限: 累積 $0.50 を超えたら自動打ち切り（usage から実測計算）
+     Claude API呼び出しは必ず GAS（gas_cloud_rag.js、action:'claude_messages'）
+     経由で行う。生のANTHROPIC_API_KEYはクライアントに持たせず、GASが
+     APIキーごとのClaude専用トークン予算（claudeCapacity/claudeBalance）を
+     サーバー側で強制する。gas_url/gas_api_key（Settingsタブ、rag_mode=local
+     でも共通）が未設定だと生成を開始できない（docs/cloud-rag.md §8.14）
+  ③ コスト上限: 累積 COST_LIMIT_USD を超えたら自動打ち切り（usage から実測計算。
+     ローカル側の推定値であり、実際の課金上限はGAS側のclaudeCapacityが強制する）
   ④ 生成完了後 NodeGraphAsset JSON をエクスポート
   ⑤ Markdown はプレビュー用に返すだけ。保存は UI 側（ユーザー確認後）
 
@@ -25,9 +31,7 @@ from __future__ import annotations
 
 import datetime
 import json
-import os
 import re
-import time
 import unicodedata
 import urllib.error
 import urllib.request
@@ -92,6 +96,14 @@ class TutorialResult:
         self.output_tokens: int = 0
         self.cache_write_tokens: int = 0
         self.cache_read_tokens: int = 0
+        # GASが返す、このAPIキーの「実際の」Claudeトークン残高/上限（サーバー側で強制される値）。
+        # None = 未取得（GASが古い/claudeQuotaを返さなかった）または無制限キー。
+        self.claude_balance: int | None = None
+        self.claude_capacity: int | None = None
+        # 自動回復の間隔（時間）と次回回復予定時刻（ISO文字列）。null = 自動回復オフ
+        # （無制限キー、または管理者が回復間隔を設定していない=手動チャージのみ）。
+        self.claude_reset_interval_hours: int | None = None
+        self.claude_reset_at: str | None = None
         self.iterations: int = 0
         self.completed: bool = False   # finish_tutorial まで到達したか
         self.abort_reason: str = ""    # 打ち切り理由（上限到達など）
@@ -143,10 +155,13 @@ class TutorialAgent:
     def generate(self, topic: str) -> TutorialResult:
         result = TutorialResult()
 
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not api_key:
+        # Claude APIは必ずGAS（gas_cloud_rag.js）経由で呼ぶ。生のANTHROPIC_API_KEYを
+        # クライアントに持たせない構成にすることで、APIキーごとのトークン上限を
+        # クライアント側から迂回できないようにしている（docs/cloud-rag.md §8.14）。
+        if not self._gas_url or not self._gas_api_key:
             raise RuntimeError(
-                "ANTHROPIC_API_KEY が未設定です。Houdini 起動前に OS 環境変数に設定してください。"
+                "GAS WebApp URL / APIキーが未設定です。Settingsタブで設定してください"
+                "（houdini21チュートリアル生成はClaude APIをGAS経由で呼ぶため必須です）。"
             )
 
         # ① RAG検索（houdini21 namespace のみ）
@@ -166,7 +181,7 @@ class TutorialAgent:
         # ③ エージェントループ
         system_blocks, tools, messages = self._build_initial_prompt(topic, rag_texts)
         try:
-            self._run_loop(api_key, system_blocks, tools, messages, result)
+            self._run_loop(system_blocks, tools, messages, result)
         finally:
             result.iterations = self._count_iterations()
 
@@ -306,14 +321,19 @@ class TutorialAgent:
 
     def _run_loop(
         self,
-        api_key: str,
         system_blocks: list[dict],
         tools: list[dict],
         messages: list[dict],
         result: TutorialResult,
     ) -> None:
         for iteration in range(1, MAX_ITERATIONS + 1):
-            response = self._call_api(api_key, system_blocks, tools, messages)
+            response = self._call_api(system_blocks, tools, messages)
+            quota = response.get("claudeQuota")
+            if quota:
+                result.claude_balance = quota.get("balance")
+                result.claude_capacity = quota.get("capacity")
+                result.claude_reset_interval_hours = quota.get("resetIntervalHours")
+                result.claude_reset_at = quota.get("resetAt")
             usage = response.get("usage", {})
             result.cost_usd += self._usage_cost(usage)
             result.input_tokens += usage.get("input_tokens", 0)
@@ -355,43 +375,60 @@ class TutorialAgent:
         self._progress("反復上限に達したため打ち切ります")
 
     def _call_api(
-        self, api_key: str, system_blocks: list[dict],
+        self, system_blocks: list[dict],
         tools: list[dict], messages: list[dict],
     ) -> dict:
-        """Anthropic Messages API を urllib で呼ぶ。過負荷系エラーはリトライする。"""
+        """
+        Claude Messages API を、GAS WebApp（gas_cloud_rag.js）経由で呼ぶ。
+
+        このHoudiniクライアントは生のANTHROPIC_API_KEYを一切保持しない。実キーは
+        GASのスクリプトプロパティにのみ保存され、GAS側がAPIキーごとのClaude専用
+        トークン予算（claudeCapacity/claudeBalance）を強制する。クライアント側の
+        Settings設定を書き換えても上限を迂回できないようにするための構成
+        （docs/cloud-rag.md §8.14参照）。過負荷系リトライはGAS側で行うため、
+        ここでは単純に1回呼ぶだけでよい。
+        """
         payload = json.dumps({
+            "action": "claude_messages",
+            "apiKey": self._gas_api_key,
             "model": MODEL,
             "max_tokens": MAX_TOKENS_PER_TURN,
             "system": system_blocks,
             "tools": tools,
             "messages": messages,
+            "purpose": "houdini21_tutorial_agent",
         }, ensure_ascii=False).encode("utf-8")
 
-        last_error: Exception | None = None
-        for attempt in range(3):
-            req = urllib.request.Request(
-                "https://api.anthropic.com/v1/messages",
-                data=payload,
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                method="POST",
+        req = urllib.request.Request(
+            self._gas_url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                data = json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"GAS呼び出しエラー {exc.code}: {detail}") from exc
+
+        status = data.get("status", "error")
+        if status == "quota_exceeded":
+            raise RuntimeError(
+                data.get("error", {}).get("message")
+                or "Claudeトークンの利用上限に達しています。管理者にチャージを依頼してください。"
             )
-            try:
-                with urllib.request.urlopen(req, timeout=180) as resp:
-                    return json.loads(resp.read())
-            except urllib.error.HTTPError as exc:
-                if exc.code in (429, 500, 529) and attempt < 2:
-                    wait = 5 * (attempt + 1)
-                    self._progress(f"API 過負荷（{exc.code}）。{wait}秒後にリトライします...")
-                    time.sleep(wait)
-                    last_error = exc
-                    continue
-                detail = exc.read().decode("utf-8", errors="replace")
-                raise RuntimeError(f"Claude API エラー {exc.code}: {detail}") from exc
-        raise RuntimeError(f"Claude API リトライ上限到達: {last_error}")
+        if status == "rate_limited":
+            raise RuntimeError(
+                data.get("error", {}).get("message") or "リクエストが多すぎます。しばらく待ってから再試行してください。"
+            )
+        if status == "auth_error":
+            raise RuntimeError(
+                data.get("error", {}).get("message") or "認証エラー: GAS APIキーが無効です。Settingsタブを確認してください。"
+            )
+        if status != "ok":
+            raise RuntimeError(data.get("error", {}).get("message") or f"GAS Claudeプロキシエラー: {data}")
+        return data
 
     @staticmethod
     def _usage_cost(usage: dict) -> float:
