@@ -113,17 +113,25 @@ def capture_network_editor(
         if network_editor is None:
             _log("no NetworkEditor pane found in the current desktop", log_path)
             return False
-        if not hasattr(network_editor, "qtWidget"):
+        # Real-Houdini dir() dump (21.0.700) confirmed there is no
+        # qtWidget()/grab()/pixmap() on the pane tab itself -- the closest
+        # available accessor is qtParentWindow(), which returns the Qt
+        # window this pane lives in. We don't attempt to crop it down to
+        # just this pane's rect (screenBounds()'s coordinate space/type
+        # isn't verified against this Houdini build, and a wrong crop
+        # would silently produce a garbled image rather than a clean
+        # failure) -- grabbing the whole parent window is less precise but
+        # robust, and still a real Houdini screenshot for the video.
+        if not hasattr(network_editor, "qtParentWindow"):
             _log(
-                "NetworkEditor pane tab has no qtWidget() method on this Houdini "
-                "build -- run dir(hou.ui.paneTabOfType(hou.paneTabType.NetworkEditor)) "
-                "in the Python Shell to find the right accessor",
+                "NetworkEditor pane tab has neither qtWidget() nor qtParentWindow() "
+                "on this Houdini build -- re-run dir() and report back",
                 log_path,
             )
             return False
-        widget = network_editor.qtWidget()
+        widget = network_editor.qtParentWindow()
         if widget is None:
-            _log("NetworkEditor pane's qtWidget() returned None", log_path)
+            _log("NetworkEditor pane's qtParentWindow() returned None", log_path)
             return False
         pixmap = widget.grab()
         if width and height:
