@@ -994,6 +994,30 @@ APIキーごとに、直近1分間のリクエスト数を`CacheService`で数�
 
 新しいコードを貼り付けてデプロイしたら、各デプロイ先の値が一致しているか確認する運用を推奨する。
 
+### 8.14 Claude APIのGASプロキシ化とAPIキーごとの二重トークン予算（RAG／Claude）
+
+houdini21チュートリアル生成（`houdini/python_panels/tutorial_agent.py`）が実証実験（外部向け・非技術者を含む対象者）で使われる前提を踏まえ、Claude APIの不正使用・大量使用を**クライアント側では迂回できない形**で防止するようにした。
+
+**背景にあった問題:** 以前はHoudiniクライアントが`ANTHROPIC_API_KEY`をOS環境変数として直接保持し、Claude APIを直接叩いていた。トークン消費量の「予算」はHoudini側のSettingsタブで設定できる数値（`token_usage.py`のローカルJSONログ）でしかなく、これは単なる目安表示であって、ユーザーがその数値を書き換えたりログファイルを消したりすれば実質無制限に使えてしまう構成だった。
+
+**対応:**
+
+1. **Claude APIは必ずGAS経由（`doPost` の `action:'claude_messages'`）で呼ぶ。** Houdiniクライアントは生の`ANTHROPIC_API_KEY`を一切保持しない。実キーはGASのスクリプトプロパティ`ANTHROPIC_API_KEY`にのみ保存され、`callClaudeProxy_()`がクライアントに代わってMessages APIを呼ぶ（過負荷系エラー429/500/529はGAS側でリトライする）。
+2. **APIキーごとに、RAG（Gemini）用とは別のClaude専用トークン予算バケットを持つ。** `API_KEYS_CONFIG`に`claudeCapacity`/`claudeBalance`を追加（既存の`capacity`/`balance`＝RAG/Gemini用とは完全に独立）。`_hasClaudeQuotaRemaining_()`がクエリ前に事前チェックし、残高が尽きていれば**Claude APIを一切呼ばずに**`status:"quota_exceeded"`を返す。呼び出し後は`recordClaudeUsage_()`が実測トークン数（`usage.input_tokens + usage.output_tokens`）で残高を減算する。
+3. **管理画面「🔑 APIキー管理」タブに、RAG用・Claude用の2つの円ゲージを表示。** それぞれ独立して上限設定（編集モーダル）・チャージ（各専用ボタン）ができる。ミニ円ゲージはCSS `conic-gradient`で描画し、残量15%以下で赤に変化する。
+4. **使用量の可視化も別々。** 「💰 使用量」タブに「RAG（Gemini）トークン使用量」と「Claudeトークン使用量」を別テーブルで表示（`RAG_TokenUsage`と`RAG_ClaudeUsage`の2シート）。保持期限も別々のスクリプトプロパティ（`TOKEN_USAGE_RETENTION_DAYS`／`CLAUDE_USAGE_RETENTION_DAYS`）で管理できる。
+5. **Houdini側の表示は「サーバーが返した実際の残高」をそのまま表示するだけにした。** `claude_messages`のレスポンスに消費後の`claudeQuota:{balance,capacity,resetIntervalHours,resetAt}`を含めて返し、`token_usage.py`のドーナツゲージはこの値をキャッシュ・表示するだけで、上限の判定には一切使わない（判定は毎回GAS側で行う）。以前のクライアント側編集可能な「トークン予算」数値フィールドはSettingsタブから削除した。
+6. **残高の自動回復（オプション）。** RAG（Gemini）・Claudeそれぞれのバケットに、管理画面の編集モーダルから「自動回復間隔（時間）」を設定できる。設定すると`resetIntervalHours`/`resetAt`（次回回復予定時刻のISO文字列）が`API_KEYS_CONFIG`に保存され、以後その間隔ごとに残高が上限まで自動で満タンに戻る。空欄のままなら自動回復オフ（`adminChargeKeyBalance`/`adminChargeClaudeBalance`による手動チャージのみ）。
+
+**自動回復の実装方式（時間トリガーは使わない）:** GASの時間主導トリガーではなく、**プル型（呼び出し駆動）**で実装している。すべての認証済みリクエストが通る唯一の関所である`validateApiKey_()`が、そのAPIキーの`resetAt`が現在時刻を過ぎていないかを毎回チェックし、過ぎていれば残高を上限まで戻して`resetAt`を1インターバル進める（`_applyScheduledReset_()`）。長時間アクセスが無く複数インターバルを取りこぼした場合は、過ぎている分だけループしてキャッチアップしてから、常に未来の時刻に`resetAt`を再設定する。管理画面の「🔑 APIキー管理」タブのキー一覧（`adminListKeys()`）も、表示時に同じ関数を通すため、そのキー自体が実際に使われるまで待たなくても最新の残高が見える。この方式のため、**誰も呼び出さないキーは`resetAt`を過ぎても実際には回復しない**（次にそのキーが使われた瞬間、または管理画面を開いた瞬間にまとめて反映される）——GASの定期実行トリガー枠を消費しない代わりに、この遅延特性がある点は把握しておくこと。
+
+**セットアップ時の注意（既存デプロイからの移行）:**
+
+- GASのスクリプトプロパティに`ANTHROPIC_API_KEY`を追加する（Anthropic Consoleで発行したキー）
+- Houdiniマシン側のOS環境変数`ANTHROPIC_API_KEY`はもう不要（設定していても無視される。tutorial_agent.pyはGAS経由でしかClaude APIを呼ばない）
+- houdini21チュートリアル生成は、rag_mode（Settingsタブの「Local」/「Cloud」）に関わらず`gas_url`/`gas_api_key`の設定が**必須**になった（RAG検索だけをローカルで行う場合でも、生成そのものはGAS経由のため）
+- 実証実験の参加者ごとに個別のAPIキーを発行し、`adminSetClaudeCapacity()`で妥当な上限（例: 1人あたり数十万トークン程度）を設定しておくことを推奨する
+
 ---
 
 ## 9. トラブルシューティング

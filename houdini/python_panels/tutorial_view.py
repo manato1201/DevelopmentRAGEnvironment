@@ -148,10 +148,8 @@ class TutorialGeneratePanel(QWidget):
         self._on_generate()
 
     def _refresh_usage(self) -> None:
-        cfg = self._cfg_getter()
-        bridge_dir = cfg.get("local_bridge_dir", "")
-        budget = int(cfg.get("token_budget", token_usage.DEFAULT_TOKEN_BUDGET))
-        self._usage_widget.refresh(bridge_dir, budget)
+        bridge_dir = self._cfg_getter().get("local_bridge_dir", "")
+        self._usage_widget.refresh(bridge_dir)
 
     # ── 生成 ────────────────────────────────────────────────────────────────────
 
@@ -200,11 +198,19 @@ class TutorialGeneratePanel(QWidget):
 
     def _on_done(self, result) -> None:
         self._result = result
-        token_usage.record_usage(
-            self._cfg_getter().get("local_bridge_dir", ""),
-            self._topic_edit.text().strip(),
-            result,
-        )
+        bridge_dir = self._cfg_getter().get("local_bridge_dir", "")
+        token_usage.record_usage(bridge_dir, self._topic_edit.text().strip(), result)
+        # result.claude_balance/capacity はGAS（gas_cloud_rag.js）がclaude_messages
+        # 応答に含めて返した、そのAPIキーの実際の残高/上限。これが唯一の正なので、
+        # ローカルではキャッシュ（表示専用）に保存するだけで判定には使わない。
+        if result.claude_capacity is not None or result.claude_balance is not None:
+            token_usage.save_server_quota(
+                bridge_dir,
+                result.claude_balance,
+                result.claude_capacity,
+                result.claude_reset_interval_hours,
+                result.claude_reset_at,
+            )
         self._refresh_usage()
         self._preview.setMarkdown(result.markdown)
         self._generate_btn.setEnabled(True)
