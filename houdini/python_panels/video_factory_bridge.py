@@ -41,11 +41,12 @@ def launch_video_generation(
 
     viewport_png = md_path.with_name(md_path.stem + "_viewport.png")
     network_png = md_path.with_name(md_path.stem + "_network.png")
+    log_path = md_path.with_name(md_path.stem + "_capture.log")
 
     if sandbox_path:
-        focus_network_on(sandbox_path)
-    got_viewport = capture_viewport(viewport_png)
-    got_network = capture_network_editor(network_png)
+        focus_network_on(sandbox_path, log_path=log_path)
+    got_viewport = capture_viewport(viewport_png, log_path=log_path)
+    got_network = capture_network_editor(network_png, log_path=log_path)
 
     args = [
         exe_path,
@@ -69,5 +70,10 @@ def launch_video_generation(
         shots.append("ビューポート")
     if got_network:
         shots.append("ネットワーク")
-    shots_desc = "・".join(shots) if shots else "スクリーンショットなし"
-    return f"動画生成をバックグラウンドで開始しました（{shots_desc}）"
+    if shots:
+        shots_desc = "・".join(shots)
+        return f"動画生成をバックグラウンドで開始しました（{shots_desc}）"
+    return (
+        "動画生成をバックグラウンドで開始しました（スクリーンショットなし。"
+        f"原因は {log_path.name} を確認）"
+    )
