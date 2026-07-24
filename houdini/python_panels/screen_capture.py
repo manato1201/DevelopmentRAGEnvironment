@@ -80,7 +80,12 @@ def capture_viewport(
         if scene_viewer is None:
             _log("no SceneViewer pane found in the current desktop", log_path)
             return False
-        settings = hou.FlipbookSettings()
+        # hou.FlipbookSettings() is abstract and can't be constructed
+        # directly (confirmed via real-Houdini AttributeError: "No
+        # constructor defined - class is abstract") -- the documented
+        # pattern is to clone the viewer's own current settings via
+        # .stash() and mutate the copy.
+        settings = scene_viewer.flipbookSettings().stash()
         current_frame = hou.frame()
         settings.frameRange((current_frame, current_frame))
         settings.output(str(output_path))
