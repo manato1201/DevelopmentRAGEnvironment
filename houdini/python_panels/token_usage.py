@@ -1,10 +1,19 @@
 """
 token_usage.py — houdini21チュートリアル生成のトークン消費量トラッキング＆可視化
 
-tutorial_agent.py が計測した usage（input/output/cache tokens・コスト）を
-`logs/houdini_token_usage.jsonl` に永続化し、累積消費量を「残量ドーナツゲージ」
-として可視化する。1レコード = 1回のチュートリアル生成（Houdini再起動をまたいで
-累積される）。
+表示するゲージは2種類ある:
+  ① Claudeトークン残量（サーバー管理・実際に強制される上限）
+     GAS（gas_cloud_rag.js）が action:'claude_messages' の応答に含めて返す
+     claudeQuota（そのAPIキーの実際の残高/上限）をそのまま表示する。この値は
+     GAS の API_KEYS_CONFIG（claudeCapacity/claudeBalance）が唯一の正であり、
+     Houdini側ではローカルに上限を計算・改ざんできない（docs/cloud-rag.md §8.14）。
+     直近の値は logs/houdini_claude_quota_cache.json にキャッシュし、Houdini
+     再起動直後もパネルが空にならないようにするだけで、判定には使わない
+     （実際の許可/拒否は毎回GAS側が判定する）。
+  ② ローカル生成ログ（このHoudiniでの累積、参考値）
+     tutorial_agent.py が計測した usage を logs/houdini_token_usage.jsonl に
+     追記し、このHoudiniからの累積トークン数・コストを表示する。これは
+     ユーザー自身の目安であり、上限の強制には一切使わない。
 
 ウィジェット単体で import できるよう、Anthropic SDK 等への依存はない
 （PySide6 のみ）。
@@ -12,6 +21,7 @@ tutorial_agent.py が計測した usage（input/output/cache tokens・コスト�
 
 from __future__ import annotations
 
+import datetime
 import json
 import time
 from pathlib import Path
@@ -21,11 +31,11 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-DEFAULT_TOKEN_BUDGET = 500_000
 _LOG_RELATIVE_PATH = Path("logs") / "houdini_token_usage.jsonl"
+_QUOTA_CACHE_RELATIVE_PATH = Path("logs") / "houdini_claude_quota_cache.json"
 
 
-# ─── 永続化 ──────────────────────────────────────────────────────────────────────
+# ─── 永続化: ローカル生成ログ（参考値） ─────────────────────────────────────────────
 
 def _log_path(bridge_dir: str) -> Optional[Path]:
     if not bridge_dir:
@@ -80,6 +90,61 @@ def load_summary(bridge_dir: str) -> dict:
     return summary
 
 
+# ─── 永続化: サーバー側Claude残高のキャッシュ（表示専用、判定には使わない） ──────────────
+
+def _quota_cache_path(bridge_dir: str) -> Optional[Path]:
+    if not bridge_dir:
+        return None
+    return Path(bridge_dir) / _QUOTA_CACHE_RELATIVE_PATH
+
+
+def save_server_quota(
+    bridge_dir: str,
+    balance: Optional[int],
+    capacity: Optional[int],
+    reset_interval_hours: Optional[int] = None,
+    reset_at: Optional[str] = None,
+) -> None:
+    path = _quota_cache_path(bridge_dir)
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "balance": balance,
+            "capacity": capacity,
+            "reset_interval_hours": reset_interval_hours,
+            "reset_at": reset_at,
+            "ts": time.time(),
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def load_cached_server_quota(bridge_dir: str) -> Optional[dict]:
+    path = _quota_cache_path(bridge_dir)
+    if path is None or not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _format_recovery_note(reset_interval_hours: Optional[int], reset_at: Optional[str]) -> str:
+    """自動回復タイミングの説明文を作る（自動回復オフなら手動チャージが必要な旨を表示）。"""
+    if not reset_interval_hours:
+        return "自動回復は設定されていません（管理者にチャージを依頼してください）"
+    when = "不明"
+    if reset_at:
+        try:
+            dt = datetime.datetime.fromisoformat(reset_at.replace("Z", "+00:00")).astimezone()
+            when = dt.strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            when = reset_at
+    return f"次回自動回復: {when}（{reset_interval_hours}時間毎）"
+
+
 # ─── ドーナツゲージ（QPainter直描画） ──────────────────────────────────────────────
 
 class DonutGauge(QWidget):
@@ -129,8 +194,11 @@ class DonutGauge(QWidget):
 
 class TokenUsageWidget(QWidget):
     """
-    Tutorialタブ上部に置く累積トークン使用量パネル。
-    refresh(bridge_dir, budget) を呼ぶたびに最新のログを読み直して表示を更新する。
+    Tutorialタブ上部に置くトークン使用量パネル。
+
+    ゲージ本体はGASが報告する「Claudeトークン残高（サーバー管理・実際の上限）」を
+    表示する。生成のたびに tutorial_view.py が set_server_quota() を呼んで更新する。
+    その下の小さいテキストは、このHoudiniからの累積送信量（ローカル記録・参考値）。
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -142,7 +210,7 @@ class TokenUsageWidget(QWidget):
         self._gauge = DonutGauge()
         layout.addWidget(self._gauge, alignment=Qt.AlignHCenter)
 
-        self._label = QLabel("トークン残量")
+        self._label = QLabel("Claudeトークン残量（サーバー管理）")
         self._label.setAlignment(Qt.AlignCenter)
         self._label.setStyleSheet("color:#aaa;font-size:11px;")
         layout.addWidget(self._label)
@@ -157,20 +225,64 @@ class TokenUsageWidget(QWidget):
         self._sub.setStyleSheet("color:#888;font-size:10px;")
         layout.addWidget(self._sub)
 
-    def refresh(self, bridge_dir: str, budget: int) -> None:
-        summary = load_summary(bridge_dir)
-        used = summary["total_tokens"]
-        budget = max(1, budget)
-        remaining = max(0, budget - used)
-        percent = remaining / budget * 100.0
+        self._local_sub = QLabel("")
+        self._local_sub.setAlignment(Qt.AlignCenter)
+        self._local_sub.setStyleSheet("color:#666;font-size:9px;")
+        layout.addWidget(self._local_sub)
 
+    def set_server_quota(
+        self,
+        balance: Optional[int],
+        capacity: Optional[int],
+        reset_interval_hours: Optional[int] = None,
+        reset_at: Optional[str] = None,
+    ) -> None:
+        """GASから返された最新のClaudeトークン残高/上限/回復タイミングを表示する（唯一の正）。"""
+        if capacity is None:
+            self._gauge.set_percent(100.0)
+            self._detail.setText("無制限")
+            self._sub.setText("このAPIキーにはClaudeトークン上限が設定されていません")
+            self._sub.setStyleSheet("color:#888;font-size:10px;")
+            return
+        percent = (balance / capacity * 100.0) if capacity > 0 else 0.0
         self._gauge.set_percent(percent)
-        self._detail.setText(f"{remaining:,} / {budget:,}")
-        self._sub.setText(
-            f"累積コスト ${summary['total_cost_usd']:.3f}"
-            f"（生成{summary['record_count']}回）"
-        )
-        if used > budget:
+        self._detail.setText(f"{balance:,} / {capacity:,}")
+        recovery_note = _format_recovery_note(reset_interval_hours, reset_at)
+        if percent <= 15:
+            self._sub.setText(f"残量が少なくなっています。{recovery_note}")
             self._sub.setStyleSheet("color:#e07a5f;font-size:10px;")
         else:
+            self._sub.setText(recovery_note)
             self._sub.setStyleSheet("color:#888;font-size:10px;")
+
+    def _set_unknown(self) -> None:
+        self._gauge.set_percent(100.0)
+        self._detail.setText("未取得")
+        self._sub.setText("チュートリアルを1回生成すると表示されます")
+        self._sub.setStyleSheet("color:#888;font-size:10px;")
+
+    def refresh(self, bridge_dir: str) -> None:
+        """
+        パネル初期表示・生成後の更新用。サーバー残高はキャッシュ（表示専用、
+        判定には使わない）があればそれを表示し、無ければ「未取得」にする。
+        ローカル生成ログの累積は下部に小さく参考表示する。
+        """
+        cached = load_cached_server_quota(bridge_dir)
+        if cached is not None:
+            self.set_server_quota(
+                cached.get("balance"),
+                cached.get("capacity"),
+                cached.get("reset_interval_hours"),
+                cached.get("reset_at"),
+            )
+        else:
+            self._set_unknown()
+
+        summary = load_summary(bridge_dir)
+        if summary["record_count"] > 0:
+            self._local_sub.setText(
+                f"（このHoudiniでの累積: {summary['total_tokens']:,} トークン / "
+                f"${summary['total_cost_usd']:.3f} / 生成{summary['record_count']}回・参考値）"
+            )
+        else:
+            self._local_sub.setText("")
