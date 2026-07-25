@@ -261,7 +261,19 @@ class HoudiniToolExecutor:
 
     SANDBOX_PREFIX = "ai_tutorial_"
 
-    def __init__(self, log_dir: Path | None = None, hou_module=None) -> None:
+    # 実行後にスクリーンショットを撮る価値があるツール（グラフ/シーンの見た目を
+    # 変えるもの）。list_available_node_types/get_node_info は読み取り専用、
+    # finish_tutorial は終端イベントなのでいずれも対象外。
+    _SCREENSHOT_WORTHY_TOOLS = frozenset(
+        {"create_node", "set_parameter", "connect_nodes", "cook_node", "delete_node"}
+    )
+
+    def __init__(
+        self,
+        log_dir: Path | None = None,
+        hou_module=None,
+        screenshot_dir: Path | None = None,
+    ) -> None:
         if hou_module is None:
             import hou as hou_module  # Houdini 内でのみ成功する
         self._hou = hou_module
@@ -273,7 +285,23 @@ class HoudiniToolExecutor:
 
         self.finish_data: dict | None = None  # finish_tutorial の入力を保持
         self.step_log: list[dict] = []        # Markdown 組み立て用の全呼び出し履歴
+        # 各ステップ実行直後に撮ったビューポート/ネットワークエディタの
+        # スクリーンショット一覧（動画生成側で手順ごとの画面を見せるため）。
+        # {"step": int, "tool": str, "viewport": str|None, "network": str|None}
+        self.step_screenshots: list[dict] = []
         self._lock = threading.Lock()
+
+        # スクリーンショット保存先。渡された screenshot_dir の下に
+        # このサンドボックス専用のサブフォルダを作る（ログと同じ方針で、
+        # 作成に失敗しても生成自体は止めない）。
+        self._screenshot_dir: Path | None = None
+        if screenshot_dir is not None:
+            try:
+                resolved = Path(screenshot_dir) / self._sandbox_name
+                resolved.mkdir(parents=True, exist_ok=True)
+                self._screenshot_dir = resolved
+            except OSError:
+                self._screenshot_dir = None
 
         # 監査ログ（JSONL）。書き込み不能でも生成自体は止めない
         self._log_path: Path | None = None
@@ -382,7 +410,45 @@ class HoudiniToolExecutor:
         }
         self.step_log.append(entry)
         self._append_audit({"event": "tool_call", **entry})
+
+        if not is_error and tool_name in self._SCREENSHOT_WORTHY_TOOLS:
+            self._capture_step_screenshot(tool_name)
+
         return result, is_error
+
+    def _capture_step_screenshot(self, tool_name: str) -> None:
+        """
+        ツール呼び出し成功直後にビューポート/ネットワークエディタを撮影する
+        （ベストエフォート）。動画生成側で各手順のノード操作を個別に見せられる
+        ようにするための per-step キャプチャ。screen_capture のimport失敗・
+        撮影失敗のいずれでもチュートリアル生成そのものは止めない。
+        """
+        if self._screenshot_dir is None:
+            return
+        try:
+            import screen_capture
+        except ImportError:
+            return
+
+        def _capture():
+            step_index = len(self.step_screenshots) + 1
+            log_path = self._screenshot_dir / "capture.log"
+            screen_capture.focus_network_on(self.sandbox_path, log_path=log_path)
+            viewport_path = self._screenshot_dir / f"step_{step_index:03d}_viewport.png"
+            network_path = self._screenshot_dir / f"step_{step_index:03d}_network.png"
+            got_viewport = screen_capture.capture_viewport(viewport_path, log_path=log_path)
+            got_network = screen_capture.capture_network_editor(network_path, log_path=log_path)
+            self.step_screenshots.append({
+                "step": step_index,
+                "tool": tool_name,
+                "viewport": str(viewport_path) if got_viewport else None,
+                "network": str(network_path) if got_network else None,
+            })
+
+        try:
+            _run_in_main_thread(_capture)
+        except Exception:  # noqa: BLE001 -- best-effort, never raise
+            pass
 
     # ── 各ツール実装 ────────────────────────────────────────────────────────────
 
@@ -602,3 +668,11 @@ class HoudiniToolExecutor:
             "edge_count": len(graph["edges"]),
         })
         return graph
+
+    def export_step_screenshots(self) -> list[dict]:
+        """
+        _capture_step_screenshot() が蓄積した per-step スクリーンショット一覧を
+        返す（新しい順ではなく、実行順のまま）。動画側の --houdini-screenshots
+        マニフェストはこれをそのままJSON化したもの。
+        """
+        return list(self.step_screenshots)

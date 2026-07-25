@@ -203,7 +203,9 @@ class TutorialGeneratePanel(QWidget):
         # result.claude_balance/capacity はGAS（gas_cloud_rag.js）がclaude_messages
         # 応答に含めて返した、そのAPIキーの実際の残高/上限。これが唯一の正なので、
         # ローカルではキャッシュ（表示専用）に保存するだけで判定には使わない。
-        if result.claude_capacity is not None or result.claude_balance is not None:
+        # 無制限キーはbalance/capacityが両方Noneになるため、claude_quota_known
+        # （claudeQuotaが応答に含まれていたか）で判定する。
+        if result.claude_quota_known:
             token_usage.save_server_quota(
                 bridge_dir,
                 result.claude_balance,
@@ -288,6 +290,7 @@ class TutorialGeneratePanel(QWidget):
                 md_path=md_path,
                 json_path=json_path,
                 sandbox_path=self._result.sandbox_path,
+                step_screenshots=self._result.step_screenshots,
                 exe_path=self._cfg_getter().get("video_factory_exe_path", ""),
             )
             self._status.setText(f"{self._status.text()} / {video_status}")
