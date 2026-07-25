@@ -412,16 +412,23 @@ class HoudiniToolExecutor:
         self._append_audit({"event": "tool_call", **entry})
 
         if not is_error and tool_name in self._SCREENSHOT_WORTHY_TOOLS:
-            self._capture_step_screenshot(tool_name)
+            self._capture_step_screenshot(tool_name, result)
 
         return result, is_error
 
-    def _capture_step_screenshot(self, tool_name: str) -> None:
+    def _capture_step_screenshot(self, tool_name: str, tool_result: str) -> None:
         """
         ツール呼び出し成功直後にビューポート/ネットワークエディタを撮影する
         （ベストエフォート）。動画生成側で各手順のノード操作を個別に見せられる
-        ようにするための per-step キャプチャ。screen_capture のimport失敗・
-        撮影失敗のいずれでもチュートリアル生成そのものは止めない。
+        ようにするための per-step キャプチャ。tool_result（例:「作成しました:
+        stairs_geo/step_shape（タイプ: box）」）もあわせて保存する -- 動画側は
+        Markdown の「### N.」というClaude自身が後から書いた"要約"ステップ番号
+        と、この実行単位のステップ番号が全く別物であることを前提に、この
+        result テキストを直接そのスライドの説明文として使う（要約番号と実行
+        番号を突き合わせようとすると、実機テストで無関係な画面が表示される
+        不具合が確認された）。
+        screen_capture のimport失敗・撮影失敗のいずれでもチュートリアル生成
+        そのものは止めない。
         """
         if self._screenshot_dir is None:
             return
@@ -441,6 +448,7 @@ class HoudiniToolExecutor:
             self.step_screenshots.append({
                 "step": step_index,
                 "tool": tool_name,
+                "result": tool_result,
                 "viewport": str(viewport_path) if got_viewport else None,
                 "network": str(network_path) if got_network else None,
             })
