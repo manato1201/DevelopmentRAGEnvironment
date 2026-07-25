@@ -101,6 +101,40 @@ def capture_viewport(
         return False
 
 
+def _try_cropped_network_capture(network_editor, log_path: Path | None):
+    """
+    network_editor.screenBounds() を使って、そのペイン単体の矩形だけを
+    画面全体のスクリーンショットから切り出す。screenBounds() の戻り値の
+    型はこの環境で未確認のため、min()/max() を持つ hou.BoundingRect 系と
+    仮定して試す -- 失敗したら repr をログに残して None を返す
+    （呼び出し元が qtParentWindow() 全体グラブにフォールバックする）。
+    """
+    try:
+        from PySide6.QtWidgets import QApplication
+
+        bounds = network_editor.screenBounds()
+        _log(f"screenBounds() = {bounds!r} (type={type(bounds).__name__})", log_path)
+
+        x0, y0 = bounds.min()
+        x1, y1 = bounds.max()
+        rect_w, rect_h = int(x1 - x0), int(y1 - y0)
+        if rect_w <= 0 or rect_h <= 0:
+            _log(f"screenBounds() gave a non-positive size ({rect_w}x{rect_h})", log_path)
+            return None
+
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            _log("QApplication.primaryScreen() returned None", log_path)
+            return None
+        full = screen.grabWindow(0)
+        cropped = full.copy(int(x0), int(y0), rect_w, rect_h)
+        _log(f"cropped network editor via screenBounds(): {rect_w}x{rect_h}", log_path)
+        return cropped
+    except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
+        _log(f"screenBounds()-based crop failed: {exc!r}", log_path)
+        return None
+
+
 def capture_network_editor(
     output_path: Path, width: int = 1280, height: int = 720, log_path: Path | None = None
 ) -> bool:
@@ -113,27 +147,33 @@ def capture_network_editor(
         if network_editor is None:
             _log("no NetworkEditor pane found in the current desktop", log_path)
             return False
+
         # Real-Houdini dir() dump (21.0.700) confirmed there is no
-        # qtWidget()/grab()/pixmap() on the pane tab itself -- the closest
-        # available accessor is qtParentWindow(), which returns the Qt
-        # window this pane lives in. We don't attempt to crop it down to
-        # just this pane's rect (screenBounds()'s coordinate space/type
-        # isn't verified against this Houdini build, and a wrong crop
-        # would silently produce a garbled image rather than a clean
-        # failure) -- grabbing the whole parent window is less precise but
-        # robust, and still a real Houdini screenshot for the video.
-        if not hasattr(network_editor, "qtParentWindow"):
-            _log(
-                "NetworkEditor pane tab has neither qtWidget() nor qtParentWindow() "
-                "on this Houdini build -- re-run dir() and report back",
-                log_path,
-            )
-            return False
-        widget = network_editor.qtParentWindow()
-        if widget is None:
-            _log("NetworkEditor pane's qtParentWindow() returned None", log_path)
-            return False
-        pixmap = widget.grab()
+        # qtWidget()/grab()/pixmap() on the pane tab itself. First real test
+        # of the qtParentWindow()-whole-window fallback grabbed whatever
+        # pane happened to be on top in that shared window (the RAGChatBot
+        # panel itself, not the network graph) -- so we now try to crop
+        # down to just this pane's own rect via screenBounds() first, and
+        # only fall back to the imprecise whole-window grab if that fails
+        # for any reason (coordinate type/units not yet confirmed against
+        # this Houdini build -- the repr is logged either way so the next
+        # failure is diagnosable instead of guessed at again).
+        pixmap = _try_cropped_network_capture(network_editor, log_path)
+        if pixmap is None:
+            if not hasattr(network_editor, "qtParentWindow"):
+                _log(
+                    "NetworkEditor pane tab has neither qtWidget() nor "
+                    "qtParentWindow() on this Houdini build -- re-run dir() "
+                    "and report back",
+                    log_path,
+                )
+                return False
+            widget = network_editor.qtParentWindow()
+            if widget is None:
+                _log("NetworkEditor pane's qtParentWindow() returned None", log_path)
+                return False
+            _log("falling back to whole-window grab (imprecise)", log_path)
+            pixmap = widget.grab()
         if width and height:
             from PySide6.QtCore import Qt as QtNamespace
 

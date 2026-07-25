@@ -94,6 +94,9 @@ class TutorialResult:
         self.title: str = ""
         self.slug: str = "tutorial"
         self.sandbox_path: str = ""
+        # HoudiniToolExecutor.export_step_screenshots() の結果（各ステップ実行
+        # 直後に撮ったビューポート/ネットワークエディタのPNGパス一覧）。
+        self.step_screenshots: list[dict] = []
         self.cost_usd: float = 0.0
         self.input_tokens: int = 0
         self.output_tokens: int = 0
@@ -107,6 +110,9 @@ class TutorialResult:
         # （無制限キー、または管理者が回復間隔を設定していない=手動チャージのみ）。
         self.claude_reset_interval_hours: int | None = None
         self.claude_reset_at: str | None = None
+        # GASがclaudeQuotaを一度でも返したか（無制限キーはbalance/capacityが両方Noneに
+        # なるため、それだけでは「未取得」と「無制限」を区別できない。このフラグで判定する）。
+        self.claude_quota_known: bool = False
         self.iterations: int = 0
         self.completed: bool = False   # finish_tutorial まで到達したか
         self.abort_reason: str = ""    # 打ち切り理由（上限到達など）
@@ -177,7 +183,11 @@ class TutorialAgent:
 
         # ② サンドボックス作成
         log_dir = Path(self._project_dir) / "logs" / "tutorial_agent" if self._project_dir else None
-        self.executor = self._executor_factory(log_dir=log_dir)
+        screenshot_dir = (
+            Path(self._project_dir) / "logs" / "tutorial_agent" / "screenshots"
+            if self._project_dir else None
+        )
+        self.executor = self._executor_factory(log_dir=log_dir, screenshot_dir=screenshot_dir)
         result.sandbox_path = self.executor.sandbox_path
         self._progress(f"サンドボックス作成: {result.sandbox_path}")
 
@@ -190,6 +200,7 @@ class TutorialAgent:
 
         # ④ 成果物組み立て（打ち切りでも途中経過を提示する）
         result.graph = self.executor.export_node_graph()
+        result.step_screenshots = self.executor.export_step_screenshots()
         finish = self.executor.finish_data or {}
         result.completed = self.executor.finish_data is not None
         result.title = finish.get("title") or f"Houdiniチュートリアル: {topic}"
@@ -332,7 +343,8 @@ class TutorialAgent:
         for iteration in range(1, MAX_ITERATIONS + 1):
             response = self._call_api(system_blocks, tools, messages)
             quota = response.get("claudeQuota")
-            if quota:
+            if quota is not None:
+                result.claude_quota_known = True
                 result.claude_balance = quota.get("balance")
                 result.claude_capacity = quota.get("capacity")
                 result.claude_reset_interval_hours = quota.get("resetIntervalHours")
