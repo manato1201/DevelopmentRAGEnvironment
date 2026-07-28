@@ -440,10 +440,17 @@ class HoudiniToolExecutor:
         def _capture():
             step_index = len(self.step_screenshots) + 1
             log_path = self._screenshot_dir / "capture.log"
-            screen_capture.focus_network_on(self.sandbox_path, log_path=log_path)
             viewport_path = self._screenshot_dir / f"step_{step_index:03d}_viewport.png"
             network_path = self._screenshot_dir / f"step_{step_index:03d}_network.png"
+            # Capture the viewport BEFORE switching pane tabs: flipbook()
+            # renders internally regardless of which tab is visually active
+            # in a shared pane group, but focus_network_on() below now
+            # calls setIsCurrentTab() to bring NetworkEditor to the front
+            # (needed for its own capture to show the right content) --
+            # doing that first would risk Scene View no longer being the
+            # visible tab if the two share a pane group.
             got_viewport = screen_capture.capture_viewport(viewport_path, log_path=log_path)
+            screen_capture.focus_network_on(self.sandbox_path, log_path=log_path)
             got_network = screen_capture.capture_network_editor(network_path, log_path=log_path)
             self.step_screenshots.append({
                 "step": step_index,

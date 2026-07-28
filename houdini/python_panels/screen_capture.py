@@ -54,9 +54,16 @@ def _log(message: str, log_path: Path | None) -> None:
 
 def focus_network_on(node_path: str, log_path: Path | None = None) -> None:
     """
-    ネットワークエディタのペインを指定ノード配下にフォーカス・フレームする。
-    スクリーンショット撮影前に呼ぶことで、サンドボックス以外の無関係な
-    ネットワークが映り込むのを防ぐ。失敗しても静かに諦める（ベストエフォート）。
+    ネットワークエディタのペインを指定ノード配下にフォーカス・フレームし、
+    そのペインを「現在表示中のタブ」に切り替える。
+
+    Houdiniのペインはタブ切り替え式で、同じペイングループ内の他のタブ
+    （Scene View等）がアクティブだと、Qt側はネットワークエディタの中身を
+    そもそも描画していない。2026-07-25の実機検証で capture_network_editor()
+    が一貫して間違った内容（アクティブな別タブ）を撮っていたのは、これが
+    根本原因である可能性が高い。setIsCurrentTab() でネットワークエディタを
+    強制的に前面に出してから撮影する。失敗しても静かに諦める
+    （ベストエフォート）。
     """
     try:
         node = hou.node(node_path)
@@ -70,6 +77,10 @@ def focus_network_on(node_path: str, log_path: Path | None = None) -> None:
         network_editor.setCurrentNode(node)
         network_editor.setPwd(node)
         network_editor.homeToSelection()
+        if hasattr(network_editor, "setIsCurrentTab"):
+            network_editor.setIsCurrentTab()
+        else:
+            _log("focus_network_on: no setIsCurrentTab() on this Houdini build", log_path)
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
         _log(f"focus_network_on failed: {exc!r}", log_path)
 
