@@ -93,9 +93,14 @@ Houdiniチャットパネル（rag_chatbot.py）に「チュートリアル生�
 | `list_available_node_types` | 正確なノードタイプ名を検索（Claudeの記憶違い防止。例: `mountain` vs `mountain::2.0`） |
 | `get_node_info` | 既存ノードの状態確認 |
 | `delete_node` | クリーンアップ用 |
-| `finish_tutorial` | ループ終了シグナル |
+| `finish_tutorial` | 完了案の下書きを提出（即確定はしない。`sources_used`でRAG参考ソース番号も報告） |
+| `confirm_tutorial` | `finish_tutorial`直後に送られるビューポート画像を確認したうえで、`looks_correct=true`なら完了確定・`false`なら`finish_tutorial`からやり直し |
 
-`list_available_node_types`を入れている理由：Houdiniのノードタイプ名はバージョン依存の正確な文字列が必要で、Claudeが記憶だけで呼ぶと失敗しやすい。houdini21のRAGドキュメントと組み合わせて精度を上げる。
+`list_available_node_types`を入れている理由：Houdiniのノードタイプ名はバージョン依存の正確な文字列が必要で、Claudeが記憶だけで呼ぶと失敗しやすい。houdini21のRAGドキュメントと組み合わせて精度を上げる。実機検証で反復予算の30%超をこのツールの呼び出しが消費していたことが分かったため（[検証レポート](houdini21-tutorial-gen-report.md)）、システムプロンプトに頻出ノードタイプ一覧を埋め込み（プロンプトキャッシュされるため追加コストはほぼ無い）、既知のタイプ名については毎回の確認を不要にしている（`tutorial_agent.py`の`_COMMON_NODE_TYPES_BLOCK`）。
+
+**完了フロー（視覚的自己検証）：** `finish_tutorial`は呼ばれた時点では下書き（`pending_finish`）として保持されるだけで、`TutorialResult`は確定しない。その回のtool_resultにビューポートのスクリーンショットが画像コンテンツブロックとして添付され（`houdini_tools.py`の`_capture_finish_screenshot`→`tutorial_agent.py`の`_run_loop`）、Claude自身が見た目を確認してから`confirm_tutorial(looks_correct=true)`を呼ぶことで初めて完了が確定する（`looks_correct=false`なら`pending_finish`はクリアされ、`finish_tutorial`からやり直しになる）。
+
+**RAGソース帰属：** `finish_tutorial`の`sources_used`（実際に参考にしたソース番号の配列）を、生成完了後に`_apply_rag_attribution`が`result.sources`の各エントリの`cited`フラグと`result.rag_extraction_rate`（引用率）に変換し、生成Markdownの「## 参考」節に「✅ 引用済み / ⬜ 未引用」として表示する。Cloud RAGチャットの`parseExtractionRate_()`と同じ考え方のHoudini生成版で、RAGがチュートリアル生成にどれだけ実際に寄与したかを示す研究データとして使う。`_apply_rag_attribution`は`completed`（`finish_tutorial`まで到達したか）も受け取り、打ち切り時は`sources_used`自体が一度もモデルに尋ねられていないため`rag_extraction_rate`を`None`のまま据え置く。「引用0/N件」と「未計測」を区別しないと、実際には評価していないのに"モデルが検討した末に1件も使わなかった"ように誤読される（実機で確認済みの混乱）。
 
 ### 2.4 エージェントループ（疑似コード）
 
@@ -106,18 +111,25 @@ rag_context = query_rag(namespace="houdini21", query=user_request)
 messages = [system_prompt(rag_context, sandbox_path), user_request]
 step_log = []
 
-for i in range(MAX_ITER):  # 例: 25回
+for i in range(MAX_ITER):  # 40回
     response = anthropic.messages.create(
-        model="claude-sonnet-4-6", tools=HOUDINI_TOOLS, messages=messages
+        model="claude-sonnet-5", tools=HOUDINI_TOOLS, messages=messages
     )
     if tool_use_blocks:
         for block in tool_use_blocks:
             result = execute_tool(block.name, block.input, sandbox)  # houdini_tools.py
             step_log.append({tool, input, result})
+            if block.name == "finish_tutorial" and executor.last_screenshot_b64:
+                result = [text_block(result), image_block(executor.last_screenshot_b64)]  # 視覚的自己検証
             messages.append(tool_result(block.id, result))
-    elif finish_tutorial_called or text_only_response:
+        if near_iteration_or_cost_limit() and not grace_warned and still_in_progress():
+            messages[-1].content.append(text_block(GRACE_NUDGE_TEXT))  # グレースフル終了
+    elif text_only_response:
+        break
+    if executor.finish_data is not None:  # confirm_tutorial(looks_correct=true)で確定
         break
 
+apply_rag_attribution(finish_data, result)  # sources_used → cited/引用率
 tutorial_md = assemble_markdown(step_log, claude_explanation, rag_sources)
 show_preview_in_chat(tutorial_md)  # ユーザーが「保存」を押したら localRAG/tutorials/ へ
 node_graph_json = export_node_graph(sandbox)  # NodeGraphAsset形式
@@ -134,11 +146,23 @@ node_graph_json = export_node_graph(sandbox)  # NodeGraphAsset形式
 | `GraphViewer.tsx`（React Flow、color_tagでヘッダー色分け） | Houdiniパネル（PySide6）の新タブで`QGraphicsView`を使い、同じ配色思想で実装（既存の`graph_view.py`が文書関係グラフで`QGraphicsView`を使っているため実装パターンを流用可能） |
 | SQLite + Webアプリ | 不要。生成のたびに`localRAG/tutorials/<slug>_<date>.json`として保存するだけで十分 |
 
+**Cloud RAG対応（Graphタブ）：** `graph_view.py`の`GraphFetchWorker`はRAGモード（local/cloud）を見て、cloudの場合は`gas_cloud_rag.js`の`action:'graph'`エンドポイント（新規追加、`validateApiKey_`→`isRateLimited_`→`buildGraphData_`の標準パターン）へPOSTする。従来のlocal RAGブリッジへのGETのみに固定されていた制約を解消し、Cloud RAG使用時でも文書関係グラフが表示できるようになった。
+
+**グラフレイアウトの不具合修正（実機で確認）：** Cloud RAGの`buildGraphData_`（gas_cloud_rag.js）はノードにx/y座標を付与せずに返す設計だったため、`RAGGraphScene.build()`の`nd.get("x", 0.5)`フォールバックにより全ノードが`(0.5, 0.5)`の同一点に重なって表示されていた（「グラフビューのレイアウトがひどい」として報告）。`graph_view.py`にクライアント側の`_spring_layout()`（`rag_graph_export.py`のLocal RAG用アルゴリズムをPython側に移植）を追加し、x/yが1つでも欠けていればレイアウトを計算して補うようにした。Local RAG（常にx/yを提供）の既存動作は変わらない。
+
+**接続状態ランプ：** Cloud（GAS URL）/ Local（ブリッジ`/health`）への疎通を色（緑=OK/赤=接続なし/黄=確認中）とテキストで表示するランプ。当初はTutorialタブの中だけに表示していたが、他のタブを開いていると確認できず不親切なため、`rag_chatbot.py`側で`QTabWidget.setCornerWidget()`を使いタブバーの右端に移動し、どのタブを操作していても常時表示されるようにした（`_ConnectionLamp`/`_ConnectionCheckWorker`）。バックグラウンドスレッドで20秒ごとに自動再確認し、モード切替・設定保存・チュートリアル生成失敗の直後にも即時再確認する。
+
+**Historyタブのグラフ・テキスト表示改善：** 生成されたHoudiniノードグラフ（数十〜200ノード規模）がそのままだと見づらい問題に対応するため、`tutorial_graph_simplify.py`（Qt非依存の純粋関数）で「線形ノード（分岐/合流せず、他ノードのparentでもないノード）の連鎖」を1つの集約ノードに折り畳む簡易表示アルゴリズムを実装し、ノード数30超では自動的に簡易表示（`tutorial_view.py`の「簡易/詳細」切り替え）を選ぶ。「Mermaidとしてコピー」ボタンで`graph_to_mermaid()`によるMermaid記法への変換・クリップボード出力もできる。生成テキスト側（Markdown表示）もフォント・行間・見出し等のスタイリングを追加して可読性を上げた（Markdown構造自体は変更なし）。
+
 ### 2.6 サンドボックス化・安全設計
 
 - ユーザーの既存シーンを壊さないよう、`/obj/ai_tutorial_<timestamp>` のような専用サブネット内でのみノード作成・操作を行う
 - 生成完了後もサンドボックスは残す（ユーザーが結果を直接確認できるように）。明示的に「削除」操作をチャット上で選べるようにする
 - 反復上限は40回（コスト・暴走防止）。超えたら「途中までの状態」を提示して打ち切り（初期値25回だったが、実機検証で反復消費が想定より多いタスクがあったため40回に調整。経緯は[検証レポート](houdini21-tutorial-gen-report.md) §4参照）
+- **打ち切り時のグレースフル終了：** 反復上限の残り3回以内、またはコスト上限の85%を超えた時点（`GRACE_ITERATIONS`/`GRACE_COST_FRACTION`、`tutorial_agent.py`）で、まだ`finish_tutorial`/`confirm_tutorial`が済んでいなければ「今の状態のまま仕上げてください」という一度だけのシステム通知（`_GRACE_NUDGE_TEXT`）を差し込む。ハード打ち切りで未完成のまま終わる代わりに、多少粗くても完結したチュートリアルになる可能性を上げる
+- **シミュレーションノードの複数フレームcook：** pyro/DOP/cloth/particle/flip/RBD等のノードタイプ名（`_SIMULATION_TYPE_HINTS`、部分文字列マッチ）を検出した場合、`cook_node`は単一フレームではなく現在フレームから10フレーム分（`_SIM_COOK_FRAME_COUNT`）を順次evaluateしてから復元する（`houdini_tools.py`の`_cook_simulation_frames`）。シミュレーションは前フレームの結果に依存するため、時間発展する挙動を1フレームだけでは検証できないことへの対応
+- **検索連打・空振り終了対策（実機で確認された不具合）：** `list_available_node_types`を3回以上連続で呼んでも`create_node`を呼ばない場合、一度だけ「検索を止めて作成を試して」と促す（`_SEARCH_LOOP_NUDGE_TEXT`、`create_node`が呼ばれるとストリークが解除され再度検索連打があれば再度促す）。また、ノードを1つも作らずに`tool_use`無しのテキストのみで終了しようとした場合も、即座に打ち切る前に一度だけ「作業を始めてください」と再開を促す（`_EMPTY_HANDED_NUDGE_TEXT`）。電子パーティクル等のPOP/DOP系トピックで検索が過剰発生していたため、`_COMMON_NODE_TYPES_BLOCK`にPOPノード（popforce/popdrag/popwrangle等）も追加した
+- **サンドボックス削除時のHoudiniフリーズ対策：** `HoudiniToolExecutor.destroy_sandbox()`は`hdefereval.executeInMainThreadWithResult()`でメインスレッドへディスパッチする実装だが、「サンドボックス削除」ボタンのクリックハンドラ（既にメインスレッド）から直接呼ぶと自分自身へのディスパッチ待ちでデッドロックしてHoudiniが固まる（実機で確認済み）。`tutorial_view.py`の`_on_delete_sandbox`を`_DestroySandboxWorker`（QThread）経由の呼び出しに変更して解消
 - 保存先ファイル名は `localRAG/tutorials/<slug>_<日付>.md`
 
 ### 2.7 Goal・完成条件・委任範囲

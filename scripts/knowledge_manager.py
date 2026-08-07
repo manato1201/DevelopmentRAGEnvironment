@@ -209,19 +209,32 @@ class KnowledgeManager:
             chunks = self._index()
             return self._record_op("url", ns, title, [path], [], chunks, op_id)
 
-    def import_youtube(self, url: str, namespace: str) -> dict:
-        """YouTube動画の字幕を取り込んで検索可能にする。"""
+    def import_youtube(self, url: str, namespace: str, transcript: str | None = None) -> dict:
+        """
+        YouTube動画の字幕を取り込んで検索可能にする。
+
+        字幕（公式・自動生成）が無い動画は markitdown 単体では取り込めない
+        （scripts/youtube_transcribe.py で音声からGemini/Whisperで文字起こしした
+        テキストを取得できる）。transcript を渡した場合はmarkitdownでの字幕取得を
+        スキップし、そのテキストをそのまま登録する。
+        """
         if "youtube.com" not in (url or "") and "youtu.be" not in (url or ""):
             raise KnowledgeError("YouTubeのURLを入力してください（例: https://www.youtube.com/watch?v=...）")
         ns = self._check_namespace(namespace)
         with self._lock:
             op_id = self._new_id()
-            try:
-                title, md = self._convert_url(url)
-            except KnowledgeError as e:
-                raise KnowledgeError(
-                    f"{e} — 字幕が無効になっている動画は取り込めません。"
-                )
+            transcript = (transcript or "").strip()
+            if transcript:
+                title, md = url, transcript
+            else:
+                try:
+                    title, md = self._convert_url(url)
+                except KnowledgeError as e:
+                    raise KnowledgeError(
+                        f"{e} — 字幕が無効になっている動画は取り込めません。"
+                        "scripts/youtube_transcribe.py で音声から文字起こしし、"
+                        "transcriptとして渡すことで取り込めます。"
+                    )
             fname = f"youtube_{_slug(title)}_{op_id}.md"
             path = self._write_doc(ns, fname, title, md, url, op_id, "youtube")
             chunks = self._index()

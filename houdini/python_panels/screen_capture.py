@@ -29,6 +29,25 @@ LearningQt の動画生成エンジン（video_factory_cloudrag_poc.exe）が右
     ことを確認したが、ビューポートのフレーミングが素のままだと対象物が
     画面の隅の小さな点になってしまう問題があったため、撮影前に
     curViewport().frameAll() を追加した
+
+2026-08-06 追加: capture_viewport_clip() — cook_node（シミュレーション系
+ノードの評価）専用に、静止画1枚ではなく短い連番PNGクリップを撮る。
+flipbook() のフレームレンジを複数枚に広げるだけで、既存の capture_viewport()
+と同じ機構を再利用できる。重さ・コスト面を考慮して解像度と枚数を意図的に
+低く抑えてある。
+
+2026-08-08 追加: focus_network_on() の setIsCurrentTab() 呼び出し直後に
+QApplication.processEvents() を挟むよう修正。commit a8c5ccb で
+setIsCurrentTab() を導入したがそれでも capture_network_editor() が
+Python Panel Editor（RAGChatBotパネル自身）の中身を撮ってしまう不具合が
+実機で再現した。原因は setIsCurrentTab() がタブの「アクティブ」状態を
+即座に切り替えるものの、実際の再描画は Qt のイベントループが次に回る
+まで行われないため。このモジュールの capture 系関数は Python の同期呼び
+出しだけで完結しており、setIsCurrentTab() の直後に間を置かず
+qtParentWindow().grab() してしまうと、Qt がまだ古い（切り替え前の）
+内容を描画したままのウィジェットを掴んでしまう。processEvents() を
+数回呼んでイベントループを手動で回し、タブ切り替えの再描画を
+grab() の前に強制的に完了させる。
 """
 
 from __future__ import annotations
@@ -49,6 +68,26 @@ def _log(message: str, log_path: Path | None) -> None:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(f"{datetime.datetime.now().isoformat()} {line}\n")
     except OSError:
+        pass
+
+
+def _flush_qt_events() -> None:
+    """
+    保留中の Qt イベント（ペイン切り替えの再描画など）を強制的に処理させる。
+    setIsCurrentTab() のようなウィジェット状態の変更は、Python の同期呼び出し
+    だけでは即座に画面へ反映されない（次のイベントループ周回で初めて repaint
+    される）ため、その直後に grab() すると切り替え前の内容を掴んでしまう。
+    数回 processEvents() を回すことで、grab() 前に repaint を確実に終わらせる。
+    """
+    try:
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is None:
+            return
+        for _ in range(4):
+            app.processEvents()
+    except Exception:  # noqa: BLE001 -- best-effort, never raise
         pass
 
 
@@ -79,6 +118,9 @@ def focus_network_on(node_path: str, log_path: Path | None = None) -> None:
         network_editor.homeToSelection()
         if hasattr(network_editor, "setIsCurrentTab"):
             network_editor.setIsCurrentTab()
+            # setIsCurrentTab() 直後はまだ古いタブの内容が画面に残っている
+            # ことがあるため、grab() 前に repaint を強制的に完了させる。
+            _flush_qt_events()
         else:
             _log("focus_network_on: no setIsCurrentTab() on this Houdini build", log_path)
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
@@ -129,6 +171,62 @@ def capture_viewport(
         return False
 
 
+def capture_viewport_clip(
+    output_dir: Path,
+    base_name: str,
+    frame_count: int = 16,
+    fps: int = 12,
+    width: int = 640,
+    height: int = 360,
+    log_path: Path | None = None,
+) -> tuple[list[Path], int]:
+    """
+    現在フレームから frame_count 枚分、ビューポートを連番PNGとして撮影する
+    （cook_node 直後専用 -- シミュレーション系ノードが実際に時間経過で
+    変化していく様子を、静止画1枚ではなく短いクリップとして見せるため）。
+
+    capture_viewport() と同じ flipbook() 機構を、1フレームではなく複数
+    フレームのレンジで呼び出すだけの拡張。解像度・枚数を意図的に低く
+    絞ってあるのは、動画側の重量・コスト増を per-step の静止画1枚追加分
+    程度に抑えるため（呼び出し元は cook_node のみに限定している）。
+
+    戻り値は (フレームパスのリスト, fps)。失敗時は ([], 0)。
+    撮影中に再生ヘッドが動くため、終了後は元のフレームへ必ず戻す。
+    """
+    try:
+        scene_viewer = hou.ui.paneTabOfType(hou.paneTabType.SceneViewer)
+        if scene_viewer is None:
+            _log("no SceneViewer pane found for clip capture", log_path)
+            return [], 0
+        try:
+            scene_viewer.curViewport().frameAll()
+        except Exception as exc:  # noqa: BLE001
+            _log(f"frameAll() failed before clip capture: {exc!r}", log_path)
+
+        original_frame = hou.frame()
+        start_frame = original_frame
+        end_frame = start_frame + frame_count - 1
+        output_template = str(output_dir / f"{base_name}.$F4.png")
+        try:
+            settings = scene_viewer.flipbookSettings().stash()
+            settings.frameRange((start_frame, end_frame))
+            settings.output(output_template)
+            settings.outputToMPlay(False)
+            settings.resolution((width, height))
+            scene_viewer.flipbook(scene_viewer.curViewport(), settings)
+        finally:
+            hou.setFrame(original_frame)
+
+        frames = sorted(output_dir.glob(f"{base_name}.*.png"))
+        if not frames:
+            _log(f"clip flipbook() produced no frames in {output_dir}", log_path)
+            return [], 0
+        return frames, fps
+    except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
+        _log(f"viewport clip capture failed: {exc!r}", log_path)
+        return [], 0
+
+
 def capture_network_editor(
     output_path: Path, width: int = 1280, height: int = 720, log_path: Path | None = None
 ) -> bool:
@@ -140,26 +238,32 @@ def capture_network_editor(
     模様（17ステップ全てで [0, 0, 613, 332] という同一値が返り、その座標で
     画面全体スクリーンショットを切り出すと、実際のネットワークエディタの
     位置に関わらず常に画面左上のメニューバー付近という同一の誤った領域が
-    映ってしまうことを確認した）。よってその方式は撤回し、
-    qtParentWindow() が返すQtウィンドウ全体をそのままキャプチャする
-    （ネットワークエディタ単体には絞れないが、実際に変化する内容が映る）。
+    映ってしまうことを確認した）。よってその方式は撤回し、Qtウィンドウを
+    そのままキャプチャする方式に切り替えた。
+
+    2026-08-08 実機検証で判明: network_editor.qtParentWindow() は
+    「ネットワークエディタが実際に属するウィンドウ」ではなく、その時点で
+    フォーカスを持つ別の最上位ウィンドウ（本チュートリアル生成エージェント
+    自身のPython Panel＝tutorial_view.pyのChat/Graph/...タブUI）を返す
+    ことがあり、生成された動画にNetworkEditorではなくPython Panel Editor
+    の画面が映り込む不具合の原因だった（_flush_qt_events()によるrepaint
+    待ちを追加しても、そもそも掴んでいるウィンドウ自体が別物なので直らな
+    かった）。hou.qt.mainWindow()（Houdini公式APIで、Houdini本体のメイン
+    ウィンドウを常に一意に返す）を明示的に使うことで、ペインタブ経由の
+    不安定な参照に頼らず、NetworkEditor/SceneViewerが実際に存在する
+    デスクトップを確実にキャプチャする（ネットワークエディタ単体には
+    絞れないが、少なくとも誤った別パネルが映り込むことはなくなる）。
     """
     try:
         network_editor = hou.ui.paneTabOfType(hou.paneTabType.NetworkEditor)
         if network_editor is None:
             _log("no NetworkEditor pane found in the current desktop", log_path)
             return False
-        if not hasattr(network_editor, "qtParentWindow"):
-            _log(
-                "NetworkEditor pane tab has no qtParentWindow() on this "
-                "Houdini build -- re-run dir() and report back",
-                log_path,
-            )
-            return False
-        widget = network_editor.qtParentWindow()
+        widget = hou.qt.mainWindow()
         if widget is None:
-            _log("NetworkEditor pane's qtParentWindow() returned None", log_path)
+            _log("hou.qt.mainWindow() returned None", log_path)
             return False
+        _flush_qt_events()  # 念のため grab() 直前にも repaint を確定させる
         pixmap = widget.grab()
         if width and height:
             from PySide6.QtCore import Qt as QtNamespace

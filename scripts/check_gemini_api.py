@@ -40,7 +40,7 @@ def main():
 
     # 2. generateContent（通常のテキスト生成）
     check("generateContent（テキスト生成）",
-          f"{base}/models/gemini-2.5-flash:generateContent?key={key}",
+          f"{base}/models/gemini-3.6-flash:generateContent?key={key}",
           method="POST",
           payload={"contents": [{"parts": [{"text": "Hello"}]}]})
 
