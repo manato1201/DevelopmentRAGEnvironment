@@ -16,13 +16,16 @@ rag_chatbot.py に埋め込まれる2つのウィジェットを提供する:
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import QRectF, QThread, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QWheelEvent
+from PySide6.QtGui import QBrush, QColor, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QWheelEvent
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QGraphicsItem,
+    QGraphicsPathItem,
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsSimpleTextItem,
@@ -41,6 +44,11 @@ from PySide6.QtWidgets import (
 )
 
 import token_usage
+from tutorial_graph_simplify import graph_to_mermaid, layered_positions, simplify_graph
+
+# ノード数がこれを超えるチュートリアルを開いたときは既定で「簡易表示」にする
+# （197ノード級の生成物をそのまま全表示すると判読不能になるため）。
+_SIMPLIFY_THRESHOLD = 30
 
 # ─── 生成ワーカー ────────────────────────────────────────────────────────────────
 
@@ -67,6 +75,33 @@ class TutorialWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class _DestroySandboxWorker(QThread):
+    """
+    サンドボックス削除を別スレッドで行うワーカー。
+
+    HoudiniToolExecutor.destroy_sandbox() は内部で hdefereval.executeInMainThreadWithResult()
+    を使ってメインスレッドにディスパッチする。この呼び出し自体がすでにメインスレッド
+    （UIのボタンクリックハンドラ）から行われると、メインスレッドが自分自身への
+    ディスパッチ完了を待ってブロックし、Qtのイベントループが回らなくなって
+    デッドロック（Houdiniのフリーズ）を起こす。「サンドボックス削除」を押すと
+    Houdiniが固まる、という実機で確認された不具合の原因はこれで、対策として
+    削除処理を必ずバックグラウンドスレッドから呼ぶようにする。
+    """
+    done   = Signal()
+    failed = Signal(str)
+
+    def __init__(self, agent) -> None:
+        super().__init__()
+        self._agent = agent
+
+    def run(self) -> None:
+        try:
+            self._agent.destroy_sandbox()
+            self.done.emit()
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 # ─── 生成タブ ────────────────────────────────────────────────────────────────────
 
 class TutorialGeneratePanel(QWidget):
@@ -77,12 +112,22 @@ class TutorialGeneratePanel(QWidget):
     設定は生成開始時に評価するので、Settings タブでの変更が即反映される。
     """
 
-    def __init__(self, cfg_getter: Callable[[], dict], parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        cfg_getter: Callable[[], dict],
+        parent: Optional[QWidget] = None,
+        on_connection_event: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(parent)
         self._cfg_getter = cfg_getter
+        # 生成失敗時など、接続状態ランプ（rag_chatbot.py側、タブ全体で共有）に
+        # 即時再確認を促すためのコールバック。ランプ自体はこのウィジェットの
+        # 責務ではなくなったため、通知だけ行う。
+        self._on_connection_event = on_connection_event or (lambda: None)
         self._worker: TutorialWorker | None = None
         self._agent = None            # 生成後もサンドボックス削除用に保持
         self._result = None           # TutorialResult（保存待ち）
+        self._destroy_worker: _DestroySandboxWorker | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -231,6 +276,8 @@ class TutorialGeneratePanel(QWidget):
         # サンドボックスが作られていた場合は削除だけ許可する
         if self._agent and self._agent.executor is not None:
             self._delete_sandbox_btn.setEnabled(True)
+        # 生成失敗は接続断が原因のことが多いため、共有の接続状態ランプに即時再確認を促す
+        self._on_connection_event()
 
     # ── 保存 / 破棄 ─────────────────────────────────────────────────────────────
 
@@ -313,22 +360,44 @@ class TutorialGeneratePanel(QWidget):
         )
         if answer != QMessageBox.Yes:
             return
-        try:
-            self._agent.destroy_sandbox()
-            self._delete_sandbox_btn.setEnabled(False)
-            self._status.setText("サンドボックスを削除しました")
-        except Exception as exc:
-            self._status.setText(f"サンドボックス削除失敗: {exc}")
+        # destroy_sandbox()はhdefereval.executeInMainThreadWithResult()でメインスレッドへ
+        # ディスパッチする実装になっており、ここ（UIのボタンハンドラ=既にメインスレッド）
+        # から直接呼ぶとメインスレッドが自分自身へのディスパッチ完了を待ってデッドロック
+        # する（実機で「サンドボックス削除でHoudiniがフリーズする」不具合として確認済み）。
+        # バックグラウンドスレッドから呼ぶことで正しくメインスレッドへディスパッチされる。
+        self._delete_sandbox_btn.setEnabled(False)
+        self._status.setText("サンドボックスを削除中...")
+        self._destroy_worker = _DestroySandboxWorker(self._agent)
+        self._destroy_worker.done.connect(self._on_sandbox_destroyed)
+        self._destroy_worker.failed.connect(self._on_sandbox_destroy_failed)
+        self._destroy_worker.start()
+
+    def _on_sandbox_destroyed(self) -> None:
+        self._status.setText("サンドボックスを削除しました")
+
+    def _on_sandbox_destroy_failed(self, msg: str) -> None:
+        self._delete_sandbox_btn.setEnabled(True)
+        self._status.setText(f"サンドボックス削除失敗: {msg}")
 
 
 # ─── ノードグラフビューア（NodeGraphAsset JSON） ─────────────────────────────────
 
 _NODE_W, _NODE_H = 130.0, 34.0
-_POS_SCALE = 150.0  # Houdini ネットワーク座標 → シーン座標のスケール
+_POS_SCALE = 150.0  # Houdini ネットワーク座標 → シーン座標のスケール（生の座標を使う経路のみ）
+
+# layered_positions() が返す (col, row) の格子座標をシーン座標へ変換するスケール。
+# _POS_SCALE で割ってから渡すのは、_NodeGraphScene.build() が全ノードの
+# position に一律で _POS_SCALE を掛けるため（layered_positions 用に別の
+# スケール定数を素通しできるよう、ここで打ち消しておく）。
+_LAYER_COL_SPACING = 220.0  # パイプラインの段（層）間の間隔（横）
+_LAYER_ROW_SPACING = 80.0   # 同じ層内でのノード間隔（縦）
 
 # ノードカテゴリの目安色（kind のプレフィックスで判定できないため単色ベース＋subnet 区別）
 _NODE_COLOR = "#3b6ea5"
 _SUBNET_COLOR = "#7c5cbf"
+# 簡易表示で直列チェーンを折り畳んだ集約ノード（kind="chain"）用の色。
+# 「これは複数ノードを束ねた集約」であることが色でも分かるようにする。
+_CHAIN_COLOR = "#3f7a4f"
 
 
 class _GraphNodeItem(QGraphicsRectItem):
@@ -339,7 +408,13 @@ class _GraphNodeItem(QGraphicsRectItem):
         self.node_data = node
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
 
-        color = _SUBNET_COLOR if node.get("kind") in ("subnet", "geo") else _NODE_COLOR
+        kind = node.get("kind")
+        if kind == "chain":
+            color = _CHAIN_COLOR
+        elif kind in ("subnet", "geo"):
+            color = _SUBNET_COLOR
+        else:
+            color = _NODE_COLOR
         self.setBrush(QBrush(QColor(color)))
         self.setPen(QPen(QColor("#1e293b"), 1.5))
         self.setZValue(1)
@@ -351,6 +426,11 @@ class _GraphNodeItem(QGraphicsRectItem):
         label.setFont(font)
         label.setBrush(QBrush(QColor("#f8fafc")))
         br = label.boundingRect()
+        # 集約ノードはラベルが長くなる（例:「grid1 → mountain1 → scatter1（3ノード）」）ので
+        # ラベル幅に合わせて矩形を広げる（通常ノードは既定幅のまま）。
+        width = max(_NODE_W, br.width() + 16)
+        if width != _NODE_W:
+            self.setRect(-width / 2, -_NODE_H / 2, width, _NODE_H)
         label.setPos(-br.width() / 2, -br.height() - 2 + _NODE_H / 2 - 24)
 
         kind_label = QGraphicsSimpleTextItem(node.get("kind", ""), self)
@@ -360,6 +440,32 @@ class _GraphNodeItem(QGraphicsRectItem):
         kind_label.setBrush(QBrush(QColor("#cbd5e1")))
         kbr = kind_label.boundingRect()
         kind_label.setPos(-kbr.width() / 2, 0)
+
+
+_ARROW_SIZE = 7.0  # 矢印ヘッドの大きさ（データフローの向きを一目で分かるようにするため）
+
+
+def _make_arrow_edge(x1: float, y1: float, x2: float, y2: float, pen: QPen) -> QGraphicsPathItem:
+    """
+    source→target の向きが分かる矢印付きエッジを作る。
+    graph_view.py（知識グラフ）のエッジは無向（類似度）なので矢印は不要だが、
+    こちらはノード間のデータフロー（入力→出力）を表すため、向きを示す矢印
+    ヘッドを追加することで「どちらが上流か」が一目で分かるようにする。
+    """
+    path = QPainterPath()
+    path.moveTo(x1, y1)
+    path.lineTo(x2, y2)
+
+    angle = math.atan2(y2 - y1, x2 - x1)
+    for da in (math.pi / 7, -math.pi / 7):
+        a = angle + math.pi - da
+        path.moveTo(x2, y2)
+        path.lineTo(x2 + _ARROW_SIZE * math.cos(a), y2 + _ARROW_SIZE * math.sin(a))
+
+    item = QGraphicsPathItem(path)
+    item.setPen(pen)
+    item.setZValue(0)
+    return item
 
 
 class _NodeGraphScene(QGraphicsScene):
@@ -384,12 +490,16 @@ class _NodeGraphScene(QGraphicsScene):
             src = items.get(edge.get("source"))
             dst = items.get(edge.get("target"))
             if src and dst:
-                line = self.addLine(
-                    src.pos().x(), src.pos().y() + _NODE_H / 2,
-                    dst.pos().x(), dst.pos().y() - _NODE_H / 2,
+                # layered_positions() は左→右のパイプラインとして配置するため、
+                # 接続点も上下（旧: 生のHoudini座標が縦方向のパイプラインだった
+                # 頃の名残）ではなく左右（矩形の右端→左端）にする。rect() から
+                # 実際の矩形幅を読むことで、ラベルが長い集約ノード（幅が
+                # _NODE_W より広い）でも矩形の外側から線が出るようにする。
+                self.addItem(_make_arrow_edge(
+                    src.pos().x() + src.rect().right(), src.pos().y(),
+                    dst.pos().x() + dst.rect().left(), dst.pos().y(),
                     pen,
-                )
-                line.setZValue(0)
+                ))
 
         self.selectionChanged.connect(self._on_selection_changed)
 
@@ -426,6 +536,8 @@ class TutorialHistoryPanel(QWidget):
     def __init__(self, cfg_getter: Callable[[], dict], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._cfg_getter = cfg_getter
+        self._current_graph: dict | None = None
+        self._simple_mode: bool = True
         self._build_ui()
         self.refresh()
 
@@ -437,9 +549,41 @@ class TutorialHistoryPanel(QWidget):
         refresh_btn = QPushButton("更新")
         refresh_btn.setFixedWidth(60)
         refresh_btn.clicked.connect(self.refresh)
+        toolbar.addWidget(refresh_btn)
+
+        # 簡易（直列チェーンを折り畳んだ集約表示） / 詳細（全ノード表示）の切替。
+        # ノード数が多い（既定 30 超）チュートリアルを開いたときは簡易を既定選択にする
+        # （197ノード級の生成物を全部展開すると判読不能になるため）。
+        # ボタン名だけでは違いが伝わらない（実機で「違いが分からない」と報告された）ため、
+        # ツールチップで具体的に何をする表示モードなのかを明記する。
+        self._simple_btn = QPushButton("簡易")
+        self._simple_btn.setCheckable(True)
+        self._simple_btn.setChecked(True)
+        self._simple_btn.setToolTip(
+            "分岐・合流のない直列チェーン（例: grid1→mountain1→scatter1）を\n"
+            "1つの緑色の集約ノードにまとめて表示します。ノード数が多いチュートリアルの\n"
+            "全体の流れをざっと把握するのに向いています。"
+        )
+        self._detail_btn = QPushButton("詳細")
+        self._detail_btn.setCheckable(True)
+        self._detail_btn.setToolTip(
+            "折り畳みをせず、Houdini上で実際に作られた全ノードを1つずつ表示します。\n"
+            "各ノードの正確なパラメータや接続を確認したいときに使います。"
+        )
+        self._view_mode_group = QButtonGroup(self)
+        self._view_mode_group.setExclusive(True)
+        self._view_mode_group.addButton(self._simple_btn)
+        self._view_mode_group.addButton(self._detail_btn)
+        self._view_mode_group.buttonClicked.connect(self._on_view_mode_changed)
+        toolbar.addWidget(self._simple_btn)
+        toolbar.addWidget(self._detail_btn)
+
+        self._copy_mermaid_btn = QPushButton("Mermaidとしてコピー")
+        self._copy_mermaid_btn.clicked.connect(self._on_copy_mermaid)
+        toolbar.addWidget(self._copy_mermaid_btn)
+
         self._status = QLabel("")
         self._status.setStyleSheet("color:#94a3b8;font-size:11px;")
-        toolbar.addWidget(refresh_btn)
         toolbar.addWidget(self._status)
         toolbar.addStretch()
         layout.addLayout(toolbar)
@@ -458,6 +602,7 @@ class TutorialHistoryPanel(QWidget):
 
         self._md_view = QTextEdit()
         self._md_view.setReadOnly(True)
+        self._style_markdown_view(self._md_view)
         right.addWidget(self._md_view)
         right.setSizes([250, 350])
 
@@ -471,6 +616,35 @@ class TutorialHistoryPanel(QWidget):
         )
         self._detail.setWordWrap(True)
         layout.addWidget(self._detail)
+
+    @staticmethod
+    def _style_markdown_view(view: QTextEdit) -> None:
+        """
+        Markdown 本文（_assemble_markdown が組み立てる構造はそのまま）の見た目だけを
+        改善する。フォントサイズ・行間を広げ、見出し/コード/引用（ハマりポイント等）を
+        視覚的に分離することで、「### ノード」「### 接続」のような長い一覧部分も
+        読みやすくする。
+        """
+        view.setStyleSheet(
+            "QTextEdit{"
+            "background:#0f172a;color:#e2e8f0;border:none;padding:6px;"
+            "font-family:'Segoe UI','Yu Gothic UI',sans-serif;font-size:13px;"
+            "}"
+        )
+        view.document().setDefaultStyleSheet(
+            "body{line-height:150%;}"
+            "h1,h2{color:#93c5fd;border-bottom:1px solid #334155;"
+            "padding-bottom:2px;margin-top:14px;}"
+            "h3{color:#7dd3fc;margin-top:10px;}"
+            "code{font-family:Consolas,'Yu Gothic UI',monospace;"
+            "background:#1e293b;color:#fbbf24;padding:1px 4px;border-radius:3px;}"
+            "pre{background:#1e293b;padding:6px;border-radius:4px;}"
+            "blockquote{background:#1e293b;border-left:3px solid #f59e0b;"
+            "padding:4px 8px;color:#fcd34d;margin-left:0;}"
+            "hr{border:0;border-top:1px solid #334155;margin:10px 0;}"
+            "li{margin-bottom:2px;}"
+            "a{color:#38bdf8;}"
+        )
 
     def _tutorials_dir(self) -> Path | None:
         bridge_dir = self._cfg_getter().get("local_bridge_dir", "")
@@ -507,21 +681,99 @@ class TutorialHistoryPanel(QWidget):
         if json_path.exists():
             try:
                 graph = json.loads(json_path.read_text(encoding="utf-8"))
-                self._graph_scene.build(graph)
-                self._graph_view.fitInView(
-                    self._graph_scene.itemsBoundingRect().adjusted(-30, -30, 30, 30),
-                    Qt.KeepAspectRatio,
-                )
-                self._detail.setText(
-                    f"{len(graph.get('nodes', []))} ノード / {len(graph.get('edges', []))} エッジ"
-                    f"  |  sandbox: {graph.get('sandbox', '')}"
-                )
             except (OSError, json.JSONDecodeError) as exc:
+                self._current_graph = None
+                self._graph_scene.clear()
                 self._detail.setText(f"ノードグラフ読み込みエラー: {exc}")
+                return
+            self._current_graph = graph
+            # ノード数が多い生成物は既定で簡易表示にする（判読不能な塊を避けるため）。
+            node_count = len(graph.get("nodes", []))
+            self._simple_mode = node_count > _SIMPLIFY_THRESHOLD
+            self._simple_btn.setChecked(self._simple_mode)
+            self._detail_btn.setChecked(not self._simple_mode)
+            self._render_graph()
         else:
+            self._current_graph = None
             self._graph_scene.clear()
             self._detail.setText("ノードグラフ JSON がありません")
 
+    def _on_view_mode_changed(self, _button) -> None:
+        self._simple_mode = self._simple_btn.isChecked()
+        self._render_graph()
+
+    def _render_graph(self) -> None:
+        """
+        self._current_graph を現在の表示モード（簡易/詳細）に応じて
+        _NodeGraphScene に描画する。簡易モードでは simplify_graph() で
+        直列チェーンを折り畳んでからノード数を大幅に減らして表示する。
+
+        座標は Houdini ネットワークエディタ上の生の位置をそのまま使わず、
+        layered_positions() でグラフの接続構造（入力→出力）だけから
+        再計算する。自動生成グラフは密集・重複しやすく、生の座標を
+        そのまま描画すると判読不能な塊になる（実機で「グラフビューが
+        ひどい」と報告された不具合）ため、パイプラインの流れに沿った
+        層状レイアウトに置き換えている。
+        """
+        graph = self._current_graph
+        if graph is None:
+            self._graph_scene.clear()
+            return
+        nodes = graph.get("nodes", [])
+        edges = graph.get("edges", [])
+        if self._simple_mode:
+            view_nodes, view_edges = simplify_graph(nodes, edges)
+        else:
+            view_nodes, view_edges = nodes, edges
+
+        positions = layered_positions(view_nodes, view_edges)
+        laid_out_nodes = [
+            {
+                **n,
+                "position": [
+                    positions[n["id"]][0] * _LAYER_COL_SPACING / _POS_SCALE,
+                    positions[n["id"]][1] * _LAYER_ROW_SPACING / _POS_SCALE,
+                ],
+            }
+            if n.get("id") in positions else n
+            for n in view_nodes
+        ]
+
+        self._graph_scene.build({**graph, "nodes": laid_out_nodes, "edges": view_edges})
+        self._graph_view.fitInView(
+            self._graph_scene.itemsBoundingRect().adjusted(-30, -30, 30, 30),
+            Qt.KeepAspectRatio,
+        )
+        mode_label = "簡易" if self._simple_mode else "詳細"
+        # 「簡易/詳細で何が違うか分からない」という報告への対策として、ノード数が
+        # たまたま変わらない場合でも常にモードの意味を明示する（差分が出たときだけ
+        # 補足していた従来仕様だと、差が小さいチュートリアルで違いが伝わらなかった）。
+        mode_desc = "直列チェーンを1ノードに集約" if self._simple_mode else "全ノードを個別に表示"
+        reduction = ""
+        if self._simple_mode and len(nodes) != len(view_nodes):
+            reduction = f"（元: {len(nodes)} ノード / {len(edges)} エッジ）"
+        self._detail.setText(
+            f"[{mode_label}表示: {mode_desc}] {len(view_nodes)} ノード / {len(view_edges)} エッジ {reduction}"
+            f"  |  sandbox: {graph.get('sandbox', '')}"
+        )
+
+    def _on_copy_mermaid(self) -> None:
+        if self._current_graph is None:
+            self._status.setText("先にチュートリアルを選択してください")
+            return
+        nodes = self._current_graph.get("nodes", [])
+        edges = self._current_graph.get("edges", [])
+        text = graph_to_mermaid(nodes, edges, simplify=self._simple_mode)
+        QGuiApplication.clipboard().setText(text)
+        mode_label = "簡易" if self._simple_mode else "詳細"
+        self._status.setText(f"Mermaid記法（{mode_label}）をクリップボードにコピーしました")
+
     def _on_node_selected(self, node: dict) -> None:
+        if node.get("kind") == "chain":
+            member_ids = [m.get("id", "") for m in node.get("members", [])]
+            self._detail.setText(
+                f"[集約ノード] {len(member_ids)} ノードを折り畳み: " + " → ".join(member_ids)
+            )
+            return
         params = ", ".join(f"{k}={v}" for k, v in node.get("params", {}).items()) or "（デフォルト）"
         self._detail.setText(f"{node.get('id')}  |  {node.get('kind')}  |  {params}")

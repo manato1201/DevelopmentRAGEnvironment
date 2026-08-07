@@ -51,7 +51,7 @@ Notion (8DB)
 Google Sheets (RAG_Index)
   [page_id | db | title | text | last_edited | embedding(768次元)]
     ↓ クエリ時: GAS がクエリをベクトル化 → コサイン類似度
-Gemini gemini-embedding-001  ←→  gemini-2.5-flash（回答生成）
+Gemini gemini-embedding-001  ←→  gemini-3.6-flash（回答生成）
     ↓
 チャット WebApp
 ```
@@ -73,7 +73,7 @@ Gemini gemini-embedding-001  ←→  gemini-2.5-flash（回答生成）
 ┌───────────────────────────────────────────────────────────────┐
 │ GAS WebApp                                                    │
 │ Notion 8DB（houdini21 含む）                                  │
-│ Gemini gemini-embedding-001（埋め込み）/ gemini-2.5-flash（回答）│
+│ Gemini gemini-embedding-001（埋め込み）/ gemini-3.6-flash（回答）│
 │ Google Sheets（RAG_Index / RAG_Memory ログ）                  │
 └──────────────────────┬──────────────────────────────────────┘
                         │
@@ -747,10 +747,13 @@ Cloud モードでは以下の JSON 形式で GAS WebApp に POST する。`apiK
 
 > **グラフビューについて:** 「Graph」タブを開くと、知識ベースのページ関係グラフが表示される（QGraphicsView 描画、ノードをドラッグ移動可能）。初回描画には30秒〜1分かかる場合がある（§6.4 参照）。
 
+> **初めて使う場合:** パネル先頭の「はじめに」タブに、はじめの3ステップ・各タブの役割・よくある詰まりポイントをまとめた説明がある。操作に迷ったらまずここを開くこと。
+
 Houdini パネル内部の構成:
 
-- `rag_chatbot.py`: チャット UI（Chat / Settings タブ）。Cloud モードでは RAG 回答バブルの下に 👍/👎 ボタンを表示。評価は `RateWorker`（QThread）でバックグラウンド送信。
+- `rag_chatbot.py`: チャット UI（はじめに / Chat / Graph / Tutorial / History / Settings タブ）。Cloud モードでは RAG 回答バブルの下に 👍/👎 ボタンを表示。評価は `RateWorker`（QThread）でバックグラウンド送信。
 - `graph_view.py`: グラフビュー（ノードをマウスでドラッグして配置を変えられる）
+- `tutorial_agent.py` / `tutorial_view.py` / `tutorial_graph_simplify.py`: houdini21チュートリアル自動生成（詳細は [docs/content-generation.md](content-generation.md) を参照）。「Tutorial」タブで生成・プレビュー・保存、「History」タブで保存済みチュートリアルとノードグラフを閲覧する。
 
 ### 6.4 グラフビューの使い方
 
@@ -979,6 +982,8 @@ APIキーごとに、直近1分間のリクエスト数を`CacheService`で数�
 - BM25用のトークンはインデックス読み込み時（`loadIndexFromSheet_()`）に事前計算してキャッシュに含める（毎クエリでの再トークン化を避けるため）。
 - 「🗄 DB管理」タブのnamespace追加・編集画面で「BM25+RRFハイブリッド検索を有効化」チェックボックスから切り替えられる。
 
+**corpus増加への対策（2値量子化ショートリスト、`_vectorCandidatesFor_()`）：** Googleスプレッドシートはベクトル専用DB（ChromaDB等が使うHNSW近似索引）を持たないため、従来はnamespace内の全行に対して768次元の浮動小数コサイン類似度を計算する総当たりスキャンだった。corpusが増えるほど1クエリあたりの計算量が線形に増える弱点があったため、各埋め込みを符号ビットだけの2値シグネチャに圧縮し、安価なハミング距離で「厳密計算する候補（ショートリスト）」を先に絞り込む2段構成にした。シグネチャはインデックスキャッシュ構築時（`loadIndexFromSheet_()`）に1回だけ計算してキャッシュに含めるため、クエリごとの追加コストはハミング距離の計算のみ。namespace内の行数が`SHORTLIST_THRESHOLD`（既定300）以下の間は従来通り全件を厳密計算するため、現状規模での挙動・精度への影響はない。BM25側は総当たりのままで、ショートリストの対象にしていない（キーワード一致の照合コストがそもそも低いため）。
+
 ### 8.12 ナレッジ取り消し（rollback）の失敗検知
 
 `adminKbRollback()`はNotion/Drive側の削除が実際に成功したかどうか（Notionはレスポンスコード200、Driveは例外の有無）を確認して件数をカウントする。一部だけ失敗した場合は`ok:false`と`failedTargets`（失敗したID一覧）を返し、管理画面にも「一部失敗しました」と表示される。インデックス行自体は成否に関わらず削除されるため、失敗した対象はNotion/Drive側に実体だけが残った状態になり、手動確認が必要になる。
@@ -1018,6 +1023,79 @@ houdini21チュートリアル生成（`houdini/python_panels/tutorial_agent.py`
 - houdini21チュートリアル生成は、rag_mode（Settingsタブの「Local」/「Cloud」）に関わらず`gas_url`/`gas_api_key`の設定が**必須**になった（RAG検索だけをローカルで行う場合でも、生成そのものはGAS経由のため）
 - 実証実験の参加者ごとに個別のAPIキーを発行し、`adminSetClaudeCapacity()`で妥当な上限（例: 1人あたり数十万トークン程度）を設定しておくことを推奨する
 
+### 8.15 参考情報（引用元）取得件数のAPIキー単位設定
+
+`searchByEmbedding_()`が1回のクエリで取得する参考情報の件数は、以前は全APIキー共通で`5`に固定されていた。用途によって適切な件数は異なる（例: チャットの1問1答は5件で十分だが、Houdiniチュートリアル自動生成のように複数手順・複数ノードをまとめる用途はもっと多くの参照文書があった方が良い場合がある）ため、`API_KEYS_CONFIG`の`sourceLimit`フィールドでAPIキーごとに設定できるようにした。
+
+- 管理画面「🔑 APIキー管理」タブの編集モーダルから設定（`adminSetSourceLimit()`）。未設定なら`DEFAULT_SOURCE_LIMIT`（5）、上限は`MAX_SOURCE_LIMIT`（20）でクランプされる。
+- 件数を増やしてもMIN_SCORE（§8.9）による品質フィルタは変わらないため、しきい値を下げて低品質な文書を混入させるわけではない。増える分のコストは、回答生成コール1回あたりの入力トークン（＝RAG/Claudeトークン予算の消費）とレイテンシ。
+- `ragQueryWithKey()`（チャット）・`doPost`の`claude_messages`以外の通常クエリ（raw/full両モード）の両方が、呼び出し元APIキーの`sourceLimit`を尊重する。
+
+### 8.16 字幕の無いYouTube動画の取り込み（`scripts/youtube_transcribe.py`）
+
+ナレッジ登録のYouTube取り込み（Cloud側`adminKbImportYoutube`／Local側`KnowledgeManager.import_youtube`）は、どちらもYouTube側の公式・自動生成字幕しか取得できない。技術解説・製品説明系の動画は字幕が無い、または焼き込み字幕（テキスト化不可）のケースが多く、そのままでは取り込めなかった。
+
+`scripts/youtube_transcribe.py`は、yt-dlpで音声のみをダウンロードし、Gemini Files APIにアップロードして`generateContent`で文字起こしする（既存の`GEMINI_API_KEY`を使う）。結果は標準出力・ファイルに出せる他、次の2つの自動登録先に対応する。
+
+- **Local RAG:** `--local-namespace`を指定すると`rag_local_bridge.py`の`/api/knowledge/import/youtube`へそのままPOSTする。`KnowledgeManager.import_youtube()`に`transcript`引き渡し口を追加済み（指定時はmarkitdownでの字幕取得をスキップし、そのテキストをそのまま登録する）。
+- **Cloud RAG:** `--cloud-url`/`--cloud-api-key`/`--cloud-db`を指定すると、`doPost`の新しいアクション`admin_kb_import_youtube`（`{action, apiKey, dbKey, videoUrl, transcript}`）へPOSTする。`adminKbImportYoutube()`自体は`google.script.run`専用（ブラウザの管理画面からしか呼べない）関数だが、このアクションがGAS側で認証（管理者キー必須）・レート制限を行った上でそれを呼び出す薄いHTTPプロキシとして機能する。管理者権限を持たないキーやレート制限超過は`forbidden`/`rate_limited`で明確に拒否される。
+
+いずれも省略した場合は、文字起こし結果を管理画面「ナレッジ登録」タブの「文字起こしを貼り付け」欄に手動でコピーする運用になる。
+
+- 音声をGoogle（Gemini API）に送信するため、社外に出せない機密動画では使わないこと。
+- 依存: `yt-dlp`（`pyproject.toml`に追加、`uv sync`で導入）、`ffmpeg`（PATH）。
+
+### 8.17 ナレッジ登録・DB同期での音声・動画ファイルの直接取り込み
+
+「📄 資料ファイルを覚えさせる」（`adminKbUploadDoc`）と「🔄 今すぐ同期」（Drive同期、`syncDriveToSheets`）は、いずれも内部で`_convertBinaryBlobToText_()`を共有している。従来はPDF・Word・Excel・PowerPoint・画像（文字入り）を、Drive APIの`convert:true, ocr:true`変換（Googleネイティブ形式へ変換した上でテキスト抽出、画像・スキャンPDFはOCR）で読み取っていたが、この変換はドキュメント・画像向けであり、音声波形の書き起こしはできないため、音声・動画ファイルは取り込めなかった。
+
+`_convertBinaryBlobToText_()`にMIMEタイプ判定を追加し、`audio/*`・`video/*`は`_transcribeAudioVideoBlob_()`（Gemini Files APIへresumable uploadし、`generateContent`で文字起こし）に振り分けるようにした。動画は「話されている内容の逐語書き起こし」に加え、画面に表示されている技術情報（UI操作・パラメータ名等）があれば`[画面表示: ...]`として補足するようGeminiに指示している。
+
+- 対応形式が精度的にどう違うか: Word/Excel/PowerPoint/PDF（テキストベース）はほぼロスレスな変換・抽出で精度が高い。スキャンPDF・画像はOCR精度に依存し、画質が悪い・手書きが多いと精度が落ちる（既知の制約、上記トラブルシューティング参照）。音声・動画はGeminiの音声認識精度に依存し、専門用語・訛り・雑音の多い音声は誤字が出ることがある。
+- `GEMINI_API_KEY`が必須（embedding/HyDE/回答生成と共通のキーを使う）。
+
+**サイズ上限について（3つの制約。★が実質的なボトルネック）：**
+
+1. **UrlFetchApp 1回のPOSTペイロード上限（50MB、GASの固定クオータ）。** resumable upload protocolのchunked commandで分割送信すれば回避できる。`_uploadBytesToGeminiFile_()`が`GEMINI_UPLOAD_CHUNK_BYTES`単位で分割し、最後のチャンクだけ`X-Goog-Upload-Command: upload, finalize`を付けて送る。
+2. **GASの1回の実行時間上限（6分）。** アップロード＋Gemini側の処理待ち＋文字起こし生成の合計がこれに収まる必要があり、コード側で回避できない絶対的な制約。ファイルサイズよりも「音声・動画の長さ」に効いてくる。
+3. **★GAS（V8ランタイム）自体のメモリ上限。** `blob.getBytes()`でファイル全体をJSの数値配列としてメモリに展開する時点で、生バイト数の数倍のヒープを消費しうる。これは①のような分割送信では回避できない（メモリ不足はアップロードが始まる前、`getBytes()`やDrive変換APIへの引き渡し時点で起きるため）。実際に「メモリ不足のためエラーが発生しました」というGASネイティブのエラーで実行ごと落ちることがあり、通常の`try/catch`では捕捉できない。
+
+当初は①だけを見て上限を190MBまで引き上げていたが、③を考慮できておらず実際にメモリ不足が発生したため、次のように設計し直した。
+
+- **事前サイズチェックでgetBlob()自体を避ける。** Drive同期（`extractDriveFileText_()`）は、`file.getBlob()`でファイル内容を読み込む前に、Driveのメタデータだけで取得できる`file.getSize()`で事前にサイズを確認する。上限超過ならその1ファイルだけをスキップし（`totalErr`にカウント）、他のファイルの同期は継続する。手動アップロード（`adminKbUploadDoc()`）も同様に、Base64文字列の長さから概算サイズを出し、`Utilities.base64Decode()`（＝メモリ展開）を呼ぶ前に弾く。
+- **既定値は保守的に設定し、スクリプトプロパティで調整可能にした。** GASの実際のメモリ余裕はアカウント・同時実行状況に依存し、コード側から正確な上限を知る手段がないため：
+  - `MAX_AUDIO_VIDEO_MB`（既定15MB）: 音声・動画（Gemini文字起こし経由）
+  - `MAX_DRIVE_CONVERT_MB`（既定25MB）: PDF/Office/画像（Drive変換経由）
+  - 「メモリ不足」が再発する場合はさらに小さい値に、逆に問題なく処理できている場合は大きくしてよい。
+- 「📄 資料ファイルを覚えさせる」（ブラウザ手動アップロード）は`google.script.run`経由のBase64転送になるため、クライアント側でも簡易チェック（音声・動画15MB、それ以外25MB）を入れている。
+- 「🔄 今すぐ同期」（Drive同期）はGAS側がDriveから直接バイト列を読むため、手動アップロードのブラウザ転送分のオーバーヘッドは無いが、上記のメモリ上限自体は同じように適用される。
+- 大きい・長いファイルは、`scripts/youtube_transcribe.py`でローカルから文字起こしし、テキストとして貼り付ける方法を推奨する（ローカルPCの実行にはGASのようなメモリ・実行時間の制約がない）。
+
+### 8.18 Drive Advanced Service のv2/v3互換性（`Drive.Files.insert is not a function` / 変換されず文字化けする）
+
+GASエディタで「Drive API」をAdvanced Google Serviceとして追加する際、**v2を選んで追加した場合と、既定でv3が有効化される場合とでメソッド名・パラメータの意味が異なる**。この違いに気づかず実装していたため、2つの不具合があった。
+
+**① メソッド名が無くTypeErrorになる:** v2は`Drive.Files.insert({title,...}, blob, opts)`、v3は`Drive.Files.create({name,...}, blob, opts)`。既存コードはv2決め打ちだったため、v3環境では`TypeError: Drive.Files.insert is not a function`になっていた。
+
+**② （より深刻）変換が起きずPDF等の生バイナリが文字化けしたまま登録される:** v2の`convert:true`は変換先を指定しなくても拡張子から自動で適切なGoogle形式に変換してくれるパラメータだが、**v3にはこの`convert`パラメータ自体が存在しない**。v3で変換を起こすには、`resource.mimeType`に変換先（`application/vnd.google-apps.document`等）を明示する必要がある。これに気づかず`{convert:true, ocr:true}`をそのままv3の`Files.create`に渡していたため、v3環境では**変換が一切起きず**、アップロードした生のPDFバイナリがそのままDriveに保存され、それを「テキストが空だったから」とUTF-8として読んでしまい、`%PDF-1.6 ...`のような生バイナリの文字化けがそのままナレッジとして登録されていた。
+
+**対応（`_driveFilesCreate_()`/`_driveFilesRemove_()`/`_targetGoogleMimeFor_()`）：**
+- 実行時に`Drive.Files.create`/`Drive.Files.insert`のどちらが生えているかを見て分岐する（①の対応）。
+- v3では、アップロードするファイルの元MIMEタイプ（Excel系→スプレッドシート、PowerPoint系→プレゼンテーション、それ以外PDF/画像/Word等→ドキュメント）から変換先を判定し、`resource.mimeType`に明示的に設定する（②の対応。PDF/画像をドキュメントに変換する際はOCRが自動的に掛かる）。
+- **変換が実際に起きたかどうかを事後検証する。** 変換後の`mimeType`が`application/vnd.google-apps.*`になっていなければ「変換に失敗した」とみなしてはっきりエラーにし、**生バイナリをUTF-8として読むフォールバックは削除した**（このフォールバックが②の文字化けの直接原因だったため）。今後同様の変換失敗が起きても、文字化けしたテキストが黙って登録されることはなく、エラーとして検知できる。
+
+どちらのバージョンでDrive APIを追加していても正しく動作する。
+
+### 8.19 Houdini GraphタブのCloud RAG対応（`action:'graph'`）
+
+Houdiniの`RAGChatBot`パネルの「Graph」タブ（`houdini/python_panels/graph_view.py`の`RAGGraphWidget`）は、ナレッジベースのドキュメント同士の類似度グラフ（ノード=ドキュメント、エッジ=類似度）を可視化する。従来は`GraphFetchWorker`が`http://localhost:{port}/graph`（`rag_local_bridge.py`の`/graph`）を決め打ちで呼んでいたため、`mode:"cloud"`（GAS経由）で使っている場合はGraphタブが機能しなかった。
+
+グラフデータの生成自体（`buildGraphData_()`）は既にGAS側にも存在していたが、`getGraphDataWithKey(apiKey)`という`google.script.run`専用関数（ブラウザの管理画面からしか呼べない）としてしか公開されておらず、Houdiniのような外部HTTPクライアントからは呼び出せなかった。
+
+`doPost`に、通常のクエリ処理（`query`アクション）と同じ認証・レート制限の流儀（管理者チェックはしない）で`action:'graph'`（`{action:'graph', apiKey}`）を追加した。`validateApiKey_(apiKey)`で認証し、`isRateLimited_(apiKey)`でレート制限を確認した上で`buildGraphData_(config.namespaces || null)`をそのまま返す。戻り値の形（`{nodes:[{id,label,db}], edges:[{source,target,score,cross_db}], status:'ok'}`）は`/graph`エンドポイントと完全に同一なので、レンダリング側（`NodeItem`/`EdgeItem`/`RAGGraphScene`）は変更不要。
+
+`GraphFetchWorker`は`rag_mode`（`"local"`|`"cloud"`）・`gas_url`・`gas_api_key`を受け取れるように拡張し、`rag_mode=="cloud"`のときは`gas_url`に`{"action":"graph","apiKey":gas_api_key}`をPOSTする（`tutorial_agent.py`の`_call_api`と同じ`urllib.request.Request(..., method='POST')`パターン）。`RAGGraphWidget`もこれらを引数で受け取り、`rag_chatbot.py`の`_build_graph_tab()`が`self._cfg`の`mode`/`gas_url`/`gas_api_key`をそのまま渡すようにした。
+
 ---
 
 ## 9. トラブルシューティング
@@ -1041,9 +1119,26 @@ houdini21チュートリアル生成（`houdini/python_panels/tutorial_agent.py`
 **「Advanced Drive Service が必要です」エラー:**
 - GASエディタ →「サービス」の「+」→「Drive API」を追加していない（§5.4参照）
 
+**「Drive.Files.insert is not a function」エラー、またはPDF等をアップロードすると文字化けした内容が登録される:**
+- Drive APIをv3で追加したプロジェクトで発生していた既知の問題（§8.18参照）。v3にはv2の`convert`パラメータが無く変換自体が起きないため、生バイナリがそのまま登録され文字化けする。`_driveFilesCreate_()`/`_targetGoogleMimeFor_()`で修正済み。修正前のコードのままデプロイされている場合は、最新の`gas_cloud_rag.js`を貼り直して再デプロイする
+- 過去に文字化けした内容がすでに登録されてしまっている場合は、「📚 ナレッジ登録」タブの履歴から該当エントリを「なかったことにする」（ロールバック）で削除し、再デプロイ後に登録し直す
+
 **「ファイルからテキストを抽出できませんでした」エラー:**
 - スキャン画質が悪い・手書き文字が多いなどOCR精度の限界。元ファイルの画質を上げるか、FAQ手入力で代替する
 - パスワード保護されたPDF/Officeファイルは開けないため、保護を解除してから再アップロードする
+
+**「メモリ不足のためエラーが発生しました」エラー:**
+- 音声・動画・大きいPDF/画像等を取り込もうとした際に発生する（§8.17参照）。GAS自体のメモリ上限が原因で、ファイルサイズの問題であって設定ミスではない
+- 「🗄 DB管理」タブのDrive同期は、事前にファイルサイズを確認してから読み込むよう修正済み（スクリプトプロパティ`MAX_AUDIO_VIDEO_MB`/`MAX_DRIVE_CONVERT_MB`で上限を調整可能）。それでも出る場合はこれらの値を下げてみる
+- 大きい・長いファイルは`scripts/youtube_transcribe.py`でローカルから文字起こしし、テキストを直接貼り付ける（ローカル実行にはGASのメモリ制約がない）
+
+**音声・動画ファイルの文字起こしが失敗する:**
+- `GEMINI_API_KEY`が未設定（§8.17参照）
+- ファイルサイズが大きすぎる（既定値: 手動アップロード欄・Drive同期経由とも15MB。§8.17参照。長い動画は`scripts/youtube_transcribe.py`でローカルから文字起こしし、テキストを直接貼り付ける）
+
+**「Exception: 範囲の座標がシートのサイズから外れています。」エラー:**
+- `RAG_Index`シートへの書き込みが、シートの現在の最大行数（グリッドサイズ。使用中の行数とは別）を超えた際に発生していた既知の不具合。`sheet.getRange(...).setValues(...)`は対象範囲が既存のグリッドサイズ内である必要があり、超えると即座にこの例外になる（シートは値を入れれば自動で増えるように見えるが、それはUI操作の場合であって、`getRange()`で明示的に指定した範囲を超える書き込みには事前の行確保が必要）
+- `_appendRowsSafely_()`で、書き込み前に必要な行数を`insertRowsAfter()`で確保するよう修正済み（Notion同期・Drive同期・ナレッジ登録の3箇所すべてに適用）。最新の`gas_cloud_rag.js`を貼り直して再デプロイすれば解消する
 
 **CSVインポートで「ヘッダーに question 列と answer 列が必要です」エラー:**
 - CSVの1行目に `question,answer` という列名があるか確認（大文字小文字は区別しないが、列名の誤字がないか確認）

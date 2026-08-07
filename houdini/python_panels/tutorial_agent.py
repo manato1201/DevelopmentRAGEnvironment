@@ -48,6 +48,8 @@ COST_LIMIT_USD = 5.00         # ローカル側の実測コスト打ち切り上
                                # GAS側のclaudeCapacity（管理画面で調整）が唯一の正であり、
                                # これはネットワーク断・GAS未応答時などに暴走を防ぐための
                                # クライアント側のフェイルセーフに過ぎない
+GRACE_ITERATIONS = 3          # 反復上限までこの回数以内になったら仕上げを促す（§2.6打ち切り改善）
+GRACE_COST_FRACTION = 0.85    # 累積コストがCOST_LIMIT_USDのこの割合を超えたら仕上げを促す
 MAX_TOKENS_PER_TURN = 4096
 RAG_NAMESPACES = ["houdini21"]  # 生成機能が参照してよい namespace のホワイトリスト（§5）
 RAG_LIMIT = 6
@@ -63,23 +65,89 @@ _PRICE = {
     "cache_read": 0.30,
 }
 
+# よく使うSopノードタイプの一覧。list_available_node_types の呼び出しを毎回
+# しなくても済むように、頻出タイプ名をシステムプロンプトに直接埋め込んでおく
+# （過去の実機検証で、序盤のノードタイプ検索だけで反復予算の3割超を消費した
+# ことが分かっているため。ここに無い/不確かなタイプは引き続き
+# list_available_node_types で確認すること）。
+_COMMON_NODE_TYPES_BLOCK = """- 基本形状: box, sphere, grid, tube, torus
+- 変形・ノイズ: mountain::2.0, noise::2.0, attribwrangle, attribrandomize::2.0
+- 散布・複製: scatter::2.0, copytopoints::2.0
+- 結合・切り出し: merge, blast, boolean::2.0
+- 属性操作: attribwrangle, attribcreate::2.0, attribdelete::2.0, attribpromote::2.0
+- 曲線: curve::2.0, resample::2.0, sweep::2.0, polyframe::2.0
+- ボリューム/VDB: vdbfrompolygons, cloudnoise::2.0, volumetrim, convertvdb
+- パーティクル(SOP内 popnet): popnet, popsource, popforce, popdrag, popwrangle, popkill, popcollisiondetect, popadvectbyvolume, popattractforce, popreplicate, popsolver
+- シミュレーション(DOP): pyrosolver::2.0, dopnet, sourcevolume::2.0, vellumsolver, rbdpackedobject, staticobject
+- スクリプト: pythonscript"""
+
+# ノードタイプ検索(list_available_node_types)が続いた際に一度だけ差し込むテキスト。
+# 「よく使うノードタイプ」に無いタイプ名(例: 電子パーティクル等のPOP系)を探し続けて
+# 何も作らずに反復を消費してしまう問題（実機で確認済み）への対策。
+_SEARCH_LOOP_NUDGE_TEXT = (
+    "[システム通知] list_available_node_types の呼び出しが続いています。"
+    "これ以上調べずに、今分かっている中で最も可能性が高いタイプ名で create_node を"
+    "試してください。タイプ名が間違っていても cook_node のエラーメッセージから"
+    "自己修正できます。検索だけで作業を終わらせないでください。"
+)
+_SEARCH_LOOP_NUDGE_THRESHOLD = 3  # 連続してこの回数以上検索したら促す
+
+# ツールを一度も呼ばずに（＝ノードを1つも作らずに）テキストのみで終了しようとした
+# 場合に差し込むテキスト。何も作られていないのに「完了」と誤認されるのを防ぐ。
+# 実機検証で、抽象的な題材（例:「電子パーティクル」）だと list_available_node_types
+# で該当ノードを探し続けた末に1回の救済（旧: 1回だけ）でも心が折れて再度テキストのみで
+# 終了し、そのまま「モデルがツールを呼ばず終了しました」でハード打ち切りになる
+# ケースが確認された。これは無限ループやデッドロックではなく、単に諦めるタイミングが
+# 早すぎる問題だったため、救済回数を2回に増やし、2回目はより具体的に
+# 「代替案（基本形状の組み合わせ）で妥協してでも作れ」と指示する内容に変えた。
+_EMPTY_HANDED_NUDGE_TEXT = (
+    "[システム通知] まだノードを1つも作成していません。テキストだけで終了せず、"
+    "create_node から作業を始めてください。ノードタイプ名が分からない場合は"
+    "最も可能性の高い名前で試し、cook_node のエラーを見て修正してください。"
+)
+_EMPTY_HANDED_NUDGE_TEXT_2 = (
+    "[システム通知] 依然としてノードが1つも作成されていません。トピックがHoudiniの"
+    "具体的なノードタイプ名と一致しなくても構いません。完璧な再現は諦めて、"
+    "sphere/tube/torus 等の基本形状と scatter::2.0 / copytopoints::2.0 / mountain::2.0 "
+    "などを組み合わせた「それらしい」見た目で妥協してください。今すぐ create_node を"
+    "呼んでください。これ以上ノードタイプを探し続けることは禁止します。"
+)
+_EMPTY_HANDED_MAX_RESCUES = 2  # この回数までは「まだ何も作られていない」を救済する
+
+# 打ち切り時のグレースフル終了（§2.6）: 反復/コスト上限が近づいた際に一度だけ差し込む
+# ユーザー役テキスト。今の状態のまま仕上げるよう促し、未完成のままハード打ち切りになる
+# 事態を減らす。
+_GRACE_NUDGE_TEXT = (
+    "[システム通知] 残りの反復回数またはコスト予算が少なくなっています。"
+    "新しい大きな作業は始めず、今組み立て済みのグラフをそのまま仕上げてください。"
+    "cook_node でエラーが無いことだけ確認したら、多少シンプルな内容でも構わないので"
+    "finish_tutorial を呼んでチュートリアルを完成させてください。"
+)
+
 _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初心者向けチュートリアルを作成するエージェントです。
 与えられたツールで Houdini のノードグラフを実際に組み立て、動作確認済みのチュートリアルを作成します。
 
 ## 絶対ルール
 - ノード操作はサンドボックス `{sandbox_path}` 内でのみ行われます。ノードパスは常にサンドボックス相対（例: `geo1/grid1`）で指定してください。
-- ノードタイプ名が少しでも不確かな場合は、create_node の前に必ず list_available_node_types で正確な名前を確認してください（例: `mountain` ではなく `mountain::2.0`）。
+- 以下の「よく使うノードタイプ」に無いタイプ名が少しでも不確かな場合は、create_node の前に必ず list_available_node_types で正確な名前を確認してください（例: `mountain` ではなく `mountain::2.0`）。既知のタイプ名について毎回確認する必要はありません。
 - SOP を作るには、まずサンドボックス直下に Object カテゴリの `geo` ノードを作成し、その中に SOP ノードを作成します。
 - グラフを組み終えたら必ず最終ノードを cook_node で評価し、エラーがあれば修正して再 cook してください。エラーが残ったまま finish_tutorial を呼んではいけません。
-- 表示させたい最終ノードには set_parameter 等で手を加える必要はありません（ディスプレイフラグは不要）。
+- 表示させたい最終ノードには set_parameter 等で手を加える必要はありません（ディスプレイフラグは不要）。ただし複数の要素（例: 地形と、その上に散布した岩）を同時に見せたい場合は、Merge ノードで結合してから表示フラグを立ててください（片方しか見えない状態で終わらせないこと）。
+- pyro/fire/クロス/パーティクル/流体/剛体等のシミュレーション系ノードを cook_node する際は、システム側が自動的に複数フレーム分evaluateして時間発展する挙動を検証します（1フレームだけでは正しく動くか分からないためです）。
+- list_available_node_types で調べ続けるより、最も可能性の高いタイプ名で create_node を試す方が早いことが多いです（間違っていても cook_node のエラーから自己修正できます）。ノードを1つも作らずにテキストだけで応答して終了することは禁止です。必ず何らかのツールを呼んでください。
+- トピックが「電子パーティクル」「銀河」のような、Houdiniの具体的なノードタイプ名にそのまま対応しない抽象的・比喩的な題材であっても構いません。その名前のノードタイプを探し続けるのではなく、基本形状（sphere/tube/torus等）・散布や複製（scatter::2.0, copytopoints::2.0）・ノイズや変形（mountain::2.0等）を組み合わせて「それらしい見た目」を表現する方針に切り替えてください。完璧な再現より、まず何かを組み立てて完成させることを優先してください。
 
-## 進め方
+## よく使うノードタイプ（このリストにあれば list_available_node_types は不要）
+{common_node_types}
+
+## 完了の手順（2段階の自己確認）
 1. リクエストと参考ドキュメントからチュートリアルの構成を決める（3〜8ノード程度の到達可能なスコープに収める）
 2. ノードを作成・接続・パラメータ設定する
 3. cook_node でエラー確認 → 自己修正
-4. エラーゼロを確認したら finish_tutorial を呼ぶ。steps には実際に行った操作を初心者が再現できる粒度で書き、pitfalls には生成中に遭遇したエラーと対処を書く
+4. エラーゼロを確認したら finish_tutorial を呼ぶ。steps には実際に行った操作を初心者が再現できる粒度で書き、pitfalls には生成中に遭遇したエラーと対処を書く。sources_used には実際に参考にした「参考ドキュメント」の番号（下記の[1][2]...）を記入する（使っていなければ空配列）
+5. finish_tutorial の直後に現在のビューポート画像が送られます。**その画像を確認し、意図した見た目になっているか自己検証してから、必ず confirm_tutorial を呼んでください。** 見た目に問題があれば looks_correct=false にして修正し、finish_tutorial からやり直してください
 
-## 参考ドキュメント（houdini21 ナレッジベース）
+## 参考ドキュメント（houdini21 ナレッジベース。番号は sources_used で引用する際に使う）
 {rag_context}"""
 
 
@@ -116,7 +184,13 @@ class TutorialResult:
         self.iterations: int = 0
         self.completed: bool = False   # finish_tutorial まで到達したか
         self.abort_reason: str = ""    # 打ち切り理由（上限到達など）
+        # sources[i] に "cited": bool が付与される（finish_tutorial の sources_used で
+        # 報告された番号と対応）。RAGが実際にどれだけ生成に寄与したかの研究データ。
         self.sources: list[dict] = []
+        # finish_tutorial の sources_used（1始まりの引用番号一覧）をそのまま保持する。
+        self.rag_sources_cited: list[int] = []
+        # 引用率（cited済みsource数 / 全source数）。sourcesが空ならNone。
+        self.rag_extraction_rate: float | None = None
 
     def file_basename(self) -> str:
         date = datetime.datetime.now().strftime("%Y%m%d")
@@ -205,6 +279,7 @@ class TutorialAgent:
         result.completed = self.executor.finish_data is not None
         result.title = finish.get("title") or f"Houdiniチュートリアル: {topic}"
         result.slug = self._sanitize_slug(finish.get("slug", ""), topic)
+        self._apply_rag_attribution(finish, result, result.completed)
         result.markdown = self._assemble_markdown(topic, finish, result)
 
         status = "完了" if result.completed else f"打ち切り（{result.abort_reason}）"
@@ -216,6 +291,37 @@ class TutorialAgent:
     def destroy_sandbox(self) -> None:
         if self.executor is not None:
             self.executor.destroy_sandbox()
+
+    @staticmethod
+    def _apply_rag_attribution(finish: dict, result: "TutorialResult", completed: bool) -> None:
+        """
+        finish_tutorial の sources_used（Claudeが実際に参考にしたと報告した番号一覧）を
+        result.sources に反映する。RAGがチュートリアル生成にどれだけ実際に寄与したかを
+        示す研究データとして使う（Cloud RAGチャットのparseExtractionRate_と同じ考え方の
+        Houdini生成版）。
+
+        completed=False（finish_tutorialに到達せず打ち切られた）の場合は、
+        sources_used はそもそもモデルに一度も尋ねられていない。この場合まで
+        cited_numbers=[] → 抽出率0%として表示すると、「モデルが参考ドキュメントを
+        検討した上で1件も使わなかった」ように見えてしまい誤解を招く（実機で
+        「引用0とは何か」という混乱として報告された）。打ち切り時は計測不能
+        として rag_extraction_rate を None のままにし、_assemble_markdown 側で
+        「未計測」であることを明示する。
+        """
+        if not completed:
+            result.rag_sources_cited = []
+            result.rag_extraction_rate = None
+            return
+        cited_raw = finish.get("sources_used")
+        cited_numbers = sorted({int(n) for n in cited_raw if isinstance(n, (int, float))}) if isinstance(cited_raw, list) else []
+        result.rag_sources_cited = cited_numbers
+        cited_set = set(cited_numbers)
+        for i, source in enumerate(result.sources, start=1):
+            source["cited"] = i in cited_set
+        if result.sources:
+            result.rag_extraction_rate = sum(1 for s in result.sources if s.get("cited")) / len(result.sources)
+        else:
+            result.rag_extraction_rate = None
 
     # ── RAG検索 ─────────────────────────────────────────────────────────────────
 
@@ -315,6 +421,7 @@ class TutorialAgent:
         system_text = _SYSTEM_PROMPT_TEMPLATE.format(
             sandbox_path=self.executor.sandbox_path,
             rag_context=rag_context,
+            common_node_types=_COMMON_NODE_TYPES_BLOCK,
         )
         system_blocks = [{
             "type": "text",
@@ -340,6 +447,9 @@ class TutorialAgent:
         messages: list[dict],
         result: TutorialResult,
     ) -> None:
+        grace_warned = False        # GRACE_NUDGE_TEXTは1生成につき1回だけ出す
+        search_nudge_active = False  # 現在の検索連打ストリークで既に促したか（create_nodeで解除）
+        empty_handed_rescues = 0    # 何も作らずテキストのみで終了しようとした際の救済回数
         for iteration in range(1, MAX_ITERATIONS + 1):
             response = self._call_api(system_blocks, tools, messages)
             quota = response.get("claudeQuota")
@@ -361,7 +471,31 @@ class TutorialAgent:
 
             tool_uses = [b for b in content if b.get("type") == "tool_use"]
             if not tool_uses:
-                # テキストのみの応答 = モデルが作業を終えたと判断
+                # テキストのみの応答 = モデルが作業を終えたと判断。ただし1つも
+                # ノードを作らずに終えようとした場合は、誤って「完了」扱いする前に
+                # 一度だけ再開を促す（実機で「検索だけして何も作らず終了」する
+                # ケースが確認されたための救済措置）。executorが無い場合（テスト等で
+                # _run_loopのみを直接動かすケース）は進捗を判定できないため対象外とする。
+                if self.executor is not None:
+                    has_created_any_node = any(
+                        e["tool"] == "create_node" and not e["is_error"]
+                        for e in self.executor.step_log
+                    )
+                    if not has_created_any_node and empty_handed_rescues < _EMPTY_HANDED_MAX_RESCUES:
+                        empty_handed_rescues += 1
+                        nudge_text = (
+                            _EMPTY_HANDED_NUDGE_TEXT if empty_handed_rescues == 1
+                            else _EMPTY_HANDED_NUDGE_TEXT_2
+                        )
+                        messages.append({
+                            "role": "user",
+                            "content": [{"type": "text", "text": nudge_text}],
+                        })
+                        self._progress(
+                            f"何も作成せず終了しようとしたため、作業開始を促しました"
+                            f"（{empty_handed_rescues}/{_EMPTY_HANDED_MAX_RESCUES}）"
+                        )
+                        continue
                 result.abort_reason = "モデルがツールを呼ばず終了しました"
                 return
 
@@ -370,16 +504,61 @@ class TutorialAgent:
                 name, args = block["name"], block.get("input", {})
                 self._progress(f"[{iteration}/{MAX_ITERATIONS}] {name}({self._short(args)})")
                 output, is_error = self.executor.execute(name, args)
+                # 視覚的自己検証ステップ: finish_tutorial実行直後に撮られたビューポート画像が
+                # あれば、その回のtool_resultにテキストと一緒に画像として添付する。Claude自身が
+                # 画像を見て見た目を確認したうえでconfirm_tutorialを呼ぶ（houdini_tools.py参照）。
+                screenshot_b64 = getattr(self.executor, "last_screenshot_b64", None)
+                if name == "finish_tutorial" and screenshot_b64:
+                    tool_content: object = [
+                        {"type": "text", "text": output},
+                        {"type": "image", "source": {
+                            "type": "base64", "media_type": "image/png", "data": screenshot_b64,
+                        }},
+                    ]
+                    self.executor.last_screenshot_b64 = None  # 使い終わったので消費する
+                else:
+                    tool_content = output
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block["id"],
-                    "content": output,
+                    "content": tool_content,
                     "is_error": is_error,
                 })
-            messages.append({"role": "user", "content": tool_results})
+
+            # list_available_node_types 連打対策: 直近の呼び出しがこのツールだけで
+            # _SEARCH_LOOP_NUDGE_THRESHOLD 回以上続いたら、検索を止めて作成を試すよう
+            # 一度だけ促す。create_node が呼ばれたらストリークは解除され、次に別の
+            # 検索連打が起きたら再度促せるようにする。
+            content_blocks = list(tool_results)
+            consecutive_lookups = 0
+            for entry in reversed(self.executor.step_log):
+                if entry["tool"] == "list_available_node_types":
+                    consecutive_lookups += 1
+                else:
+                    break
+            if consecutive_lookups == 0:
+                search_nudge_active = False
+            elif not search_nudge_active and consecutive_lookups >= _SEARCH_LOOP_NUDGE_THRESHOLD:
+                content_blocks.append({"type": "text", "text": _SEARCH_LOOP_NUDGE_TEXT})
+                search_nudge_active = True
+                self._progress("ノードタイプ検索が続いているため、作成を促しました")
+
+            # 打ち切り時のグレースフル終了: 残り反復数またはコストが少なくなった時点で、
+            # まだ確定していなければ「今の状態で仕上げてください」と一度だけ促す。
+            # これにより、ハード打ち切りで未完成のまま終わる代わりに、多少粗くても
+            # 完結したチュートリアルになる可能性を上げる。
+            remaining_iterations = MAX_ITERATIONS - iteration
+            near_iteration_limit = remaining_iterations <= GRACE_ITERATIONS
+            near_cost_limit = result.cost_usd >= COST_LIMIT_USD * GRACE_COST_FRACTION
+            still_in_progress = self.executor.finish_data is None and self.executor.pending_finish is None
+            if not grace_warned and still_in_progress and (near_iteration_limit or near_cost_limit):
+                content_blocks.append({"type": "text", "text": _GRACE_NUDGE_TEXT})
+                grace_warned = True
+                self._progress("残り予算が少ないため、仕上げを促しました")
+            messages.append({"role": "user", "content": content_blocks})
 
             if self.executor.finish_data is not None:
-                return  # 正常完了
+                return  # confirm_tutorial(looks_correct=true) で確定済み
 
             if result.cost_usd > COST_LIMIT_USD:
                 result.abort_reason = f"コスト上限 ${COST_LIMIT_USD:.2f} 超過"
@@ -507,9 +686,34 @@ class TutorialAgent:
                 for e in cook_errors[:5]
             )
 
-        source_lines = [
-            f"- {s.get('title', '')}（{s.get('db', '')}）" for s in result.sources
-        ] or ["- （参考ドキュメントなし）"]
+        # completed=False（打ち切り）の場合は sources_used が一度もモデルに尋ねられて
+        # いないため、「✅引用済み/⬜未引用」のバッジを付けると実際には評価していない
+        # のに評価済みのように見えて誤解を招く。バッジ無しでタイトルだけ列挙する。
+        if result.completed:
+            source_lines = [
+                f"- [{i}] {'✅ 引用済み' if s.get('cited') else '⬜ 未引用'} "
+                f"{s.get('title', '')}（{s.get('db', '')}）"
+                for i, s in enumerate(result.sources, start=1)
+            ] or ["- （参考ドキュメントなし）"]
+        else:
+            source_lines = [
+                f"- [{i}] {s.get('title', '')}（{s.get('db', '')}）"
+                for i, s in enumerate(result.sources, start=1)
+            ] or ["- （参考ドキュメントなし）"]
+
+        if not result.completed:
+            extraction_note = (
+                "\n利用率: 未計測（打ち切りのため finish_tutorial の sources_used が"
+                "報告されませんでした。「引用0件」ではなく「未評価」です）"
+                if result.sources else ""
+            )
+        elif result.rag_extraction_rate is not None:
+            extraction_note = (
+                f"\n利用率: {result.rag_extraction_rate:.0%}"
+                f"（引用 {len(result.rag_sources_cited)}/{len(result.sources)} 件）"
+            )
+        else:
+            extraction_note = ""
 
         status_note = ""
         if not result.completed:
@@ -554,7 +758,7 @@ rag_indexed: false
 {pitfalls or "特になし"}
 
 ## 参考
-
+{extraction_note}
 {chr(10).join(source_lines)}
 
 ---

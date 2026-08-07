@@ -41,7 +41,7 @@ DEFAULT_PORT    = 8766
 _LATENCY_WARN_MS = int(os.environ.get("RAG_LATENCY_WARN_MS", "15000"))
 GRAPH_EXPORT_SCRIPT = Path(__file__).parent / "rag_graph_export.py"
 CLAUDE_MODEL    = "claude-haiku-4-5-20251001"
-GEMINI_MODEL    = "gemini-2.5-flash"
+GEMINI_MODEL    = "gemini-3.6-flash"
 _LLM_BACKEND: str = os.environ.get("RAG_LLM_BACKEND", "claude")  # "claude" | "gemini"
 SYSTEM_PROMPT   = (
     "あなたはゲーム開発チームの知識ベースを持つ AI アシスタントです。"
@@ -593,7 +593,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if path == "/api/knowledge/import/url":
                 op = self.kb.import_url(body.get("url", ""), ns)
             elif path == "/api/knowledge/import/youtube":
-                op = self.kb.import_youtube(body.get("url", ""), ns)
+                op = self.kb.import_youtube(body.get("url", ""), ns, transcript=body.get("transcript", ""))
             elif path == "/api/knowledge/import/file":
                 import base64
                 data = base64.b64decode(body.get("data_base64", ""))
