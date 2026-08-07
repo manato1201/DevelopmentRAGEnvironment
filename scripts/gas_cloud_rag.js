@@ -301,7 +301,7 @@ function ragQueryWithKey(query, dbKey, history, apiKey) {
   if (!_hasQuotaRemaining_(config)) {
     throw new Error('トークンの利用上限に達しています。管理者にチャージを依頼してください。');
   }
-  var result = ragQueryInternal_(query, dbKey, history, config.namespaces || [], apiKey);
+  var result = ragQueryInternal_(query, dbKey, history, config.namespaces || [], apiKey, { sourceLimit: config.sourceLimit });
   try { result.memoryId = saveMemory_(apiKey, query, result.answer, result.sources, dbKey); } catch(e) {}
   return result;
 }
@@ -689,6 +689,7 @@ function adminListKeys(apiKey) {
       claudeBalance:  (k.claudeCapacity == null) ? null : (typeof k.claudeBalance === 'number' ? k.claudeBalance : k.claudeCapacity),
       claudeResetIntervalHours: (k.claudeCapacity == null) ? null : (k.claudeResetIntervalHours || null),
       claudeResetAt:            (k.claudeCapacity == null) ? null : (k.claudeResetAt || null),
+      sourceLimit: k.sourceLimit || null,  // null = 既定値（DEFAULT_SOURCE_LIMIT）を使用
     };
   });
 }
@@ -839,6 +840,32 @@ function adminChargeKeyBalance(apiKey, keyPreview, amount) {
   if (!found) throw new Error('キーが見つかりません: ' + keyPreview);
   saveApiKeysConfig_(keys);
   return { ok: true, balance: newBalance };
+}
+
+/**
+ * キーごとの参考情報（引用元）取得件数を設定する（管理者のみ）。null/未指定/0を渡すと
+ * 既定値（DEFAULT_SOURCE_LIMIT）に戻す。上限はMAX_SOURCE_LIMITでクランプされる
+ * （検索1回あたりのコンテキスト量・トークン消費が暴走しないようにするフェイルセーフ）。
+ */
+function adminSetSourceLimit(apiKey, keyPreview, limit) {
+  requireAdmin_(apiKey);
+  var prefix = keyPreview.replace('...', '');
+  var keys   = getApiKeysConfig_();
+  var found  = false;
+  keys.forEach(function(k) {
+    if (_keyPreviewOf_(k) !== prefix) return;
+    found = true;
+    if (limit === null || limit === undefined || limit === '') {
+      delete k.sourceLimit;
+    } else {
+      var n = Number(limit);
+      if (!isFinite(n) || n < 1) throw new Error('参考情報の件数は1以上の数値で指定してください');
+      k.sourceLimit = Math.min(Math.round(n), MAX_SOURCE_LIMIT);
+    }
+  });
+  if (!found) throw new Error('キーが見つかりません: ' + keyPreview);
+  saveApiKeysConfig_(keys);
+  return { ok: true };
 }
 
 // ─────────────────────────────────────────────
@@ -1096,6 +1123,67 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // YouTube文字起こしの自動登録（scripts/youtube_transcribe.py 等の外部ツールから呼ぶ）:
+    // { action:'admin_kb_import_youtube', apiKey, dbKey, videoUrl, transcript }
+    // adminKbImportYoutube() 自体は google.script.run 専用（管理画面のブラウザからしか
+    // 呼べない）ため、外部スクリプトが字幕の無い動画をGemini等で文字起こしした結果を
+    // そのままCloud RAGへ登録できるようにする窓口。管理者キー必須・レート制限あり。
+    if (action === 'admin_kb_import_youtube') {
+      var kbConfig = validateApiKey_(apiKey);
+      if (!kbConfig) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: 'auth_error', error: { message: '認証エラー: 無効なAPIキーです' },
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      if (!kbConfig.isAdmin) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: 'forbidden', error: { message: '管理者権限が必要です' },
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      if (isRateLimited_(apiKey)) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: 'rate_limited', error: { message: 'リクエストが多すぎます。しばらく待ってから再試行してください。' },
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      try {
+        var kbResult = adminKbImportYoutube(apiKey, body.dbKey || '', body.videoUrl || '', body.transcript || '');
+        kbResult.status = 'ok';
+        return ContentService.createTextOutput(JSON.stringify(kbResult))
+          .setMimeType(ContentService.MimeType.JSON);
+      } catch (kbErr) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: 'error', error: { message: kbErr.message },
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    // 類似度グラフの取得（graph_view.py の GraphFetchWorker から呼ぶ）:
+    // { action:'graph', apiKey }
+    // getGraphDataWithKey() 自体は google.script.run 専用（管理画面のブラウザからしか
+    // 呼べない）ため、Houdini が Cloud RAG モードでも Graph タブのデータを取得できる
+    // ようにする窓口。buildGraphData_() 自体は管理者チェックをしておらず
+    // config.namespaces でフィルタするだけなので、このブランチも管理者専用にはせず、
+    // 通常のクエリ（query action）と同じ認証・レート制限の流儀を踏襲する。
+    // 戻り値の形（nodes/edges/status）は rag_local_bridge.py の /graph エンドポイントと
+    // 完全に同一なので、レンダリング側（graph_view.py）は変更不要。
+    if (action === 'graph') {
+      var graphConfig = validateApiKey_(apiKey);
+      if (!graphConfig) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: 'auth_error', error: { message: '認証エラー: 無効なAPIキーです' },
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      if (isRateLimited_(apiKey)) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: 'rate_limited', error: { message: 'リクエストが多すぎます。しばらく待ってから再試行してください。' },
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      var graphResult = buildGraphData_(graphConfig.namespaces || null);
+      graphResult.status = 'ok';
+      return ContentService.createTextOutput(JSON.stringify(graphResult))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     var query   = body.query;
     var dbKey   = body.dbKey   || 'all';
     var history = body.history || [];
@@ -1133,7 +1221,7 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    var result  = ragQueryInternal_(query, dbKey, history, allowed, apiKey, { skipAnswer: isRaw });
+    var result  = ragQueryInternal_(query, dbKey, history, allowed, apiKey, { skipAnswer: isRaw, sourceLimit: config.sourceLimit });
     var memId   = '';
     if (!isRaw) {
       try { memId = saveMemory_(apiKey, query, result.answer, result.sources, dbKey); } catch(e) {}
@@ -1162,9 +1250,23 @@ function doPost(e) {
 // RAG コア
 // ─────────────────────────────────────────────
 
+// 参考情報（引用元）の件数はAPIキーごとに設定できる（API_KEYS_CONFIGの`sourceLimit`）。
+// 未設定なら既定値5。上限を設けるのは、1回のクエリで取得・注入するコンテキストが
+// 増えるほど回答生成コールの入力トークン（=RAG/Claudeトークン予算の消費）が増えるため、
+// 誤って極端な値を設定してもコスト・レイテンシが暴走しないようにするフェイルセーフ。
+var DEFAULT_SOURCE_LIMIT = 5;
+var MAX_SOURCE_LIMIT      = 20;
+
+function _clampSourceLimit_(n) {
+  var v = parseInt(n, 10);
+  if (!v || v < 1) return DEFAULT_SOURCE_LIMIT;
+  return Math.min(v, MAX_SOURCE_LIMIT);
+}
+
 function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey, opts) {
   opts = opts || {};
-  var skipAnswer = !!opts.skipAnswer;
+  var skipAnswer  = !!opts.skipAnswer;
+  var sourceLimit = _clampSourceLimit_(opts.sourceLimit);
   dbKey = sanitizeDbKey_(dbKey);
   history = history || [];
   if (!allowedNamespaces || allowedNamespaces.length === 0) {
@@ -1176,7 +1278,7 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey, opt
 
   // HyDE で検索精度を向上させた埋め込みを生成してから検索（dbKey でドメインを指定）
   var hyde    = hydeExpand_(query, dbKey);
-  var results = searchByEmbedding_(query, dbKey, 5, allowedNamespaces, hyde.emb);
+  var results = searchByEmbedding_(query, dbKey, sourceLimit, allowedNamespaces, hyde.emb);
 
   // raw モード: Function Calling 等、呼び出し元が自分で最終回答を組み立てる場合に使う。
   // 検索結果のテキストだけを返し、最終回答生成のGemini呼び出し(直列で一番重い)を丸ごと省略してレイテンシを削減する。
@@ -1261,6 +1363,76 @@ function minScoreFor_(dbKey) {
   return isNaN(parsed) ? fallback : parsed;
 }
 
+// ─────────────────────────────────────────────
+// corpus増加への対策: 2値量子化による近似ショートリスト
+//
+// 従来はnamespace内の全行に対して768次元の浮動小数コサイン類似度を計算する
+// 総当たりスキャンだったため、corpusが増えるほど1クエリあたりの計算量が線形に
+// 増える弱点があった（Google Sheets自体はChromaDBのようなHNSW索引を持たない）。
+// ここでは各埋め込みを符号ビット（各次元の正負）だけの2値シグネチャに圧縮し、
+// 安価なハミング距離で「厳密計算する候補」を絞り込む（候補生成→厳密再スコアの
+// 2段構成）。シグネチャはインデックスキャッシュ構築時に1回だけ計算してキャッシュに
+// 含めるため、クエリごとの追加コストはハミング距離の計算のみで済む。
+// corpusが小さいうち（SHORTLIST_THRESHOLD以下）は従来通り全件を厳密計算するため、
+// 現状規模での挙動・精度は変わらない。
+// ─────────────────────────────────────────────
+var SHORTLIST_THRESHOLD  = 300;  // namespace内の行数がこれを超えたら2段検索に切り替える
+var SHORTLIST_MIN_POOL   = 300;  // 厳密計算に残す候補の最小件数
+var SHORTLIST_MULTIPLIER = 15;   // 厳密計算に残す候補件数 = limit * この倍率（下限はMIN_POOL）
+
+/** 埋め込みベクトルを16bitチャンクの配列に量子化する（各次元の符号ビットのみ使用） */
+function _packSignature_(emb) {
+  var sig = [], cur = 0, bits = 0;
+  for (var i = 0; i < emb.length; i++) {
+    cur = (cur << 1) | (emb[i] >= 0 ? 1 : 0);
+    bits++;
+    if (bits === 16) { sig.push(cur & 0xFFFF); cur = 0; bits = 0; }
+  }
+  if (bits > 0) sig.push((cur << (16 - bits)) & 0xFFFF);
+  return sig;
+}
+
+function _popcount16_(x) {
+  x = x - ((x >> 1) & 0x5555);
+  x = (x & 0x3333) + ((x >> 2) & 0x3333);
+  x = (x + (x >> 4)) & 0x0f0f;
+  return (x + (x >> 8)) & 0xff;
+}
+
+/** 2つの2値シグネチャ間のハミング距離（値が小さいほど類似） */
+function _hammingDistance_(sigA, sigB) {
+  var dist = 0;
+  for (var i = 0; i < sigA.length; i++) dist += _popcount16_((sigA[i] ^ sigB[i]) & 0xFFFF);
+  return dist;
+}
+
+/**
+ * rows（namespaceでフィルタ済みの行）に対してコサイン類似度でMIN_SCORE以上の
+ * ベクトル候補を返す。行数がSHORTLIST_THRESHOLDを超える場合は、先にハミング距離で
+ * 近似ショートリストを作り、厳密なコサイン類似度計算はそのショートリストのみに対して
+ * 行うことで計算量を抑える（結果の意味・スコアの計算方法自体は変えていない）。
+ */
+function _vectorCandidatesFor_(qv, rows, minScore, limit) {
+  var pool = rows;
+  if (rows.length > SHORTLIST_THRESHOLD) {
+    var qSig = _packSignature_(qv);
+    var ranked = rows.map(function(row) {
+      if (!row.sig) row.sig = _packSignature_(row.emb); // 旧キャッシュ由来でsig未計算の行への保険
+      return { row: row, dist: _hammingDistance_(qSig, row.sig) };
+    });
+    ranked.sort(function(a, b) { return a.dist - b.dist; });
+    var poolSize = Math.min(rows.length, Math.max(SHORTLIST_MIN_POOL, limit * SHORTLIST_MULTIPLIER));
+    pool = ranked.slice(0, poolSize).map(function(r) { return r.row; });
+  }
+  var out = [];
+  pool.forEach(function(row) {
+    var score = cosineSimilarity_(qv, row.emb);
+    if (score < minScore) return;
+    out.push({ score: score, db: row.db, title: row.title, text: row.text });
+  });
+  return out;
+}
+
 function searchByEmbedding_(query, dbKey, limit, allowedNamespaces, preEmb) {
   limit = limit || 5;
   var qv = preEmb || embedQuery_(query);
@@ -1282,23 +1454,14 @@ function searchByEmbedding_(query, dbKey, limit, allowedNamespaces, preEmb) {
   if (_usesHybridSearch_(dbKey)) {
     // BM25+RRFハイブリッド: ベクトル候補（MIN_SCOREでフィルタ）とBM25候補
     // （キーワード一致の実証があるためスコアでフィルタしない）をRRFでマージする。
-    var vectorCandidates = [];
-    filtered.forEach(function(row) {
-      var score = cosineSimilarity_(qv, row.emb);
-      if (score < MIN_SCORE) return;
-      vectorCandidates.push({ score: score, db: row.db, title: row.title, text: row.text });
-    });
+    // BM25はキーワード一致の照合コストが低いため、ショートリストの対象にせず全件を見る。
+    var vectorCandidates = _vectorCandidatesFor_(qv, filtered, MIN_SCORE, FETCH_K);
     vectorCandidates.sort(function(a, b) { return b.score - a.score; });
 
     var bm25Candidates = _bm25SearchCandidates_(query, filtered, FETCH_K);
     candidates = _rrfMerge_(vectorCandidates.slice(0, FETCH_K), bm25Candidates, FETCH_K);
   } else {
-    candidates = [];
-    filtered.forEach(function(row) {
-      var score = cosineSimilarity_(qv, row.emb);
-      if (score < MIN_SCORE) return;
-      candidates.push({ score: score, db: row.db, title: row.title, text: row.text });
-    });
+    candidates = _vectorCandidatesFor_(qv, filtered, MIN_SCORE, FETCH_K);
     candidates.sort(function(a, b) { return b.score - a.score; });
   }
 
@@ -1461,7 +1624,7 @@ function hydeExpand_(query, dbKey) {
   var embedCharsQuery = Math.min(query.length, 2000);
   try {
     var apiKey = getProps_().getProperty('GEMINI_API_KEY');
-    var url    = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
+    var url    = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=' + apiKey;
     var prompt = hydePromptFor_(dbKey) + query;
     var payload = JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }]}],
@@ -1749,7 +1912,7 @@ function callClaudeProxy_(body) {
 /** 戻り値は { text, tokens }。tokensはusageMetadata.totalTokenCountの実測値（取得できなければ0）。 */
 function callGemini_(contents) {
   var apiKey  = getProps_().getProperty('GEMINI_API_KEY');
-  var url     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
+  var url     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=' + apiKey;
   var payload = JSON.stringify({
     system_instruction: { parts: [{ text:
       'あなたはゲーム開発チームの知識ベースを持つAIアシスタントです。\n' +
@@ -1848,9 +2011,15 @@ function loadIndexFromSheet_() {
     if (!embStr) continue;
     var title = data[i][2];
     var text  = String(data[i][3]).substring(0, 600);
-    // BM25用のトークンも合わせて事前計算しキャッシュに含める（毎クエリでの再トークン化を避ける）。
+    // BM25用のトークン・corpus増加対策の2値シグネチャ（_packSignature_）も
+    // 合わせて事前計算しキャッシュに含める（毎クエリでの再計算を避ける）。
     // hybridSearch未使用のnamespaceでも計算コストは小さいため常に付与する。
-    rows.push({ db: data[i][1], title: title, text: text, emb: JSON.parse(embStr), tokens: _bm25Tokenize_(title + ' ' + text) });
+    var embArr = JSON.parse(embStr);
+    rows.push({
+      db: data[i][1], title: title, text: text, emb: embArr,
+      tokens: _bm25Tokenize_(title + ' ' + text),
+      sig: _packSignature_(embArr),
+    });
   }
   saveIndexToCache_(rows);
   return rows;
@@ -1886,6 +2055,26 @@ function getSheet_() {
     sheet.getRange(1, 1, 1, 6).setFontWeight('bold');
   }
   return sheet;
+}
+
+/**
+ * sheet.getRange(row, col, numRows, numCols).setValues(rows) は、対象範囲が
+ * シートの現在の最大行数（getMaxRows()、シートの「グリッドサイズ」であって
+ * 使用中の行数ではない）を超えていると「範囲の座標がシートのサイズから外れて
+ * います」という例外になる。シートは新しい行に値を入れれば自動で増えるように
+ * 見えるが、これはUIやappendRow()での挙動であり、getRange()で既存の範囲を
+ * 超えて直接書き込む場合は事前にinsertRowsAfter()等で明示的に行を確保する
+ * 必要がある。この関数は必要な分だけ事前に行を確保してから書き込む。
+ */
+function _appendRowsSafely_(sheet, rows, numCols) {
+  if (!rows || rows.length === 0) return;
+  var startRow = sheet.getLastRow() + 1;
+  var neededThrough = startRow + rows.length - 1;
+  var maxRows = sheet.getMaxRows();
+  if (neededThrough > maxRows) {
+    sheet.insertRowsAfter(maxRows, neededThrough - maxRows);
+  }
+  sheet.getRange(startRow, 1, rows.length, numCols).setValues(rows);
 }
 
 // ─────────────────────────────────────────────
@@ -2038,7 +2227,7 @@ function syncNotionToSheets() {
 
   rowsToDelete.sort(function(a, b) { return b - a; });
   rowsToDelete.forEach(function(ri) { sheet.deleteRow(ri); });
-  if (newRows.length > 0) sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 6).setValues(newRows);
+  _appendRowsSafely_(sheet, newRows, 6);
   Logger.log('完了  チャンク:' + totalOk + '  スキップ:' + totalSkip + '  エラー:' + totalErr);
   invalidateIndexCache_();
 }
@@ -2105,7 +2294,7 @@ function syncDriveToSheets() {
 
   rowsToDelete.sort(function(a, b) { return b - a; });
   rowsToDelete.forEach(function(ri) { sheet.deleteRow(ri); });
-  if (newRows.length > 0) sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 6).setValues(newRows);
+  _appendRowsSafely_(sheet, newRows, 6);
   Logger.log('Drive同期完了  フォルダ:' + foldersUsed + '  チャンク:' + totalOk + '  スキップ:' + totalSkip + '  エラー:' + totalErr);
   invalidateIndexCache_();
   return { folders: foldersUsed, chunks: totalOk, skipped: totalSkip, errors: totalErr };
@@ -2118,6 +2307,23 @@ function extractDriveFileText_(file) {
   if (native) return native;
   if (mime === MimeType.PLAIN_TEXT || mime === 'text/markdown' || mime === MimeType.CSV) {
     return file.getBlob().getDataAsString('UTF-8');
+  }
+  // file.getBlob()はファイル全体をメモリに読み込む（音声・動画やスキャンPDF等は
+  // 数十MB〜になりうる）。読み込んでから捨てるのではなく、Driveのメタデータだけで
+  // 取得できるfile.getSize()で事前にサイズを確認し、上限超過ならgetBlob()自体を
+  // 呼ばずにスキップする。ここを怠ると「メモリ不足のためエラーが発生しました」という
+  // GASネイティブのエラーで実行全体が落ち、この1ファイルの失敗では済まなくなる。
+  var isMedia = mime.indexOf('audio/') === 0 || mime.indexOf('video/') === 0;
+  var maxBytes = isMedia ? _maxAudioVideoBytes_() : _maxDriveConvertBytes_();
+  var size = file.getSize();
+  if (size > maxBytes) {
+    throw new Error(
+      'ファイルサイズが大きすぎます（' + Math.round(size / 1024 / 1024) + 'MB > 上限' +
+      Math.round(maxBytes / 1024 / 1024) + 'MB）。' +
+      (isMedia
+        ? 'scripts/youtube_transcribe.py等でローカルから文字起こしし、テキストを貼り付けてください（スクリプトプロパティMAX_AUDIO_VIDEO_MBで上限を調整できます）。'
+        : 'ファイルを分割するか抜粋して再アップロードしてください（スクリプトプロパティMAX_DRIVE_CONVERT_MBで上限を調整できます）。')
+    );
   }
   return _convertBinaryBlobToText_(file.getBlob(), file.getName());
 }
@@ -2494,9 +2700,7 @@ function kbIndexPage_(pageId, lastEdited, dbKey, title, fullText) {
     if (!emb) return;
     rows.push([pageId + '::' + k, dbKey, title, chunk, lastEdited, JSON.stringify(emb)]);
   });
-  if (rows.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
-  }
+  _appendRowsSafely_(sheet, rows, 6);
   invalidateIndexCache_();
   return rows.length;
 }
@@ -2680,28 +2884,272 @@ function _extractNativeGoogleText_(fileId, mimeType) {
 }
 
 /**
+ * 変換元のバイナリMIMEタイプから、変換先とすべきGoogle Workspaceネイティブ形式を判定する。
+ * v2の`convert:true`（ターゲット未指定）は拡張子から自動でこれと同じ判定をしていたが、
+ * v3では変換先をresource.mimeTypeとして明示しないと変換自体が起きない。
+ */
+function _targetGoogleMimeFor_(sourceMime) {
+  var m = (sourceMime || '').toLowerCase();
+  if (m.indexOf('spreadsheet') !== -1 || m.indexOf('excel') !== -1) {
+    return 'application/vnd.google-apps.spreadsheet';
+  }
+  if (m.indexOf('presentation') !== -1 || m.indexOf('powerpoint') !== -1) {
+    return 'application/vnd.google-apps.presentation';
+  }
+  // PDF・画像・Word・その他はGoogleドキュメントに変換する（PDF/画像はこの変換時にOCRが自動で掛かる）
+  return 'application/vnd.google-apps.document';
+}
+
+/**
+ * バイナリblobをGoogle Workspaceネイティブ形式へ変換して保存する（PDF/画像はOCR付き）。
+ *
+ * Drive Advanced ServiceはGASエディタでの有効化時にv2/v3どちらのバージョンで追加したかで
+ * メソッド名・パラメータの意味が異なるため、実行時にどちらが生えているかで吸収する。
+ *   - v2: Files.insert({title,...}, blob, {convert:true, ocr:true}) で自動的に適切な
+ *     ネイティブ形式に変換され、{id, mimeType, ...} が返る。
+ *   - v3: Files.create({name,...}, blob, opts)。v2の`convert`パラメータはv3には無く、
+ *     resource.mimeTypeに変換先を明示することで変換が起きる（PDF/画像→Googleドキュメント
+ *     への変換時にOCRが自動で掛かる）。既定では`id`しか返らないため`fields`を明示指定する。
+ *     この違いに気づかず`convert:true`をそのままoptionsとして渡していたため、v3環境では
+ *     変換が一切起きず、未変換のPDF生バイナリをUTF-8として読んで文字化けする不具合があった。
+ */
+function _driveFilesCreate_(displayName, blob) {
+  var targetMime = _targetGoogleMimeFor_(blob.getContentType());
+  if (typeof Drive.Files.create === 'function') {
+    return Drive.Files.create(
+      { name: displayName, mimeType: targetMime },
+      blob,
+      { fields: 'id,mimeType', ocrLanguage: 'ja' }
+    );
+  }
+  if (typeof Drive.Files.insert === 'function') {
+    return Drive.Files.insert({ title: displayName }, blob, { convert: true, ocr: true });
+  }
+  throw new Error('Drive.Files.create/insert が見つかりません。Drive APIの有効化状態を確認してください。');
+}
+
+function _driveFilesRemove_(fileId) {
+  if (typeof Drive.Files.remove === 'function') { Drive.Files.remove(fileId); return; }
+  if (typeof Drive.Files.delete === 'function') { Drive.Files.delete(fileId); return; }
+  throw new Error('Drive.Files.remove/delete が見つかりません。');
+}
+
+/**
  * バイナリ（PDF・Word・Excel・PowerPoint・画像等）を Drive API でOCR変換してテキスト抽出する。
- * 変換で作られる一時ファイルは抽出後に削除する。
+ * 変換で作られる一時ファイルは抽出後に削除する。音声・動画はDriveのOCR変換の対象外
+ * （OCRは画像・文書用で、音声波形の書き起こしはできない）なので、_transcribeAudioVideoBlob_
+ * （Gemini Files APIでの文字起こし）に振り分ける。
  */
 function _convertBinaryBlobToText_(blob, displayName) {
+  var mime = (blob.getContentType() || '').toLowerCase();
+  if (mime.indexOf('audio/') === 0 || mime.indexOf('video/') === 0) {
+    return _transcribeAudioVideoBlob_(blob, displayName);
+  }
   if (typeof Drive === 'undefined') {
     throw new Error('この形式の取り込みには Drive API が必要です。GASエディタ左の「サービス +」から Drive API を追加してください');
   }
-  var converted = Drive.Files.insert({ title: '[RAG一時] ' + displayName }, blob, { convert: true, ocr: true });
+  var converted = _driveFilesCreate_('[RAG一時] ' + displayName, blob);
   try {
-    var text = _extractNativeGoogleText_(converted.id, converted.mimeType);
-    if (!text) {
-      try { text = DriveApp.getFileById(converted.id).getBlob().getDataAsString('UTF-8'); } catch(e) {}
+    // 変換が実際に起きていれば converted.mimeType は必ず application/vnd.google-apps.*
+    // になる。そうなっていない場合（＝変換に失敗し元のバイナリのまま保存された場合）に
+    // 「テキストが空だから」と未変換の生バイナリをUTF-8として読んでしまうと、PDF等の
+    // バイナリが文字化けしたテキストとしてそのままRAGに登録されてしまう（実際に発生した
+    // 不具合）。変換が起きていないことが分かった時点で、はっきりエラーにする。
+    if (String(converted.mimeType || '').indexOf('application/vnd.google-apps.') !== 0) {
+      throw new Error(
+        'Driveでのファイル形式変換に失敗しました（変換後もmimeTypeが「' + converted.mimeType +
+        '」のままでした）。パスワード保護・破損したファイルの可能性があります。'
+      );
     }
-    return text;
+    return _extractNativeGoogleText_(converted.id, converted.mimeType);
   } finally {
-    try { Drive.Files.remove(converted.id); }
+    try { _driveFilesRemove_(converted.id); }
     catch(e) { try { DriveApp.getFileById(converted.id).setTrashed(true); } catch(e2) {} }
   }
 }
 
+// バイナリファイルの取り込みサイズには3つの制約が絡む:
+//   ① UrlFetchApp 1回のPOSTペイロードは50MBまで（GASの固定クオータ）
+//      → resumable upload protocolのchunked commandで分割送信すれば回避できる
+//        （GEMINI_UPLOAD_CHUNK_BYTES単位で複数回POSTする）
+//   ② GASの1回の実行時間は6分まで（アップロード＋Gemini側の処理待ち＋文字起こし生成の合計）
+//      → コード側で回避できない絶対的な上限。ファイルサイズよりも「音声・動画の長さ」に効く
+//   ③ GAS（V8ランタイム）自体のメモリ上限
+//      → blob.getBytes()でファイル全体をJSの数値配列としてメモリに展開する時点で、
+//        生バイト数の数倍のヒープを消費しうる。これは①のような「分割送信」では回避できない
+//        （メモリ不足はgetBytes()やDrive変換の時点、＝アップロードが始まる前に起きるため）。
+//        実際に「メモリ不足のためエラーが発生しました」というGAS側のネイティブなエラーで
+//        実行ごと落ちることがあり、通常のtry/catchでは捕捉できない。
+// そのため、①をchunkingで回避しても③が実質的な上限になる。既定値は保守的に設定し、
+// スクリプトプロパティ MAX_AUDIO_VIDEO_MB / MAX_DRIVE_CONVERT_MB で環境に応じて調整できる
+// ようにしている（同じGASプロジェクトでもアカウントや同時実行状況で余裕は変わりうるため）。
+var GEMINI_UPLOAD_CHUNK_BYTES        = 8 * 1024 * 1024; // 1回のUrlFetchApp POSTで送るチャンクサイズ
+var DEFAULT_MAX_AUDIO_VIDEO_MB       = 15; // 音声・動画（Gemini文字起こし経由）の既定上限
+var DEFAULT_MAX_DRIVE_CONVERT_MB     = 25; // PDF/Office/画像（Drive変換経由）の既定上限
+
+function _mbOverride_(propName, fallbackMb) {
+  var parsed = parseInt(getProps_().getProperty(propName) || '', 10);
+  return (parsed > 0 ? parsed : fallbackMb) * 1024 * 1024;
+}
+
+/** 音声・動画（Gemini Files API経由）の取り込み上限バイト数 */
+function _maxAudioVideoBytes_() { return _mbOverride_('MAX_AUDIO_VIDEO_MB', DEFAULT_MAX_AUDIO_VIDEO_MB); }
+
+/** PDF/Office/画像（Drive変換経由）の取り込み上限バイト数 */
+function _maxDriveConvertBytes_() { return _mbOverride_('MAX_DRIVE_CONVERT_MB', DEFAULT_MAX_DRIVE_CONVERT_MB); }
+
+/**
+ * Gemini Files APIへresumable upload protocolでアップロードする。50MBを超える
+ * ペイロードは1回のUrlFetchApp POSTで送れないため、GEMINI_UPLOAD_CHUNK_BYTES単位で
+ * 分割し、最後のチャンクだけ command:'upload, finalize' を付けて送信する。
+ */
+function _uploadBytesToGeminiFile_(bytes, mimeType, displayName, apiKey) {
+  var startRes = UrlFetchApp.fetch(
+    'https://generativelanguage.googleapis.com/upload/v1beta/files?key=' + apiKey,
+    {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {
+        'X-Goog-Upload-Protocol': 'resumable',
+        'X-Goog-Upload-Command': 'start',
+        'X-Goog-Upload-Header-Content-Length': String(bytes.length),
+        'X-Goog-Upload-Header-Content-Type': mimeType,
+      },
+      payload: JSON.stringify({ file: { display_name: displayName } }),
+      muteHttpExceptions: true,
+    }
+  );
+  if (startRes.getResponseCode() >= 300) {
+    throw new Error('Gemini Files APIへのアップロード開始に失敗しました: ' + startRes.getContentText().substring(0, 300));
+  }
+  var startHeaders = startRes.getAllHeaders();
+  var uploadUrl = startHeaders['X-Goog-Upload-URL'] || startHeaders['x-goog-upload-url'];
+  if (!uploadUrl) throw new Error('Gemini Files APIのアップロードURLが取得できませんでした。');
+
+  var offset = 0, uploadRes;
+  while (offset < bytes.length) {
+    var end     = Math.min(offset + GEMINI_UPLOAD_CHUNK_BYTES, bytes.length);
+    var chunk   = bytes.slice(offset, end);
+    var isLast  = end === bytes.length;
+    uploadRes = UrlFetchApp.fetch(uploadUrl, {
+      method: 'post',
+      headers: {
+        'Content-Length': String(chunk.length),
+        'X-Goog-Upload-Offset': String(offset),
+        'X-Goog-Upload-Command': isLast ? 'upload, finalize' : 'upload',
+      },
+      payload: chunk,
+      muteHttpExceptions: true,
+    });
+    if (uploadRes.getResponseCode() >= 300) {
+      throw new Error('Gemini Files APIへのアップロードに失敗しました（offset=' + offset + '）: ' + uploadRes.getContentText().substring(0, 300));
+    }
+    offset = end;
+  }
+  var fileInfo = (JSON.parse(uploadRes.getContentText()) || {}).file || {};
+  if (!fileInfo.uri) throw new Error('Gemini Files APIの応答からファイルURIを取得できませんでした。');
+  return fileInfo;
+}
+
+/**
+ * 音声・動画ファイルをGemini Files APIにアップロードし、generateContentで文字起こし
+ * （動画は画面に表示されている技術情報の補足も依頼する）する。GEMINI_API_KEYを使う。
+ */
+function _transcribeAudioVideoBlob_(blob, displayName) {
+  var apiKey = getProps_().getProperty('GEMINI_API_KEY');
+  if (!apiKey) throw new Error('GEMINI_API_KEY が未設定です。音声・動画の文字起こしにはGemini APIキーが必要です。');
+
+  // 注意: この時点でblobは呼び出し元（Drive/手動アップロード）で既に構築済みのため、
+  // ここでのサイズ判定は「手遅れ」になりうる（メモリ不足は多くの場合blob構築時点で
+  // 起きる）。呼び出し元（extractDriveFileText_ / adminKbUploadDoc）側で、blobを
+  // 作る前にサイズを確認して弾くのが主な防御線。ここでは二重チェックとして残す。
+  var maxBytes = _maxAudioVideoBytes_();
+  var bytes = blob.getBytes();
+  if (bytes.length > maxBytes) {
+    throw new Error(
+      'ファイルサイズが大きすぎます（' + Math.round(bytes.length / 1024 / 1024) + 'MB）。' +
+      'GAS経由での音声・動画取り込みは' + Math.round(maxBytes / 1024 / 1024) + 'MB程度までです' +
+      '（スクリプトプロパティMAX_AUDIO_VIDEO_MBで調整可）。' +
+      '長い動画・講演等はscripts/youtube_transcribe.py等でローカルから文字起こしし、' +
+      'そのテキストを「文字起こしを貼り付け」欄に貼ってください。'
+    );
+  }
+  var mimeType = blob.getContentType() || 'application/octet-stream';
+
+  var fileInfo = _uploadBytesToGeminiFile_(bytes, mimeType, displayName, apiKey);
+  var fileUri  = fileInfo.uri;
+  var fileName = fileInfo.name;
+
+  // ACTIVEになるまで待つ（音声・動画は変換にやや時間がかかることがある。ファイルが
+  // 大きいほど処理時間も伸びるため、GASの6分実行上限を考慮して待ち回数は控えめにしている）
+  if (fileName) {
+    for (var i = 0; i < 15; i++) {
+      var stateRes = UrlFetchApp.fetch(
+        'https://generativelanguage.googleapis.com/v1beta/' + fileName + '?key=' + apiKey,
+        { muteHttpExceptions: true }
+      );
+      if (stateRes.getResponseCode() >= 300) break;
+      var state = (JSON.parse(stateRes.getContentText()) || {}).state;
+      if (state === 'ACTIVE') break;
+      if (state === 'FAILED') throw new Error('Gemini側でのファイル処理に失敗しました（FAILED）。');
+      Utilities.sleep(2000);
+    }
+  }
+
+  // 文字起こし（動画は画面表示の技術情報の補足も依頼する）
+  var prompt = mimeType.indexOf('video/') === 0
+    ? 'この動画を日本語で書き起こしてください。話されている内容は要約せず逐語的に書き取り、画面に表示' +
+      'されている重要な技術情報（UI操作・パラメータ名・数値等）があれば「[画面表示: ...]」として補足' +
+      'してください。製品名・技術用語・型番は、聞き取れた/読み取れた通りの表記でそのまま残してください。'
+    : 'この音声を日本語で文字起こししてください。要約や意訳はせず、話されている内容をできるだけ逐語的に' +
+      '書き取ってください。製品名・技術用語・型番は、聞き取れた通りの表記でそのまま残してください。';
+
+  var genRes = UrlFetchApp.fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=' + apiKey,
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: prompt },
+            { file_data: { mime_type: mimeType, file_uri: fileUri } },
+          ],
+        }],
+        generationConfig: { temperature: 0.1 },
+      }),
+      muteHttpExceptions: true,
+    }
+  );
+  if (genRes.getResponseCode() >= 300) {
+    throw new Error('Geminiでの文字起こしに失敗しました: ' + genRes.getContentText().substring(0, 300));
+  }
+  var genBody = JSON.parse(genRes.getContentText());
+  var part = ((((genBody.candidates || [])[0] || {}).content || {}).parts || [])[0];
+  var text = part && part.text;
+  if (!text) throw new Error('Geminiの応答から文字起こしを取り出せませんでした。');
+  return text.trim();
+}
+
 function adminKbUploadDoc(apiKey, dbKey, filename, base64Data, mimeType) {
   kbCheckDb_(apiKey, dbKey);
+  // Utilities.base64Decode()自体がファイル全体をメモリに展開する重い処理なので、
+  // デコード前にBase64文字列の長さから概算サイズ（decoded ≈ base64.length * 3/4）を
+  // 出し、上限超過ならデコードせずに弾く（デコードしてから捨てるのでは遅い）。
+  var mime = (mimeType || '').toLowerCase();
+  var isMedia = mime.indexOf('audio/') === 0 || mime.indexOf('video/') === 0;
+  var maxBytes = isMedia ? _maxAudioVideoBytes_() : _maxDriveConvertBytes_();
+  var approxBytes = Math.floor((base64Data || '').length * 3 / 4);
+  if (approxBytes > maxBytes) {
+    throw new Error(
+      'ファイルサイズが大きすぎます（約' + Math.round(approxBytes / 1024 / 1024) + 'MB > 上限' +
+      Math.round(maxBytes / 1024 / 1024) + 'MB）。' +
+      (isMedia
+        ? '大きい音声・動画は「🗄 DB管理」タブでDriveフォルダに置いて「今すぐ同期」を使うか、scripts/youtube_transcribe.pyでローカルから文字起こししてください。'
+        : 'ファイルを分割するか抜粋して再アップロードしてください。')
+    );
+  }
   var blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType || 'application/octet-stream', filename);
   var text = _convertBinaryBlobToText_(blob, filename);
   if (!text || !text.trim()) throw new Error('ファイルからテキストを抽出できませんでした: ' + filename);
@@ -2960,6 +3408,9 @@ function getChatHtml_() {
 '.breakdown-label{font-size:10px;color:var(--text-light);margin-bottom:4px}',
 '.breakdown-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:#e2e8f0}',
 '.breakdown-seg{height:100%;transition:width .4s;min-width:2px}',
+'.breakdown-legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:5px}',
+'.breakdown-legend-item{display:flex;align-items:center;gap:4px;font-size:9.5px;color:var(--text-light)}',
+'.breakdown-legend-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}',
 '.input-area{padding:10px 14px;background:var(--white);border-top:1px solid var(--border);',
 '  display:flex;gap:8px;align-items:flex-end;flex-shrink:0}',
 'textarea{flex:1;padding:9px 13px;border:1.5px solid var(--border);border-radius:12px;',
@@ -3163,7 +3614,7 @@ function getChatHtml_() {
 '  <div class="admin-section">',
 '    <h3>発行済みキー一覧</h3>',
 '    <table class="admin-table">',
-'      <thead><tr><th>キー（先頭8文字）</th><th>名前</th><th>Namespace</th><th>RAGトークン（Gemini）</th><th>Claudeトークン</th><th></th></tr></thead>',
+'      <thead><tr><th>キー（先頭8文字）</th><th>名前</th><th>Namespace</th><th>RAGトークン（Gemini）</th><th>Claudeトークン</th><th>参考情報件数</th><th></th></tr></thead>',
 '      <tbody id="key-tbody"><tr><td colspan="6" style="color:#64748b;padding:12px">読み込み中...</td></tr></tbody>',
 '    </table>',
 '  </div>',
@@ -3187,8 +3638,8 @@ function getChatHtml_() {
 '  </div>',
 '  <div class="admin-section" style="margin-bottom:0">',
 '    <h3>📄 資料ファイルを覚えさせる</h3>',
-'    <p style="font-size:.76rem;color:#64748b;margin-bottom:10px">PDF・Word・Excel・PowerPoint・画像（文字入り）を選ぶと、内容を読み取って覚えます。</p>',
-'    <input type="file" id="kb-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.png,.jpg,.jpeg" style="color:#94a3b8;font-size:.8rem;margin-bottom:10px;max-width:100%">',
+'    <p style="font-size:.76rem;color:#64748b;margin-bottom:10px">PDF・Word・Excel・PowerPoint・画像（文字入り）・音声・動画を選ぶと、内容を読み取って覚えます（音声・動画はGeminiで文字起こしします）。この欄は音声・動画は上限15MB、それ以外は25MB程度（メモリ制約のため保守的な既定値。スクリプトプロパティで調整可）。大きいファイルは「🗄 DB管理」タブでDriveフォルダに置いて「今すぐ同期」するか、音声・動画はscripts/youtube_transcribe.pyでローカルから文字起こしする方法をおすすめします。</p>',
+'    <input type="file" id="kb-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.mp3,.wav,.m4a,.mp4,.mov,.webm" style="color:#94a3b8;font-size:.8rem;margin-bottom:10px;max-width:100%">',
 '    <button class="btn-admin btn-primary" onclick="kbUploadDoc()">このファイルを覚える</button>',
 '    <div id="kb-file-status" style="font-size:.76rem;margin-top:8px;min-height:16px"></div>',
 '  </div>',
@@ -3394,6 +3845,11 @@ function getChatHtml_() {
 '      <input class="admin-input" id="edit-ns-claude-capacity" type="number" min="0" step="1000" placeholder="例: 100000">',
 '      <label style="font-size:.72rem;color:#64748b;display:block;margin:6px 0 4px">自動回復間隔（時間。空欄=自動回復なし・要手動チャージ）</label>',
 '      <input class="admin-input" id="edit-ns-claude-reset-hours" type="number" min="0" step="1" placeholder="例: 24">',
+'    </div>',
+'    <div style="margin-bottom:16px">',
+'      <label style="font-size:.75rem;color:#64748b;display:block;margin-bottom:4px">参考情報（引用元）の件数（空欄=既定5件。最大' + MAX_SOURCE_LIMIT + '件）</label>',
+'      <input class="admin-input" id="edit-ns-source-limit" type="number" min="1" max="' + MAX_SOURCE_LIMIT + '" step="1" placeholder="例: 5">',
+'      <p style="font-size:.68rem;color:#64748b;margin-top:4px">増やすほど1回のクエリで参照する文書が増え、回答生成の入力トークン（コスト）も増えます</p>',
 '    </div>',
 '    <div style="display:flex;gap:8px">',
 '      <button class="btn-admin btn-primary" onclick="saveEditNs()">保存</button>',
@@ -3632,15 +4088,23 @@ function getChatHtml_() {
 '  var label = document.createElement("div"); label.className = "breakdown-label";',
 '  label.textContent = "📊 引用元の内訳（貢献度の比率）";',
 '  var bar = document.createElement("div"); bar.className = "breakdown-bar";',
+'  var legend = document.createElement("div"); legend.className = "breakdown-legend";',
 '  cited.forEach(function(s, i) {',
 '    var pct = Math.round(Math.max(s.score, 0.01) / total * 100);',
+'    var color = BREAKDOWN_PALETTE_[i % BREAKDOWN_PALETTE_.length];',
 '    var seg = document.createElement("div"); seg.className = "breakdown-seg";',
 '    seg.style.width = pct + "%";',
-'    seg.style.background = BREAKDOWN_PALETTE_[i % BREAKDOWN_PALETTE_.length];',
+'    seg.style.background = color;',
 '    seg.title = s.title + "（" + s.db + "）: " + pct + "%";',
 '    bar.appendChild(seg);',
+'    // 色分けだけだとどれがどれか分からないため、バーの下に色見本付きの凡例を出す',
+'    var li = document.createElement("div"); li.className = "breakdown-legend-item";',
+'    var dot = document.createElement("span"); dot.className = "breakdown-legend-dot"; dot.style.background = color;',
+'    li.appendChild(dot);',
+'    li.appendChild(document.createTextNode(s.title + "（" + pct + "%）"));',
+'    legend.appendChild(li);',
 '  });',
-'  wrap.appendChild(label); wrap.appendChild(bar);',
+'  wrap.appendChild(label); wrap.appendChild(bar); wrap.appendChild(legend);',
 '  return wrap;',
 '}',
 
@@ -3661,9 +4125,15 @@ function getChatHtml_() {
 '  // 引用元の内訳（どこからどのくらい引き出したかを可視化）',
 '  var breakdown = buildBreakdown_(sources);',
 '  if (breakdown) list.appendChild(breakdown);',
+'  // s.scoreの生値は検索方式で意味が全く異なる（BM25+RRFハイブリッドはRRF融合スコアで',
+'  // 理論上の最大値が約3.3%しかなく、コサイン類似度と単純に同じ0-100%表示をすると',
+'  // 常に低い%になり誤解を招く）。そのため表示は「この回答内での最高スコアを100%とした',
+'  // 相対値」に統一する。',
+'  var maxScore = sources.reduce(function(m, s) { return Math.max(m, s.score); }, 0.0001);',
 '  sources.forEach(function(s, i) {',
-'    var pct  = (s.score * 100).toFixed(1);',
-'    var cls  = s.score >= 0.75 ? "high" : s.score >= 0.5 ? "mid" : "low";',
+'    var rel  = s.score / maxScore;',
+'    var pct  = (rel * 100).toFixed(1);',
+'    var cls  = rel >= 0.75 ? "high" : rel >= 0.5 ? "mid" : "low";',
 '    var citedBadge = s.cited !== undefined',
 '      ? (s.cited ? \'<span class="src-cited">✓ 引用</span>\' : \'<span class="src-not-cited">未引用</span>\')',
 '      : "";',
@@ -4039,8 +4509,9 @@ function getChatHtml_() {
 '          \'<td style="font-size:.72rem;color:#94a3b8">\' + ns + \'</td>\' +',
 '          \'<td style="font-size:.76rem">\' + ragCap + \'</td>\' +',
 '          \'<td style="font-size:.76rem">\' + claudeCap + \'</td>\' +',
+'          \'<td style="font-size:.76rem;color:#94a3b8;text-align:center">\' + (k.sourceLimit || ' + DEFAULT_SOURCE_LIMIT + ') + \'件\' + (k.sourceLimit ? "" : "（既定）") + \'</td>\' +',
 '          \'<td style="display:flex;gap:6px;flex-wrap:wrap">\' +',
-'            \'<button class="btn-admin btn-sm" style="background:#334155;color:#e2e8f0" onclick="openEditNs(\\\'\' + k.keyPreview + \'\\\',\' + currentNsJson.replace(/\'/g,"\\\\\'") + \',\' + (k.capacity == null ? "null" : k.capacity) + \',\' + (k.claudeCapacity == null ? "null" : k.claudeCapacity) + \',\' + (k.resetIntervalHours == null ? "null" : k.resetIntervalHours) + \',\' + (k.claudeResetIntervalHours == null ? "null" : k.claudeResetIntervalHours) + \')">編集</button>\' +',
+'            \'<button class="btn-admin btn-sm" style="background:#334155;color:#e2e8f0" onclick="openEditNs(\\\'\' + k.keyPreview + \'\\\',\' + currentNsJson.replace(/\'/g,"\\\\\'") + \',\' + (k.capacity == null ? "null" : k.capacity) + \',\' + (k.claudeCapacity == null ? "null" : k.claudeCapacity) + \',\' + (k.resetIntervalHours == null ? "null" : k.resetIntervalHours) + \',\' + (k.claudeResetIntervalHours == null ? "null" : k.claudeResetIntervalHours) + \',\' + (k.sourceLimit == null ? "null" : k.sourceLimit) + \')">編集</button>\' +',
 '            ragChargeBtn + claudeChargeBtn +',
 '            \'<button class="btn-admin btn-danger btn-sm" onclick="deleteKey(\\\'\' + k.keyPreview + \'\\\')">削除</button></td>\';',
 '        tbody.appendChild(tr);',
@@ -4081,12 +4552,14 @@ function getChatHtml_() {
 'var _editNsOrigClaudeCapacity = null;',
 'var _editNsOrigResetHours = null;',
 'var _editNsOrigClaudeResetHours = null;',
-'function openEditNs(preview, currentNs, currentCapacity, currentClaudeCapacity, currentResetHours, currentClaudeResetHours) {',
+'var _editNsOrigSourceLimit = null;',
+'function openEditNs(preview, currentNs, currentCapacity, currentClaudeCapacity, currentResetHours, currentClaudeResetHours, currentSourceLimit) {',
 '  _editNsPreview = preview;',
 '  _editNsOrigCapacity = (currentCapacity === undefined) ? null : currentCapacity;',
 '  _editNsOrigClaudeCapacity = (currentClaudeCapacity === undefined) ? null : currentClaudeCapacity;',
 '  _editNsOrigResetHours = (currentResetHours === undefined) ? null : currentResetHours;',
 '  _editNsOrigClaudeResetHours = (currentClaudeResetHours === undefined) ? null : currentClaudeResetHours;',
+'  _editNsOrigSourceLimit = (currentSourceLimit === undefined) ? null : currentSourceLimit;',
 '  var modal = document.getElementById("edit-ns-modal");',
 '  if (!modal) return;',
 '  var wrap = document.getElementById("edit-ns-checkboxes");',
@@ -4106,6 +4579,7 @@ function getChatHtml_() {
 '  document.getElementById("edit-ns-claude-capacity").value = (currentClaudeCapacity == null) ? "" : currentClaudeCapacity;',
 '  document.getElementById("edit-ns-reset-hours").value = (currentResetHours == null) ? "" : currentResetHours;',
 '  document.getElementById("edit-ns-claude-reset-hours").value = (currentClaudeResetHours == null) ? "" : currentClaudeResetHours;',
+'  document.getElementById("edit-ns-source-limit").value = (currentSourceLimit == null) ? "" : currentSourceLimit;',
 '  modal.classList.add("show");',
 '}',
 'function closeEditNs() {',
@@ -4116,6 +4590,7 @@ function getChatHtml_() {
 '  _editNsOrigClaudeCapacity = null;',
 '  _editNsOrigResetHours = null;',
 '  _editNsOrigClaudeResetHours = null;',
+'  _editNsOrigSourceLimit = null;',
 '}',
 'function saveEditNs() {',
 '  if (!_editNsPreview) return;',
@@ -4128,11 +4603,14 @@ function getChatHtml_() {
 '  var newResetHours = resetHoursRaw === "" ? null : Number(resetHoursRaw);',
 '  var claudeResetHoursRaw = document.getElementById("edit-ns-claude-reset-hours").value.trim();',
 '  var newClaudeResetHours = claudeResetHoursRaw === "" ? null : Number(claudeResetHoursRaw);',
+'  var sourceLimitRaw = document.getElementById("edit-ns-source-limit").value.trim();',
+'  var newSourceLimit = sourceLimitRaw === "" ? null : Number(sourceLimitRaw);',
 '  var preview = _editNsPreview;',
 '  var origCapacity = _editNsOrigCapacity;',
 '  var origClaudeCapacity = _editNsOrigClaudeCapacity;',
 '  var origResetHours = _editNsOrigResetHours;',
 '  var origClaudeResetHours = _editNsOrigClaudeResetHours;',
+'  var origSourceLimit = _editNsOrigSourceLimit;',
 '  function applyCapacityChanges() {',
 '    var tasks = [];',
 '    if (newCapacity !== origCapacity || newResetHours !== origResetHours) {',
@@ -4149,6 +4627,14 @@ function getChatHtml_() {
 '          .withSuccessHandler(resolve)',
 '          .withFailureHandler(reject)',
 '          .adminSetClaudeCapacity(_apiKey, preview, newClaudeCapacity, newClaudeResetHours);',
+'      }));',
+'    }',
+'    if (newSourceLimit !== origSourceLimit) {',
+'      tasks.push(new Promise(function(resolve, reject) {',
+'        google.script.run',
+'          .withSuccessHandler(resolve)',
+'          .withFailureHandler(reject)',
+'          .adminSetSourceLimit(_apiKey, preview, newSourceLimit);',
 '      }));',
 '    }',
 '    if (!tasks.length) { adminFlash("namespace を更新しました"); closeEditNs(); loadAdminKeys(); return; }',
@@ -4199,7 +4685,11 @@ function getChatHtml_() {
 '  if (!_kbCloudInited) {',
 '    _kbCloudInited = true;',
 '    var sel = document.getElementById("kb-db");',
-'    var nsList = (_user && _user.namespaces && _user.namespaces.length) ? _user.namespaces : ALL_NAMESPACES;',
+'    // ナレッジ登録タブは管理者専用（#tab-adminの中、isAdminでなければボタン自体が非表示）なので、',
+'    // 自分のAPIキーに紐づくnamespaces（チャットで使えるDBの制限）ではなく常に全namespaceを表示する。',
+'    // ここを_user.namespacesにしていると、DB管理で新規作成したnamespaceがまだ自分のキーの',
+'    // namespaces一覧に追加されていない場合、ナレッジ登録の宛先に出てこない不具合になる。',
+'    var nsList = ALL_NAMESPACES;',
 '    sel.innerHTML = nsList.map(function(ns) {',
 '      return \'<option value="\' + ns + \'">\' + (DB_LABELS[ns] || ns) + \'</option>\';',
 '    }).join("");',
@@ -4282,7 +4772,9 @@ function getChatHtml_() {
 '  var input = document.getElementById("kb-file");',
 '  if (!input.files.length) { kbStatus("kb-file-status", "ファイルを選んでください", "#f87171"); return; }',
 '  var f = input.files[0];',
-'  if (f.size > 20 * 1024 * 1024) { kbStatus("kb-file-status", "ファイルが大きすぎます（上限 20MB）", "#f87171"); return; }',
+'  var isMedia = f.type.indexOf("audio/") === 0 || f.type.indexOf("video/") === 0;',
+'  var limitMb = isMedia ? 15 : 25;',
+'  if (f.size > limitMb * 1024 * 1024) { kbStatus("kb-file-status", "ファイルが大きすぎます（この欄は" + (isMedia ? "音声・動画" : "この形式") + "で上限" + limitMb + "MB程度。大きいファイルはDriveに置いて「🗄 DB管理」タブの「今すぐ同期」を使ってください）", "#f87171"); return; }',
 '  kbStatus("kb-file-status", "読み取り中です。少しお待ちください…", "#f59e0b");',
 '  var reader = new FileReader();',
 '  reader.onload = function() {',

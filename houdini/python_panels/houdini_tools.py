@@ -17,6 +17,7 @@ HoudiniToolExecutor を提供する。
 
 from __future__ import annotations
 
+import base64
 import datetime
 import json
 import re
@@ -184,8 +185,13 @@ HOUDINI_TOOLS: list[dict] = [
     {
         "name": "finish_tutorial",
         "description": (
-            "チュートリアル生成を完了する。最終ノードの cook がエラーなしで通ってから呼ぶこと。"
-            "steps / pitfalls は Markdown 形式で記述する（見出しレベルは ### 以下を使用）。"
+            "チュートリアル生成を完了する（下書きを提出する）。最終ノードの cook がエラーなしで"
+            "通ってから呼ぶこと。steps / pitfalls は Markdown 形式で記述する（見出しレベルは "
+            "### 以下を使用）。"
+            "呼び出すと、現在のビューポートの画像が見せられる（見た目の自己確認用）。その画像を"
+            "確認したうえで、必ず続けて confirm_tutorial を呼ぶこと（finish_tutorial だけでは"
+            "生成は完了しない）。画像を見て問題があれば confirm_tutorial(looks_correct=false) "
+            "を呼び、ノードを修正してから再度 finish_tutorial → confirm_tutorial をやり直すこと。"
         ),
         "input_schema": {
             "type": "object",
@@ -210,8 +216,42 @@ HOUDINI_TOOLS: list[dict] = [
                     "type": "string",
                     "description": "ハマりポイントの Markdown。生成中に遭遇した cook エラーと対処を含める",
                 },
+                "sources_used": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "システムプロンプトの「参考ドキュメント」で振られた番号（[1], [2] ...）のうち、"
+                        "実際にチュートリアルの内容を組み立てる際に参考にしたものの番号一覧。"
+                        "参考ドキュメントを使わなかった場合は空配列にする。"
+                    ),
+                },
             },
             "required": ["title", "slug", "overview", "steps"],
+        },
+    },
+    {
+        "name": "confirm_tutorial",
+        "description": (
+            "finish_tutorial を呼んだ直後に見せられるビューポート画像を確認したあとに、必ず呼ぶこと。"
+            "画像が意図した見た目になっていれば looks_correct=true でチュートリアル生成を確定する。"
+            "見た目に問題がある場合（例: 期待した要素が画面に見えない、明らかに崩れている等）は"
+            "looks_correct=false にする。その場合は続けてノードの修正（例: 複数の要素を同時に見せたい"
+            "場合はMergeノードを追加して表示フラグを設定する等）を行い、その後もう一度 finish_tutorial"
+            "を呼んでから再度この confirm_tutorial を呼び直すこと。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "looks_correct": {
+                    "type": "boolean",
+                    "description": "ビューポート画像が意図した見た目になっているか",
+                },
+                "note": {
+                    "type": "string",
+                    "description": "（任意）画像を見た上での補足コメント・気づいた点",
+                },
+            },
+            "required": ["looks_correct"],
         },
     },
 ]
@@ -262,11 +302,21 @@ class HoudiniToolExecutor:
     SANDBOX_PREFIX = "ai_tutorial_"
 
     # 実行後にスクリーンショットを撮る価値があるツール（グラフ/シーンの見た目を
-    # 変えるもの）。list_available_node_types/get_node_info は読み取り専用、
-    # finish_tutorial は終端イベントなのでいずれも対象外。
+    # 変えるもの）。list_available_node_types/get_node_info は読み取り専用。
+    # finish_tutorial/confirm_tutorial は別枠（_capture_finish_screenshot）で
+    # ビューポート単体の確認用スクリーンショットを撮るため対象外。
     _SCREENSHOT_WORTHY_TOOLS = frozenset(
         {"create_node", "set_parameter", "connect_nodes", "cook_node", "delete_node"}
     )
+
+    # ノードタイプ名にこれらの文字列が含まれていれば「シミュレーションノード」と
+    # みなす（pyro/fire/煙/クロス/パーティクル/流体/剛体等）。cook_node は単一フレーム
+    # 評価では時間発展する挙動を検証できないため、これらは複数フレーム評価する。
+    _SIMULATION_TYPE_HINTS = (
+        "pyrosolver", "dopnet", "dynamics", "vellum", "cloth",
+        "particle", "popnet", "popsolver", "flip", "rbdsolver", "grains",
+    )
+    _SIM_COOK_FRAME_COUNT = 10  # シミュレーション検証のため現在フレームから何フレーム進めるか
 
     def __init__(
         self,
@@ -283,7 +333,13 @@ class HoudiniToolExecutor:
         self._sandbox = _run_in_main_thread(self._create_sandbox)
         self.sandbox_path: str = self._sandbox.path()
 
-        self.finish_data: dict | None = None  # finish_tutorial の入力を保持
+        self.finish_data: dict | None = None  # confirm_tutorial(looks_correct=true) 確定後にセットされる
+        # finish_tutorial の入力の「下書き」。confirm_tutorial が呼ばれるまでの一時保持。
+        # 見た目の自己確認（視覚的自己検証ステップ）を経てから finish_data に格上げされる。
+        self._pending_finish: dict | None = None
+        # 直前の finish_tutorial 呼び出しで撮ったビューポート画像（base64 PNG）。
+        # tutorial_agent.py 側がこれを読み、その1回だけ tool_result に画像として添付する。
+        self.last_screenshot_b64: str | None = None
         self.step_log: list[dict] = []        # Markdown 組み立て用の全呼び出し履歴
         # 各ステップ実行直後に撮ったビューポート/ネットワークエディタの
         # スクリーンショット一覧（動画生成側で手順ごとの画面を見せるため）。
@@ -413,8 +469,45 @@ class HoudiniToolExecutor:
 
         if not is_error and tool_name in self._SCREENSHOT_WORTHY_TOOLS:
             self._capture_step_screenshot(tool_name, result)
+        if not is_error and tool_name == "finish_tutorial":
+            self._capture_finish_screenshot()
 
         return result, is_error
+
+    @property
+    def pending_finish(self) -> dict | None:
+        """finish_tutorialは呼ばれたがconfirm_tutorialでまだ確定していない下書き（無ければNone）。"""
+        return self._pending_finish
+
+    def _capture_finish_screenshot(self) -> None:
+        """
+        finish_tutorial 呼び出し直後にビューポートを撮影し、base64 PNG として保持する
+        （視覚的自己検証ステップ）。tutorial_agent.py 側がこれを読み、その回の tool_result に
+        画像として添付してClaude自身に見た目を確認させ、confirm_tutorial で最終確定させる。
+        撮影に失敗しても生成は止めない（last_screenshot_b64がNoneのままになるだけで、
+        その場合Claudeは画像無しでconfirm_tutorialを判断することになる）。
+        """
+        self.last_screenshot_b64 = None
+        if self._screenshot_dir is None:
+            return
+        try:
+            import screen_capture
+        except ImportError:
+            return
+
+        def _capture():
+            path = self._screenshot_dir / "finish_check.png"
+            log_path = self._screenshot_dir / "capture.log"
+            if screen_capture.capture_viewport(path, log_path=log_path):
+                try:
+                    self.last_screenshot_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+                except OSError:
+                    pass
+
+        try:
+            _run_in_main_thread(_capture)
+        except Exception:  # noqa: BLE001 -- best-effort, never raise
+            pass
 
     def _capture_step_screenshot(self, tool_name: str, tool_result: str) -> None:
         """
@@ -450,6 +543,19 @@ class HoudiniToolExecutor:
             # doing that first would risk Scene View no longer being the
             # visible tab if the two share a pane group.
             got_viewport = screen_capture.capture_viewport(viewport_path, log_path=log_path)
+
+            # cook_node re-evaluates the graph, which for simulation nodes
+            # (pyro, fire, cloth, particles) plays out over time -- a short
+            # multi-frame clip shows that far better than one still frame.
+            # Scoped to cook_node only, and kept small/low-res, so this
+            # doesn't blow up per-video weight/cost across the whole run.
+            clip_frames: list = []
+            clip_fps = 0
+            if tool_name == "cook_node":
+                clip_frames, clip_fps = screen_capture.capture_viewport_clip(
+                    self._screenshot_dir, f"step_{step_index:03d}_clip", log_path=log_path
+                )
+
             screen_capture.focus_network_on(self.sandbox_path, log_path=log_path)
             got_network = screen_capture.capture_network_editor(network_path, log_path=log_path)
             self.step_screenshots.append({
@@ -458,6 +564,8 @@ class HoudiniToolExecutor:
                 "result": tool_result,
                 "viewport": str(viewport_path) if got_viewport else None,
                 "network": str(network_path) if got_network else None,
+                "viewport_clip_frames": [str(p) for p in clip_frames],
+                "viewport_clip_fps": clip_fps,
             })
 
         try:
@@ -534,17 +642,56 @@ class HoudiniToolExecutor:
             f"{self._rel(dst)}[in:{input_index}]"
         )
 
+    def _is_simulation_node(self, node) -> bool:
+        """pyro/fire/クロス/パーティクル/流体/剛体等のシミュレーション系ノードかどうか。
+        単一フレームのcookでは時間発展する挙動を検証できないため複数フレーム評価する。"""
+        type_name = node.type().name().lower()
+        return any(hint in type_name for hint in self._SIMULATION_TYPE_HINTS)
+
+    def _cook_simulation_frames(self, node) -> int:
+        """
+        現在のグローバルフレームから _SIM_COOK_FRAME_COUNT フレーム分、順番に
+        フレームを進めながらcookする（シミュレーションは前のフレームの結果に
+        依存するため、途中のフレームを飛ばさず1フレームずつ進める必要がある）。
+        呼び出し前のフレームは必ず復元する（ユーザーの作業状態を変えないため）。
+        戻り値: 実際に評価したフレーム数。
+        """
+        hou = self._hou
+        original_frame = hou.frame()
+        evaluated = 0
+        try:
+            start = int(original_frame)
+            for f in range(start, start + self._SIM_COOK_FRAME_COUNT):
+                hou.setFrame(f)
+                try:
+                    node.cook(force=True)
+                except Exception:
+                    pass
+                evaluated += 1
+        finally:
+            hou.setFrame(original_frame)
+        return evaluated
+
     def _tool_cook_node(self, args: dict) -> str:
         node = self._resolve(args["node"])
-        try:
-            node.cook(force=True)
-        except Exception:
-            pass  # cook 例外の詳細は errors() から取得する
+        is_sim = self._is_simulation_node(node)
+        frames_evaluated = 0
+        if is_sim:
+            frames_evaluated = self._cook_simulation_frames(node)
+        else:
+            try:
+                node.cook(force=True)
+            except Exception:
+                pass  # cook 例外の詳細は errors() から取得する
         errors = list(node.errors())
         warnings = list(node.warnings())
+        sim_note = (
+            f"（シミュレーションノードのため{frames_evaluated}フレーム分evaluateして確認しました）"
+            if is_sim else ""
+        )
         if not errors and not warnings:
-            return f"cook 成功: {self._rel(node)}（エラー・警告なし）"
-        lines = [f"cook 結果: {self._rel(node)}"]
+            return f"cook 成功: {self._rel(node)}（エラー・警告なし）{sim_note}"
+        lines = [f"cook 結果: {self._rel(node)}{sim_note}"]
         for e in errors:
             lines.append(f"  [エラー] {e}")
         for w in warnings:
@@ -619,8 +766,26 @@ class HoudiniToolExecutor:
         return f"削除しました: {rel}"
 
     def _tool_finish_tutorial(self, args: dict) -> str:
-        self.finish_data = dict(args)
-        return "チュートリアル生成を完了しました。"
+        # ここでは即座にfinish_dataを確定しない（下書きとして保持するのみ）。
+        # 視覚的自己検証ステップ: この直後にビューポート画像が見せられるので、
+        # それを確認したうえでconfirm_tutorialを呼んで初めてfinish_dataが確定する。
+        self._pending_finish = dict(args)
+        return (
+            "チュートリアル内容を受け付けました（まだ確定していません）。"
+            "このあとビューポートの画像が送られるので、意図した見た目になっているか確認し、"
+            "問題なければ confirm_tutorial(looks_correct=true) を呼んでください。"
+            "問題があれば修正してから、もう一度 finish_tutorial を呼び直してください。"
+        )
+
+    def _tool_confirm_tutorial(self, args: dict) -> str:
+        if self._pending_finish is None:
+            return "finish_tutorial をまだ呼んでいません。先に finish_tutorial を呼んでください。"
+        if args.get("looks_correct", False):
+            self.finish_data = self._pending_finish
+            self._pending_finish = None
+            return "確認しました。チュートリアル生成を完了します。"
+        self._pending_finish = None
+        return "了解しました。見た目の問題を修正してから、もう一度 finish_tutorial を呼んでください。"
 
     # ── NodeGraphAsset エクスポート ─────────────────────────────────────────────
 

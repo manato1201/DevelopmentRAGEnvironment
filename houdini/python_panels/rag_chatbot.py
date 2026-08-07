@@ -59,7 +59,7 @@ try:
 except ImportError:
     _TUTORIAL_AVAILABLE = False
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QFont, QPalette
 from PySide6.QtWidgets import (
     QComboBox,
@@ -266,6 +266,19 @@ class RateWorker(QThread):
         self.done.emit(ok)
 
 
+class _ConnectionCheckWorker(QThread):
+    """接続確認を別スレッドで行うワーカー（HTTP待機でUIをブロックしないため）。"""
+
+    result = Signal(bool)
+
+    def __init__(self, client: RAGClient) -> None:
+        super().__init__()
+        self._client = client
+
+    def run(self) -> None:
+        self.result.emit(self._client.health())
+
+
 class BridgeStartWorker(QThread):
     """
     Python ブリッジの起動と起動確認を別スレッドで行うワーカー。
@@ -333,6 +346,43 @@ class ChatBubble(QLabel):
             self.setAlignment(Qt.AlignRight)
 
 
+# ─── 接続状態ランプ ───────────────────────────────────────────────────────────
+# 以前はTutorialタブの中だけに表示していたが、Tutorialタブを開いていないと
+# 接続状態を確認できないのは不親切なため、タブバー右端（setCornerWidget）に
+# 移動し、どのタブを操作していても常時表示されるようにした。
+
+_CONNECTION_CHECK_INTERVAL_MS = 20_000  # 自動再チェックの間隔（ミリ秒）
+
+
+class _ConnectionLamp(QWidget):
+    """接続状態を丸いランプ（色）+ テキストで示すインジケータ。"""
+
+    _COLORS = {"ok": "#22c55e", "fail": "#ef4444", "checking": "#f59e0b"}
+    _LABELS = {"ok": "接続OK", "fail": "接続なし", "checking": "確認中…"}
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setSpacing(5)
+        self._dot = QLabel()
+        self._dot.setFixedSize(10, 10)
+        self._text = QLabel()
+        self._text.setStyleSheet("color:#94a3b8;font-size:11px;")
+        layout.addWidget(self._dot)
+        layout.addWidget(self._text)
+        self.set_state("checking")
+
+    def set_state(self, state: str, mode_label: str = "") -> None:
+        color = self._COLORS.get(state, "#6b7280")
+        label = self._LABELS.get(state, state)
+        self._dot.setStyleSheet(f"background:{color};border-radius:5px;")
+        self._text.setText(f"{mode_label} {label}".strip())
+        self.setToolTip(
+            "Cloud: GAS WebApp URL への疎通 / Local: ブリッジの /health を定期確認しています"
+        )
+
+
 # ─── メインパネル ─────────────────────────────────────────────────────────────
 
 class RAGChatbotPanel(QWidget):
@@ -356,9 +406,17 @@ class RAGChatbotPanel(QWidget):
         self._worker: QueryWorker | None        = None
         self._bridge_worker: BridgeStartWorker | None = None
         self._rate_workers: list[RateWorker]    = []  # GC 防止のため参照を保持
+        self._conn_worker: _ConnectionCheckWorker | None = None
 
         self._build_ui()
         self._ensure_bridge()  # Local モードなら起動確認
+
+        # 接続状態ランプ: 初回チェック + 定期的な自動再チェック（タブを切り替えなくても
+        # 現在の接続状態が分かるようにするため）。
+        self._conn_timer = QTimer(self)
+        self._conn_timer.timeout.connect(self._check_connection_async)
+        self._conn_timer.start(_CONNECTION_CHECK_INTERVAL_MS)
+        self._check_connection_async()
 
     # ── UI 構築 ────────────────────────────────────────────────────────────────
 
@@ -369,18 +427,104 @@ class RAGChatbotPanel(QWidget):
         root.setSpacing(4)
 
         tabs = QTabWidget()
+        # 「はじめに」を先頭タブにする: 初めて開いたユーザーが最初に目にするのが
+        # 空のチャット欄だと何をすればいいか分からない、という実機フィードバックへの
+        # 対策。各タブの役割・最初にやること・つまずきやすい点をまとめた説明を置く。
+        tabs.addTab(self._build_help_tab(),     "はじめに")
         tabs.addTab(self._build_chat_tab(),     "Chat")
         tabs.addTab(self._build_graph_tab(),    "Graph")
         tabs.addTab(self._build_tutorial_tab(), "Tutorial")
         tabs.addTab(self._build_history_tab(),  "History")
         tabs.addTab(self._build_settings_tab(), "Settings")
         self._tabs = tabs  # /tutorial コマンドでのタブ切り替えに使う
+
+        # 接続状態ランプをタブバーの右端に配置する。以前はTutorialタブの中だけに
+        # 表示していたが、他のタブを開いているときに確認できないのは不親切なため、
+        # setCornerWidgetでタブ切り替えに関わらず常時表示されるようにした。
+        self._conn_lamp = _ConnectionLamp()
+        tabs.setCornerWidget(self._conn_lamp, Qt.TopRightCorner)
+
         root.addWidget(tabs)
 
         # 下部ステータスバー（接続状態や参照ドキュメントを表示）
         self._status = QLabel("")
         self._status.setStyleSheet("color:#aaa;font-size:11px;")
         root.addWidget(self._status)
+
+    def _build_help_tab(self) -> QWidget:
+        """
+        「はじめに」タブ: 初めてこのパネルを開いた人向けのクイックスタート・
+        各タブの役割・よくある詰まりポイントをまとめた静的な説明タブ。
+        設定や外部通信を一切行わない読み取り専用タブなので、フォールバック
+        UI や例外処理は不要（QTextEdit にHTMLを流すだけ）。
+        """
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        view = QTextEdit()
+        view.setReadOnly(True)
+        view.setStyleSheet(
+            "QTextEdit{background:#0f172a;color:#e2e8f0;border:none;padding:8px;"
+            "font-family:'Segoe UI','Yu Gothic UI',sans-serif;font-size:13px;}"
+        )
+        view.document().setDefaultStyleSheet(
+            "body{line-height:150%;}"
+            "h2{color:#93c5fd;border-bottom:1px solid #334155;padding-bottom:2px;margin-top:14px;}"
+            "h3{color:#7dd3fc;margin-top:10px;}"
+            "code{font-family:Consolas,'Yu Gothic UI',monospace;"
+            "background:#1e293b;color:#fbbf24;padding:1px 4px;border-radius:3px;}"
+            "li{margin-bottom:3px;}"
+        )
+        view.setHtml("""
+<h2>このパネルについて</h2>
+<p>Houdini から RAG（ナレッジベース検索付きチャット）に質問したり、
+トピックを指定して Houdini チュートリアルを自動生成したりするためのパネルです。
+初めて使う場合は、下の「はじめの3ステップ」から進めてください。</p>
+
+<h2>はじめの3ステップ</h2>
+<ol>
+<li><b>接続を確認する</b> — タブバー右端に「Local 接続OK」または「Cloud 接続OK」の
+緑ランプが出ているか確認してください。赤色（接続なし）の場合は
+<code>Settings</code> タブで設定を確認し、「接続確認」ボタンを押してください。</li>
+<li><b>まず Chat タブで質問してみる</b> — 例:「mountainノードの使い方は？」と入力して
+<code>Ctrl+Enter</code>（または「送信」ボタン）で聞いてみてください。</li>
+<li><b>慣れたら Tutorial タブでチュートリアル生成を試す</b> — トピックを1行で入力
+（例:「岩を地形に散布するプロシージャルセットアップ」）して「生成」を押すと、
+エージェントが実際に Houdini 上でノードを組み立てながらチュートリアルを作成します。
+生成には数十秒〜数分、Claude APIのコストが数セント〜十数セント程度かかります。</li>
+</ol>
+
+<h2>各タブの役割</h2>
+<ul>
+<li><b>Chat</b> — ナレッジベースに質問して回答を得る通常のチャット。<code>/tutorial ＜トピック＞</code>
+と入力すると Tutorial タブに切り替わりその場で生成を開始できます。</li>
+<li><b>Graph</b> — ナレッジベース内のドキュメント同士の関係を可視化するグラフビュー。
+「更新」を押すとノード（ドキュメント）とエッジ（類似度）を取得して描画します。</li>
+<li><b>Tutorial</b> — トピックを入力してチュートリアルを自動生成するタブ。生成結果は
+プレビュー表示されるだけで、「保存」を押すまでファイルには書き込まれません。</li>
+<li><b>History</b> — 保存済みチュートリアルの一覧と、実際に組み立てられたノード
+グラフのビューア。「簡易」は直列に繋がったノードを1つにまとめた要約表示、
+「詳細」は全ノードをそのまま表示するモードです（マウスホバーで各ボタンの
+説明が出ます）。</li>
+<li><b>Settings</b> — Cloud RAG（GAS WebApp URL / APIキー）と Local RAG
+（ブリッジのポート・プロジェクトパス）の接続設定。</li>
+</ul>
+
+<h2>よくある詰まりポイント</h2>
+<ul>
+<li><b>ランプが赤い（接続なし）</b> — Local モードならブリッジ（<code>rag_local_bridge.py</code>）
+が起動しているか確認してください。<code>Settings</code> タブの「ブリッジ再起動」で
+自動起動を試みます。Cloud モードなら GAS WebApp URL / API Key の設定を見直してください。</li>
+<li><b>チュートリアル生成が途中で打ち切られる</b> — 抽象的すぎるトピック
+（例: 具体的なノードで表現しにくい題材）だと、Houdiniのノードタイプを
+探し続けて反復回数を使い切ることがあります。より具体的な操作
+（例:「〇〇を散布する」「〇〇を変形する」）に言い換えると成功しやすくなります。</li>
+<li><b>参考ドキュメントが少ない/関係ない</b> — ナレッジベース側にそのトピックの
+ドキュメントがまだ登録されていない可能性があります。生成自体はRAGの
+参考ドキュメントが0件でも進行します。</li>
+</ul>
+""")
+        layout.addWidget(view)
+        return w
 
     def _build_chat_tab(self) -> QWidget:
         """
@@ -441,7 +585,12 @@ class RAGChatbotPanel(QWidget):
           インポートできない場合はエラーメッセージを表示するフォールバック UI を返す。
         """
         if _GRAPH_AVAILABLE:
-            self._graph_widget = _RAGGraphWidget(port=self._cfg.get("local_port", 8766))
+            self._graph_widget = _RAGGraphWidget(
+                port=self._cfg.get("local_port", 8766),
+                rag_mode=self._cfg.get("mode", "local"),
+                gas_url=self._cfg.get("gas_url", ""),
+                gas_api_key=self._cfg.get("gas_api_key", ""),
+            )
             return self._graph_widget
         # フォールバック: graph_view.py が見つからない場合
         w = QWidget()
@@ -462,8 +611,12 @@ class RAGChatbotPanel(QWidget):
         tutorial_view.py がない場合はフォールバック UI を返す。
         """
         if _TUTORIAL_AVAILABLE:
-            # cfg_getter で常に最新の設定（ポート・プロジェクトパス）を参照させる
-            self._tutorial_panel = _TutorialGeneratePanel(lambda: self._cfg)
+            # cfg_getter で常に最新の設定（ポート・プロジェクトパス）を参照させる。
+            # on_connection_event: 生成失敗直後に接続ランプへ即時再確認を促すコールバック
+            # （ランプ自体はこのタブの外＝タブバー右端にあるため、通知だけ受け取る）。
+            self._tutorial_panel = _TutorialGeneratePanel(
+                lambda: self._cfg, on_connection_event=self._check_connection_async
+            )
             return self._tutorial_panel
         self._tutorial_panel = None
         return self._missing_module_widget("tutorial_view.py")
@@ -597,6 +750,25 @@ class RAGChatbotPanel(QWidget):
         self._client = RAGClient(self._cfg)
         if mode == "local":
             self._ensure_bridge()
+        self._check_connection_async()
+
+    # ── 接続状態ランプ ───────────────────────────────────────────────────────────
+
+    def _check_connection_async(self) -> None:
+        """
+        接続確認を別スレッドで開始する（前回のチェックが終わっていなければスキップして
+        二重起動を防ぐ）。QTimerの定期実行・モード切替/設定保存直後・チュートリアル生成
+        失敗直後に呼ばれる。タブバー右端のランプはどのタブを開いていても表示される。
+        """
+        if self._conn_worker is not None and self._conn_worker.isRunning():
+            return
+        mode_label = "Cloud" if self._cfg.get("mode") == "cloud" else "Local"
+        self._conn_lamp.set_state("checking", mode_label)
+        self._conn_worker = _ConnectionCheckWorker(self._client)
+        self._conn_worker.result.connect(
+            lambda ok, ml=mode_label: self._conn_lamp.set_state("ok" if ok else "fail", ml)
+        )
+        self._conn_worker.start()
 
     def _on_send(self) -> None:
         """
@@ -694,11 +866,14 @@ class RAGChatbotPanel(QWidget):
         if self._cfg["mode"] == "local":
             threading.Thread(target=self._push_backend, daemon=True).start()
         self._set_status("設定を保存しました")
+        self._check_connection_async()
 
     def _on_check_health(self) -> None:
-        """接続確認ボタン。health() の結果をステータスに表示する。"""
+        """接続確認ボタン。health() の結果をステータスとタブバーのランプ両方に反映する。"""
         ok = self._client.health()
         self._set_status("接続OK" if ok else "接続失敗 — ブリッジが起動しているか確認してください")
+        mode_label = "Cloud" if self._cfg.get("mode") == "cloud" else "Local"
+        self._conn_lamp.set_state("ok" if ok else "fail", mode_label)
 
     def _on_restart_bridge(self) -> None:
         """ブリッジ再起動ボタン。force=True で既存プロセスを無視して再起動する。"""

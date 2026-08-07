@@ -51,7 +51,7 @@ Layer 2: Local RAG  → ChromaDB + BM25 + Claude/Gemini API
 ### コンテキストウィンドウ
 LLMが一度に処理できるトークン数の上限。RAGはここにチャンクを詰め込む。  
 - claude-haiku-4-5-20251001: 200K tokens
-- gemini-2.5-flash: 1M tokens
+- gemini-3.6-flash: 1M tokens
 
 ---
 
@@ -98,7 +98,7 @@ score(d) = Σ 1 / (k + rank_i(d))
 
 ### Gemini (Google)
 Cloud RAGのLLM。Local RAGでも切り替え可能。  
-- モデル: `gemini-2.5-flash`
+- モデル: `gemini-3.6-flash`
 - API Key: 環境変数 `GEMINI_API_KEY`
 - ライブラリ: `google.generativeai`
 

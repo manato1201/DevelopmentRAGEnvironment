@@ -2,7 +2,8 @@
 graph_view.py — Houdini RAG グラフビュー（PySide6 QGraphicsView）
 
 rag_chatbot.py の Graph タブに埋め込む自己完結ウィジェット。
-rag_local_bridge.py の /graph エンドポイントからデータを取得して描画する。
+Local モードでは rag_local_bridge.py の /graph エンドポイントから、
+Cloud モードでは gas_cloud_rag.js（doPost の action:'graph'）からデータを取得して描画する。
 
 アーキテクチャ:
   GraphFetchWorker  : /graph を非同期で取得する QThread
@@ -22,6 +23,8 @@ Houdini での利用方法:
 from __future__ import annotations
 
 import json
+import math
+import random
 import urllib.error
 import urllib.request
 from typing import Optional
@@ -63,32 +66,133 @@ _DEFAULT_NODE_COLOR = "#64748b"  # 未知の DB はグレー
 _SCENE_SIZE = 900.0
 
 
+def _spring_layout(
+    node_ids: list[str],
+    edges: list[dict],
+    iterations: int = 80,
+) -> dict[str, tuple[float, float]]:
+    """
+    x/y が与えられていないノード群に対するフォースディレクテッド簡易レイアウト。
+    Local RAG の /graph エンドポイント（scripts/rag_graph_export.py の_spring_layout）
+    と同じアルゴリズムのクライアント側実装。
+
+    Cloud RAG の buildGraphData_（gas_cloud_rag.js）は x/y を計算せずノードを返すため、
+    そのままだと RAGGraphScene.build() の `nd.get("x", 0.5)` フォールバックにより
+    全ノードが (0.5, 0.5) の同一点に重なって表示される（実機で「レイアウトがひどい」
+    として確認された不具合）。x/y が欠けている場合はここで位置を計算して補う。
+    """
+    if not node_ids:
+        return {}
+    if len(node_ids) == 1:
+        return {node_ids[0]: (0.5, 0.5)}
+
+    rnd = random.Random(42)
+    pos: dict[str, list[float]] = {
+        nid: [rnd.uniform(0.1, 0.9), rnd.uniform(0.1, 0.9)] for nid in node_ids
+    }
+    edge_scores: dict[tuple[str, str], float] = {}
+    for e in edges:
+        a, b = e.get("source"), e.get("target")
+        if a in pos and b in pos:
+            edge_scores[(a, b)] = e.get("score", 0.7)
+
+    for _ in range(iterations):
+        forces: dict[str, list[float]] = {nid: [0.0, 0.0] for nid in node_ids}
+        for ai in range(len(node_ids)):
+            a = node_ids[ai]
+            for bi in range(ai + 1, len(node_ids)):
+                b = node_ids[bi]
+                dx = pos[a][0] - pos[b][0]
+                dy = pos[a][1] - pos[b][1]
+                d = math.hypot(dx, dy) or 0.001
+                f_rep = 0.004 / (d * d)
+                forces[a][0] += dx / d * f_rep
+                forces[a][1] += dy / d * f_rep
+                forces[b][0] -= dx / d * f_rep
+                forces[b][1] -= dy / d * f_rep
+                score = edge_scores.get((a, b), edge_scores.get((b, a), 0.0))
+                if score > 0:
+                    f_att = score * 0.025
+                    forces[a][0] -= dx * f_att
+                    forces[a][1] -= dy * f_att
+                    forces[b][0] += dx * f_att
+                    forces[b][1] += dy * f_att
+        for nid in node_ids:
+            pos[nid][0] = max(0.04, min(0.96, pos[nid][0] + forces[nid][0]))
+            pos[nid][1] = max(0.04, min(0.96, pos[nid][1] + forces[nid][1]))
+
+    return {nid: (pos[nid][0], pos[nid][1]) for nid in node_ids}
+
+
 # ─── 非同期取得ワーカー ─────────────────────────────────────────────────────────
 
 class GraphFetchWorker(QThread):
     """
-    /graph エンドポイントからデータを非同期で取得する QThread ワーカー。
+    グラフデータを非同期で取得する QThread ワーカー。
     取得完了時は data_ready シグナルで dict を、失敗時は error シグナルで
     メッセージを UI スレッドに渡す。
     タイムアウト 90 秒（大量ドキュメントのグラフ生成に時間がかかるため長めに設定）。
+
+    rag_mode に応じて取得先を切り替える:
+      "local" : http://localhost:{port}/graph へ GET（rag_local_bridge.py の /graph）
+      "cloud" : gas_url へ {"action":"graph","apiKey":gas_api_key} を POST
+                （gas_cloud_rag.js の doPost 内 action:'graph' ブランチ。戻り値の形は
+                /graph エンドポイントと完全に同一なので呼び出し側の扱いは変わらない）
     """
-    data_ready = Signal(dict)  # 成功時: /graph のレスポンス全体
+    data_ready = Signal(dict)  # 成功時: レスポンス全体（nodes/edges/status）
     error      = Signal(str)   # 失敗時: エラーメッセージ
 
-    def __init__(self, port: int) -> None:
+    def __init__(
+        self,
+        port: int,
+        rag_mode: str = "local",
+        gas_url: str = "",
+        gas_api_key: str = "",
+    ) -> None:
         super().__init__()
-        self._port = port
+        self._port        = port
+        self._rag_mode    = rag_mode
+        self._gas_url     = gas_url
+        self._gas_api_key = gas_api_key
 
     def run(self) -> None:
         try:
-            url = f"http://localhost:{self._port}/graph"
-            with urllib.request.urlopen(url, timeout=90) as resp:
-                data = json.loads(resp.read())
+            if self._rag_mode == "cloud":
+                data = self._fetch_cloud()
+            else:
+                data = self._fetch_local()
             self.data_ready.emit(data)
         except urllib.error.URLError as exc:
             self.error.emit(f"ブリッジ未起動: {exc.reason}")
         except Exception as exc:
             self.error.emit(str(exc))
+
+    def _fetch_local(self) -> dict:
+        """ローカルブリッジの /graph エンドポイントに GET する。"""
+        url = f"http://localhost:{self._port}/graph"
+        with urllib.request.urlopen(url, timeout=90) as resp:
+            return json.loads(resp.read())
+
+    def _fetch_cloud(self) -> dict:
+        """
+        GAS WebApp に {"action":"graph","apiKey":...} を POST する。
+        tutorial_agent.py の _call_api / _rag_search_cloud と同じ
+        urllib.request.Request(..., method='POST') パターン。
+        """
+        if not self._gas_url:
+            raise RuntimeError("Cloud RAGモードですが gas_url が未設定です")
+        body = json.dumps(
+            {"action": "graph", "apiKey": self._gas_api_key},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            self._gas_url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            return json.loads(resp.read())
 
 
 # ─── グラフアイテム ─────────────────────────────────────────────────────────────
@@ -201,12 +305,22 @@ class RAGGraphScene(QGraphicsScene):
         nodes = data.get("nodes", [])
         edges = data.get("edges", [])
 
+        # Cloud RAG（gas_cloud_rag.jsのbuildGraphData_）はx/yを返さないため、
+        # 1つでも欠けていればフォースディレクテッドレイアウトを計算して補う
+        # （そうしないと全ノードが(0.5,0.5)に重なって表示されてしまう）。
+        computed_pos: dict[str, tuple[float, float]] = {}
+        if nodes and any(("x" not in nd or "y" not in nd) for nd in nodes):
+            node_ids = [nd["id"] for nd in nodes]
+            computed_pos = _spring_layout(node_ids, edges)
+
         # ノードを配置
         for nd in nodes:
-            x    = nd.get("x", 0.5) * _SCENE_SIZE
-            y    = nd.get("y", 0.5) * _SCENE_SIZE
+            if nd["id"] in computed_pos:
+                nx, ny = computed_pos[nd["id"]]
+            else:
+                nx, ny = nd.get("x", 0.5), nd.get("y", 0.5)
             item = NodeItem(nd)
-            item.setPos(x, y)
+            item.setPos(nx * _SCENE_SIZE, ny * _SCENE_SIZE)
             self.addItem(item)
             self._node_items[nd["id"]] = item
 
@@ -268,9 +382,19 @@ class RAGGraphWidget(QWidget):
       詳細パネル  : 選択ノードの情報（ラベル / DB / チャンク数）
     """
 
-    def __init__(self, port: int = 8766, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        port: int = 8766,
+        parent: Optional[QWidget] = None,
+        rag_mode: str = "local",
+        gas_url: str = "",
+        gas_api_key: str = "",
+    ) -> None:
         super().__init__(parent)
-        self._port   = port
+        self._port         = port
+        self._rag_mode     = rag_mode
+        self._gas_url      = gas_url
+        self._gas_api_key  = gas_api_key
         self._worker: Optional[GraphFetchWorker] = None
 
         self._scene = RAGGraphScene()
@@ -323,7 +447,12 @@ class RAGGraphWidget(QWidget):
             return
         self._refresh_btn.setEnabled(False)
         self._status.setText("グラフデータ取得中...")
-        self._worker = GraphFetchWorker(self._port)
+        self._worker = GraphFetchWorker(
+            self._port,
+            rag_mode=self._rag_mode,
+            gas_url=self._gas_url,
+            gas_api_key=self._gas_api_key,
+        )
         self._worker.data_ready.connect(self._on_data_ready)
         self._worker.error.connect(self._on_error)
         self._worker.start()
