@@ -227,6 +227,68 @@ def capture_viewport_clip(
         return [], 0
 
 
+def _bounds_size(bounds) -> tuple[int, int] | None:
+    """
+    hou.PaneTab.screenBounds() が返す hou.BoundingRect からサイズ（幅・高さ）
+    だけを取り出す。座標としての信頼性は無い（下記docstring参照）が、
+    「このペインの見た目上の大きさ」としては再利用できる。
+    hou.BoundingRect は 4要素シーケンス (xmin, ymin, xmax, ymax) として
+    インデックスアクセスできるはずだが、Houdiniのビルドによって挙動が
+    変わりうるため sizevec2() も保険として試す。
+    """
+    try:
+        return int(round(bounds[2] - bounds[0])), int(round(bounds[3] - bounds[1]))
+    except Exception:
+        pass
+    try:
+        size = bounds.sizevec2()
+        return int(round(size[0])), int(round(size[1]))
+    except Exception:
+        return None
+
+
+def _find_network_editor_widget(network_editor, main_window, log_path: Path | None):
+    """
+    main_window（hou.qt.mainWindow()）全体ではなく、NetworkEditorペイン
+    単体に絞ってキャプチャするため、その中の該当ウィジェットを探す。
+
+    Houdiniのペインタブオブジェクトは Qt ウィジェットへの直接参照を
+    公開していない（qtWidget() はこのビルドに存在しないことを実機の
+    dir() で確認済み）。そこで network_editor.screenBounds() が返す
+    サイズ（実機で確認: 常に固定値が返る＝絶対座標としては使えないが、
+    ペイン自身の見た目上の幅・高さとしては再利用できる）をシグネチャに
+    使い、main_window 配下の全ウィジェットからサイズが一致する可視
+    ウィジェットを探す。見つからなければ None を返し、呼び出し側は
+    ウィンドウ全体グラブにフォールバックする。
+    """
+    try:
+        bounds = network_editor.screenBounds()
+    except Exception as exc:
+        _log(f"screenBounds() unavailable, cannot narrow capture target: {exc!r}", log_path)
+        return None
+    size = _bounds_size(bounds)
+    if size is None:
+        _log(f"could not extract width/height from screenBounds()={bounds!r}", log_path)
+        return None
+    w, h = size
+    if w <= 0 or h <= 0:
+        return None
+
+    from PySide6.QtWidgets import QWidget
+
+    candidates = [
+        c for c in main_window.findChildren(QWidget)
+        if c.isVisible() and c.width() == w and c.height() == h
+    ]
+    if not candidates:
+        _log(f"no visible child widget matches NetworkEditor size {w}x{h}; "
+             "falling back to whole-window grab", log_path)
+        return None
+    if len(candidates) > 1:
+        _log(f"{len(candidates)} widgets match NetworkEditor size {w}x{h}; using the first", log_path)
+    return candidates[0]
+
+
 def capture_network_editor(
     output_path: Path, width: int = 1280, height: int = 720, log_path: Path | None = None
 ) -> bool:
@@ -248,22 +310,38 @@ def capture_network_editor(
     ことがあり、生成された動画にNetworkEditorではなくPython Panel Editor
     の画面が映り込む不具合の原因だった（_flush_qt_events()によるrepaint
     待ちを追加しても、そもそも掴んでいるウィンドウ自体が別物なので直らな
-    かった）。hou.qt.mainWindow()（Houdini公式APIで、Houdini本体のメイン
-    ウィンドウを常に一意に返す）を明示的に使うことで、ペインタブ経由の
-    不安定な参照に頼らず、NetworkEditor/SceneViewerが実際に存在する
-    デスクトップを確実にキャプチャする（ネットワークエディタ単体には
-    絞れないが、少なくとも誤った別パネルが映り込むことはなくなる）。
+    かった）。hou.qt.mainWindow() に切り替えて一意なメインウィンドウを
+    掴むようにしたが、これでもなお不具合が再現した。
+
+    2026-08-08 追加修正: hou.qt.mainWindow() は「Houdiniのメインウィンドウ
+    そのもの」を確実に返すが、それは単なる開始点に過ぎない ── RAGChatBot
+    パネル（Python Panel Editor）がユーザーのレイアウトでメインウィンドウに
+    ドッキングされている場合、NetworkEditor と同じ1つのトップレベル
+    ウィンドウの中に両方が同居することになる。ウィンドウ全体を grab()
+    すると、その中の**すべての**ドッキング済みパネル（RAGChatBotパネルを
+    含む）が一緒に写り込む。動画側のスライドはこの画像をそのまま縮小して
+    使うため、画面占有率の大きい方（往々にしてRAGChatBotパネル）が
+    目立って「NetworkEditorではなくPython Panel Editorが映っている」ように
+    見えていた、というのが一連の不具合の本当の原因だった可能性が高い。
+    _find_network_editor_widget() でメインウィンドウ配下からNetworkEditor
+    ペイン単体に相当する子ウィジェットを探し、見つかればそれだけを
+    grab() することで、他のドッキング済みパネルを写り込ませないようにする。
+    見つからない場合（Houdiniのバージョン差異等）は、従来どおりウィンドウ
+    全体をフォールバックとして使う。
     """
     try:
         network_editor = hou.ui.paneTabOfType(hou.paneTabType.NetworkEditor)
         if network_editor is None:
             _log("no NetworkEditor pane found in the current desktop", log_path)
             return False
-        widget = hou.qt.mainWindow()
-        if widget is None:
+        main_window = hou.qt.mainWindow()
+        if main_window is None:
             _log("hou.qt.mainWindow() returned None", log_path)
             return False
         _flush_qt_events()  # 念のため grab() 直前にも repaint を確定させる
+
+        target_widget = _find_network_editor_widget(network_editor, main_window, log_path)
+        widget = target_widget if target_widget is not None else main_window
         pixmap = widget.grab()
         if width and height:
             from PySide6.QtCore import Qt as QtNamespace
