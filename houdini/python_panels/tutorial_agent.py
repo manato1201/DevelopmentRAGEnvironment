@@ -144,7 +144,7 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初
 1. リクエストと参考ドキュメントからチュートリアルの構成を決める（3〜8ノード程度の到達可能なスコープに収める）
 2. ノードを作成・接続・パラメータ設定する
 3. cook_node でエラー確認 → 自己修正
-4. エラーゼロを確認したら finish_tutorial を呼ぶ。steps には実際に行った操作を初心者が再現できる粒度で書き、pitfalls には生成中に遭遇したエラーと対処を書く。sources_used には実際に参考にした「参考ドキュメント」の番号（下記の[1][2]...）を記入する（使っていなければ空配列）
+4. エラーゼロを確認したら finish_tutorial を呼ぶ。steps には実際に行った操作を初心者が再現できる粒度で書き、pitfalls には生成中に遭遇したエラーと対処を書く。next_steps には「このパラメータを変えたら/このノードを足したら何が変わるか」を具体的に3〜5個挙げ、読んだ人が自分のプロジェクトに応用するための手がかりにする（手順の要約の繰り返しにしないこと）。sources_used には実際に参考にした「参考ドキュメント」の番号（下記の[1][2]...）を記入する（使っていなければ空配列）
 5. finish_tutorial の直後に現在のビューポート画像が送られます。**その画像を確認し、意図した見た目になっているか自己検証してから、必ず confirm_tutorial を呼んでください。** 見た目に問題があれば looks_correct=false にして修正し、finish_tutorial からやり直してください
 
 ## 参考ドキュメント（houdini21 ナレッジベース。番号は sources_used で引用する際に使う）
@@ -450,7 +450,29 @@ class TutorialAgent:
         grace_warned = False        # GRACE_NUDGE_TEXTは1生成につき1回だけ出す
         search_nudge_active = False  # 現在の検索連打ストリークで既に促したか（create_nodeで解除）
         empty_handed_rescues = 0    # 何も作らずテキストのみで終了しようとした際の救済回数
+        cache_marked_content: list | None = None  # ローリングキャッシュ用（下記コメント参照）
         for iteration in range(1, MAX_ITERATIONS + 1):
+            # ローリングプロンプトキャッシュ: messages は反復のたびに増え続けるが、
+            # cache_control は system_blocks / tools（固定部分）にしか付けていなかった
+            # ため、会話履歴そのもの（tool_result・アシスタント応答の蓄積）は毎ターン
+            # 通常入力価格（$3/M）で再送信・再課金されていた。反復が進むほど履歴が
+            # 線形に伸びるため、生成1回あたりのコストは反復回数のほぼ2乗で増える
+            # ことになり、これが実機で「1生成$3超え」の主因と判明した。
+            # ここでは「直前のターンまでの会話」の末尾に cache_control を付け直す
+            # ことで、その部分をキャッシュ読み込み価格（$0.30/M、通常の1/10）で
+            # 再利用できるようにする。付け直す際は古い位置のマーカーを外す
+            # （Anthropic APIは cache_control breakpoint を最大4つまでしか許可せず、
+            # system+toolsで既に2つ使っているため、会話側は1つだけを使い回す）。
+            if messages:
+                last_content = messages[-1].get("content")
+                if isinstance(last_content, list) and last_content:
+                    last_content[-1] = {**last_content[-1], "cache_control": {"type": "ephemeral"}}
+                    if cache_marked_content is not None and cache_marked_content is not last_content:
+                        cache_marked_content[-1] = {
+                            k: v for k, v in cache_marked_content[-1].items() if k != "cache_control"
+                        }
+                    cache_marked_content = last_content
+
             response = self._call_api(system_blocks, tools, messages)
             quota = response.get("claudeQuota")
             if quota is not None:
@@ -756,6 +778,13 @@ rag_indexed: false
 ## ハマりポイント
 
 {pitfalls or "特になし"}
+
+## 応用・発展のヒント
+
+{finish.get("next_steps") or (
+    "（打ち切りのため未生成です）" if not result.completed
+    else "特になし（パラメータを変えて色々試してみましょう）"
+)}
 
 ## 参考
 {extraction_note}

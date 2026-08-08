@@ -80,12 +80,26 @@ def _spring_layout(
     そのままだと RAGGraphScene.build() の `nd.get("x", 0.5)` フォールバックにより
     全ノードが (0.5, 0.5) の同一点に重なって表示される（実機で「レイアウトがひどい」
     として確認された不具合）。x/y が欠けている場合はここで位置を計算して補う。
+
+    2026-08-08 修正: ノード数が多い（実機で214ノード/356エッジ）グラフで、
+    ほとんどのノードが盤面の四隅の4点だけに収束してしまう不具合を修正した。
+    原因は反発力がノード数に比例して増え続けること（あるノードが受け取る
+    反発力は「他の全ノードとのペア」の合計であるため、ノード数が多いほど
+    合計値が大きくなる）と、エッジで繋がっていない孤立ノードには反発力に
+    対抗する引力が一切無いこと。結果として孤立ノードほど強く反発され続け、
+    [0.04, 0.96] のクランプ境界の中で最も「遠い」安定点である四隅に
+    次々と押し出されてしまっていた（scripts/rag_graph_export.py の同名
+    関数も同じ実装・同じ不具合だったため、あわせて修正している）。
+    対策は2つ: ①反発力をノード数で正規化し、ノード数に応じて合計反発力が
+    際限なく増えないようにする、②全ノードに中心(0.5, 0.5)へのごく弱い
+    求心力を加え、引力を持たない孤立ノードが盤面の隅に吹き飛ぶのを防ぐ。
     """
     if not node_ids:
         return {}
     if len(node_ids) == 1:
         return {node_ids[0]: (0.5, 0.5)}
 
+    n = len(node_ids)
     rnd = random.Random(42)
     pos: dict[str, list[float]] = {
         nid: [rnd.uniform(0.1, 0.9), rnd.uniform(0.1, 0.9)] for nid in node_ids
@@ -96,6 +110,7 @@ def _spring_layout(
         if a in pos and b in pos:
             edge_scores[(a, b)] = e.get("score", 0.7)
 
+    center_pull = 0.01  # 求心力の強さ（弱め: 引力が働くノード同士の凝集は妨げない）
     for _ in range(iterations):
         forces: dict[str, list[float]] = {nid: [0.0, 0.0] for nid in node_ids}
         for ai in range(len(node_ids)):
@@ -105,7 +120,7 @@ def _spring_layout(
                 dx = pos[a][0] - pos[b][0]
                 dy = pos[a][1] - pos[b][1]
                 d = math.hypot(dx, dy) or 0.001
-                f_rep = 0.004 / (d * d)
+                f_rep = 0.004 / (d * d) / n  # ノード数で正規化（①）
                 forces[a][0] += dx / d * f_rep
                 forces[a][1] += dy / d * f_rep
                 forces[b][0] -= dx / d * f_rep
@@ -118,6 +133,8 @@ def _spring_layout(
                     forces[b][0] += dx * f_att
                     forces[b][1] += dy * f_att
         for nid in node_ids:
+            forces[nid][0] -= (pos[nid][0] - 0.5) * center_pull  # 求心力（②）
+            forces[nid][1] -= (pos[nid][1] - 0.5) * center_pull
             pos[nid][0] = max(0.04, min(0.96, pos[nid][0] + forces[nid][0]))
             pos[nid][1] = max(0.04, min(0.96, pos[nid][1] + forces[nid][1]))
 
