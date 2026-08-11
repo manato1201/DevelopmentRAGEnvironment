@@ -48,6 +48,15 @@ qtParentWindow().grab() してしまうと、Qt がまだ古い（切り替え�
 内容を描画したままのウィジェットを掴んでしまう。processEvents() を
 数回呼んでイベントループを手動で回し、タブ切り替えの再描画を
 grab() の前に強制的に完了させる。
+
+2026-08-12 追加: IMPROVEMENT_PLAN.md Phase2（VLM対応）で、capture_viewport() の
+出力（PNG）を rag_chatbot.py のChatタブ添付画像・localRAG画像インデックス
+（scripts/image_embedding_generator.py）の両方の入力ソースとして流用している。
+新規のキャプチャ機構は作らず、この2関数（capture_viewport / capture_viewport_clip）
+のシグネチャ（output_path/output_dir・width・height・log_path、戻り値bool/
+(list[Path], int)）を「画面キャプチャ→VLM入力」経路の共通インターフェース候補
+として扱う。別文書「VLMAutoReplayTool設計書」が同型の経路（画面キャプチャ→VLM
+入力）を扱う場合は、独自のキャプチャ実装を持たずこのモジュールを参照すること。
 """
 
 from __future__ import annotations

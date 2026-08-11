@@ -38,12 +38,25 @@ class RAGService:
         self.document_processor = document_processor
         self.embedding_generator = embedding_generator
         self.vector_database = vector_database
+        # 画像埋め込み（CLIP、IMPROVEMENT_PLAN.md Phase2）は遅延初期化する。
+        # RAGServiceはブリッジ起動のたびに毎回構築されるため、ここでCLIPモデルを
+        # 即ロードすると画像検索を一度も使わないユーザーの起動時間・メモリまで
+        # 悪化させてしまう。実際に index_images()/search_images() が呼ばれた
+        # 初回にだけロードする。
+        self._image_embedding_generator = None
 
         try:
             self.vector_database.initialize_database()
         except Exception as e:
             self.logger.error(f"データベースの初期化に失敗しました: {str(e)}")
             raise
+
+    def _get_image_embedding_generator(self):
+        if self._image_embedding_generator is None:
+            from image_embedding_generator import ImageEmbeddingGenerator
+
+            self._image_embedding_generator = ImageEmbeddingGenerator()
+        return self._image_embedding_generator
 
     def index_documents(
         self,
@@ -214,6 +227,66 @@ class RAGService:
         except Exception as e:
             self.logger.error(f"ドキュメント数の取得中にエラーが発生しました: {str(e)}")
             raise
+
+    # ------------------------------------------------------------------ #
+    # 画像埋め込み（CLIP、IMPROVEMENT_PLAN.md Phase2）                        #
+    # 既存のテキスト検索（index_documents/search）とは完全に独立した経路。     #
+    # ------------------------------------------------------------------ #
+
+    def index_images(
+        self, namespace: str, image_paths: List[str], metadata_by_path: Dict[str, Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        画像ファイル群をCLIP埋め込みしてvector_database.insert_images()へ登録する。
+        namespaceは呼び出し側が明示する（画像はlocalRAG/配下のフォルダ構造に
+        従っているとは限らないため、テキストのように file_path から自動推定しない）。
+        """
+        if not image_paths:
+            return {"success": True, "image_count": 0, "message": "画像パスが空です"}
+        metadata_by_path = metadata_by_path or {}
+        try:
+            generator = self._get_image_embedding_generator()
+            embeddings = generator.generate_image_embeddings(image_paths)
+            documents = [
+                {
+                    "document_id": f"img::{namespace}::{path}",
+                    "file_path": path,
+                    "embedding": emb,
+                    "metadata": metadata_by_path.get(path, {}),
+                }
+                for path, emb in zip(image_paths, embeddings)
+            ]
+            self.vector_database.insert_images(namespace, documents)
+            self.logger.info(f"画像 {len(documents)} 枚を namespace '{namespace}' にインデックス化しました")
+            return {"success": True, "image_count": len(documents)}
+        except Exception as e:
+            self.logger.error(f"画像インデックス化中にエラーが発生しました: {str(e)}")
+            return {"success": False, "image_count": 0, "error": str(e)}
+
+    def search_images(self, query: str, limit: int = 5, namespace: str = None) -> List[Dict[str, Any]]:
+        """
+        テキストクエリで画像を検索する（クロスモーダル検索）。CLIPのテキスト
+        エンコーダでクエリをエンコードし、画像コレクション（{namespace}_images）
+        に対してベクトル検索する。既存のテキスト検索には一切影響しない。
+        """
+        if not query:
+            return []
+        try:
+            generator = self._get_image_embedding_generator()
+            embedding = generator.generate_text_query_embedding(query)
+            if not embedding:
+                return []
+            return self.vector_database.search_images(embedding, limit, namespace)
+        except Exception as e:
+            self.logger.error(f"画像検索中にエラーが発生しました: {str(e)}")
+            return []
+
+    def get_image_count(self) -> int:
+        try:
+            return self.vector_database.get_image_count()
+        except Exception as e:
+            self.logger.error(f"画像件数の取得中にエラーが発生しました: {str(e)}")
+            return 0
 
 
 def create_rag_service_from_env() -> RAGService:

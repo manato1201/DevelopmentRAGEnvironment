@@ -168,6 +168,19 @@ class LocalRAGClient:
         with self._lock:
             return self._rag_service.get_document_count()
 
+    def index_images(self, namespace: str, image_paths: list[str], metadata_by_path: dict) -> dict:
+        """画像埋め込み（CLIP、IMPROVEMENT_PLAN.md Phase2）。初回呼び出しでCLIPモデルを遅延ロードする。"""
+        if self._rag_service is None:
+            return {"success": False, "image_count": 0, "error": "RAGService が起動していません"}
+        with self._lock:
+            return self._rag_service.index_images(namespace, image_paths, metadata_by_path)
+
+    def search_images(self, query: str, limit: int = 5, namespace: str | None = None) -> list[dict]:
+        if self._rag_service is None:
+            return []
+        with self._lock:
+            return self._rag_service.search_images(query, limit, namespace)
+
 
 # ─── namespace フィルタリング ────────────────────────────────────────────────────
 
@@ -678,6 +691,20 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._handle_search(user)
             return
 
+        # 画像埋め込み（CLIP、IMPROVEMENT_PLAN.md Phase2）。既存の /search・/query とは
+        # 完全に独立した経路（テキスト検索の挙動には一切影響しない）。
+        if path == "/index-images":
+            user = self._require_auth()
+            if user:
+                self._handle_index_images(user)
+            return
+
+        if path == "/image-search":
+            user = self._require_auth()
+            if user:
+                self._handle_image_search(user)
+            return
+
         # 管理者 API
         if path == "/api/users":
             user = self._require_admin()
@@ -872,6 +899,84 @@ class BridgeHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._log(user, "/search", query, requested or allowed, 500)
             self._send_json(500, {"error": str(exc)})
+
+    def _handle_index_images(self, user: dict) -> None:
+        """
+        画像埋め込み（CLIP、IMPROVEMENT_PLAN.md Phase2）の登録。
+        呼び出し元はローカルファイルシステム上のパスを渡す想定（Houdiniブリッジと
+        同じマシン上で動くため、Houdini側が保存したスクリーンショットのパスを
+        そのまま渡せる。例: tutorial_view.py が保存したチュートリアルの
+        step_screenshots）。CLIPモデルは初回呼び出し時に遅延ロードされる
+        （数百MB〜のモデルダウンロード/ロードが発生するため、初回は数秒〜数十秒
+        かかることがある）。
+
+        body: {"namespace": str, "image_paths": [str, ...], "metadata": {path: {...}}}
+        """
+        body = self._read_body()
+        namespace: str = (body.get("namespace") or "").strip()
+        image_paths = [p for p in (body.get("image_paths") or []) if isinstance(p, str)]
+        metadata_by_path = body.get("metadata") or {}
+
+        if not namespace:
+            self._send_json(400, {"error": "namespace は必須です"})
+            return
+        if not image_paths:
+            self._send_json(400, {"error": "image_paths は必須です"})
+            return
+        if not self.mcp.is_alive():
+            self._send_json(503, {"error": "RAGService が起動していません"})
+            return
+
+        # 存在しないパスは黙って除外する（ベストエフォート。呼び出し元が保存直後の
+        # パスをそのまま渡すだけなので、通常は全件存在するはずだが念のため）。
+        existing_paths = [p for p in image_paths if Path(p).exists()]
+        if not existing_paths:
+            self._send_json(400, {"error": "存在する画像ファイルがありません"})
+            return
+
+        try:
+            result = self.mcp.index_images(namespace, existing_paths, metadata_by_path)
+            self._log(user, "/index-images", namespace, [namespace], 200 if result.get("success") else 500)
+            self._send_json(200 if result.get("success") else 500, {**result, "status": "ok" if result.get("success") else "error"})
+        except Exception as exc:
+            self._log(user, "/index-images", namespace, [namespace], 500)
+            self._send_json(500, {"error": str(exc), "status": "error"})
+
+    def _handle_image_search(self, user: dict) -> None:
+        """
+        テキストクエリで画像を検索する（クロスモーダル検索、IMPROVEMENT_PLAN.md Phase2）。
+        既存の /search・/query（テキスト検索）には一切影響しない独立した経路。
+
+        body: {"query": str, "limit": int, "namespace": str（省略可、省略時は全namespace対象）}
+        """
+        body       = self._read_body()
+        query: str = (body.get("query") or "").strip()
+        limit: int = int(body.get("limit", 5))
+        namespace  = (body.get("namespace") or "").strip() or None
+
+        if not query:
+            self._send_json(400, {"error": "query は必須です"})
+            return
+        if not self.mcp.is_alive():
+            self._send_json(503, {"error": "RAGService が起動していません"})
+            return
+
+        try:
+            results = self.mcp.search_images(query, limit, namespace)
+            images = [
+                {
+                    "file_path": r.get("file_path", ""),
+                    "namespace": r.get("namespace", ""),
+                    "score":     round(r.get("similarity", 0.0), 4),
+                    "metadata":  r.get("metadata", {}),
+                }
+                for r in results
+            ]
+            self._log(user, "/image-search", query, [namespace] if namespace else [], 200)
+            self._send_json(200, {"images": images, "status": "ok"})
+        except Exception as exc:
+            self._log(user, "/image-search", query, [namespace] if namespace else [], 500)
+            self._send_json(500, {"error": str(exc), "status": "error"})
 
     def _handle_create_user(self) -> None:
         body = self._read_body()

@@ -88,6 +88,22 @@ class VectorDatabase:
             )
         return self._collections[namespace]
 
+    def _get_image_collection(self, namespace: str):
+        """
+        画像埋め込み（CLIP、IMPROVEMENT_PLAN.md Phase2）専用のコレクション。
+        テキスト埋め込み（multilingual-e5-large、1024次元）とCLIP埋め込み
+        （clip-ViT-B-32、512次元）は次元が異なり同一コレクションに混在できないため、
+        `{namespace}_images` という別名のコレクションに分離する。_collections
+        キャッシュのキーもテキスト用と衝突しないようにサフィックス込みで扱う。
+        """
+        key = f"{namespace}_images"
+        if key not in self._collections:
+            self._collections[key] = self.client.get_or_create_collection(
+                name=key,
+                metadata={"hnsw:space": "cosine"},
+            )
+        return self._collections[key]
+
     @staticmethod
     def _safe_meta(metadata: dict) -> dict:
         return {
@@ -255,6 +271,30 @@ class VectorDatabase:
             )
             # BM25 再構築（ChromaDB を正として同期）
             self._rebuild_bm25_from_chroma(ns)
+
+    def insert_images(self, namespace: str, images: list) -> None:
+        """
+        画像埋め込み（CLIP、IMPROVEMENT_PLAN.md Phase2）を `{namespace}_images`
+        コレクションへ upsert する。batch_insert_documents() とは意図的に別メソッド
+        にしている（namespaceをファイルパスから自動推定せず呼び出し側が明示するため、
+        BM25の対象にもならないため）。
+
+        images: [{"document_id", "file_path", "embedding", "metadata": {...}}]
+        """
+        if not images:
+            return
+        col = self._get_image_collection(namespace)
+        col.upsert(
+            ids=[d["document_id"] for d in images],
+            embeddings=[self._to_list(d["embedding"]) for d in images],
+            metadatas=[
+                {
+                    "file_path": d.get("file_path", ""),
+                    **self._safe_meta(d.get("metadata", {})),
+                }
+                for d in images
+            ],
+        )
 
     def delete_document(self, document_id: str) -> None:
         if self.client is None:
@@ -462,14 +502,80 @@ class VectorDatabase:
         # BM25 なし / ヒットなし → ベクトルのみ
         return vector_results[:limit]
 
+    def search_images(
+        self,
+        embedding,
+        limit: int = 5,
+        namespace: Optional[str] = None,
+    ) -> list[dict]:
+        """
+        画像埋め込み（CLIP、IMPROVEMENT_PLAN.md Phase2）に対するベクトル検索のみの
+        シンプルな実装（BM25/RRFマージは行わない。画像にはBM25で使う本文が無いため）。
+        embedding はCLIPの画像 or テキストエンコーダで生成したもの（同一空間）。
+        既存の search()（テキスト、BM25+ベクトルRRF）とは完全に独立した経路であり、
+        こちらを呼んでも既存のテキスト検索のスコア・順位には一切影響しない。
+        """
+        if self.client is None:
+            return []
+        # namespace指定が無い場合、_images サフィックス付きコレクションだけを対象にする
+        # （list_collections()にはテキスト用コレクションも混在しているため）。
+        if namespace:
+            targets = [f"{namespace}_images"]
+        else:
+            targets = [c.name for c in self.client.list_collections() if c.name.endswith("_images")]
+
+        results: list[dict] = []
+        for col_name in targets:
+            ns = col_name[: -len("_images")] if col_name.endswith("_images") else col_name
+            col = self._get_image_collection(ns)
+            count = col.count()
+            if count == 0:
+                continue
+            res = col.query(
+                query_embeddings=[self._to_list(embedding)],
+                n_results=min(limit * 2, count),
+                include=["metadatas", "distances"],
+            )
+            for doc_id, meta, dist in zip(res["ids"][0], res["metadatas"][0], res["distances"][0]):
+                results.append({
+                    "document_id": doc_id,
+                    "file_path":   meta.get("file_path", ""),
+                    "similarity":  float(1.0 - dist),
+                    "metadata":    meta,
+                    "namespace":   ns,
+                })
+
+        results.sort(key=lambda x: x["similarity"], reverse=True)
+        return results[:limit]
+
     # ------------------------------------------------------------------ #
     # Utility                                                               #
     # ------------------------------------------------------------------ #
 
     def get_document_count(self) -> int:
+        """
+        テキストドキュメントのチャンク数。`_images` サフィックス付きコレクション
+        （CLIP画像埋め込み、IMPROVEMENT_PLAN.md Phase2）は意図的に除外する ──
+        含めてしまうと「インデックスが空か」の判定（rag_local_bridge.py）や
+        件数表示の意味が変わり、画像を1枚もインデックスしていない既存ユーザーの
+        挙動には影響しないはずが、画像インデックスを使い始めた途端に既存の
+        テキスト件数表示だけが変化してしまう（Phase2の回帰確認チェックリスト違反）。
+        """
         if self.client is None:
             return 0
-        return sum(c.count() for c in self.client.list_collections())
+        return sum(
+            c.count() for c in self.client.list_collections()
+            if not c.name.endswith("_images")
+        )
+
+    def get_image_count(self) -> int:
+        """`_images` コレクションの画像埋め込み数の合計（IMPROVEMENT_PLAN.md Phase2）。"""
+        if self.client is None:
+            return 0
+        return sum(
+            c.count() for c in self.client.list_collections()
+            if c.name.endswith("_images")
+        )
 
     def get_adjacent_chunks(
         self, file_path: str, chunk_index: int, context_size: int = 1
