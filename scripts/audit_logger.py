@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 
 class RAGAuditLogger:
@@ -39,7 +37,7 @@ class RAGAuditLogger:
         self.log_path = Path(log_path)
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def log(self, event: dict) -> None:
+    def log(self, event: dict[str, object]) -> None:
         """
         監査イベントを JSONL ファイルに追記する。
         event には任意のキーを渡せるが、以下の標準フィールドに正規化する:
@@ -52,7 +50,7 @@ class RAGAuditLogger:
             "user_role":    event.get("user_role"),
             "action":       event.get("action", "search"),
             "namespace":    event.get("namespace"),
-            "query_hash":   self._hash(event.get("query", "")),
+            "query_hash":   self._hash(str(event.get("query", ""))),
             "result_count": event.get("result_count"),
             "latency_ms":   event.get("latency_ms"),
             "allowed":      event.get("allowed", True),
@@ -67,7 +65,7 @@ class RAGAuditLogger:
             return ""
         return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
-    def get_recent(self, limit: int = 100) -> list[dict]:
+    def get_recent(self, limit: int = 100) -> list[dict[str, object]]:
         """最新 limit 件のログエントリを新しい順で返す（管理 UI 用）。"""
         if not self.log_path.exists():
             return []

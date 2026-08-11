@@ -11,11 +11,73 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from document_processor import DocumentProcessor
 from embedding_generator import EmbeddingGenerator
 from vector_database import VectorDatabase
+
+# ─── 軽量サービスレジストリ（IMPROVEMENT_PLAN.md Phase4） ─────────────────────────
+#
+# ECS・重量DIコンテナは導入しない: このリポジトリはバッチ/CLI主体のETLパイプライン
+# （rag_cli.py index）であり、毎フレーム大量エンティティを反復処理するランタイムでは
+# ないため、アーキタイプ/システムの概念は不要。処理段も3〜4個程度でDIコンテナは
+# オーバースペック。代わりに「関数登録＋名前引きルックアップ」だけの薄いレジストリを
+# 用意し、将来の差し替えポイント（Phase1のレベリング用プロンプト構成、Phase2の
+# CLIP画像埋め込み＝"clip"登録、Phase3のバックエンド差し替え＝SQLite↔TiDB・
+# ChromaDB↔TiKV）がこの境界に乗るようにする。document_processor.py /
+# embedding_generator.py 本体の実装には一切手を入れていない（登録簿を挟んだだけ）。
+
+_EMBEDDERS: Dict[str, Callable[[], Any]] = {}
+_VECTOR_BACKENDS: Dict[str, Callable[[dict], VectorDatabase]] = {}
+
+
+def register_embedder(name: str, factory: Callable[[], Any]) -> None:
+    """埋め込み生成器のファクトリを名前で登録する。"""
+    _EMBEDDERS[name] = factory
+
+
+def get_embedder(name: str = "default") -> Any:
+    """
+    登録済みの埋め込み生成器を名前で取得する。
+    未登録キーは KeyError で即座に失敗させる（暗黙フォールバック禁止 —
+    タイプミスしたモデル名で静かに間違った埋め込みを作り続ける事故を防ぐ）。
+    """
+    return _EMBEDDERS[name]()
+
+
+def register_vector_backend(name: str, factory: Callable[[dict], VectorDatabase]) -> None:
+    """ベクトルストアのファクトリを名前で登録する（configを受け取る点がembedderと異なる）。"""
+    _VECTOR_BACKENDS[name] = factory
+
+
+def get_vector_backend(config: dict, name: str = "default") -> VectorDatabase:
+    """登録済みのベクトルストアを名前で取得する（未登録キーはKeyError）。"""
+    return _VECTOR_BACKENDS[name](config)
+
+
+def _default_text_embedder_factory() -> EmbeddingGenerator:
+    model = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
+    return EmbeddingGenerator(model_name=model)
+
+
+def _clip_image_embedder_factory() -> Any:
+    # 遅延import: image_embedding_generator.py はCLIPモデルをロードするため重い。
+    # レジストリへの「登録」自体はモジュールimport時に行うが、実際のモデルロードは
+    # get_embedder("clip") が呼ばれた時点まで遅延させる（RAGService側の遅延初期化と
+    # 二重の安全策）。
+    from image_embedding_generator import ImageEmbeddingGenerator
+
+    return ImageEmbeddingGenerator()
+
+
+def _default_vector_backend_factory(config: dict) -> VectorDatabase:
+    return VectorDatabase(config)
+
+
+register_embedder("default", _default_text_embedder_factory)
+register_embedder("clip", _clip_image_embedder_factory)
+register_vector_backend("default", _default_vector_backend_factory)
 
 
 class RAGService:
@@ -53,9 +115,7 @@ class RAGService:
 
     def _get_image_embedding_generator(self):
         if self._image_embedding_generator is None:
-            from image_embedding_generator import ImageEmbeddingGenerator
-
-            self._image_embedding_generator = ImageEmbeddingGenerator()
+            self._image_embedding_generator = get_embedder("clip")
         return self._image_embedding_generator
 
     def index_documents(
@@ -290,12 +350,17 @@ class RAGService:
 
 
 def create_rag_service_from_env() -> RAGService:
-    """環境変数から RAGService を作成する（os.environ.get のみ使用、.env は読み込まない）。"""
-    embedding_model = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
-
+    """
+    環境変数から RAGService を作成する（os.environ.get のみ使用、.env は読み込まない）。
+    埋め込み生成器・ベクトルストアはレジストリ（get_embedder/get_vector_backend）経由で
+    取得する。既定登録（_default_text_embedder_factory/_default_vector_backend_factory）は
+    従来と全く同じ構築ロジックのため、挙動は変わらない。Phase3でバックエンドを
+    差し替える際は、ここを `get_vector_backend(config, name="tidb")` のように
+    変えるだけで済むようにするのが狙い。
+    """
     document_processor = DocumentProcessor()
-    embedding_generator = EmbeddingGenerator(model_name=embedding_model)
-    vector_database = VectorDatabase(
+    embedding_generator = get_embedder("default")
+    vector_database = get_vector_backend(
         {
             "chroma_path": os.environ.get("CHROMA_PATH", str(Path(__file__).parent.parent / "data" / "chroma")),
             "embedding_dim": os.environ.get("EMBEDDING_DIM", "1024"),

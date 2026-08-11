@@ -19,3 +19,24 @@ dependencies = [
     "watchdog>=6.0.0",
     "yt-dlp>=2026.7.4",
 ]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+    "ruff>=0.16.2",
+]
+
+# IMPROVEMENT_PLAN.md Phase5: 静的解析の軽量強化。
+# select はruffの実質的な歴史的デフォルト（pycodestyle errors + pyflakes）に
+# 明示的に固定している。素の `ruff check`（このバージョンの完全なデフォルト
+# ルールセット）を既存コードベース全体に対して試したところ343件の指摘が
+# 出た（UP=pyupgrade、FURB=refurb、S=bandit系のセキュリティ発見的ルール等、
+# スタイル刷新寄りのルールが大半）。「軽量強化」の趣旨に対してスコープが
+# 大きすぎるため、まずは実質的なバグ検出に直結するE4/E7/E9/Fに絞った
+# （この範囲では26件まで縮小し、実際に修正した）。より広いルールセットの
+# 採用は、CI導入後に別途判断する。
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

@@ -22,7 +22,7 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QRectF, QThread, Qt, Signal
+from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QWheelEvent
 from PySide6.QtWidgets import (
     QButtonGroup,

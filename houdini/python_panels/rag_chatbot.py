@@ -20,14 +20,12 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import subprocess
 import tempfile
 import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import sys as _sys
 import os as _os
@@ -62,18 +60,15 @@ except ImportError:
     _TUTORIAL_AVAILABLE = False
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QFont, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QSplitter,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,

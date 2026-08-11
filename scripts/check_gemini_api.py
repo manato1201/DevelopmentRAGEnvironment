@@ -4,7 +4,6 @@ Gemini API 疎通確認スクリプト
 使い方:
     uv run python scripts/check_gemini_api.py --gemini-key YOUR_KEY
 """
-import sys
 import argparse
 import requests
 
