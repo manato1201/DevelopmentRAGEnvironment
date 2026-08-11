@@ -18,7 +18,6 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 
 class UnderstandingScoreEngine:
@@ -102,7 +101,7 @@ class UnderstandingScoreEngine:
 
         return new_score
 
-    def get_all_scores(self, user_id: str) -> list[dict]:
+    def get_all_scores(self, user_id: str) -> list[dict[str, object]]:
         """ユーザーの全トピックスコアを返す（管理 UI 用）。"""
         with self._connect() as conn:
             rows = conn.execute(
@@ -111,7 +110,7 @@ class UnderstandingScoreEngine:
             ).fetchall()
         return [{"topic": r["topic"], "score": r["score"], "updated_at": r["updated_at"]} for r in rows]
 
-    def build_rag_query(self, user_id: str, action_context: dict) -> dict:
+    def build_rag_query(self, user_id: str, action_context: dict[str, object]) -> dict[str, object]:
         """
         理解度スコアに応じて RAG クエリの名前空間と詳細レベルを決定する。
 
@@ -124,9 +123,9 @@ class UnderstandingScoreEngine:
         Returns:
             dict: {"query": str, "namespaces": list[str], "detail_level": str, "max_results": int}
         """
-        topic = action_context.get("topic", "general")
+        topic = str(action_context.get("topic", "general"))
         score = self.get_score(user_id, topic)
-        query = action_context.get("query", "")
+        query = str(action_context.get("query", ""))
 
         if score < self._BEGINNER_THRESHOLD:
             # 初心者: 基礎ドキュメントのみ、ステップバイステップ

@@ -29,7 +29,7 @@ import urllib.error
 import urllib.request
 from typing import Optional
 
-from PySide6.QtCore import QPointF, QRectF, QThread, Qt, Signal
+from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QWheelEvent
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,

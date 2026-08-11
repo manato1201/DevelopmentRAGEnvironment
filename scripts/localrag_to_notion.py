@@ -24,7 +24,6 @@ localrag_to_notion.py — LocalRAG vault の Markdown を Notion DBに一括投�
 import os
 import re
 import sys
-import json
 import time
 import argparse
 from pathlib import Path

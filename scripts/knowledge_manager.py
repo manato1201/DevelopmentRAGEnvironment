@@ -34,16 +34,16 @@ import secrets
 import sys
 import threading
 import time
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(__file__))
-from pep import RAGPolicyEnforcementPoint
+from pep import RAGPolicyEnforcementPoint  # noqa: E402 -- sys.path.insert 後でないとimportできない
 
 # ナレッジ登録・更新で書き込みを許可する namespace の一覧。pep.py を正とする
 # （auth_manager.VALID_NAMESPACES と同じ導出元）。書式チェックだけでは
 # "my_made_up_ns" のような未知の namespace も通ってしまうため、既知の
 # 一覧との突き合わせを行う。
 _VALID_NAMESPACES = frozenset(RAGPolicyEnforcementPoint.NAMESPACE_PERMISSIONS.keys())
-from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent
 

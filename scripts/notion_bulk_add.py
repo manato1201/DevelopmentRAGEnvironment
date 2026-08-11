@@ -26,7 +26,6 @@ notion_bulk_add.py — Notion DB への一括データ投入スクリプト
 
 import os
 import sys
-import json
 import time
 import argparse
 import textwrap

@@ -8,7 +8,7 @@ mcp-rag-server から独立させた版（rag_service.py を直接 import）。
 import os
 from typing import Any, Dict
 
-from rag_service import RAGService, create_rag_service_from_env
+from rag_service import RAGService
 
 
 def register_rag_tools(server, rag_service: RAGService):

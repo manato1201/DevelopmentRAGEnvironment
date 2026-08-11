@@ -264,6 +264,29 @@ NIST SP 800-207（Zero Trust Architecture）の設計を取り入れた以下の
 
 ---
 
+## 開発（CI / 静的解析、IMPROVEMENT_PLAN.md Phase5）
+
+`.github/workflows/ci.yml` が `main` へのpush / PRで以下を実行する:
+
+| ステップ | 内容 |
+|---|---|
+| `ruff check scripts/ houdini/` | `pyproject.toml` の `[tool.ruff.lint]` で `E4`/`E7`/`E9`/`F`（pycodestyle errors + pyflakes）に絞って有効化。ruffの完全なデフォルトルールセットは既存コードベース全体に対して343件の指摘が出た（スタイル刷新寄りのルールが大半）ため、実質的なバグ検出に直結する範囲だけを既定にしている |
+| `mypy --strict scripts/pep.py scripts/score_engine.py scripts/audit_logger.py` | 段階導入（小さく依存の薄いモジュールから）。他モジュールを対象に加える場合は `ci.yml` のコマンドに追記する |
+| `scripts/ci_check_namespaces.py` | `localRAG/` 配下の未知なnamespace（フォルダ・直下の.mdファイル）を検知する。基準は `pep.py` の `NAMESPACE_PERMISSIONS` ではなく `auto_index.py` の `NAMESPACES`（詳細はスクリプト内のコメント参照） |
+
+ローカルで同じチェックを実行する場合:
+
+```bash
+uv sync --all-groups
+uv run ruff check scripts/ houdini/
+uv run mypy --strict scripts/pep.py scripts/score_engine.py scripts/audit_logger.py
+uv run python scripts/ci_check_namespaces.py
+```
+
+独自拡張子・専用パーサ基盤（別文書「LoreDesktopAndWebSystem改善計画書」方式）は導入していない。このプロジェクトはPython + JS(GAS) + C#(Unity Editor拡張)の組み合わせで独自DSLを持たないため。
+
+---
+
 ## 参考リンク
 
 | リソース | URL |
