@@ -18,9 +18,11 @@ Houdini セットアップ:
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
+import tempfile
 import threading
 import urllib.error
 import urllib.request
@@ -62,6 +64,7 @@ except ImportError:
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QFont, QPalette
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -144,6 +147,32 @@ def _get_json(url: str, timeout: int = 5) -> dict:
         return json.loads(resp.read())
 
 
+def _capture_viewport_b64() -> str | None:
+    """
+    現在の Houdini ビューポートを一時 PNG としてキャプチャし、base64 文字列にして返す
+    （IMPROVEMENT_PLAN.md Phase2: VLM入力）。失敗時・screen_capture.py が無い環境
+    （Houdini外でのテスト等）では None を返す。
+
+    screen_capture.py の capture 系関数は houdini_tools.py 側では QThread から
+    hdefereval 経由でメインスレッドへディスパッチして呼ばれているが、この関数は
+    「送信」ボタンのクリックハンドラ（＝既にメインスレッド）から直接呼ばれる想定
+    なので、ディスパッチは不要（QueryWorker=バックグラウンドスレッドを起動する前に
+    呼ぶこと。バックグラウンドスレッドから呼ぶと hou 呼び出しが安全でなくなる）。
+    """
+    try:
+        import screen_capture
+    except ImportError:
+        return None
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "chat_attach.png"
+            if not screen_capture.capture_viewport(path):
+                return None
+            return base64.b64encode(path.read_bytes()).decode("ascii")
+    except Exception:  # noqa: BLE001 -- best-effort, never raise
+        return None
+
+
 class RAGClient:
     """
     Cloud / Local を透過的に扱う RAG クライアント。
@@ -158,21 +187,27 @@ class RAGClient:
     def __init__(self, cfg: dict) -> None:
         self.cfg = cfg
 
-    def query(self, query: str, history: list[dict]) -> dict:
+    def query(self, query: str, history: list[dict], image_b64: str | None = None) -> dict:
         """
         RAG にクエリを送る。モードに応じてエンドポイントとリクエスト形式を切り替える。
         history は会話コンテキストとして送る（Gemini / Claude のマルチターン対話用）。
+
+        image_b64（IMPROVEMENT_PLAN.md Phase2: VLM入力）は Cloud モードでのみ有効。
+        gas_cloud_rag.js の doPost（query アクション）が {"image":{"mimeType","data"}} を
+        受け取ると、検索コンテキストに加えて画像自体もGeminiに見せて回答する
+        （§8.20参照）。Local モードは未対応のため、渡されても無視する
+        （rag_local_bridge.py の /query は image フィールドを見ない）。
         """
         if self.cfg["mode"] == "cloud":
-            return _post_json(
-                self.cfg["gas_url"],
-                {
-                    "query":  query,
-                    "dbKey":  self.cfg.get("gas_db_key") or "all",
-                    "history": history,
-                    "apiKey": self.cfg.get("gas_api_key", ""),
-                },
-            )
+            body = {
+                "query":  query,
+                "dbKey":  self.cfg.get("gas_db_key") or "all",
+                "history": history,
+                "apiKey": self.cfg.get("gas_api_key", ""),
+            }
+            if image_b64:
+                body["image"] = {"mimeType": "image/png", "data": image_b64}
+            return _post_json(self.cfg["gas_url"], body)
         else:
             port = self.cfg["local_port"]
             return _post_json(
@@ -234,15 +269,18 @@ class QueryWorker(QThread):
     finished = Signal(dict)  # 成功時: {"answer": str, "sources": list}
     error    = Signal(str)   # 失敗時: エラーメッセージ
 
-    def __init__(self, client: RAGClient, query: str, history: list[dict]) -> None:
+    def __init__(
+        self, client: RAGClient, query: str, history: list[dict], image_b64: str | None = None
+    ) -> None:
         super().__init__()
-        self._client  = client
-        self._query   = query
-        self._history = history
+        self._client    = client
+        self._query     = query
+        self._history   = history
+        self._image_b64 = image_b64
 
     def run(self) -> None:
         try:
-            result = self._client.query(self._query, self._history)
+            result = self._client.query(self._query, self._history, image_b64=self._image_b64)
             self.finished.emit(result)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -546,6 +584,17 @@ class RAGChatbotPanel(QWidget):
         self._mode_combo.setCurrentText(self._cfg["mode"])
         self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
         mode_row.addWidget(self._mode_combo)
+
+        # 画面添付チェックボックス（IMPROVEMENT_PLAN.md Phase2: VLM入力）。
+        # Cloud RAGのみ対応（gas_cloud_rag.js §8.20）。次の送信1回だけ有効な
+        # ワンショット仕様にしている（毎回同じ画面を送り続けてしまう事故を防ぐため）。
+        self._attach_viewport_checkbox = QCheckBox("画面を添付")
+        self._attach_viewport_checkbox.setToolTip(
+            "現在のHoudiniビューポートをキャプチャして次のメッセージに添付します"
+            "（Cloud RAGのみ対応。送信すると自動でオフに戻ります）"
+        )
+        self._attach_viewport_checkbox.setEnabled(self._cfg["mode"] == "cloud")
+        mode_row.addWidget(self._attach_viewport_checkbox)
         mode_row.addStretch()
         layout.addLayout(mode_row)
 
@@ -750,6 +799,11 @@ class RAGChatbotPanel(QWidget):
         self._client = RAGClient(self._cfg)
         if mode == "local":
             self._ensure_bridge()
+        # 画面添付（VLM入力）はCloud RAG専用（§8.20）。Localに切り替えたら
+        # チェックが入っていても解除し、無効な状態のまま残らないようにする。
+        self._attach_viewport_checkbox.setEnabled(mode == "cloud")
+        if mode != "cloud":
+            self._attach_viewport_checkbox.setChecked(False)
         self._check_connection_async()
 
     # ── 接続状態ランプ ───────────────────────────────────────────────────────────
@@ -796,6 +850,17 @@ class RAGChatbotPanel(QWidget):
             self._tutorial_panel.start_with_topic(topic)
             return
 
+        # 画面添付（VLM入力、§8.20）: チェックされていれば送信前にビューポートを
+        # キャプチャしてbase64化する。hou呼び出しを含むため、バックグラウンドの
+        # QueryWorkerを起動する前に、まだメインスレッドであるここで同期的に行う。
+        # ワンショット仕様（送信のたびに毎回オフへ戻す）。
+        image_b64 = None
+        if self._attach_viewport_checkbox.isChecked():
+            self._attach_viewport_checkbox.setChecked(False)
+            image_b64 = _capture_viewport_b64()
+            if image_b64 is None:
+                self._add_bubble("画面のキャプチャに失敗しました（添付なしで続行します）", is_user=False)
+
         self._input.clear()
         self._add_bubble(query, is_user=True)
         self._history.append({"role": "user", "text": query})
@@ -803,7 +868,7 @@ class RAGChatbotPanel(QWidget):
         self._send_btn.setEnabled(False)
 
         # 直近 12 件の履歴を Worker に渡す（古すぎる会話は LLM に送らない）
-        self._worker = QueryWorker(self._client, query, self._history[-12:])
+        self._worker = QueryWorker(self._client, query, self._history[-12:], image_b64=image_b64)
         self._worker.finished.connect(self._on_query_done)
         self._worker.error.connect(self._on_query_error)
         self._worker.start()

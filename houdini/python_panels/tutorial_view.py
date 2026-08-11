@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import math
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -142,6 +144,46 @@ class _DestroySandboxWorker(QThread):
             self.done.emit()
 
 
+class _ImageIndexWorker(QThread):
+    """
+    保存したチュートリアルのステップスクリーンショットを、ローカルRAGブリッジの
+    /index-images（CLIP画像埋め込み、IMPROVEMENT_PLAN.md Phase2）へ登録する。
+    ベストエフォート: 失敗してもチュートリアル保存そのものには一切影響させない
+    （結果はステータス表示にだけ反映する）。初回はCLIPモデルのロードが発生する
+    ため、数十秒かかることがある。
+    """
+    done = Signal(str)  # ステータステキスト
+
+    def __init__(self, port: int, namespace: str, image_paths: list[str], metadata_by_path: dict) -> None:
+        super().__init__()
+        self._port = port
+        self._namespace = namespace
+        self._image_paths = image_paths
+        self._metadata_by_path = metadata_by_path
+
+    def run(self) -> None:
+        try:
+            body = json.dumps({
+                "namespace": self._namespace,
+                "image_paths": self._image_paths,
+                "metadata": self._metadata_by_path,
+            }, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                f"http://localhost:{self._port}/index-images",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+            if data.get("success"):
+                self.done.emit(f"画像 {data.get('image_count', 0)} 枚をインデックス化しました")
+            else:
+                self.done.emit(f"画像インデックス化に失敗: {data.get('error', '不明なエラー')}")
+        except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
+            self.done.emit(f"画像インデックス化に失敗: {exc}")
+
+
 # ─── 生成タブ ────────────────────────────────────────────────────────────────────
 
 class TutorialGeneratePanel(QWidget):
@@ -172,6 +214,7 @@ class TutorialGeneratePanel(QWidget):
         # 参照保持だけが目的（単発生成モードでは常に空のまま）。
         self._chain_agents: list = []
         self._destroy_worker: _DestroySandboxWorker | None = None
+        self._image_index_workers: list = []  # GC 防止のため参照を保持（rag_chatbot.pyのRateWorkerと同じ流儀）
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -397,6 +440,7 @@ class TutorialGeneratePanel(QWidget):
             md_path, json_path = paths
             video_status = self._launch_video_for_result(result, md_path, json_path)
             status_parts.append(f"{result.level}: {md_path.name} 保存済み / {video_status}")
+            self._index_screenshots_async(result)
 
         self._refresh_usage()
         self._preview.setMarkdown("\n\n---\n\n".join(preview_parts))
@@ -474,6 +518,37 @@ class TutorialGeneratePanel(QWidget):
         except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
             return f"動画生成の起動に失敗: {exc}"
 
+    def _index_screenshots_async(self, result) -> None:
+        """
+        保存直後、result.step_screenshots のビューポート画像をベストエフォートで
+        ローカルRAGへCLIP画像埋め込みとしてインデックス化する
+        （IMPROVEMENT_PLAN.md Phase2）。/index-images は Local RAG ブリッジ専用の
+        エンドポイントのため、Cloud RAG モードでは何もしない。失敗しても
+        チュートリアル保存そのものには影響させない（ステータス表示に追記するだけ）。
+        """
+        cfg = self._cfg_getter()
+        if cfg.get("mode") != "local":
+            return
+        image_paths = [s["viewport"] for s in result.step_screenshots if s.get("viewport")]
+        if not image_paths:
+            return
+        metadata_by_path = {
+            s["viewport"]: {
+                "tutorial_title": result.title,
+                "level":          result.level,
+                "step":           s.get("step"),
+                "tool":           s.get("tool"),
+                "caption":        (s.get("result") or "")[:200],
+            }
+            for s in result.step_screenshots if s.get("viewport")
+        }
+        worker = _ImageIndexWorker(
+            cfg.get("local_port", 8766), "tutorials", image_paths, metadata_by_path
+        )
+        worker.done.connect(lambda msg: self._status.setText(f"{self._status.text()} / {msg}"))
+        self._image_index_workers.append(worker)  # GC 防止
+        worker.start()
+
     def _on_save(self) -> None:
         if self._result is None:
             return
@@ -494,6 +569,7 @@ class TutorialGeneratePanel(QWidget):
         )
         video_status = self._launch_video_for_result(self._result, md_path, json_path)
         self._status.setText(f"{self._status.text()} / {video_status}")
+        self._index_screenshots_async(self._result)
 
     def _on_discard(self) -> None:
         self._result = None

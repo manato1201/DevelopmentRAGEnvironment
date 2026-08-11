@@ -755,6 +755,15 @@ Houdini パネル内部の構成:
 - `graph_view.py`: グラフビュー（ノードをマウスでドラッグして配置を変えられる）
 - `tutorial_agent.py` / `tutorial_view.py` / `tutorial_graph_simplify.py`: houdini21チュートリアル自動生成（詳細は [docs/content-generation.md](content-generation.md) を参照）。「Tutorial」タブで生成・プレビュー・保存、「History」タブで保存済みチュートリアルとノードグラフを閲覧する。
 
+#### 6.3.6 画面添付でのVLM質問（Cloud RAGのみ、IMPROVEMENT_PLAN.md Phase2）
+
+Chat タブのモード切り替えの右に「画面を添付」チェックボックスがある。Cloud RAG モードのときだけ有効になり、チェックした状態で送信すると、送信直前に現在の Houdini ビューポートをキャプチャして質問と一緒に Gemini へ渡す（`screen_capture.py` の `capture_viewport()` を流用、新規キャプチャ機構は追加していない）。「このネットワークの見た目のどこがおかしいか」のような、画像を見せないと答えられない質問に使う。
+
+- **ワンショット仕様:** チェックは送信すると自動でオフに戻る。同じ画面を毎回添付し続けてしまう事故を防ぐため。
+- **Local RAG では使えない。** モードを `local` に切り替えるとチェックボックスは無効化され、チェックも自動的に外れる。`rag_local_bridge.py` の `/query` は `image` フィールドを受け取らない（Phase2で対応したのは Cloud RAG 側のみ、§8.20参照）。
+- キャプチャに失敗した場合（`SceneViewer` ペインが見つからない等）は、画像なしのテキストのみのメッセージとして送信を続行する（送信自体は失敗させない）。
+- 添付画像はナレッジベースには一切保存されない（その場限りの質問応答入力）。ナレッジ登録用の画像OCR取り込みとは別の経路（§8.20参照）。
+
 ### 6.4 グラフビューの使い方
 
 グラフビューは、RAG_Index に登録されたページ同士の「意味的な近さ」を視覚化する機能。似た内容のページが近くに配置されるため、知識ベースの全体構造を一目で把握できる。
@@ -1095,6 +1104,17 @@ Houdiniの`RAGChatBot`パネルの「Graph」タブ（`houdini/python_panels/gra
 `doPost`に、通常のクエリ処理（`query`アクション）と同じ認証・レート制限の流儀（管理者チェックはしない）で`action:'graph'`（`{action:'graph', apiKey}`）を追加した。`validateApiKey_(apiKey)`で認証し、`isRateLimited_(apiKey)`でレート制限を確認した上で`buildGraphData_(config.namespaces || null)`をそのまま返す。戻り値の形（`{nodes:[{id,label,db}], edges:[{source,target,score,cross_db}], status:'ok'}`）は`/graph`エンドポイントと完全に同一なので、レンダリング側（`NodeItem`/`EdgeItem`/`RAGGraphScene`）は変更不要。
 
 `GraphFetchWorker`は`rag_mode`（`"local"`|`"cloud"`）・`gas_url`・`gas_api_key`を受け取れるように拡張し、`rag_mode=="cloud"`のときは`gas_url`に`{"action":"graph","apiKey":gas_api_key}`をPOSTする（`tutorial_agent.py`の`_call_api`と同じ`urllib.request.Request(..., method='POST')`パターン）。`RAGGraphWidget`もこれらを引数で受け取り、`rag_chatbot.py`の`_build_graph_tab()`が`self._cfg`の`mode`/`gas_url`/`gas_api_key`をそのまま渡すようにした。
+
+### 8.20 クエリ時の画像添付（VLM入力、IMPROVEMENT_PLAN.md Phase2）
+
+Cloud RAGは以前からナレッジ登録時の画像OCR取り込み（`§8.17`周辺、Drive変換経由でテキスト化してから保存する一方向変換）を持っていたが、これは「登録時」の変換であり、チャット中に画像を見せて質問する（VLM的な質疑応答）用途には使えなかった。
+
+`doPost`の`query`アクション（既定アクション）に、任意フィールド`image: {mimeType, data}`（`data`はbase64）を追加した。`image`が指定されると`ragQueryInternal_()`が最後のユーザーターンに`inlineData`パートを追加し、Gemini（`gemini-3.6-flash`はマルチモーダル対応）が通常のRAGコンテキストと画像の両方を見た上で回答する。OCR取り込みのようなテキスト化・保存は一切行わない（その場限りの入力）。
+
+- サイズ上限: 既定8MB（スクリプトプロパティ`MAX_QUERY_IMAGE_MB`で上書き可能）。OCR取り込み用の`MAX_DRIVE_CONVERT_MB`（既定25MB）より小さいのは、こちらはチャット応答のレイテンシに直結するため。上限超過時は`{"status":"error"}`で明示的なエラーメッセージを返す。
+- `mode:"raw"`（Function Calling用途、最終回答生成自体をスキップするモード）では`image`は無視される。
+- 画像入力の取得元はHoudini側の`houdini/python_panels/screen_capture.py`の`capture_viewport()`をそのまま流用する想定（新規キャプチャ機構は作らない）。実際のHoudini UI連携（Chatタブへの「画面を添付」ボタン等）は別途§6.3.6で説明する。
+- ブラウザ版WebApp UI（`ragQueryWithKey()`、`google.script.run`経由）は本フェーズの対象外。HTTPクライアント（`doPost`経由、Houdini/Unity向け）のみ対応する。
 
 ---
 
