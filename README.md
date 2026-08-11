@@ -285,6 +285,14 @@ uv run python scripts/ci_check_namespaces.py
 
 独自拡張子・専用パーサ基盤（別文書「LoreDesktopAndWebSystem改善計画書」方式）は導入していない。このプロジェクトはPython + JS(GAS) + C#(Unity Editor拡張)の組み合わせで独自DSLを持たないため。
 
+### アーキテクチャ判断: ECS・重量DIコンテナを採用しない理由（IMPROVEMENT_PLAN.md Phase4）
+
+`scripts/rag_service.py` の処理段（ドキュメント処理・埋め込み生成・ベクトルストア）は、ECS（Entity Component System）や重量DIコンテナではなく、関数登録＋名前引きだけの軽量レジストリ（`register_embedder`/`get_embedder`、`register_vector_backend`/`get_vector_backend`）で差し替え可能にしている。
+
+- **ECSを採用しない理由:** ECSは「毎フレーム大量のエンティティを反復処理するランタイム」向けのパターン。このプロジェクトはバッチ/CLI主体のETLパイプライン（`rag_cli.py index`）であり、アーキタイプ/システムの概念を適用する対象（大量の同種エンティティの反復処理）がそもそも存在しない。
+- **重量DIコンテナを採用しない理由:** 処理段は3〜4個程度のモジュール（`DocumentProcessor`/`EmbeddingGenerator`/`VectorDatabase`、Phase2で`ImageEmbeddingGenerator`が追加）に留まり、この規模でDIコンテナを導入すると学習コスト・設定の複雑さが実際の差し替えニーズを上回る（オーバースペック）。
+- 実際に差し替えが必要になった時点（Phase2のCLIP画像埋め込み＝`"clip"`登録、将来Phase3のTiDB/TiKV移行時のバックエンド差し替え）でのみ、レジストリへ新しいファクトリを登録する形で対応している。
+
 ---
 
 ## 参考リンク
