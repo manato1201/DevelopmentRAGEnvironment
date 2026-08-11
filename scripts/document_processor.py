@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import markitdown
+import yaml
 
 
 class DocumentProcessor:
@@ -116,6 +117,30 @@ class DocumentProcessor:
             "path": file_path,
         }
 
+    def read_frontmatter(self, text: str) -> Dict[str, Any]:
+        """
+        Markdown 先頭の YAML frontmatter（--- ... ---）を読む。
+        auto_index.py の read_frontmatter() と同じフォーマット想定（ファイル
+        パスではなく既読み込み済みのテキストを受け取る点だけが違う）。
+
+        これまでこのモジュールは frontmatter を一切読んでおらず、インデックス
+        化時のメタデータは file_name/directory/directory_suffix のみだった
+        （namespace/status/tags/difficulty 等、frontmatterに書かれている
+        フィールドは全て無視され、チャンク本文の一部としてベクトル化される
+        だけだった）。Phase1のレベリング機能（basic/applied/advanced）で
+        `difficulty` をChromaDBメタデータとして検索フィルタに使うために、
+        最小限のフィールドとしてここで読み取る。
+        """
+        if not text.startswith("---"):
+            return {}
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            return {}
+        try:
+            return yaml.safe_load(parts[1]) or {}
+        except Exception:
+            return {}
+
     def load_file_registry(self, processed_dir: str) -> Dict[str, Dict[str, Any]]:
         registry_path = Path(processed_dir) / "file_registry.json"
         if not registry_path.exists():
@@ -163,6 +188,14 @@ class DocumentProcessor:
 
             chunks = self.split_into_chunks(content, chunk_size, overlap)
 
+            # frontmatterの difficulty フィールド（Phase1レベリング）だけを拾う。
+            # scalar以外（listのtags等）はChromaDBメタデータに保存できない
+            # （vector_database.py の _safe_meta() がstr/int/float/boolのみ許可）
+            # ため、意図的にこの1フィールドだけに絞っている。
+            frontmatter = self.read_frontmatter(content)
+            difficulty = frontmatter.get("difficulty", "")
+            extra_meta: Dict[str, Any] = {"difficulty": difficulty} if isinstance(difficulty, str) and difficulty else {}
+
             results = []
             for i, chunk in enumerate(chunks):
                 document_id = f"{processed_file_name}_{i}"
@@ -177,6 +210,7 @@ class DocumentProcessor:
                             "file_name": file_path_obj.name,
                             "directory": str(file_path_obj.parent),
                             "directory_suffix": dir_suffix,
+                            **extra_meta,
                         },
                     }
                 )

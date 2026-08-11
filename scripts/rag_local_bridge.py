@@ -205,6 +205,29 @@ def _filter_groups_by_namespace(groups: dict[str, list[dict]], allowed: list[str
     return out
 
 
+def _filter_groups_by_level(groups: dict[str, list[dict]], level: str) -> dict[str, list[dict]]:
+    """
+    Phase1レベリング: difficulty（basic/applied/advanced）でファイルグループを絞り込む。
+
+    difficulty が未設定のファイル（houdini21ドキュメント等、大半の既存コンテンツ）は
+    "レベル分けされていないだけ" であって "対象外" ではないため、常に通過させる
+    （_filter_groups_by_namespace とは異なり fail-closed にしない）。そうしないと、
+    difficultyタグ付きのチュートリアルがまだ少ない現状では level 指定時にほぼ何も
+    ヒットしなくなり、後方互換の観点でも既存コンテンツを不当に締め出すことになる。
+    """
+    if not level:
+        return groups
+    out: dict[str, list[dict]] = {}
+    for fp, items in groups.items():
+        difficulty = next(
+            (i.get("metadata", {}).get("difficulty") for i in items if i.get("metadata", {}).get("difficulty")),
+            "",
+        )
+        if not difficulty or difficulty == level:
+            out[fp] = items
+    return out
+
+
 def _build_context_and_sources(groups: dict[str, list[dict]], limit: int) -> tuple[list[str], list[dict]]:
     """
     namespace フィルタ確定後のファイルグループから、LLM に渡す番号付きコンテキストと
@@ -239,11 +262,16 @@ def _build_context_and_sources(groups: dict[str, list[dict]], limit: int) -> tup
                     max_score = vs if max_score is None else max(max_score, vs)
 
         ns = _extract_namespace_from_path(file_path)
+        difficulty = next(
+            (c.get("metadata", {}).get("difficulty") for c in chunks if c.get("metadata", {}).get("difficulty")),
+            "",
+        )
         sources.append({
             "title": file_name,
             "db": ns or "local",
             "score": round(max_score, 4) if max_score is not None else 0.0,
             "score_type": "vector" if saw_vector_hit else "keyword",
+            "difficulty": difficulty,  # Phase1レベリング: basic/applied/advanced（未設定なら空文字）
         })
 
     return texts, sources
@@ -707,6 +735,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         query: str = body.get("query", "").strip()
         history    = body.get("history", [])
         limit: int = int(body.get("limit", 5))
+        level: str = (body.get("level") or "").strip()  # Phase1レベリング（省略可・後方互換）
 
         if not query:
             self._send_json(400, {"error": "query は必須です"})
@@ -743,6 +772,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             # namespace フィルタリング（PEP で絞り込まれた effective_ns を使用）
             if effective_ns:
                 groups = _filter_groups_by_namespace(groups, effective_ns)
+            if level:
+                groups = _filter_groups_by_level(groups, level)
 
             texts, sources = _build_context_and_sources(groups, limit)
 
@@ -796,14 +827,17 @@ class BridgeHandler(BaseHTTPRequestHandler):
         LLM を介さない生の RAG 検索。tutorial_agent（チュートリアル生成）が
         RAG コンテキストの取得に使う。
 
-        body: {"query": str, "limit": int, "namespaces": ["houdini21", ...]}
+        body: {"query": str, "limit": int, "namespaces": ["houdini21", ...], "level": "basic"}
         namespaces はホワイトリスト指定（省略時は namespace フィルタなし）。
         指定された場合はユーザーの allowed_namespaces との積集合に絞る。
+        level は Phase1レベリング用（"basic"|"applied"|"advanced"、省略可・後方互換）。
+        difficulty が未設定のファイルは level 指定時も通過する（_filter_groups_by_level 参照）。
         """
         body       = self._read_body()
         query: str = body.get("query", "").strip()
         limit: int = int(body.get("limit", 6))
         requested  = body.get("namespaces") or []
+        level: str = (body.get("level") or "").strip()  # Phase1レベリング（省略可・後方互換）
 
         if not query:
             self._send_json(400, {"error": "query は必須です"})
@@ -819,6 +853,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if requested and _AUTH_AVAILABLE:
                 effective = [ns for ns in requested if not allowed or ns in allowed]
                 groups = _filter_groups_by_namespace(groups, effective)
+            if level:
+                groups = _filter_groups_by_level(groups, level)
             texts, sources = _build_context_and_sources(groups, limit)
             self._log(user, "/search", query, requested or allowed, 200)
             if self.audit:

@@ -97,6 +97,10 @@ class RAGService:
                             "directory": os.path.dirname(chunk["file_path"]),
                             "original_file_path": chunk.get("original_file_path", ""),
                             "directory_suffix": chunk.get("metadata", {}).get("directory_suffix", ""),
+                            # Phase1レベリング: document_processor.process_file() が frontmatter の
+                            # difficulty を読み取って chunk["metadata"] に入れている。ここで拾わないと
+                            # そのまま握りつぶされ、search()でlevelフィルタが効かなくなる。
+                            "difficulty": chunk.get("metadata", {}).get("difficulty", ""),
                         },
                     }
                 )
