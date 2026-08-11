@@ -124,8 +124,23 @@ _GRACE_NUDGE_TEXT = (
     "finish_tutorial を呼んでチュートリアルを完成させてください。"
 )
 
+# Phase1レベリング（IMPROVEMENT_PLAN.md §Phase1）: 同一トピックを basic→applied→advanced の
+# 順で生成する際、各段のシステムプロンプトに差し込む指示文。「どのレベルを生成するか」の決定
+# 自体はscore_engine.pyの理解度スコア（呼び出し側）に委ね、tutorial_agent.pyはレベルを受け取って
+# 生成するだけに責務を絞る（決定ロジックをここに持ち込まない）。
+_LEVEL_INSTRUCTIONS: dict[str, str] = {
+    "basic":    "初心者が最初に触るノード構成に限定してください。3〜5ノード程度で、パラメータもデフォルトに近い値のまま使うことを優先します。",
+    "applied":  "basic段の構成を前提に、パラメータ調整や分岐（例: ノイズの重ね掛け、条件による分岐）を1〜2個追加してください。",
+    "advanced": "applied段を前提に、実務で使う応用パターン（VEXコード・式・複数ノードの連携等）を含めてください。",
+}
+_DEFAULT_LEVEL = "basic"
+
 _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初心者向けチュートリアルを作成するエージェントです。
 与えられたツールで Houdini のノードグラフを実際に組み立て、動作確認済みのチュートリアルを作成します。
+
+## レベル: {level}（basic → applied → advanced の一貫進行の一部として生成しています）
+{level_instruction}
+{prior_level_summary}
 
 ## 絶対ルール
 - ノード操作はサンドボックス `{sandbox_path}` 内でのみ行われます。ノードパスは常にサンドボックス相対（例: `geo1/grid1`）で指定してください。
@@ -162,6 +177,11 @@ class TutorialResult:
         self.title: str = ""
         self.slug: str = "tutorial"
         self.sandbox_path: str = ""
+        # Phase1レベリング（basic|applied|advanced）。frontmatterのdifficultyフィールドと
+        # build_level_chain() の prior_level_summary 引き継ぎに使う。
+        self.level: str = _DEFAULT_LEVEL
+        self.next_steps: str = ""  # finish_tutorialのnext_steps（応用・発展のヒント）
+        self.pitfalls: str = ""    # finish_tutorialのpitfalls（ハマりポイント）
         # HoudiniToolExecutor.export_step_screenshots() の結果（各ステップ実行
         # 直後に撮ったビューポート/ネットワークエディタのPNGパス一覧）。
         self.step_screenshots: list[dict] = []
@@ -235,8 +255,23 @@ class TutorialAgent:
 
     # ── 公開 API ────────────────────────────────────────────────────────────────
 
-    def generate(self, topic: str) -> TutorialResult:
+    def generate(
+        self,
+        topic: str,
+        level: str = _DEFAULT_LEVEL,
+        prior_level_summary: str = "",
+    ) -> TutorialResult:
+        """
+        level: "basic" | "applied" | "advanced"（IMPROVEMENT_PLAN.md Phase1）。
+        どのレベルを生成するかの判断は呼び出し側（UI / score_engine.py）の責務で、
+        ここでは受け取ったレベルに応じてプロンプトを差し替えるだけに留める。
+        prior_level_summary: 前段（basic→appliedの場合はbasicの結果）の要約。
+        basic生成時は空文字を渡す。_summarize_for_next_level() で組み立てる。
+        """
+        if level not in _LEVEL_INSTRUCTIONS:
+            level = _DEFAULT_LEVEL
         result = TutorialResult()
+        result.level = level
 
         # Claude APIは必ずGAS（gas_cloud_rag.js）経由で呼ぶ。生のANTHROPIC_API_KEYを
         # クライアントに持たせない構成にすることで、APIキーごとのトークン上限を
@@ -248,8 +283,8 @@ class TutorialAgent:
             )
 
         # ① RAG検索（houdini21 namespace のみ）
-        self._progress(f"RAG検索中（houdini21 ナレッジベース / {self._rag_mode}）...")
-        rag_texts, result.sources = self._rag_search(topic)
+        self._progress(f"RAG検索中（houdini21 ナレッジベース / {self._rag_mode} / レベル={level}）...")
+        rag_texts, result.sources = self._rag_search(topic, level)
         if rag_texts:
             self._progress(f"参考ドキュメント {len(result.sources)} 件を取得しました")
         else:
@@ -266,7 +301,11 @@ class TutorialAgent:
         self._progress(f"サンドボックス作成: {result.sandbox_path}")
 
         # ③ エージェントループ
-        system_blocks, tools, messages = self._build_initial_prompt(topic, rag_texts)
+        if prior_level_summary:
+            self._progress(f"前段の要約をプロンプトに引き継ぎました（{len(prior_level_summary)} 文字）")
+        system_blocks, tools, messages = self._build_initial_prompt(
+            topic, rag_texts, level, prior_level_summary
+        )
         try:
             self._run_loop(system_blocks, tools, messages, result)
         finally:
@@ -279,6 +318,8 @@ class TutorialAgent:
         result.completed = self.executor.finish_data is not None
         result.title = finish.get("title") or f"Houdiniチュートリアル: {topic}"
         result.slug = self._sanitize_slug(finish.get("slug", ""), topic)
+        result.next_steps = finish.get("next_steps", "")
+        result.pitfalls = finish.get("pitfalls", "")
         self._apply_rag_attribution(finish, result, result.completed)
         result.markdown = self._assemble_markdown(topic, finish, result)
 
@@ -323,21 +364,47 @@ class TutorialAgent:
         else:
             result.rag_extraction_rate = None
 
+    @staticmethod
+    def _summarize_for_next_level(result: "TutorialResult") -> str:
+        """
+        basic→applied→advanced のレベルチェーン（build_level_chain）で、前段の
+        結果を次段のシステムプロンプトへ引き継ぐための短い要約を組み立てる。
+        finish_tutorial の生の出力全体を渡すと次段のプロンプトが無駄に長くなる
+        （かつプロンプトキャッシュの恩恵も薄い一回限りの追加コンテキストになる）
+        ため、steps/pitfalls/next_stepsを圧縮せず「前段で何を作ったか」
+        「次段が引き継ぐべき示唆」だけに絞る。打ち切り（completed=False）の場合は
+        次段のプロンプトを不必要に複雑にしないよう空文字を返す。
+        """
+        if not result.completed:
+            return ""
+        parts = [f"前段（{result.level}）で作成したチュートリアル: {result.title}"]
+        if result.pitfalls:
+            parts.append(f"前段で遭遇したハマりポイント（同じ轍を踏まないこと）:\n{result.pitfalls}")
+        if result.next_steps:
+            parts.append(f"前段が示した発展の方向性（このレベルではこれを一段深める）:\n{result.next_steps}")
+        return "\n\n".join(parts)
+
     # ── RAG検索 ─────────────────────────────────────────────────────────────────
 
-    def _rag_search(self, topic: str) -> tuple[list[str], list[dict]]:
+    def _rag_search(self, topic: str, level: str = _DEFAULT_LEVEL) -> tuple[list[str], list[dict]]:
         """rag_mode に応じてローカルブリッジ or GAS（Cloud RAG）から houdini21 namespace の生チャンクを取得する。"""
         if self._rag_mode == "cloud":
             return self._rag_search_cloud(topic)
-        return self._rag_search_local(topic)
+        return self._rag_search_local(topic, level)
 
-    def _rag_search_local(self, topic: str) -> tuple[list[str], list[dict]]:
-        """ローカルブリッジの /search から houdini21 namespace の生チャンクを取得する。"""
+    def _rag_search_local(self, topic: str, level: str = _DEFAULT_LEVEL) -> tuple[list[str], list[dict]]:
+        """
+        ローカルブリッジの /search から houdini21 namespace の生チャンクを取得する。
+        level（Phase1レベリング）は rag_local_bridge.py の /search に渡し、
+        difficulty が一致するドキュメントを優先的に検索対象にする（difficulty未設定の
+        ドキュメントは level 指定時も通過するため、後方互換は保たれる）。
+        """
         try:
             body = json.dumps({
                 "query": topic,
                 "limit": RAG_LIMIT,
                 "namespaces": RAG_NAMESPACES,
+                "level": level,
             }, ensure_ascii=False).encode("utf-8")
             req = urllib.request.Request(
                 f"http://localhost:{self._port}/search",
@@ -360,6 +427,10 @@ class TutorialAgent:
         GAS 側は APIキーに houdini21 の権限がないと dbKey を "all" にフォールバック
         してしまうため、応答の sources を db=="houdini21" のものだけに絞り込むことで
         ホワイトリスト方針（他 namespace は参照しない）をクライアント側でも強制する。
+
+        Phase1レベリング（IMPROVEMENT_PLAN.md）の level フィルタは rag_local_bridge.py
+        （Local RAG）側にのみ実装されており、gas_cloud_rag.js（Cloud RAG）側は未対応の
+        ため、ここでは level を渡していない（Cloud モードでは全レベル対象のまま）。
         """
         if not self._gas_url:
             self._progress("Cloud RAG検索エラー: GAS WebApp URLが未設定です（続行します）")
@@ -410,18 +481,33 @@ class TutorialAgent:
     # ── プロンプト構築 ──────────────────────────────────────────────────────────
 
     def _build_initial_prompt(
-        self, topic: str, rag_texts: list[str]
+        self,
+        topic: str,
+        rag_texts: list[str],
+        level: str = _DEFAULT_LEVEL,
+        prior_level_summary: str = "",
     ) -> tuple[list[dict], list[dict], list[dict]]:
         """
         システム・ツール・初期メッセージを構築する。
         固定部分（システムプロンプト＝RAGコンテキスト込み・ツール定義）に
         cache_control を付け、2回目以降のターンのコストを抑える（§4.2）。
+
+        level/prior_level_summary は Phase1レベリング用。prior_level_summary は
+        basic生成時は空文字（該当セクション自体を出さない）、applied/advanced生成時は
+        _summarize_for_next_level() が組み立てた前段の要約が入る。
         """
         rag_context = "\n\n".join(rag_texts) if rag_texts else "（参考ドキュメントなし）"
+        prior_summary_block = (
+            f"## 前段（このトピックの一つ手前のレベル）の要約\n{prior_level_summary}"
+            if prior_level_summary else ""
+        )
         system_text = _SYSTEM_PROMPT_TEMPLATE.format(
             sandbox_path=self.executor.sandbox_path,
             rag_context=rag_context,
             common_node_types=_COMMON_NODE_TYPES_BLOCK,
+            level=level,
+            level_instruction=_LEVEL_INSTRUCTIONS.get(level, _LEVEL_INSTRUCTIONS[_DEFAULT_LEVEL]),
+            prior_level_summary=prior_summary_block,
         )
         system_blocks = [{
             "type": "text",
@@ -752,6 +838,7 @@ created: {today.isoformat()}
 updated: {today.isoformat()}
 expires: {expires.isoformat()}
 tags: [houdini, ai-generated, houdini21]
+difficulty: {result.level}
 rag_indexed: false
 ---
 {status_note}
@@ -793,3 +880,59 @@ rag_indexed: false
 ---
 *自動生成: model={MODEL} / iterations={result.iterations} / cost=${result.cost_usd:.3f} / sandbox={result.sandbox_path}*
 """
+
+
+# ─── レベルチェーン生成（IMPROVEMENT_PLAN.md Phase1） ─────────────────────────────
+
+_LEVEL_CHAIN_ORDER: tuple[str, ...] = ("basic", "applied", "advanced")
+
+
+def build_level_chain(
+    topic: str,
+    bridge_port: int = 8766,
+    project_dir: str = "",
+    rag_mode: str = "local",
+    gas_url: str = "",
+    gas_api_key: str = "",
+    progress_cb: Callable[[str], None] | None = None,
+    executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
+    levels: tuple[str, ...] = _LEVEL_CHAIN_ORDER,
+) -> list[tuple[TutorialAgent, TutorialResult]]:
+    """
+    同一トピックを basic→applied→advanced の順で逐次生成し、前段の
+    finish_tutorial 出力（next_steps/pitfalls）の要約を次段のシステムプロンプト
+    へ引き継ぐ（IMPROVEMENT_PLAN.md §Phase1）。
+
+    レベルごとに新しい TutorialAgent インスタンスを作る。TutorialAgent.generate()
+    は呼ぶたびに新しいサンドボックス（executor）を作る設計のため、同じインスタンスを
+    使い回すと self.executor が最後のレベルのものだけに上書きされ、途中レベルの
+    サンドボックスを個別に削除できなくなってしまう。戻り値に (agent, result) の
+    ペアを含めているのはそのためで、呼び出し側（UI）は各レベルの
+    agent.destroy_sandbox() を個別に呼べる。
+
+    途中のレベルで例外が発生した場合はそこで打ち切り、それまでに得られた
+    (agent, result) のリストを返す（呼び出し元で例外を再送出はしない —
+    basic は成功したが advanced の生成中に接続が切れた、といったケースでも
+    それまでの結果を無駄にしないため）。
+    """
+    results: list[tuple[TutorialAgent, TutorialResult]] = []
+    prior_summary = ""
+    for level in levels:
+        agent = TutorialAgent(
+            bridge_port=bridge_port,
+            project_dir=project_dir,
+            rag_mode=rag_mode,
+            gas_url=gas_url,
+            gas_api_key=gas_api_key,
+            progress_cb=progress_cb,
+            executor_factory=executor_factory,
+        )
+        try:
+            result = agent.generate(topic, level=level, prior_level_summary=prior_summary)
+        except Exception as exc:
+            if progress_cb:
+                progress_cb(f"レベルチェーン: {level} の生成に失敗したため打ち切ります: {exc}")
+            break
+        results.append((agent, result))
+        prior_summary = TutorialAgent._summarize_for_next_level(result)
+    return results

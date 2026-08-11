@@ -24,6 +24,8 @@ from PySide6.QtCore import QRectF, QThread, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QWheelEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
+    QComboBox,
     QGraphicsItem,
     QGraphicsPathItem,
     QGraphicsRectItem,
@@ -62,15 +64,43 @@ class TutorialWorker(QThread):
     done     = Signal(object)  # TutorialResult
     failed   = Signal(str)     # エラーメッセージ
 
-    def __init__(self, agent, topic: str) -> None:
+    def __init__(self, agent, topic: str, level: str = "basic") -> None:
         super().__init__()
         self._agent = agent
         self._topic = topic
+        self._level = level
 
     def run(self) -> None:
         try:
-            result = self._agent.generate(self._topic)
+            result = self._agent.generate(self._topic, level=self._level)
             self.done.emit(result)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class TutorialChainWorker(QThread):
+    """
+    tutorial_agent.build_level_chain() を別スレッドで実行するワーカー。
+    basic→applied→advanced を逐次生成する（IMPROVEMENT_PLAN.md Phase1）ため
+    TutorialWorker より実行時間が長くなる（単発生成の最大3倍）。
+    """
+    progress = Signal(str)
+    done     = Signal(object)  # list[tuple[TutorialAgent, TutorialResult]]
+    failed   = Signal(str)
+
+    def __init__(self, topic: str, chain_kwargs: dict) -> None:
+        super().__init__()
+        self._topic = topic
+        self._chain_kwargs = chain_kwargs
+
+    def run(self) -> None:
+        try:
+            from tutorial_agent import build_level_chain
+
+            results = build_level_chain(
+                self._topic, progress_cb=self.progress.emit, **self._chain_kwargs
+            )
+            self.done.emit(results)
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -86,20 +116,30 @@ class _DestroySandboxWorker(QThread):
     デッドロック（Houdiniのフリーズ）を起こす。「サンドボックス削除」を押すと
     Houdiniが固まる、という実機で確認された不具合の原因はこれで、対策として
     削除処理を必ずバックグラウンドスレッドから呼ぶようにする。
+
+    agents は複数渡せる（3段階連続生成モードでは basic/applied/advanced 分の
+    3サンドボックスをまとめて削除する）。1件でも失敗すればエラーメッセージを
+    連結して failed で報告するが、成功した分の削除は取り消さない（部分的成功を
+    許容する — 全部やり直すよりまし）。
     """
     done   = Signal()
     failed = Signal(str)
 
-    def __init__(self, agent) -> None:
+    def __init__(self, agents: list) -> None:
         super().__init__()
-        self._agent = agent
+        self._agents = agents
 
     def run(self) -> None:
-        try:
-            self._agent.destroy_sandbox()
+        errors: list[str] = []
+        for agent in self._agents:
+            try:
+                agent.destroy_sandbox()
+            except Exception as exc:
+                errors.append(str(exc))
+        if errors:
+            self.failed.emit("; ".join(errors))
+        else:
             self.done.emit()
-        except Exception as exc:
-            self.failed.emit(str(exc))
 
 
 # ─── 生成タブ ────────────────────────────────────────────────────────────────────
@@ -124,9 +164,13 @@ class TutorialGeneratePanel(QWidget):
         # 即時再確認を促すためのコールバック。ランプ自体はこのウィジェットの
         # 責務ではなくなったため、通知だけ行う。
         self._on_connection_event = on_connection_event or (lambda: None)
-        self._worker: TutorialWorker | None = None
-        self._agent = None            # 生成後もサンドボックス削除用に保持
-        self._result = None           # TutorialResult（保存待ち）
+        self._worker: TutorialWorker | TutorialChainWorker | None = None
+        self._agent = None            # 生成後もサンドボックス削除用に保持（単発生成モード）
+        self._result = None           # TutorialResult（保存待ち。単発生成モードのみ）
+        # 3段階連続生成（build_level_chain）モードで作られた (agent, result) の一覧。
+        # チェーンモードは各レベルを自動保存するため、ここは「サンドボックス削除」用の
+        # 参照保持だけが目的（単発生成モードでは常に空のまま）。
+        self._chain_agents: list = []
         self._destroy_worker: _DestroySandboxWorker | None = None
         self._build_ui()
 
@@ -150,6 +194,29 @@ class TutorialGeneratePanel(QWidget):
         input_row.addWidget(self._topic_edit, stretch=1)
         input_row.addWidget(self._generate_btn)
         layout.addLayout(input_row)
+
+        # レベル選択行（IMPROVEMENT_PLAN.md Phase1: RAGレベリング）。
+        # 「3段階連続生成」がオンのときはレベル選択は無視され、常に
+        # basic→applied→advanced の順で3本まとめて生成・自動保存する。
+        level_row = QHBoxLayout()
+        level_row.addWidget(QLabel("レベル:"))
+        self._level_combo = QComboBox()
+        self._level_combo.addItems(["basic", "applied", "advanced"])
+        self._level_combo.setToolTip(
+            "basic: 初心者向け最小構成 / applied: basicにパラメータ調整・分岐を追加\n"
+            "advanced: appliedにVEX/式等の実務パターンを追加"
+        )
+        level_row.addWidget(self._level_combo)
+        self._chain_checkbox = QCheckBox("3段階連続生成（basic→applied→advanced、自動保存）")
+        self._chain_checkbox.setToolTip(
+            "オンにすると同一トピックでbasic/applied/advancedを順に生成し、"
+            "前段の内容を次段のプロンプトへ引き継ぎます。生成時間・コストは単発の最大3倍。\n"
+            "各レベルはプレビュー確認なしで自動的にlocalRAG/tutorials/へ保存されます。"
+        )
+        self._chain_checkbox.toggled.connect(self._on_chain_toggled)
+        level_row.addWidget(self._chain_checkbox)
+        level_row.addStretch()
+        layout.addLayout(level_row)
 
         # 進行ログとプレビューを縦分割
         splitter = QSplitter(Qt.Vertical)
@@ -198,6 +265,10 @@ class TutorialGeneratePanel(QWidget):
 
     # ── 生成 ────────────────────────────────────────────────────────────────────
 
+    def _on_chain_toggled(self, checked: bool) -> None:
+        # チェーンモードは常に3レベル全部を生成するため、単発用のレベル選択は無意味になる
+        self._level_combo.setEnabled(not checked)
+
     def _on_generate(self) -> None:
         if self._worker and self._worker.isRunning():
             return
@@ -208,7 +279,7 @@ class TutorialGeneratePanel(QWidget):
 
         cfg = self._cfg_getter()
         try:
-            from tutorial_agent import TutorialAgent
+            import tutorial_agent  # noqa: F401 -- 存在確認のみ（実際のimportは各分岐で行う）
         except ImportError as exc:
             self._status.setText(f"tutorial_agent の読み込みに失敗: {exc}")
             return
@@ -216,11 +287,31 @@ class TutorialGeneratePanel(QWidget):
         self._progress_log.clear()
         self._preview.clear()
         self._result = None
+        self._agent = None  # 前回（単発/チェーン問わず）の参照を残さない
+        self._chain_agents = []
         for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn):
             btn.setEnabled(False)
         self._generate_btn.setEnabled(False)
-        self._status.setText("生成中...")
 
+        if self._chain_checkbox.isChecked():
+            self._status.setText("3段階連続生成中（basic→applied→advanced）...")
+            chain_kwargs = {
+                "bridge_port": cfg.get("local_port", 8766),
+                "project_dir": cfg.get("local_bridge_dir", ""),
+                "rag_mode":    cfg.get("mode", "local"),
+                "gas_url":     cfg.get("gas_url", ""),
+                "gas_api_key": cfg.get("gas_api_key", ""),
+            }
+            self._worker = TutorialChainWorker(topic, chain_kwargs)
+            self._worker.progress.connect(self._on_progress)
+            self._worker.done.connect(self._on_chain_done)
+            self._worker.failed.connect(self._on_failed)
+            self._worker.start()
+            return
+
+        from tutorial_agent import TutorialAgent
+
+        self._status.setText("生成中...")
         self._agent = TutorialAgent(
             bridge_port=cfg.get("local_port", 8766),
             project_dir=cfg.get("local_bridge_dir", ""),
@@ -228,7 +319,8 @@ class TutorialGeneratePanel(QWidget):
             gas_url=cfg.get("gas_url", ""),
             gas_api_key=cfg.get("gas_api_key", ""),
         )
-        self._worker = TutorialWorker(self._agent, topic)
+        level = self._level_combo.currentText()
+        self._worker = TutorialWorker(self._agent, topic, level=level)
         # progress_cb は QThread 内から呼ばれるため Signal 経由で UI スレッドに渡す
         self._agent._progress = self._worker.progress.emit
         self._worker.progress.connect(self._on_progress)
@@ -269,6 +361,50 @@ class TutorialGeneratePanel(QWidget):
             "内容を確認して「保存」を押してください（保存するまでファイルは書き込まれません）"
         )
 
+    def _on_chain_done(self, results: list) -> None:
+        """
+        3段階連続生成（build_level_chain）の完了コールバック。単発生成と違い、
+        3件のプレビュー確認を個別に求めるUXは複雑になりすぎるため、各レベルを
+        その場で自動的に localRAG/tutorials/ へ保存する（チェックボックスの
+        ツールチップで事前に明示している仕様）。
+        """
+        self._generate_btn.setEnabled(True)
+        if not results:
+            self._status.setText("3段階連続生成: すべてのレベルが失敗しました（進行ログを確認してください）")
+            return
+
+        tutorials_dir = self._tutorials_dir()
+        preview_parts: list[str] = []
+        status_parts: list[str] = []
+        for agent, result in results:
+            self._chain_agents.append(agent)
+            bridge_dir = self._cfg_getter().get("local_bridge_dir", "")
+            token_usage.record_usage(bridge_dir, self._topic_edit.text().strip(), result)
+            if result.claude_quota_known:
+                token_usage.save_server_quota(
+                    bridge_dir, result.claude_balance, result.claude_capacity,
+                    result.claude_reset_interval_hours, result.claude_reset_at,
+                )
+            preview_parts.append(f"# [{result.level}]\n\n{result.markdown}")
+
+            if tutorials_dir is None:
+                status_parts.append(f"{result.level}: 保存先未設定のため保存できませんでした")
+                continue
+            paths = self._write_result(result, tutorials_dir)
+            if paths is None:
+                status_parts.append(f"{result.level}: 保存失敗")
+                continue
+            md_path, json_path = paths
+            video_status = self._launch_video_for_result(result, md_path, json_path)
+            status_parts.append(f"{result.level}: {md_path.name} 保存済み / {video_status}")
+
+        self._refresh_usage()
+        self._preview.setMarkdown("\n\n---\n\n".join(preview_parts))
+        # サンドボックスは3つ分（各レベル1つずつ）残る。「サンドボックス削除」は
+        # _chain_agents 全件をまとめて削除する（_on_delete_sandbox 参照）。
+        self._delete_sandbox_btn.setEnabled(True)
+        self._status.setText(" | ".join(status_parts))
+
     def _on_failed(self, msg: str) -> None:
         self._progress_log.append(f"エラー: {msg}")
         self._status.setText(f"生成失敗: {msg}")
@@ -291,16 +427,15 @@ class TutorialGeneratePanel(QWidget):
             return None
         return Path(bridge_dir) / "localRAG" / "tutorials"
 
-    def _on_save(self) -> None:
-        if self._result is None:
-            return
-        tutorials_dir = self._tutorials_dir()
-        if tutorials_dir is None:
-            return
+    @staticmethod
+    def _write_result(result, tutorials_dir: Path) -> tuple[Path, Path] | None:
+        """
+        result を tutorials_dir へ .md/.json として書き出す（ファイルI/Oのみ）。
+        同名ファイルがある場合は連番サフィックスで衝突回避する（既存生成物を上書きしない）。
+        単発生成（_on_save）と3段階連続生成（_on_chain_done）の両方から呼ばれる。
+        """
         tutorials_dir.mkdir(parents=True, exist_ok=True)
-
-        # 同名ファイルがある場合は連番サフィックスで衝突回避（既存生成物を上書きしない）
-        basename = self._result.file_basename()
+        basename = result.file_basename()
         candidate = basename
         counter = 2
         while (tutorials_dir / f"{candidate}.md").exists():
@@ -310,14 +445,46 @@ class TutorialGeneratePanel(QWidget):
         md_path = tutorials_dir / f"{candidate}.md"
         json_path = tutorials_dir / f"{candidate}.json"
         try:
-            md_path.write_text(self._result.markdown, encoding="utf-8")
+            md_path.write_text(result.markdown, encoding="utf-8")
             json_path.write_text(
-                json.dumps(self._result.graph, ensure_ascii=False, indent=2),
+                json.dumps(result.graph, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
-        except OSError as exc:
-            self._status.setText(f"保存失敗: {exc}")
+        except OSError:
+            return None
+        return md_path, json_path
+
+    def _launch_video_for_result(self, result, md_path: Path, json_path: Path) -> str:
+        """
+        動画生成をバックグラウンドで自動起動する（ベストエフォート）。
+        video_factory_bridge / screen_capture は LearningQt 側の video factory との
+        連携用モジュールで、失敗してもチュートリアル保存そのものは既に成功済みなので
+        例外は投げず、状態表示用の文字列として返すだけに留める。
+        """
+        try:
+            from video_factory_bridge import launch_video_generation
+
+            return launch_video_generation(
+                md_path=md_path,
+                json_path=json_path,
+                sandbox_path=result.sandbox_path,
+                step_screenshots=result.step_screenshots,
+                exe_path=self._cfg_getter().get("video_factory_exe_path", ""),
+            )
+        except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
+            return f"動画生成の起動に失敗: {exc}"
+
+    def _on_save(self) -> None:
+        if self._result is None:
             return
+        tutorials_dir = self._tutorials_dir()
+        if tutorials_dir is None:
+            return
+        paths = self._write_result(self._result, tutorials_dir)
+        if paths is None:
+            self._status.setText("保存失敗")
+            return
+        md_path, json_path = paths
 
         self._save_btn.setEnabled(False)
         self._discard_btn.setEnabled(False)
@@ -325,24 +492,8 @@ class TutorialGeneratePanel(QWidget):
             f"保存しました: {md_path.name} / {json_path.name}"
             "（watchdog が自動インデックス化します）"
         )
-
-        # 動画生成をバックグラウンドで自動起動（ベストエフォート）。
-        # video_factory_bridge / screen_capture は LearningQt 側の video
-        # factory との連携用に追加したモジュールで、失敗してもチュートリアル
-        # 保存そのものは既に成功済みなので、状態表示に追記するだけに留める。
-        try:
-            from video_factory_bridge import launch_video_generation
-
-            video_status = launch_video_generation(
-                md_path=md_path,
-                json_path=json_path,
-                sandbox_path=self._result.sandbox_path,
-                step_screenshots=self._result.step_screenshots,
-                exe_path=self._cfg_getter().get("video_factory_exe_path", ""),
-            )
-            self._status.setText(f"{self._status.text()} / {video_status}")
-        except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
-            self._status.setText(f"{self._status.text()} / 動画生成の起動に失敗: {exc}")
+        video_status = self._launch_video_for_result(self._result, md_path, json_path)
+        self._status.setText(f"{self._status.text()} / {video_status}")
 
     def _on_discard(self) -> None:
         self._result = None
@@ -352,11 +503,15 @@ class TutorialGeneratePanel(QWidget):
         self._status.setText("破棄しました（サンドボックスは残っています。不要なら「サンドボックス削除」）")
 
     def _on_delete_sandbox(self) -> None:
-        if self._agent is None:
+        # 3段階連続生成モードで作られたサンドボックスがあればそちらを優先する
+        # （単発生成モードでは常に空リストのままなので self._agent にフォールバックする）。
+        agents = self._chain_agents or ([self._agent] if self._agent is not None else [])
+        if not agents:
             return
+        paths = ", ".join(getattr(a.executor, "sandbox_path", "") for a in agents)
         answer = QMessageBox.question(
             self, "サンドボックス削除",
-            f"{getattr(self._agent.executor, 'sandbox_path', '')} を削除しますか？",
+            f"{paths} を削除しますか？",
         )
         if answer != QMessageBox.Yes:
             return
@@ -367,12 +522,13 @@ class TutorialGeneratePanel(QWidget):
         # バックグラウンドスレッドから呼ぶことで正しくメインスレッドへディスパッチされる。
         self._delete_sandbox_btn.setEnabled(False)
         self._status.setText("サンドボックスを削除中...")
-        self._destroy_worker = _DestroySandboxWorker(self._agent)
+        self._destroy_worker = _DestroySandboxWorker(agents)
         self._destroy_worker.done.connect(self._on_sandbox_destroyed)
         self._destroy_worker.failed.connect(self._on_sandbox_destroy_failed)
         self._destroy_worker.start()
 
     def _on_sandbox_destroyed(self) -> None:
+        self._chain_agents = []  # 削除済みの参照を残さない（次回生成まで再利用させない）
         self._status.setText("サンドボックスを削除しました")
 
     def _on_sandbox_destroy_failed(self, msg: str) -> None:
@@ -663,10 +819,33 @@ class TutorialHistoryPanel(QWidget):
             return
         files = sorted(tutorials_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
         for path in files:
-            item = QListWidgetItem(path.stem)
+            label = path.stem
+            difficulty = self._peek_difficulty(path)
+            if difficulty:
+                label = f"{label}  [{difficulty}]"
+            item = QListWidgetItem(label)
             item.setData(Qt.UserRole, str(path))
             self._list.addItem(item)
         self._status.setText(f"{len(files)} 件")
+
+    @staticmethod
+    def _peek_difficulty(path: Path) -> str:
+        """
+        frontmatterのdifficultyフィールド（IMPROVEMENT_PLAN.md Phase1）だけを
+        一覧ラベル表示用に軽く読む。フルのYAMLパースは行わず先頭数行を走査する
+        だけに留める（失敗しても空文字を返し、一覧表示自体は継続させる）。
+        """
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                for i, line in enumerate(f):
+                    if i > 20:
+                        break
+                    line = line.strip()
+                    if line.startswith("difficulty:"):
+                        return line.split(":", 1)[1].strip()
+        except OSError:
+            pass
+        return ""
 
     def _on_select(self, current: QListWidgetItem | None, _previous=None) -> None:
         if current is None:
