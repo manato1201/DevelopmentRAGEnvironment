@@ -9,6 +9,7 @@ dependencies = [
     "requests>=2.34.2",
     "sentence-transformers",
     "sentencepiece>=0.2.0",
+    "pillow",
     "chromadb>=1.5.9",
     "markitdown[all]",
     "numpy",

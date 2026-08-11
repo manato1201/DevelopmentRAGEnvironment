@@ -1190,6 +1190,20 @@ function doPost(e) {
     // mode:'raw' は Function Calling 等の低レイテンシ用途向け。最終回答生成をスキップし検索結果のみ返す。
     var isRaw   = body.mode === 'raw';
 
+    // クエリ添付画像（VLM入力、IMPROVEMENT_PLAN.md Phase2）: { image: { mimeType, data } }
+    // data は base64。既存のOCR取り込み経路（ナレッジ登録時の一方向テキスト変換）とは別の、
+    // 質問応答用の入力チャネル。isRaw時は最終回答生成そのものをスキップするため無視する。
+    var image = (!isRaw && body.image && body.image.data && body.image.mimeType) ? body.image : null;
+    if (image) {
+      var imageBytes = Math.floor(image.data.length * 3 / 4); // base64→バイト数の概算
+      if (imageBytes > _maxQueryImageBytes_()) {
+        return ContentService.createTextOutput(JSON.stringify({
+          answer: '添付画像が大きすぎます（上限 ' + Math.floor(_maxQueryImageBytes_() / (1024 * 1024)) + 'MB）。',
+          sources: [], status: 'error',
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
     if (!query) throw new Error('query は必須です');
 
     var config = validateApiKey_(apiKey);
@@ -1221,7 +1235,7 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    var result  = ragQueryInternal_(query, dbKey, history, allowed, apiKey, { skipAnswer: isRaw, sourceLimit: config.sourceLimit });
+    var result  = ragQueryInternal_(query, dbKey, history, allowed, apiKey, { skipAnswer: isRaw, sourceLimit: config.sourceLimit, image: image });
     var memId   = '';
     if (!isRaw) {
       try { memId = saveMemory_(apiKey, query, result.answer, result.sources, dbKey); } catch(e) {}
@@ -1267,6 +1281,7 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey, opt
   opts = opts || {};
   var skipAnswer  = !!opts.skipAnswer;
   var sourceLimit = _clampSourceLimit_(opts.sourceLimit);
+  var image       = opts.image || null;  // { mimeType, data(base64) } — VLM入力（Phase2）
   dbKey = sanitizeDbKey_(dbKey);
   history = history || [];
   if (!allowedNamespaces || allowedNamespaces.length === 0) {
@@ -1325,7 +1340,14 @@ function ragQueryInternal_(query, dbKey, history, allowedNamespaces, apiKey, opt
   history.slice(-6).forEach(function(h) {
     contents.push({ role: h.role === 'bot' ? 'model' : 'user', parts: [{ text: h.text }] });
   });
-  contents.push({ role: 'user', parts: [{ text: query }] });
+  // 画像添付時（VLM入力）は最後のユーザーターンに inlineData パートを追加する。
+  // ナレッジ登録時のOCR（一方向のテキスト化）とは別物: ここでは画像はテキスト化されず、
+  // Gemini自体が画像とRAGコンテキストの両方を見た上で回答する。
+  var lastParts = [{ text: query }];
+  if (image) {
+    lastParts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
+  }
+  contents.push({ role: 'user', parts: lastParts });
 
   var genResult = callGemini_(contents);
   var answer    = genResult.text;
@@ -2986,6 +3008,7 @@ function _convertBinaryBlobToText_(blob, displayName) {
 var GEMINI_UPLOAD_CHUNK_BYTES        = 8 * 1024 * 1024; // 1回のUrlFetchApp POSTで送るチャンクサイズ
 var DEFAULT_MAX_AUDIO_VIDEO_MB       = 15; // 音声・動画（Gemini文字起こし経由）の既定上限
 var DEFAULT_MAX_DRIVE_CONVERT_MB     = 25; // PDF/Office/画像（Drive変換経由）の既定上限
+var DEFAULT_MAX_QUERY_IMAGE_MB       = 8;  // クエリ添付画像（VLM入力・IMPROVEMENT_PLAN.md Phase2）の既定上限
 
 function _mbOverride_(propName, fallbackMb) {
   var parsed = parseInt(getProps_().getProperty(propName) || '', 10);
@@ -2997,6 +3020,13 @@ function _maxAudioVideoBytes_() { return _mbOverride_('MAX_AUDIO_VIDEO_MB', DEFA
 
 /** PDF/Office/画像（Drive変換経由）の取り込み上限バイト数 */
 function _maxDriveConvertBytes_() { return _mbOverride_('MAX_DRIVE_CONVERT_MB', DEFAULT_MAX_DRIVE_CONVERT_MB); }
+
+/**
+ * クエリに添付する画像（VLM入力）の上限バイト数。OCR取り込み用のDrive変換上限
+ * （既定25MB）より小さい既定値にしているのは、こちらはチャット応答のレイテンシに
+ * 直結するため、大きな画像でリクエストが重くなりすぎるのを避けるため。
+ */
+function _maxQueryImageBytes_() { return _mbOverride_('MAX_QUERY_IMAGE_MB', DEFAULT_MAX_QUERY_IMAGE_MB); }
 
 /**
  * Gemini Files APIへresumable upload protocolでアップロードする。50MBを超える

@@ -742,6 +742,17 @@ rag_service.py（ローカル検索エンジン、ChromaDB ベース）
 
 抽出度サマリー UI（引用バッジ・プログレスバー）、👍/👎 評価機能（priority 重み付け）は **クラウドRAG専用**の機能です（GAS `gas_cloud_rag.js` の `parseExtractionRate_()` / RAG_Memory シート連携）。LocalRAG では memoryId が存在しないため評価ボタンは表示されません。詳細は [docs/cloud-rag.md](cloud-rag.md) を参照してください。
 
+### 7.5 画像埋め込み（CLIP）による画像検索（IMPROVEMENT_PLAN.md Phase2）
+
+テキスト埋め込み（`multilingual-e5-large`、`embedding_generator.py`）とは別に、`scripts/image_embedding_generator.py` が CLIP系モデル（既定 `clip-ViT-B-32`、`sentence-transformers` 経由。新規の重い依存を追加していない）による画像埋め込みを提供する。CLIPはテキストと画像を同一の空間へマッピングするため、テキストクエリで画像を検索できる（クロスモーダル検索）。
+
+- **既存のテキスト検索とは完全に独立した経路。** `vector_database.py` の `search()`（BM25+ベクトルのRRFマージ）には一切手を入れておらず、画像はテキスト（1024次元）とは別次元（512次元）のため `{namespace}_images` という別コレクションに保存する。`get_document_count()` は `_images` コレクションを自動的に除外するため、画像をインデックスしても既存の「ドキュメント数」表示は変化しない。
+- **CLIPモデルは遅延ロード。** `RAGService.__init__()` ではロードせず、`index_images()`/`search_images()` が最初に呼ばれた時点で初めてロードする（画像機能を使わないユーザーの起動時間・メモリを悪化させないため）。初回呼び出しは数秒〜数十秒かかることがある。
+- **エンドポイント（`rag_local_bridge.py`）:**
+  - `POST /index-images` — `{"namespace": str, "image_paths": [str, ...], "metadata": {path: {...}}}`。画像は呼び出し元と同じマシン上のローカルファイルパスを直接渡す（Houdiniが保存したスクリーンショットのパスをそのまま使える）。存在しないパスは黙って除外する。
+  - `POST /image-search` — `{"query": str, "limit": int, "namespace": str（省略可）}` → `{"images": [{"file_path","namespace","score","metadata"}], "status":"ok"}`。
+- **画像ソース:** `houdini/python_panels/screen_capture.py` の `capture_viewport()` をそのまま流用する（新規キャプチャ機構は追加していない）。実際の利用例として、`tutorial_view.py` がチュートリアル保存時（単発生成・3段階連続生成の両方）に、そのチュートリアルのステップスクリーンショット（`TutorialResult.step_screenshots`）を `namespace="tutorials"` で自動的に画像インデックス化する（`_ImageIndexWorker`、ベストエフォート・Localモードのみ）。
+
 ---
 
 ## 8. 配布ガイド
