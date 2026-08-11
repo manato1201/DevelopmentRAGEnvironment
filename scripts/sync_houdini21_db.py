@@ -122,7 +122,6 @@ def _rich_text_to_plain(rich_text: list[dict]) -> str:
 
 def _blocks_to_markdown(blocks: list[dict]) -> str:
     lines: list[str] = []
-    in_code_block = False
 
     for b in blocks:
         btype = b.get("type", "")

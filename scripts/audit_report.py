@@ -51,7 +51,7 @@ def report(log_path: Path, warn_ms: int) -> None:
     error_rate = (len(allowed_false) / total * 100) if total else 0.0
 
     latencies = sorted(r["latency_ms"] for r in searches if isinstance(r.get("latency_ms"), (int, float)))
-    slow = [l for l in latencies if l > warn_ms]
+    slow = [lat for lat in latencies if lat > warn_ms]
 
     print(f"=== 監査ログレポート（{log_path}） ===")
     print(f"総検索件数:      {total}")

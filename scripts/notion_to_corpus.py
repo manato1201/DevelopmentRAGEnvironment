@@ -298,7 +298,7 @@ def sync_all(force: bool = False):
     print(f"\n{'='*50}")
     print(f"同期完了  更新:{total_ok}件  スキップ:{total_skip}件  エラー:{total_err}件")
     print(f"{'='*50}")
-    print(f"\n★ GASスクリプトプロパティに以下を設定してください:")
+    print("\n★ GASスクリプトプロパティに以下を設定してください:")
     print(f"  GEMINI_CORPUS_NAME = {corpus_name}")
 
 # ─────────────────────────────────────────────

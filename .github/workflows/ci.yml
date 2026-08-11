@@ -1,0 +1,41 @@
+name: CI
+
+# IMPROVEMENT_PLAN.md Phase5: 静的解析の軽量強化。
+# 独自拡張子・専用パーサ基盤（別文書「LoreDesktopAndWebSystem改善計画書」方式）は
+# 導入しない。このプロジェクトはPython+JS(GAS)+C#(Unity Editor拡張)の組み合わせで
+# 独自DSLを持たないため、ruff/mypy等の標準ツールで十分（Phase5アンチパターン注記）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: ruff check
+        run: uv run ruff check scripts/ houdini/
+
+      # 段階的にstrict対象を広げる方針（IMPROVEMENT_PLAN.md Phase5）。
+      # 初回はpep.py・score_engine.py・audit_logger.py（小さく他への依存が薄いモジュール）
+      # から対象にしている。他モジュールをstrict化する際はこのリストに追加すること。
+      - name: mypy --strict (段階導入モジュールのみ)
+        run: uv run mypy --strict scripts/pep.py scripts/score_engine.py scripts/audit_logger.py
+
+      - name: namespace governance check (pep.py 遵守チェック)
+        run: uv run python scripts/ci_check_namespaces.py

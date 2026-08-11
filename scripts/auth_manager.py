@@ -19,7 +19,6 @@ import argparse
 import datetime
 import hashlib
 import json
-import os
 import secrets
 import sqlite3
 import sys
@@ -329,7 +328,7 @@ def main() -> None:
         namespaces = [n.strip() for n in ns_str.split(",") if n.strip()] if ns_str else []
         try:
             uid, key = mgr.create_user(args.name, namespaces, is_admin=is_admin)
-            print(f"\nユーザー作成完了")
+            print("\nユーザー作成完了")
             print(f"  ID      : {uid}")
             print(f"  名前    : {args.name}")
             print(f"  Admin   : {'Yes' if is_admin else 'No'}")

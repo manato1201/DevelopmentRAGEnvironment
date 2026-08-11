@@ -37,7 +37,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 # ─── パス設定 ────────────────────────────────────────────────────────────────────
 _HERE = Path(__file__).parent
@@ -143,7 +142,6 @@ class SemanticChunker:
               level      : int  — 見出しレベル（1-3、なければ 0）
               source_hash: str  — SHA-256(source + body) の先頭 16 文字
         """
-        import hashlib
 
         chunks: list[dict] = []
 
@@ -536,7 +534,7 @@ def main() -> None:
         "--namespace", "-n",
         choices=NAMESPACES,
         default="personal_notes",
-        help=f"保存先 namespace（デフォルト: personal_notes）",
+        help="保存先 namespace（デフォルト: personal_notes）",
     )
     add_p.add_argument("--max-chunk", type=int, default=800, help="最大チャンク文字数（デフォルト: 800）")
     add_p.add_argument("--overlap", type=int, default=80, help="チャンク重複文字数（デフォルト: 80）")
