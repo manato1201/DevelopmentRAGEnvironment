@@ -1,0 +1,36 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "rag-poc",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-08-01",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	// D1: メタデータ・監査ログ・トークン予算（docs/cloud-local-unification-plan.md §8.1）
+	// database_idは `wrangler d1 create rag-poc-db` で実際に作成済みのものに設定済み
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "rag-poc-db",
+			"database_id": "47934c04-8cb6-4e11-935a-21aa6b23901c"
+		}
+	],
+	// Vectorize: 共有／個人スコープ用インデックス（それぞれ1本、metadataでnamespace/owner_user_idをフィルタ）
+	// 両インデックスとも作成済み（768次元・cosine。src/embeddings.tsでgemini-embedding-001に
+	// outputDimensionality=768を明示指定して次元数を合わせている）
+	"vectorize": [
+		{
+			"binding": "VEC_SHARED",
+			"index_name": "rag-poc-shared"
+		},
+		{
+			"binding": "VEC_PERSONAL",
+			"index_name": "rag-poc-personal"
+		}
+	],
+	"vars": {
+		// 開発用の非機密設定のみ。GEMINI_API_KEYは `wrangler secret put GEMINI_API_KEY` で別途設定する。
+		// text-embedding-004はGoogle側で廃止済み（2026-08-23確認）のためgemini-embedding-001を使用
+		"EMBEDDING_MODEL": "gemini-embedding-001"
+	}
+}
