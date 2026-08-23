@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cloud/Local RAG 統合方針</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1117;
+    --panel: #171a23;
+    --border: #2a2e3a;
+    --text: #e6e8ee;
+    --muted: #9aa1b4;
+    --accent: #7aa2ff;
+    --good: #6fd08c;
+    --bad: #ef7a7a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --border: #e1e4ec;
+      --text: #1b1e27;
+      --muted: #5b6270;
+      --accent: #3358d6;
+      --good: #1f8a4c;
+      --bad: #c23a3a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    line-height: 1.75;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+  header.hero {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  header.hero h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+  header.hero .meta { color: var(--muted); font-size: .9rem; }
+  .badge {
+    display: inline-block;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: .15rem .7rem;
+    font-size: .78rem;
+    color: var(--accent);
+    margin-right: .4rem;
+  }
+  nav.toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.3rem;
+    margin-bottom: 2.5rem;
+  }
+  nav.toc summary { cursor: pointer; font-weight: 600; }
+  nav.toc ol { margin: .8rem 0 0; padding-left: 1.3rem; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  section { margin-bottom: 3rem; }
+  h2 {
+    font-size: 1.2rem;
+    border-left: 4px solid var(--accent);
+    padding-left: .6rem;
+    margin-top: 0;
+  }
+  h3 { font-size: 1.02rem; color: var(--text); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: .88rem;
+    overflow-x: auto;
+    display: block;
+  }
+  table thead { display: table; width: 100%; table-layout: fixed; }
+  table tbody { display: table; width: 100%; table-layout: fixed; }
+  th, td {
+    border: 1px solid var(--border);
+    padding: .5rem .7rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--panel); color: var(--accent); }
+  code {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: .1rem .35rem;
+    font-size: .88em;
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: .85rem;
+  }
+  .mermaid { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; overflow-x: auto; }
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--panel);
+    padding: .8rem 1rem;
+    border-radius: 0 8px 8px 0;
+    margin: 1rem 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-color: var(--bad); }
+  footer { color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); padding-top: 1.2rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="badge">技術資料</span><span class="badge">アーキテクチャ設計</span>
+  <h1>Cloud/Local RAG 統合方針 — 現状整理と移行設計</h1>
+  <div class="meta">作成日: 2026-08-22　｜　対象: gas_cloud_rag.js（Cloud RAG）／ rag_local_bridge.py・rag_service.py（Local RAG）</div>
+</header>
+
+<nav class="toc">
+  <details open>
+  <summary>目次</summary>
+  <ol>
+    <li><a href="#s1">結論（先に）</a></li>
+    <li><a href="#s2">現状：なぜCloud/Localの2層構成なのか</a></li>
+    <li><a href="#s3">現状の技術構成</a></li>
+    <li><a href="#s4">新方針：バックエンドは統合し、区分けはデータ側で維持する</a></li>
+    <li><a href="#s5">統合後のアーキテクチャ案（Cloudflare想定）</a></li>
+    <li><a href="#s6">移行時に決めるべき論点（未確定事項）</a></li>
+    <li><a href="#s7">段階移行プラン</a></li>
+  </ol>
+  </details>
+</nav>
+
+<section id="s1">
+  <h2>1. 結論（先に）</h2>
+  <ul>
+    <li>Cloud/Local分離の本来の理由は「オンライン/オフライン」ではなく、<strong>「チームに公開してよい情報」と「個人情報」の物理的な分離</strong>（README §設計思想）</li>
+    <li>この区分け自体は今後も維持すべき設計判断であり、変えるべきは<strong>「2つの別々のコードベース・別々のインフラで実装している」という技術的な二重管理</strong>の方</li>
+    <li>統合後は、<strong>1つのバックエンド（Cloudflare想定）の中に「共有スコープ」と「個人スコープ」という2つの論理的な区分けを持たせる</strong>形にすることで、「最終的に1つにし、それぞれで見るものが違う」というご要望をそのまま実現できる</li>
+    <li>既存のIRAGClient抽象化（Unity/Houdini側の切り替え口）はこの移行と相性が良く、クライアント側の変更を最小限にできる見込み</li>
+  </ul>
+  <div class="mermaid">
+flowchart TB
+    subgraph Before["現状：2つの別インフラ"]
+        direction LR
+        B1["Cloud RAG<br/>gas_cloud_rag.js（GAS/JS）<br/>Sheetsベース"]
+        B2["Local RAG<br/>rag_service.py（Python）<br/>ChromaDBベース"]
+    end
+    subgraph After["統合後：1つのバックエンド、2つのスコープ"]
+        direction LR
+        A1["共有スコープ<br/>（旧Cloud相当のnamespace）"]
+        A2["個人スコープ<br/>（旧Local相当のnamespace）"]
+        A1 -.->|"同じインフラ・同じAPI"| A3["Cloudflare Workers<br/>+ Vectorize"]
+        A2 -.-> A3
+    end
+    Before -->|"統合"| After
+  </div>
+</section>
+
+<section id="s2">
+  <h2>2. 現状：なぜCloud/Localの2層構成なのか</h2>
+  <p>README（設計思想）に明記されている本来の理由は以下の通り：</p>
+  <div class="callout">すべての情報を1か所に集めると、個人のチャット履歴や未公開メモがチームメンバーに見えてしまう。逆に、チームで共有すべきツール仕様や設計書をローカルだけに置くと、他のメンバーが参照できない。</div>
+  <table>
+    <thead><tr><th>区分</th><th>内容</th><th>現状の置き場所</th></tr></thead>
+    <tbody>
+      <tr><td>クラウドに入れるもの（チームで共有する情報）</td><td>Unity/Houdini/DirectX12等のツール仕様、ゲーム設計書・共有ドキュメント、精査済み技術記事、ゼミ資料・議事録</td><td>gas_cloud_rag.js（Notion/Drive → Sheetsに集約）</td></tr>
+      <tr><td>ローカルに入れるもの（個人情報・外に出せない情報）</td><td>AIとのチャット履歴、Houdiniチュートリアルの生成結果、個人のObsidianノート・進捗メモ、共有できない草稿</td><td>rag_service.py（ChromaDB、localRAG/配下）</td></tr>
+    </tbody>
+  </table>
+  <p>つまりこの分離は<strong>アクセス制御・情報公開範囲の設計</strong>であり、接続方式（オンライン/オフライン）の都合ではない。この前提は統合後も変わらず重要——「個人のチャット履歴が誤ってチーム共有スコープに紛れ込む」ことは、統合後も絶対に避けなければならない。</p>
+</section>
+
+<section id="s3">
+  <h2>3. 現状の技術構成</h2>
+  <div class="mermaid">
+flowchart LR
+    subgraph Cloud["Cloud RAG"]
+        C1["Unity / Houdini クライアント"] -->|"HTTPS"| C2["gas_cloud_rag.js（GAS Web App）"]
+        C2 --> C3["Google Sheets（RAG_Index シート、埋め込みをJSON文字列で保存）"]
+        C2 --> C4["Gemini API（埋め込み・HyDE・回答生成）"]
+        C2 --> C5["Claude API（GAS経由プロキシ）"]
+    end
+    subgraph Local["Local RAG"]
+        L1["Unity / Houdini クライアント"] -->|"HTTP（localhost:8766）"| L2["rag_local_bridge.py"]
+        L2 --> L3["rag_service.py（検索エンジン本体）"]
+        L3 --> L4["ChromaDB（ベクトルDB、localRAG/ 配下）"]
+        L2 --> L5["Gemini / Claude API"]
+    end
+    Switch["IRAGClient（切り替えインターフェース）"] -.-> C1
+    Switch -.-> L1
+  </div>
+  <table>
+    <thead><tr><th>項目</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>ベクトル検索の実装が2つ存在</td><td>Cloud側はSheetsのセルに埋め込みをJSON文字列で保存し、毎回全行を読み出して総当たりでコサイン類似度計算（loadIndexFromSheet_）。Local側はChromaDBという専用ベクトルDBを使用。同じ「ベクトル検索」という機能を、性能もアーキテクチャも異なる2通りの方法で実装・保守している</td></tr>
+      <tr><td>コードベースが言語ごと・実装ごとに分岐</td><td>Cloud側はGAS(JS)、Local側はPython。HyDE・ハイブリッド検索（BM25+RRF）等のロジックも独立して実装されており、片方に機能追加すると、もう片方にも手動で移植しない限り機能差が生まれる</td></tr>
+      <tr><td>Cloud側のスケール限界</td><td>Sheetsはドキュメント量が増えるほど「毎回全行スキャン」のコストが線形に増加する。GASの実行時間上限（6分）とも相まって、大規模化に弱い</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s4">
+  <h2>4. 新方針：バックエンドは統合し、区分けはデータ側で維持する</h2>
+  <p>「最終的には1個にし、それぞれで見るものが違うという形で分けておきたい」というご要望は、<strong>インフラ（実行環境・コードベース）を1つに統合し、アクセス境界（誰が何を見られるか）はデータの区分けとして残す</strong>、という設計で実現できる。</p>
+  <p>これは実は、既存のnamespace設計（tool_docs/game_info/research/team_notes等の共有namespaceと、localRAG/配下の個人namespace）の考え方をそのまま踏襲できる。<strong>「Cloud」「Local」という2つの実行環境の違いを、「共有namespace」「個人namespace」という1つの実行環境内でのデータ区分けに変換する</strong>、という整理になる。</p>
+  <table>
+    <thead><tr><th>現状</th><th>統合後</th></tr></thead>
+    <tbody>
+      <tr><td>Cloud＝別インフラ（GAS）＋共有情報</td><td>共有スコープ＝同じインフラ内の共有namespace群</td></tr>
+      <tr><td>Local＝別インフラ（Python/ChromaDB）＋個人情報</td><td>個人スコープ＝同じインフラ内の個人namespace群（アクセス制御で分離）</td></tr>
+    </tbody>
+  </table>
+  <p>アクセス制御は、既存のpep.py（ロールごとのnamespace権限制御）の考え方を、統合後のバックエンド側にそのまま移植すればよい。</p>
+</section>
+
+<section id="s5">
+  <h2>5. 統合後のアーキテクチャ案（Cloudflare想定）</h2>
+  <div class="mermaid">
+flowchart TB
+    Client["Unity / Houdini クライアント（IRAGClientは変更最小限）"] -->|"HTTPS"| Worker["Cloudflare Workers（統合後の唯一のバックエンド）"]
+    Worker --> Auth["アクセス制御層（pep.py相当の権限チェックを移植）"]
+    Auth -->|"共有namespace"| VecShared["Vectorize（共有インデックス）"]
+    Auth -->|"個人namespace"| VecPersonal["Vectorize（個人インデックス、ユーザー単位で分離）"]
+    Worker --> D1["D1（メタデータ・監査ログ・トークン予算管理）"]
+    Worker --> Gemini["Gemini API（埋め込み・HyDE・回答生成。要件通りGemini APIのみ利用）"]
+  </div>
+  <ul>
+    <li><strong>ベクトル検索はVectorizeに一本化</strong>。Sheetsでの力技実装、ChromaDBでの別実装という二重管理を解消し、性能面のボトルネックだった「毎回全行総当たり」から専用ANN検索に切り替わる</li>
+    <li><strong>共有／個人の区分けは、Vectorizeのインデックスを分ける（またはメタデータフィルタで論理分離する）ことで実現</strong>。物理的に分けるか論理的に分けるかは6章で検討</li>
+    <li><strong>RAGに必要なのはGemini APIのみ</strong>という要件を踏まえ、Claude API連携（チュートリアル生成等）・Notion/Drive同期・Google純正サービス連携（Calendar/Gmail/Maps）は、この統合の対象外とする（維持する場合は別途検討）</li>
+    <li>D1（軽量SQLite）でメタデータ・監査ログ・トークン予算管理を担う。現状の「Sheetsを疑似DBとして使う」実装から、本来のDB相当のものに置き換わる</li>
+  </ul>
+</section>
+
+<section id="s6">
+  <h2>6. 移行時に決めるべき論点（未確定事項）</h2>
+  <p>このドキュメントは技術的な方向性を示すもので、以下は実装前にすり合わせが必要：</p>
+  <table>
+    <thead><tr><th>#</th><th>論点</th><th>検討の観点</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>共有／個人の分離は物理分離（別インデックス）か論理分離（同一インデックス+アクセス制御）か</td><td>物理分離の方が「個人情報が絶対に共有スコープへ漏れない」という保証を作りやすい。論理分離は運用がシンプルだが、アクセス制御のバグが即座に情報漏洩に直結するリスクがある</td></tr>
+      <tr><td>2</td><td>個人スコープのユーザー単位分離をどう設計するか</td><td>現状のLocal RAGは「ローカルマシン上で完結」しているため実質1ユーザー。統合後にクラウド上へ個人データを置く場合、ユーザーごとの認証・アクセス制御の設計が新たに必要になる</td></tr>
+      <tr><td>3</td><td>既存データ（Sheetsの埋め込み・ChromaDBのベクトル）の移行方法</td><td>再埋め込み（Gemini APIで再計算）か、既存ベクトルをそのまま移すか。埋め込みモデルが同一であれば移送で済むが、精度検証は必要</td></tr>
+      <tr><td>4</td><td>Claude API連携・Notion/Drive同期・Google純正サービス連携の扱い</td><td>今回の統合スコープ外とするなら、いつ・どのように整理するかを別途決める（当面併存させるなら現状のGASを残す判断もあり得る）</td></tr>
+      <tr><td>5</td><td>ITリテラシーが高くないユーザーへの影響</td><td>統合作業自体はバックエンドの話なので、UI（Unity/Houdiniパネル）側の見た目は変えない方針で進めるべき。実証実験（9月〜）に影響を出さないためのスケジュール調整が必要（7章参照）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s7">
+  <h2>7. 段階移行プラン</h2>
+  <p>実証実験（ベータ9月上旬・本格実証9月中旬〜）のスケジュールを踏まえ、<strong>実証実験期間中は現行のCloud/Local構成を維持し、統合作業と並行させない</strong>ことを推奨する。</p>
+  <div class="mermaid">
+flowchart LR
+    Now["現在"] --> Phase0["Phase 0（実施済み）<br/>GAS側のバッチ化対応で急場の性能問題を緩和"]
+    Phase0 --> Beta["ベータテスト（9月上旬）<br/>現行構成のまま実施"]
+    Beta --> Full["本格実証実験（9月中旬〜）<br/>現行構成のまま実施"]
+    Full --> Phase1["Phase 1（実証実験後）<br/>Cloudflare検証環境の構築<br/>データ移行方式の確定"]
+    Phase1 --> Phase2["Phase 2<br/>共有／個人スコープの<br/>アクセス制御設計・実装"]
+    Phase2 --> Phase3["Phase 3<br/>本番切り替え<br/>（旧Cloud/Local構成の段階的廃止）"]
+  </div>
+  <div class="callout warn">実証実験期間中にバックエンドを差し替えると、ITリテラシーが高くないユーザーが不具合の切り分けに巻き込まれるリスクが大きい。統合は実証実験が一区切りついてから着手するのが安全と考える。</div>
+</section>
+
+<footer>
+  関連ドキュメント: <a href="model-strategy-report.md">docs/model-strategy-report.md</a>（ホスティング先の比較検討） ／ <a href="local-rag.md">docs/local-rag.md</a> ／ <a href="cloud-rag.md">docs/cloud-rag.md</a>
+</footer>
+
+</div>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default') });
+</script>
+</body>
+</html>

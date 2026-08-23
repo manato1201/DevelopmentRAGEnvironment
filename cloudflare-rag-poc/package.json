@@ -1,0 +1,19 @@
+{
+  "name": "cloudflare-rag-poc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloud RAG / Local RAG統合方針の検証用プロトタイプ（本番のgas_cloud_rag.js/rag_service.pyには一切影響しない別環境）",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply rag-poc-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply rag-poc-db --remote",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260820.1",
+    "typescript": "^5.6.3",
+    "wrangler": "^4.0.0"
+  }
+}

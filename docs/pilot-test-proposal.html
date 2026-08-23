@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ベータテスト・本格実証実験 実施提案書</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1117;
+    --panel: #171a23;
+    --border: #2a2e3a;
+    --text: #e6e8ee;
+    --muted: #9aa1b4;
+    --accent: #7aa2ff;
+    --good: #6fd08c;
+    --bad: #ef7a7a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fb; --panel: #ffffff; --border: #e1e4ec;
+      --text: #1b1e27; --muted: #5b6270; --accent: #3358d6;
+      --good: #1f8a4c; --bad: #c23a3a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; line-height: 1.75; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+  header.hero { border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+  header.hero h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+  header.hero .meta { color: var(--muted); font-size: .9rem; }
+  .badge { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: .15rem .7rem; font-size: .78rem; color: var(--accent); margin-right: .4rem; }
+  nav.toc { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.3rem; margin-bottom: 2.5rem; }
+  nav.toc summary { cursor: pointer; font-weight: 600; }
+  nav.toc ol { margin: .8rem 0 0; padding-left: 1.3rem; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  section { margin-bottom: 3rem; }
+  h2 { font-size: 1.2rem; border-left: 4px solid var(--accent); padding-left: .6rem; margin-top: 0; }
+  h3 { font-size: 1rem; margin: 1.6rem 0 .6rem; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .88rem; overflow-x: auto; display: block; }
+  table thead { display: table; width: 100%; table-layout: fixed; }
+  table tbody { display: table; width: 100%; table-layout: fixed; }
+  th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: var(--panel); color: var(--accent); }
+  code { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: .1rem .35rem; font-size: .88em; }
+  .mermaid { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; overflow-x: auto; }
+  .diagram-card {
+    --d-bg:#ffffff; --d-panel:#f4f6f8; --d-panel-2:#eef1f4; --d-border:#dfe3e8; --d-border-strong:#c7cdd6;
+    --d-text:#14171c; --d-muted:#68707c; --d-highlight-bg:#e7f0fe; --d-highlight-border:#3d7de8;
+    --d-c-cloud:#0e8f8a; --d-c-local:#7350d6; --d-c-chat:#e07b1f; --d-c-mcp:#c94141;
+    --d-c-sec:#1f7a4d; --d-c-video:#2f4b9e; --d-c-llm:#33404f; --d-c-future:#8a6d1e; --d-line:#aab1bb;
+    background: var(--d-bg); border: 1px solid var(--d-border); border-radius: 12px; padding: 1rem; margin: 1rem 0; overflow-x: auto;
+  }
+  .diagram-card svg { display: block; min-width: 900px; font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  .callout { border-left: 3px solid var(--accent); background: var(--panel); padding: .8rem 1rem; border-radius: 0 8px 8px 0; margin: 1rem 0; font-size: .92rem; }
+  .callout.warn { border-color: var(--bad); }
+  .todo { list-style: none; padding-left: 0; }
+  .todo li { padding-left: 1.6rem; position: relative; margin-bottom: .4rem; }
+  .todo li::before { content: "☐"; position: absolute; left: 0; color: var(--accent); }
+  footer { color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); padding-top: 1.2rem; }
+  a { color: var(--accent); }
+  .fill { color: var(--bad); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="badge">提案書</span><span class="badge">実証実験計画</span>
+  <h1>ベータテスト・本格実証実験 実施提案書</h1>
+  <div class="meta">作成日: 2026-08-22　｜　対象: ゲーム開発RAG環境（Cloud RAG / Local RAG / Houdini21チュートリアル自動生成）</div>
+</header>
+
+<div class="callout warn">本書は現時点で把握している情報を基にした一次案です。<span class="fill">【要記入】</span>の箇所は、対象者数・実施場所・指導教員等、確定次第埋めてください。</div>
+
+<nav class="toc">
+  <details open>
+  <summary>目次</summary>
+  <ol>
+    <li><a href="#s1">背景・目的</a></li>
+    <li><a href="#s2">対象システムの概要</a></li>
+    <li><a href="#s3">システム構成図</a></li>
+    <li><a href="#s4">スケジュール（現在地）</a></li>
+    <li><a href="#s5">ベータテストと本格実証実験の違い</a></li>
+    <li><a href="#s6">対象者・実施体制</a></li>
+    <li><a href="#s7">検証内容</a></li>
+    <li><a href="#s8">成功基準・評価指標</a></li>
+    <li><a href="#s9">ITリテラシーへの配慮方針</a></li>
+    <li><a href="#s10">リスクと対策</a></li>
+    <li><a href="#s11">準備タスク一覧（9月上旬までに）</a></li>
+  </ol>
+  </details>
+</nav>
+
+<section id="s1">
+  <h2>1. 背景・目的</h2>
+  <p>Unity/Houdini向けのRAG（検索拡張生成）環境を、これまで開発者本人による検証（fake houでのスモークテスト等）で動作確認してきた。次の段階として、<strong>実際のユーザー（開発チームメンバー・非技術者を含む）による実地検証</strong>を行い、以下を明らかにすることを目的とする。</p>
+  <ul>
+    <li>実際の利用シーンでRAG検索・チュートリアル自動生成が期待通りに機能するか</li>
+    <li>ITリテラシーが高くない利用者でも、迷わず・エラーに詰まらず使えるか</li>
+    <li>実運用に耐えるコスト・性能（トークン消費量、応答時間）か</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2>2. 対象システムの概要</h2>
+  <table>
+    <thead><tr><th>機能</th><th>概要</th><th>実装</th></tr></thead>
+    <tbody>
+      <tr><td>Cloud RAGチャット</td><td>チーム共有情報（Unity/Houdini仕様・ゲーム設計書等）を検索し、AIが回答</td><td>gas_cloud_rag.js（GAS）</td></tr>
+      <tr><td>Local RAGチャット</td><td>個人情報（チャット履歴・個人メモ等）を検索し、AIが回答</td><td>rag_local_bridge.py（Python）</td></tr>
+      <tr><td>Houdini21チュートリアル自動生成</td><td>トピックを入力すると、Houdini上でノードグラフを自動組み立てし、チュートリアルとして出力</td><td>tutorial_agent.pyほか</td></tr>
+      <tr><td>Unity/Houdiniパネル統合</td><td>各ツール内から直接AIに質問できるUI</td><td>rag_chatbot.pyほか</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s3">
+  <h2>3. システム構成図</h2>
+  <p>RAGとしての分類は <strong>Modular RAG</strong>（Gao et al., <i>Retrieval-Augmented Generation for Large Language Models: A Survey</i>, arXiv:2312.10997）に該当する。ハイブリッド検索・HyDEといったAdvanced RAGの要素に加え、namespaceによるルーティング・レベル適応生成・MCPによるツール統合・監査ログを備えるため。</p>
+  <div class="diagram-card">
+  <svg viewBox="0 0 1680 880" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="pa-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--d-line)"/></marker>
+      <marker id="pa-arrowUser" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--d-c-chat)"/></marker>
+      <marker id="pa-arrowFuture" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--d-c-future)"/></marker>
+    </defs>
+    <rect x="20" y="140" width="200" height="170" rx="12" fill="var(--d-panel-2)" stroke="var(--d-border)" stroke-width="1.5"/>
+    <text x="120" y="166" font-size="13" fill="var(--d-muted)" text-anchor="middle">クライアント</text>
+    <rect x="45" y="180" width="150" height="40" rx="8" fill="#2b2b2b"/>
+    <text x="120" y="205" font-size="13" fill="#fff" text-anchor="middle" font-weight="600">Unity</text>
+    <rect x="45" y="228" width="150" height="40" rx="8" fill="#2b2b2b"/>
+    <text x="120" y="253" font-size="13" fill="#fff" text-anchor="middle" font-weight="600">Houdini</text>
+    <line x1="220" y1="200" x2="350" y2="200" stroke="var(--d-line)" stroke-width="2" marker-end="url(#pa-arrow)"/>
+    <line x1="220" y1="248" x2="350" y2="248" stroke="var(--d-c-chat)" stroke-width="2.5" marker-end="url(#pa-arrowUser)"/>
+    <text x="225" y="233" font-size="11" fill="var(--d-c-chat)" font-weight="600">質問・トピック入力（直接）</text>
+    <rect x="350" y="40" width="820" height="580" rx="18" fill="none" stroke="var(--d-border-strong)" stroke-width="2"/>
+    <text x="378" y="78" font-size="19" font-weight="700" fill="var(--d-text)">DevelopmentRAGEnvironment（メインリポジトリ）</text>
+    <text x="378" y="100" font-size="12.5" fill="var(--d-muted)">Cloud RAG + Local RAG + MCP（このリポジトリ内で完結）</text>
+    <rect x="400" y="140" width="340" height="170" rx="12" fill="var(--d-panel-2)" stroke="var(--d-border)" stroke-width="1.5"/>
+    <text x="424" y="168" font-size="14" font-weight="700" fill="var(--d-text)">対話・操作</text>
+    <text x="424" y="186" font-size="11" fill="var(--d-muted)">Chatbot / MCP Server</text>
+    <rect x="424" y="198" width="30" height="30" rx="7" fill="var(--d-c-chat)"/>
+    <text x="439" y="218" font-size="14" fill="#fff" text-anchor="middle" font-weight="700">C</text>
+    <text x="464" y="212" font-size="12.5" font-weight="600" fill="var(--d-text)">チャットボット</text>
+    <text x="464" y="227" font-size="10.5" fill="var(--d-muted)">LLM切替（Claude/Gemini）で応答</text>
+    <line x1="439" y1="228" x2="439" y2="250" stroke="var(--d-line)" stroke-width="1.5" marker-end="url(#pa-arrow)"/>
+    <rect x="424" y="252" width="30" height="30" rx="7" fill="var(--d-c-mcp)"/>
+    <text x="439" y="272" font-size="14" fill="#fff" text-anchor="middle" font-weight="700">M</text>
+    <text x="464" y="266" font-size="12.5" font-weight="600" fill="var(--d-text)">MCP Server</text>
+    <text x="464" y="281" font-size="10.5" fill="var(--d-muted)">Houdiniを直接操作・記録</text>
+    <rect x="400" y="330" width="340" height="250" rx="12" fill="var(--d-panel-2)" stroke="var(--d-border)" stroke-width="1.5"/>
+    <text x="424" y="358" font-size="14" font-weight="700" fill="var(--d-text)">RAGデータ基盤</text>
+    <text x="424" y="376" font-size="11" fill="var(--d-muted)">Cloud RAG / Local RAG（namespaceで論理分離）</text>
+    <rect x="424" y="388" width="30" height="30" rx="7" fill="var(--d-c-cloud)"/>
+    <text x="439" y="408" font-size="14" fill="#fff" text-anchor="middle" font-weight="700">Cl</text>
+    <text x="464" y="402" font-size="12.5" font-weight="600" fill="var(--d-text)">Cloud RAG</text>
+    <text x="464" y="417" font-size="10.5" fill="var(--d-muted)">チーム共有情報（Notion + GAS）</text>
+    <line x1="439" y1="418" x2="439" y2="440" stroke="var(--d-line)" stroke-width="1.5" marker-end="url(#pa-arrow)"/>
+    <rect x="424" y="442" width="30" height="30" rx="7" fill="var(--d-c-local)"/>
+    <text x="439" y="462" font-size="14" fill="#fff" text-anchor="middle" font-weight="700">Lo</text>
+    <text x="464" y="456" font-size="12.5" font-weight="600" fill="var(--d-text)">Local RAG</text>
+    <text x="464" y="471" font-size="10.5" fill="var(--d-muted)">個人情報（ChromaDB + BM25 + HyDE）</text>
+    <rect x="424" y="490" width="296" height="60" rx="8" fill="var(--d-highlight-bg)" stroke="var(--d-highlight-border)" stroke-width="1.3"/>
+    <text x="440" y="512" font-size="11" font-weight="600" fill="var(--d-highlight-border)">ハイブリッド検索</text>
+    <text x="440" y="530" font-size="10" fill="var(--d-muted)">ベクトル(e5-large) ＋ BM25 を RRF で統合</text>
+    <line x1="740" y1="213" x2="760" y2="213" stroke="var(--d-line)" stroke-width="1.5"/>
+    <line x1="760" y1="213" x2="760" y2="457" stroke="var(--d-line)" stroke-width="1.5"/>
+    <line x1="760" y1="457" x2="742" y2="457" stroke="var(--d-line)" stroke-width="1.5" marker-end="url(#pa-arrow)"/>
+    <rect x="800" y="140" width="340" height="230" rx="14" fill="var(--d-panel-2)" stroke="var(--d-c-sec)" stroke-width="2"/>
+    <text x="824" y="168" font-size="14" font-weight="700" fill="var(--d-c-sec)">セキュリティ・品質制御</text>
+    <rect x="824" y="188" width="30" height="30" rx="7" fill="var(--d-c-sec)"/>
+    <text x="839" y="208" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">A</text>
+    <text x="864" y="202" font-size="12.5" font-weight="600" fill="var(--d-text)">監査ログ</text>
+    <text x="864" y="217" font-size="10.5" fill="var(--d-muted)">クエリをSHA-256でハッシュ化・JSONL記録</text>
+    <line x1="839" y1="218" x2="839" y2="240" stroke="var(--d-line)" stroke-width="1.5" marker-end="url(#pa-arrow)"/>
+    <rect x="824" y="242" width="30" height="30" rx="7" fill="var(--d-c-sec)"/>
+    <text x="839" y="262" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">T</text>
+    <text x="864" y="256" font-size="12.5" font-weight="600" fill="var(--d-text)">トークン予算</text>
+    <text x="864" y="271" font-size="10.5" fill="var(--d-muted)">RAG/Claude双方をサーバー側で二重管理</text>
+    <line x1="839" y1="272" x2="839" y2="294" stroke="var(--d-line)" stroke-width="1.5" marker-end="url(#pa-arrow)"/>
+    <rect x="824" y="296" width="30" height="30" rx="7" fill="var(--d-c-sec)"/>
+    <text x="839" y="316" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">S</text>
+    <text x="864" y="310" font-size="12.5" font-weight="600" fill="var(--d-text)">理解度スコア</text>
+    <text x="864" y="325" font-size="10.5" fill="var(--d-muted)">basic→applied→advancedを自動調整</text>
+    <line x1="1170" y1="225" x2="1220" y2="225" stroke="var(--d-line)" stroke-width="1.5" marker-end="url(#pa-arrow)"/>
+    <text x="1173" y="215" font-size="10" fill="var(--d-muted)">生成・埋め込みAPI呼び出し</text>
+    <rect x="1220" y="140" width="280" height="170" rx="12" fill="var(--d-panel-2)" stroke="var(--d-border)" stroke-width="1.5"/>
+    <text x="1244" y="168" font-size="14" font-weight="700" fill="var(--d-text)">外部LLM API</text>
+    <rect x="1244" y="192" width="232" height="38" rx="8" fill="var(--d-c-llm)"/>
+    <text x="1360" y="216" font-size="13" fill="#fff" text-anchor="middle" font-weight="600">Claude API</text>
+    <rect x="1244" y="240" width="232" height="38" rx="8" fill="var(--d-c-llm)"/>
+    <text x="1360" y="264" font-size="13" fill="#fff" text-anchor="middle" font-weight="600">Gemini API</text>
+    <line x1="1170" y1="455" x2="1220" y2="455" stroke="var(--d-line)" stroke-width="1.5" marker-end="url(#pa-arrow)"/>
+    <text x="1173" y="445" font-size="10" fill="var(--d-muted)">回答・チュートリアルをHTTP POST</text>
+    <rect x="1220" y="340" width="380" height="250" rx="12" fill="var(--d-panel-2)" stroke="var(--d-border)" stroke-width="1.5"/>
+    <text x="1244" y="368" font-size="14" font-weight="700" fill="var(--d-text)">LearningQt（別リポジトリ）</text>
+    <text x="1244" y="386" font-size="11" fill="var(--d-muted)">GameDevelopment/LearningQt（Qt/C++）</text>
+    <rect x="1244" y="398" width="30" height="30" rx="7" fill="var(--d-c-video)"/>
+    <text x="1259" y="418" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">Q</text>
+    <text x="1284" y="412" font-size="12.5" font-weight="600" fill="var(--d-text)">ナレーション動画生成</text>
+    <text x="1284" y="427" font-size="10.5" fill="var(--d-muted)">SAPI5音声合成 ＋ Mermaid図解 ＋ FFmpeg</text>
+    <line x1="1259" y1="428" x2="1259" y2="455" stroke="var(--d-line)" stroke-width="1.5" marker-end="url(#pa-arrow)"/>
+    <rect x="1244" y="457" width="326" height="60" rx="8" fill="var(--d-highlight-bg)" stroke="var(--d-highlight-border)" stroke-width="1.3"/>
+    <text x="1260" y="479" font-size="11" font-weight="600" fill="var(--d-highlight-border)">Web公開（動画ギャラリー）</text>
+    <text x="1260" y="497" font-size="10" fill="var(--d-muted)">manifest.json方式で31本を自動公開中</text>
+    <text x="350" y="660" font-size="11" fill="var(--d-c-future)" font-weight="600">連携検討中（将来・未確定）</text>
+    <line x1="545" y1="620" x2="545" y2="676" stroke="var(--d-c-future)" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#pa-arrowFuture)"/>
+    <line x1="965" y1="620" x2="965" y2="676" stroke="var(--d-c-future)" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#pa-arrowFuture)"/>
+    <rect x="350" y="676" width="390" height="140" rx="12" fill="none" stroke="var(--d-c-future)" stroke-width="1.5" stroke-dasharray="6,5"/>
+    <text x="374" y="704" font-size="13" font-weight="700" fill="var(--d-c-future)">VisualRegressionQATool（別リポジトリ）</text>
+    <text x="374" y="722" font-size="10.5" fill="var(--d-muted)">ピクセル差分によるビジュアル回帰QA</text>
+    <text x="374" y="740" font-size="10.5" fill="var(--d-muted)">生成チュートリアル・描画結果の検証への活用を検討中</text>
+    <rect x="770" y="676" width="390" height="140" rx="12" fill="none" stroke="var(--d-c-future)" stroke-width="1.5" stroke-dasharray="6,5"/>
+    <text x="794" y="704" font-size="13" font-weight="700" fill="var(--d-c-future)">VLMAutoReplayTool（別リポジトリ）</text>
+    <text x="794" y="722" font-size="10.5" fill="var(--d-muted)">基盤モデル計画＋専用スキル実行のゲーム自動プレイエージェント</text>
+    <text x="794" y="740" font-size="10.5" fill="var(--d-muted)">ローカルRAGブリッジ(:8766)を共用し連携を検討中</text>
+  </svg>
+  </div>
+  <p style="color:var(--muted);font-size:.88rem;">補足：実務で使われる名称ベースの分類（Hybrid RAG／Agentic RAG等）に当てはめても、ハイブリッド検索の面でHybrid RAG、MCP経由の複数手順操作の面でAgentic RAG的特性に該当するのみで、いずれもModular RAGを構成する要素の一部のため、上記の分類結果に変化はない（詳細は<a href="glossary.md">docs/glossary.md</a>5章）。</p>
+  <p>現状はCloud/Localが別インフラ・別実装。統合方針は<a href="cloud-local-unification-plan.md">docs/cloud-local-unification-plan.md</a>を参照。LearningQtは別リポジトリ（<code>GameDevelopment/LearningQt</code>）として運用されており、HTTP経由でCloud RAGの回答・チュートリアルを取得して動画化する。VisualRegressionQATool・VLMAutoReplayToolは性能向上・デバッグ効率化の観点で連携を検討中だが、現時点では未確定（ServerLauncherという起動管理コンポーネントは実在しないため、本書からは削除済み）。</p>
+</section>
+
+<section id="s4">
+  <h2>4. スケジュール（現在地・2026-08-22時点）</h2>
+  <p>計画より遅れが出ているため、8月時点を現在地として再設定した。</p>
+  <div class="diagram-card">
+  <svg viewBox="0 0 1560 380" xmlns="http://www.w3.org/2000/svg">
+    <defs><marker id="sc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--d-line)"/></marker></defs>
+    <text x="20" y="30" font-size="11" fill="var(--d-highlight-border)" font-weight="700">8月　★現在地</text>
+    <rect x="20" y="44" width="200" height="110" rx="10" fill="var(--d-highlight-bg)" stroke="var(--d-highlight-border)" stroke-width="2"/>
+    <text x="36" y="72" font-size="13" font-weight="700" fill="var(--d-text)">①システム改善・</text>
+    <text x="36" y="90" font-size="13" font-weight="700" fill="var(--d-text)">強化</text>
+    <text x="36" y="112" font-size="10.5" fill="var(--d-highlight-border)">進行中（計画より遅延）</text>
+    <line x1="220" y1="99" x2="240" y2="99" stroke="var(--d-line)" stroke-width="2" marker-end="url(#sc-arrow)"/>
+    <text x="240" y="30" font-size="11" fill="var(--d-muted)">9月上旬</text>
+    <rect x="240" y="44" width="200" height="110" rx="10" fill="var(--d-highlight-bg)" stroke="var(--d-highlight-border)" stroke-width="2"/>
+    <text x="256" y="72" font-size="13" font-weight="700" fill="var(--d-text)">②ベータテスト・</text>
+    <text x="256" y="90" font-size="13" font-weight="700" fill="var(--d-text)">中間発表</text>
+    <text x="256" y="112" font-size="10.5" fill="var(--d-highlight-border)">マイルストーン</text>
+    <line x1="440" y1="99" x2="460" y2="99" stroke="var(--d-line)" stroke-width="2" marker-end="url(#sc-arrow)"/>
+    <text x="460" y="30" font-size="11" fill="var(--d-muted)">9月中旬〜下旬</text>
+    <rect x="460" y="44" width="200" height="110" rx="10" fill="var(--d-panel-2)" stroke="var(--d-border)" stroke-width="1.5"/>
+    <text x="476" y="72" font-size="13" font-weight="700" fill="var(--d-text)">③実証実験</text>
+    <text x="476" y="90" font-size="13" font-weight="700" fill="var(--d-text)">対象者選定＆実験</text>
+    <text x="476" y="112" font-size="10.5" fill="var(--d-muted)">予定</text>
+    <line x1="660" y1="99" x2="680" y2="99" stroke="var(--d-line)" stroke-width="2" marker-end="url(#sc-arrow)"/>
+    <text x="680" y="30" font-size="11" fill="var(--d-muted)">10月</text>
+    <rect x="680" y="44" width="200" height="110" rx="10" fill="var(--d-panel-2)" stroke="var(--d-border)" stroke-width="1.5"/>
+    <text x="696" y="72" font-size="13" font-weight="700" fill="var(--d-text)">④実証実験</text>
+    <text x="696" y="90" font-size="13" font-weight="700" fill="var(--d-text)">継続</text>
+    <text x="696" y="112" font-size="10.5" fill="var(--d-muted)">予定</text>
+    <line x1="880" y1="99" x2="900" y2="99" stroke="var(--d-line)" stroke-width="2" marker-end="url(#sc-arrow)"/>
+    <text x="900" y="30" font-size="11" fill="var(--d-muted)">11月</text>
+    <rect x="900" y="44" width="200" height="110" rx="10" fill="var(--d-panel-2)" stroke="var(--d-border)" stroke-width="1.5"/>
+    <text x="916" y="72" font-size="13" font-weight="700" fill="var(--d-text)">⑤実証実験継続／</text>
+    <text x="916" y="90" font-size="13" font-weight="700" fill="var(--d-text)">考察・論文執筆</text>
+    <text x="916" y="112" font-size="10.5" fill="var(--d-muted)">中旬〜並行開始</text>
+    <line x1="1100" y1="99" x2="1120" y2="99" stroke="var(--d-line)" stroke-width="2" marker-end="url(#sc-arrow)"/>
+    <text x="1120" y="30" font-size="11" fill="var(--d-muted)">12月</text>
+    <rect x="1120" y="44" width="200" height="110" rx="10" fill="var(--d-panel-2)" stroke="var(--d-border)" stroke-width="1.5"/>
+    <text x="1136" y="72" font-size="13" font-weight="700" fill="var(--d-text)">⑥まとめ</text>
+    <text x="1136" y="112" font-size="10.5" fill="var(--d-muted)">予定</text>
+    <line x1="1320" y1="99" x2="1340" y2="99" stroke="var(--d-line)" stroke-width="2" marker-end="url(#sc-arrow)"/>
+    <text x="1340" y="30" font-size="11" fill="var(--d-muted)">12月下旬</text>
+    <rect x="1340" y="44" width="200" height="110" rx="10" fill="var(--d-highlight-bg)" stroke="var(--d-highlight-border)" stroke-width="2"/>
+    <text x="1356" y="72" font-size="13" font-weight="700" fill="var(--d-text)">⑦最終発表</text>
+    <text x="1356" y="112" font-size="10.5" fill="var(--d-highlight-border)">マイルストーン</text>
+    <line x1="20" y1="200" x2="1540" y2="200" stroke="var(--d-border)" stroke-width="1"/>
+    <text x="20" y="230" font-size="10.5" fill="var(--d-muted)" letter-spacing="0.05em">LEGEND</text>
+    <rect x="20" y="244" width="26" height="26" rx="6" fill="var(--d-panel-2)" stroke="var(--d-border)" stroke-width="1.5"/>
+    <text x="56" y="262" font-size="12" fill="var(--d-muted)">通常フェーズ（予定）</text>
+    <rect x="260" y="244" width="26" height="26" rx="6" fill="var(--d-highlight-bg)" stroke="var(--d-highlight-border)" stroke-width="2"/>
+    <text x="296" y="262" font-size="12" fill="var(--d-muted)">現在地・マイルストーン</text>
+  </svg>
+  </div>
+  <p>本提案書が対象とするベータテスト・本格実証実験は、上図の②③④フェーズ（9月上旬〜10月）にあたる。日次レベルの詳細スケジュールは以下の通り（確定次第【要記入】部分を更新）。</p>
+  <div class="mermaid">
+gantt
+    dateFormat  YYYY-MM-DD
+    title ②③フェーズの内訳
+    section 準備（進行中）
+    システム強化・ITリテラシー対応     :2026-08-22, 14d
+    ベータ参加者向け説明資料の準備       :2026-08-25, 10d
+    section ベータテスト・中間発表
+    ベータテスト実施（9月上旬）         :2026-09-01, 10d
+    ベータ結果のフィードバック反映       :2026-09-08, 7d
+    section 本格実証実験
+    対象者選定＆実験（9月中旬〜下旬）    :2026-09-15, 30d
+    実証実験継続（10月）               :2026-10-01, 31d
+  </div>
+</section>
+
+<section id="s5">
+  <h2>5. ベータテストと本格実証実験の違い</h2>
+  <table>
+    <thead><tr><th></th><th>ベータテスト（9月上旬）</th><th>本格実証実験（9月中旬〜）</th></tr></thead>
+    <tbody>
+      <tr><td>目的</td><td>致命的な不具合・ITリテラシー面での詰まりポイントの洗い出し</td><td>実運用に近い条件での効果測定</td></tr>
+      <tr><td>対象者</td><td>少人数（開発チーム内、または近しい協力者）<span class="fill">【要記入：人数】</span></td><td>ベータで洗い出した問題を解消した上で、本来の対象者<span class="fill">【要記入：人数・属性】</span>に展開</td></tr>
+      <tr><td>実施内容</td><td>主要機能を一通り触ってもらい、つまずいた箇所を記録</td><td>一定期間の継続利用を通じた効果検証（下記7.3のAB比較テストを実施）</td></tr>
+      <tr><td>評価の重点</td><td>使いやすさ（UI/UX、エラーメッセージの分かりやすさ）</td><td>効果（RAGによる調べ物時間の短縮、チュートリアル生成の有用性等）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s6">
+  <h2>6. 対象者・実施体制</h2>
+  <table>
+    <thead><tr><th>役割</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>実施者</td><td class="fill">【要記入】</td></tr>
+      <tr><td>指導教員・監督者</td><td class="fill">【要記入】（ゼミ活動の一環である場合）</td></tr>
+      <tr><td>ベータテスト参加者</td><td class="fill">【要記入：人数・所属】</td></tr>
+      <tr><td>本格実証実験参加者</td><td class="fill">【要記入：人数・属性・ITリテラシーレベルの想定】</td></tr>
+      <tr><td>サポート体制</td><td>実証実験中に問い合わせを受け付ける窓口（Slack/メール等）を用意することを推奨</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s7">
+  <h2>7. 検証内容</h2>
+  <h3>7.1 機能面</h3>
+  <table>
+    <thead><tr><th>検証項目</th><th>具体的なシナリオ例</th></tr></thead>
+    <tbody>
+      <tr><td>Cloud RAGチャット</td><td>「〇〇ツールの使い方を教えて」等、チーム共有ドキュメントに基づく質問</td></tr>
+      <tr><td>Local RAGチャット</td><td>個人の過去メモ・チャット履歴に基づく質問</td></tr>
+      <tr><td>Houdiniチュートリアル生成</td><td>実際の学習トピックを入力し、生成されたチュートリアル通りに手を動かせるか</td></tr>
+      <tr><td>Cloud/Localモード切り替え</td><td>切り替え操作が直感的に分かるか</td></tr>
+    </tbody>
+  </table>
+  <h3>7.2 非機能面</h3>
+  <table>
+    <thead><tr><th>検証項目</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>応答時間</td><td>チャット回答・チュートリアル生成それぞれの体感速度</td></tr>
+      <tr><td>コスト</td><td>参加者1人あたりのトークン消費量（GAS側のトークン予算管理で実測可能）</td></tr>
+      <tr><td>エラー時の分かりやすさ</td><td>エラーメッセージを見て、非技術者が次に何をすればよいか分かるか</td></tr>
+      <tr><td>初回セットアップの容易さ</td><td>環境構築手順（GAS URL/APIキー設定等）でつまずかないか</td></tr>
+    </tbody>
+  </table>
+  <h3>7.3 AB比較テストの設計（対象者・課題内容の共通条件を厳格化）</h3>
+  <p>本格実証実験では、単に「使ってもらう」だけでなく、<strong>従来手法との比較（AB比較テスト）</strong>によって効果を検証する。中間発表資料の実験計画と条件を統一する。</p>
+  <table>
+    <thead><tr><th>グループ</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>A（コントロール群）</td><td>従来どおり、公式ドキュメントとWeb検索のみでタスクに取り組む</td></tr>
+      <tr><td>B（実験群）</td><td>本システム（チャットボット＋RAG＋MCP）を使ってタスクに取り組む</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    <strong>共通課題（対象者条件を厳格に揃えるため、具体的なタスクを1つに固定する）:</strong><br>
+    例：「プロシージャルな雲のパーティクル表現を作成する」— Houdini 21でのPyroFX/Vellum仕様変更に対応した新しい手順が必要な課題を、両グループに同一内容・同一制限時間・同一PC環境で出題する。<br>
+    <span class="fill">※上記は一貫性のための例示（研究目的の例題と揃えている）。実際に採用するタスクは中間発表資料の内容と合わせて確定させること。</span>
+  </div>
+  <p><strong>対象者の共通条件:</strong></p>
+  <ul>
+    <li>DCCツール使用経験1年以上（Houdiniに限らない）</li>
+    <li>モデリング等の主要操作・大まかな制作フローを自力で実施できる</li>
+    <li>（参考）デジタル造形の履修評定「B以上」はあくまで目安であり、絶対条件ではない</li>
+  </ul>
+  <p><strong>評価指標の定義:</strong></p>
+  <table>
+    <thead><tr><th>分類</th><th>指標</th><th>測定方法</th></tr></thead>
+    <tbody>
+      <tr><td>独立変数</td><td>グループ（A: 従来手法／B: 本システム使用）</td><td>事前アンケートで技術レベルを確認し、両グループが均等になるよう層別割付</td></tr>
+      <tr><td>従属変数（主観・5段階Likert）</td><td>①難しさ　②わかりやすさ　③作業への集中維持　④出典の有用性　⑤再利用意向</td><td>事後アンケート</td></tr>
+      <tr><td>従属変数（客観）</td><td>所要時間／ミス回数</td><td>実施ログ計測</td></tr>
+    </tbody>
+  </table>
+  <p><strong>統計手法:</strong></p>
+  <ul>
+    <li>5段階アンケート（順序尺度）→ 正規性を仮定しないMann-Whitney U検定を採用し、効果量はrank-biserial correlationで報告</li>
+    <li>客観指標（所要時間・ミス回数）→ Shapiro-Wilk検定で正規性を確認のうえ、t検定またはMann-Whitney U検定を使い分け</li>
+    <li>タスクが複数ある場合は実施順序をカウンターバランスし、慣れ・疲労効果を排除</li>
+  </ul>
+  <p><strong>サンプルサイズ:</strong></p>
+  <table>
+    <thead><tr><th>プラン</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>プランA（厳密）</td><td>中効果量(d=0.5)・検出力80%・有意水準5%を想定。各群30名以上（合計60名以上）が目安</td></tr>
+      <tr><td>プランB（現実的・探索的）※採用</td><td>各群8〜12名程度。有意差は「傾向」として扱い、効果量と質的データで補強する探索的研究として設計</td></tr>
+    </tbody>
+  </table>
+  <p>詳細な統計的根拠・参考文献は中間発表資料（勉強会・中間発表資料一式）のAppendixを参照。</p>
+</section>
+
+<section id="s8">
+  <h2>8. 成功基準・評価指標</h2>
+  <p class="fill">【要記入・要すり合わせ】以下は叩き台です。7.3で定義した指標をベースに設定する。</p>
+  <table>
+    <thead><tr><th>指標</th><th>目安</th></tr></thead>
+    <tbody>
+      <tr><td>チュートリアル生成の完成率</td><td>生成したチュートリアル通りに操作して、意図した結果が得られる割合（過去のパイロット検証では3〜5トピックで80%収束を完成条件としていた実績あり）</td></tr>
+      <tr><td>ITリテラシーに起因する離脱率</td><td>セットアップ・基本操作でサポートなしに完了できた参加者の割合</td></tr>
+      <tr><td>RAG回答の有用性</td><td>参加者アンケートによる主観評価（7.3の5段階評価を使用）</td></tr>
+      <tr><td>致命的エラーの発生件数</td><td>ベータテスト期間中にゼロ件を目指す</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s9">
+  <h2>9. ITリテラシーへの配慮方針</h2>
+  <p>「ITリテラシーが無い人でも扱えるレベルまでシステムを強化する」という目標に対して、以下を準備タスクとして位置づける。</p>
+  <table>
+    <thead><tr><th>#</th><th>対応内容</th><th>優先度</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>初回セットアップ手順書の作成（<a href="../MCPdemo/setup-guide.md">MCPdemo/setup-guide.md</a>のような、専門用語を避けたステップバイステップ形式）</td><td>高</td></tr>
+      <tr><td>2</td><td>エラーメッセージの平易化（現状「HTTP 403」等の技術的な文言がそのまま表示される箇所を、次に取るべき行動が分かる文言に見直す）</td><td>高</td></tr>
+      <tr><td>3</td><td>用語集の整備（<a href="glossary.md">docs/glossary.md</a>を参加者向けに配布・参照可能にする）</td><td>中</td></tr>
+      <tr><td>4</td><td>サポート窓口の明確化</td><td>中</td></tr>
+      <tr><td>5</td><td>操作動画・スクリーンショット付き手順の用意</td><td>中</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s10">
+  <h2>10. リスクと対策</h2>
+  <table>
+    <thead><tr><th>#</th><th>リスク</th><th>対策</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>GAS側のトークン予算を使い切り、実証実験中にサービスが止まる</td><td>参加者ごとのAPIキー発行・予算設定（既存の二重トークン予算機能）を事前に確認・調整しておく（<a href="claude-token-security-report.md">docs/claude-token-security-report.md</a>参照）</td></tr>
+      <tr><td>2</td><td>ナレッジ登録等の重い処理で実行時間制限に達する</td><td>Phase 0のバッチ化対応で緩和済み。継続的に監視する</td></tr>
+      <tr><td>3</td><td>非技術者がエラーに遭遇した際、自力で解決できず離脱する</td><td>9章の配慮方針を実証実験開始前に実装しておく</td></tr>
+      <tr><td>4</td><td>実証実験期間中に大きな仕様変更を入れてしまい、混乱を招く</td><td><a href="cloud-local-unification-plan.md">docs/cloud-local-unification-plan.md</a>のバックエンド統合作業は、実証実験終了後に着手する方針を徹底する</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s11">
+  <h2>11. 準備タスク一覧（9月上旬までに）</h2>
+  <ul class="todo">
+    <li>ITリテラシー配慮方針（9章）の実装</li>
+    <li>ベータテスト参加者への説明資料・セットアップ手順書の準備</li>
+    <li>参加者ごとのAPIキー発行・トークン予算設定</li>
+    <li>サポート窓口の準備</li>
+    <li>成功基準（8章）の最終確定</li>
+    <li>AB比較テストの共通課題（7.3）を確定</li>
+    <li>ベータテスト実施 → フィードバック収集 → 本格実証実験前の修正</li>
+  </ul>
+</section>
+
+<footer>
+  関連ドキュメント: <a href="cloud-local-unification-plan.md">docs/cloud-local-unification-plan.md</a> ／ <a href="claude-token-security-report.md">docs/claude-token-security-report.md</a> ／ <a href="glossary.md">docs/glossary.md</a>
+</footer>
+
+</div>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default') });
+</script>
+</body>
+</html>
