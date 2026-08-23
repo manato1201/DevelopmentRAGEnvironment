@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用語集</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1117; --panel: #171a23; --border: #2a2e3a;
+    --text: #e6e8ee; --muted: #9aa1b4; --accent: #7aa2ff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f7f8fb; --panel: #ffffff; --border: #e1e4ec; --text: #1b1e27; --muted: #5b6270; --accent: #3358d6; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; line-height: 1.8; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+  header.hero { border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+  header.hero h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+  header.hero .meta { color: var(--muted); font-size: .9rem; }
+  .badge { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: .15rem .7rem; font-size: .78rem; color: var(--accent); margin-right: .4rem; }
+  nav.toc { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.3rem; margin-bottom: 2.5rem; }
+  nav.toc summary { cursor: pointer; font-weight: 600; }
+  nav.toc ol { margin: .8rem 0 0; padding-left: 1.3rem; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  section { margin-bottom: 2.5rem; }
+  h2 { font-size: 1.15rem; border-left: 4px solid var(--accent); padding-left: .6rem; margin-top: 0; }
+  dl { margin: 0; }
+  dt { font-weight: 700; color: var(--accent); margin-top: 1rem; font-size: .98rem; }
+  dd { margin: .3rem 0 0; font-size: .92rem; }
+  footer { color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); padding-top: 1.2rem; margin-top: 2rem; }
+  a { color: var(--accent); }
+  .mermaid { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin: .8rem 0; overflow-x: auto; }
+  .relnote { font-weight: 700; margin: 1.2rem 0 .3rem; }
+  .diagram-card {
+    --d-bg:#ffffff; --d-panel-2:#eef1f4; --d-border:#dfe3e8; --d-text:#14171c; --d-muted:#68707c;
+    --d-c-chat:#e07b1f; --d-c-cloud:#0e8f8a; --d-c-local:#7350d6; --d-line:#aab1bb;
+    background: var(--d-bg); border: 1px solid var(--d-border); border-radius: 12px; padding: 1rem; margin: .8rem 0; overflow-x: auto;
+  }
+  .diagram-card svg { display: block; min-width: 650px; }
+  table { width: 100%; border-collapse: collapse; margin: .8rem 0; font-size: .88rem; }
+  th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: var(--panel); color: var(--accent); }
+  .result { background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; padding: .8rem 1rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="badge">用語集</span>
+  <h1>用語集</h1>
+  <div class="meta">作成日: 2026-08-22　｜　対象読者: 実証実験参加者・勉強会/中間発表の聴講者（ITの専門知識が無い方も対象）</div>
+</header>
+
+<nav class="toc">
+  <details open>
+  <summary>目次</summary>
+  <ol>
+    <li><a href="#s1">AI・生成AIの基本用語</a></li>
+    <li><a href="#s2">RAG（検索拡張生成）の仕組み</a></li>
+    <li><a href="#s3">このプロジェクト固有の用語</a></li>
+    <li><a href="#s4">インフラ・技術基盤の用語</a></li>
+    <li><a href="#s5">このプロジェクトのRAG分類</a></li>
+  </ol>
+  </details>
+</nav>
+
+<section id="s1">
+  <h2>1. AI・生成AIの基本用語</h2>
+  <dl>
+    <dt>AI / 生成AI</dt><dd>質問文を入力すると、文章で回答を作ってくれる技術。ChatGPTやGeminiなどが代表例</dd>
+    <dt>LLM（大規模言語モデル）</dt><dd>生成AIの中身にあたる、文章を理解・生成する仕組みそのもの。Claude・Geminiなどは全てLLM</dd>
+    <dt>Claude</dt><dd>Anthropic社が開発するLLM。本プロジェクトではチュートリアル自動生成やチャット応答に使用</dd>
+    <dt>Gemini</dt><dd>Google社が開発するLLM。本プロジェクトでは主に埋め込み生成・回答生成に使用</dd>
+    <dt>プロンプト</dt><dd>AIに与える指示・質問文のこと</dd>
+    <dt>トークン</dt><dd>AIが文章を処理する際の最小単位（単語の一部程度の大きさ）。AIの利用料金は「何トークン使ったか」で決まることが多い</dd>
+    <dt>API / APIキー</dt><dd>APIはソフトウェア同士がやり取りするための「窓口」。APIキーはその窓口を使うための鍵（パスワードのようなもの）</dd>
+    <dt>function calling（ツール呼び出し）</dt><dd>AIが「この処理を実行してほしい」と要求を出し、こちら側のプログラムがそれを実行して結果を返す仕組み。AIが直接何かを操作するのではなく、あくまで「お願い」をするだけ</dd>
+    <dt>tool call（ツールコール）</dt><dd>function callingの中で、AIが実際に「この関数をこの引数で呼んで」と要求した1回分のやり取りのこと。function callingが仕組み全体の名前だとすれば、tool callはその仕組みが1回発火した単位</dd>
+    <dt>MCP（Model Context Protocol）</dt><dd>function callingを異なるAIサービス・異なるツール間でも共通に使えるようにした、業界標準の通信規格。「AIツールの共通コンセント」のようなもの。MCP経由の呼び出しも、実体はtool callの1つ</dd>
+  </dl>
+  <p class="relnote">3語の関係:</p>
+  <div class="diagram-card">
+  <svg viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg">
+    <defs><marker id="fc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--d-line)"/></marker></defs>
+    <rect x="330" y="20" width="240" height="60" rx="12" fill="var(--d-panel-2)" stroke="var(--d-border)" stroke-width="1.5"/>
+    <text x="450" y="55" font-size="14" font-weight="700" fill="var(--d-text)" text-anchor="middle">AIによる外部操作全般</text>
+    <line x1="380" y1="80" x2="180" y2="140" stroke="var(--d-line)" stroke-width="1.5" marker-end="url(#fc-arrow)"/>
+    <line x1="520" y1="80" x2="650" y2="140" stroke="var(--d-line)" stroke-width="1.5" marker-end="url(#fc-arrow)"/>
+    <rect x="30" y="140" width="300" height="100" rx="12" fill="var(--d-panel-2)" stroke="var(--d-c-chat)" stroke-width="2"/>
+    <circle cx="65" cy="172" r="16" fill="var(--d-c-chat)"/>
+    <text x="65" y="177" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">F</text>
+    <text x="95" y="177" font-size="14" font-weight="700" fill="var(--d-text)">Function Calling</text>
+    <text x="50" y="205" font-size="11.5" fill="var(--d-muted)">AIが関数呼び出しを要求する</text>
+    <text x="50" y="222" font-size="11.5" fill="var(--d-muted)">『仕組み』</text>
+    <line x1="180" y1="240" x2="180" y2="290" stroke="var(--d-line)" stroke-width="1.5" marker-end="url(#fc-arrow)"/>
+    <rect x="30" y="290" width="300" height="100" rx="12" fill="var(--d-panel-2)" stroke="var(--d-c-cloud)" stroke-width="2"/>
+    <circle cx="65" cy="322" r="16" fill="var(--d-c-cloud)"/>
+    <text x="65" y="327" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">T</text>
+    <text x="95" y="327" font-size="14" font-weight="700" fill="var(--d-text)">Tool Call</text>
+    <text x="50" y="355" font-size="11.5" fill="var(--d-muted)">その仕組みが実際に1回</text>
+    <text x="50" y="372" font-size="11.5" fill="var(--d-muted)">発火した『単位』</text>
+    <rect x="570" y="140" width="300" height="120" rx="12" fill="var(--d-panel-2)" stroke="var(--d-c-local)" stroke-width="2"/>
+    <circle cx="605" cy="172" r="16" fill="var(--d-c-local)"/>
+    <text x="605" y="177" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">M</text>
+    <text x="635" y="177" font-size="14" font-weight="700" fill="var(--d-text)">MCP</text>
+    <text x="590" y="205" font-size="11.5" fill="var(--d-muted)">Function Callingを異なる</text>
+    <text x="590" y="222" font-size="11.5" fill="var(--d-muted)">サービス間で共通化する</text>
+    <text x="590" y="239" font-size="11.5" fill="var(--d-muted)">『標準規格』</text>
+    <line x1="570" y1="230" x2="335" y2="330" stroke="var(--d-c-local)" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#fc-arrow)"/>
+    <text x="360" y="290" font-size="10.5" fill="var(--d-muted)">MCP経由の呼び出しも実体はTool Call</text>
+  </svg>
+  </div>
+  <p style="font-size:.85rem;color:var(--muted);">出典：<a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview">Anthropic Tool Use（Function Calling）公式ドキュメント</a> ／ <a href="https://modelcontextprotocol.io/specification/2025-11-25">Model Context Protocol 公式仕様</a> ／ <a href="https://www.anthropic.com/news/model-context-protocol">Anthropic MCP発表（2024年11月）</a></p>
+</section>
+
+<section id="s2">
+  <h2>2. RAG（検索拡張生成）の仕組み</h2>
+  <dl>
+    <dt>RAG（検索拡張生成）</dt><dd>AIに質問する前に、関連する社内資料・過去の記録などを検索して読み込ませ、その内容を踏まえて回答させる仕組み。AIが知らないはずの専門情報にも正確に答えられるようになる</dd>
+    <dt>埋め込み（エンベディング）</dt><dd>文章の「意味」を数値の列（ベクトル）に変換したもの。意味が近い文章ほど、この数値も近くなる</dd>
+    <dt>ベクトル検索</dt><dd>埋め込み同士の近さを計算して、質問文と意味が近い文章を探し出す検索方法。キーワードが一致しなくても、意味が近ければ見つけられるのが特徴</dd>
+    <dt>チャンク / チャンキング</dt><dd>長い文書を検索しやすい大きさ（数百文字程度）に分割すること。分割した1つ1つの断片を「チャンク」と呼ぶ</dd>
+    <dt>ハイブリッド検索</dt><dd>ベクトル検索（意味の近さ）とキーワード検索（単語の一致）を組み合わせた検索方式。片方だけでは拾いきれない情報を補い合う</dd>
+    <dt>HyDE（ハイド）</dt><dd>質問文をそのまま検索するのではなく、AIに「こんな回答になりそうだ」という仮の文章を一度作らせてから検索する手法。専門用語の言い回しの違いを埋める効果がある</dd>
+    <dt>namespace（ネームスペース）</dt><dd>検索対象の情報を、種類ごとに区切ったグループのこと。本プロジェクトでは「チーム共有情報」と「個人情報」を別のnamespaceとして管理し、混ざらないようにしている</dd>
+  </dl>
+</section>
+
+<section id="s3">
+  <h2>3. このプロジェクト固有の用語</h2>
+  <dl>
+    <dt>Cloud RAG</dt><dd>チームで共有してよい情報（ツール仕様・設計書・ゼミ資料等）を検索対象とする仕組み。インターネット経由でアクセスする</dd>
+    <dt>Local RAG</dt><dd>個人情報（チャット履歴・個人メモ等）を検索対象とする仕組み。自分のパソコン内で完結する</dd>
+    <dt>チュートリアル自動生成</dt><dd>トピック（学びたい内容）を入力すると、AIがHoudini上で実際にノードグラフを組み立てながら、手順書（チュートリアル）を自動で作成する機能</dd>
+    <dt>ノードグラフ</dt><dd>Houdiniで、部品（ノード）同士をつなげて処理の流れを作る仕組み。プログラミングを、線でつなぐ図として表現したようなもの</dd>
+    <dt>サンドボックス</dt><dd>チュートリアル自動生成が作業する専用の隔離エリア。ここでの操作は他の作業中データに影響しない</dd>
+    <dt>トークン予算</dt><dd>1人・1組織あたりが使えるAI利用量の上限。使いすぎを防ぐための仕組み</dd>
+  </dl>
+</section>
+
+<section id="s4">
+  <h2>4. インフラ・技術基盤の用語</h2>
+  <dl>
+    <dt>GAS（Google Apps Script）</dt><dd>Googleが提供する、ブラウザ上でプログラムを書いて動かせる仕組み。現在のCloud RAGはこの上で動いている</dd>
+    <dt>サーバーレス</dt><dd>自分でサーバー（コンピューター）を用意・管理しなくても、プログラムを動かせる仕組み。使った分だけ課金され、管理の手間が少ないのが特徴</dd>
+    <dt>Cloudflare</dt><dd>サーバーレスの実行環境を提供する会社・サービス。今後、Cloud RAGの移行先として検討している</dd>
+    <dt>Vectorize</dt><dd>Cloudflareが提供する、ベクトル検索専用のデータベース。現在Google Sheetsで代用している検索の仕組みを、これに置き換える計画</dd>
+    <dt>OAuth（オーオース）</dt><dd>「このアプリに、あなたのGoogleアカウントのここまでの範囲を使う許可を与える」という、安全な許可の仕組み。パスワードそのものを渡さずに済む</dd>
+    <dt>スコープ</dt><dd>OAuthで許可する範囲のこと。「カレンダーの閲覧だけ許可する」「メール送信も許可する」など、細かく分けられている</dd>
+  </dl>
+</section>
+
+<section id="s5">
+  <h2>5. このプロジェクトのRAG分類</h2>
+  <p>RAG（検索拡張生成）は、実装の高度さによって大きく3段階に分類される（Gao et al., <i>Retrieval-Augmented Generation for Large Language Models: A Survey</i>, arXiv:2312.10997, 2023–2024）。</p>
+  <table>
+    <thead><tr><th>段階</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Naive RAG</strong></td><td>質問文をそのままベクトル検索し、見つかった文書をAIに渡すだけの最もシンプルな形</td></tr>
+      <tr><td><strong>Advanced RAG</strong></td><td>検索前にクエリを工夫する（HyDE等）・複数の検索方式を組み合わせる（ハイブリッド検索）等、検索の精度を上げる工夫を加えた形</td></tr>
+      <tr><td><strong>Modular RAG</strong></td><td>上記に加えて、状況に応じて検索先を出し分ける「ルーティング」、利用者に応じて出力を調整する「適応的生成」、AIが外部ツールを操作する「ツール統合」などの部品（モジュール）を組み合わせた、最も発展した形</td></tr>
+    </tbody>
+  </table>
+  <div class="result"><strong>分類結果：本プロジェクトは「Modular RAG」に該当する。</strong></div>
+  <table>
+    <thead><tr><th>分類の根拠</th><th>本システムでの実装</th></tr></thead>
+    <tbody>
+      <tr><td>ルーティング</td><td>namespace単位でChromaDBコレクションを自動分割し、共有情報／個人情報を論理的に分離して検索先を出し分けている</td></tr>
+      <tr><td>ハイブリッド検索（Advanced RAGの要素）</td><td>ベクトル検索（ChromaDB）＋BM25（キーワード検索）をRRFで統合</td></tr>
+      <tr><td>クエリ変換（Advanced RAGの要素）</td><td>HyDEによる仮回答生成で、検索クエリの言い回しギャップを補正</td></tr>
+      <tr><td>適応的生成</td><td>理解度スコアに応じてbasic→applied→advancedの難易度で出力を自動調整</td></tr>
+      <tr><td>ツール統合</td><td>MCP経由でAIがHoudiniを直接操作し、生成物を検証する</td></tr>
+      <tr><td>監査・防御</td><td>クエリのSHA-256ハッシュ化・監査ログ記録・トークン予算の二重管理</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--muted);font-size:.9rem;">単にハイブリッド検索やHyDEを備えるだけならAdvanced RAGの範囲だが、本システムはそれに加えて「ルーティング」「適応的生成」「ツール統合」という複数のモジュールを組み合わせているため、一段階上のModular RAGに位置づけられる。</p>
+  <div class="callout" style="border-left:3px solid var(--accent);background:var(--panel);padding:.8rem 1rem;border-radius:0 8px 8px 0;margin-top:1rem;font-size:.9rem;">
+    <strong>補足（実務でよく使われる名称ベースの分類との関係）：</strong> 「Naive→Advanced→Modular」はRAGの発展段階に基づく学術的な分類（Gao et al.）だが、実務では「Hybrid RAG」「Agentic RAG」「Graph RAG」等、手法ごとに名前を付ける分類も広く使われる（例：Level Up Coding「Top 8 RAG Architectures」）。この名称ベースの分類に当てはめると、本システムは検索方式の面で<strong>Hybrid RAG</strong>（ベクトル検索＋キーワード検索の統合）に明確に該当し、MCP経由でHoudiniを複数手順にわたって操作する面では<strong>Agentic RAG</strong>的な特性も併せ持つ。一方、Reranked／Multi-Query／Hierarchical／Graph／Corrective RAGに該当する仕組みは現状実装していない。これらは学術的な発展段階の分類とは別軸（技法ごとの命名）であるため、<strong>Modular RAGという結論自体に変化はない</strong>——Hybrid検索やAgentic的なツール統合は、いずれもModular RAGを構成するモジュールの一部として位置づけられる。
+  </div>
+</section>
+
+<footer>
+  関連ドキュメント: <a href="model-strategy-report.md">docs/model-strategy-report.md</a> ／ <a href="cloud-local-unification-plan.md">docs/cloud-local-unification-plan.md</a> ／ <a href="../MCPdemo/gas-mcp-demo-report.md">MCPdemo/gas-mcp-demo-report.md</a>
+</footer>
+
+</div>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default') });
+</script>
+</body>
+</html>

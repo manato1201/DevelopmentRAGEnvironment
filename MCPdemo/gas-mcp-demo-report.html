@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gas_mcp_demo.js 実装ログ — MCP実機検証とGoogleサービス連携レポート</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1117;
+    --panel: #171a23;
+    --border: #2a2e3a;
+    --text: #e6e8ee;
+    --muted: #9aa1b4;
+    --accent: #7aa2ff;
+    --good: #6fd08c;
+    --bad: #ef7a7a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --border: #e1e4ec;
+      --text: #1b1e27;
+      --muted: #5b6270;
+      --accent: #3358d6;
+      --good: #1f8a4c;
+      --bad: #c23a3a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    line-height: 1.75;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+  header.hero {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  header.hero h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+  header.hero .meta { color: var(--muted); font-size: .9rem; }
+  .badge {
+    display: inline-block;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: .15rem .7rem;
+    font-size: .78rem;
+    color: var(--accent);
+    margin-right: .4rem;
+  }
+  nav.toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.3rem;
+    margin-bottom: 2.5rem;
+  }
+  nav.toc summary { cursor: pointer; font-weight: 600; }
+  nav.toc ol { margin: .8rem 0 0; padding-left: 1.3rem; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  section { margin-bottom: 3rem; }
+  h2 {
+    font-size: 1.25rem;
+    border-left: 4px solid var(--accent);
+    padding-left: .6rem;
+    margin-top: 0;
+  }
+  h3 { font-size: 1.05rem; color: var(--text); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: .9rem;
+    overflow-x: auto;
+    display: block;
+  }
+  table thead { display: table; width: 100%; table-layout: fixed; }
+  table tbody { display: table; width: 100%; table-layout: fixed; }
+  th, td {
+    border: 1px solid var(--border);
+    padding: .5rem .7rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--panel); color: var(--accent); }
+  code {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: .1rem .35rem;
+    font-size: .88em;
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: .85rem;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  .mermaid { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; overflow-x: auto; }
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--panel);
+    padding: .8rem 1rem;
+    border-radius: 0 8px 8px 0;
+    margin: 1rem 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-color: var(--bad); }
+  footer { color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); padding-top: 1.2rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="badge">技術資料</span><span class="badge">実機検証</span><span class="badge">MCP</span>
+  <h1>gas_mcp_demo.js 実装ログ — MCP実機検証とGoogleサービス連携レポート</h1>
+  <div class="meta">作成日: 2026-08-14　｜　対象: scripts/gas_mcp_demo.js（本番のcloudRAGとは独立した検証用スクリプト）</div>
+</header>
+
+<nav class="toc">
+  <details open>
+  <summary>目次</summary>
+  <ol>
+    <li><a href="#s1">概要</a></li>
+    <li><a href="#s2">実装アーキテクチャ：MCP JSON-RPCクライアントの自前実装</a></li>
+    <li><a href="#s3">検証①: Google純正MCP（Calendar）— 直面した壁の連鎖</a></li>
+    <li><a href="#s4">検証②③: サードパーティMCP（DeepWiki）と複数サーバー横断</a></li>
+    <li><a href="#s5">方針転換：GASネイティブサービス経由の実装</a></li>
+    <li><a href="#s6">Web GUI</a></li>
+    <li><a href="#s7">変更ファイル一覧</a></li>
+    <li><a href="#s8">未解決事項・今後の方針</a></li>
+  </ol>
+  </details>
+</nav>
+
+<section id="s1">
+  <h2>1. 概要</h2>
+  <p>Houdini自動操作の実態確認（「MCPではなくAnthropicツールユース」）をきっかけに、「では実際にMCP経由でGoogleサービス（Calendar/Gmail/Maps）やサードパーティサービスを操作するとどこまでできるのか」を、GAS上で最小構成のMCPクライアントを自前実装して実機検証した。</p>
+  <p><strong>結論を先に書くと：</strong></p>
+  <ul>
+    <li>Google純正MCP（Calendar）は、OAuthスコープ→Geminiのスキーマ非互換→GCPプロジェクトのAPI有効化→OAuth同意画面設定→組織のガバナンスと、5段階の壁が連続する（詳細は「Google純正MCPの検証」章）</li>
+    <li>サードパーティMCP（DeepWiki、認証不要）は一切の障害なく完全に成功（詳細は「サードパーティMCPの検証」章）</li>
+    <li>複数MCPサーバーを同時に渡すと、Geminiは自然文の内容に応じて正しく使い分ける（詳細は「複数サーバー横断」章）</li>
+    <li>GAS上でCalendar/Gmail/Mapsを使うだけなら、MCPを経由する必然性は無い。ネイティブサービスの方が圧倒的に速く確実に動く（詳細は「ネイティブサービス経由の実装」章）</li>
+  </ul>
+  <div class="mermaid">
+flowchart LR
+    A["Houdini自動操作の実態確認<br/>（MCPではなくツールユース）"] --> B["MCP実機検証を開始<br/>（gas_mcp_demo.js）"]
+    B --> C["① Google純正MCP<br/>Calendar"]
+    B --> D["② サードパーティMCP<br/>DeepWiki"]
+    C -->|"5段階の壁に直面"| E["方針転換：<br/>ネイティブサービス経由で実装"]
+    D -->|"完全成功"| F["③ 複数MCPサーバー横断も成功"]
+    E --> G["Calendar自動登録・Gmail通知・<br/>Maps表示をネイティブ実装"]
+    G --> H["Web GUIで<br/>ボタン操作テスト化"]
+  </div>
+</section>
+
+<section id="s2">
+  <h2>2. 実装アーキテクチャ：MCP JSON-RPCクライアントの自前実装</h2>
+  <p>GASにはMCP用のSDKが無いため、<code>UrlFetchApp</code>（同期HTTP）だけでMCPのStreamable HTTPトランスポートを実装した。</p>
+  <div class="mermaid">
+sequenceDiagram
+    participant GAS as gas_mcp_demo.js
+    participant MCP as MCPサーバー（Calendar / DeepWiki / 任意）
+    participant Gemini as Gemini API（generateContent, Legacy）
+
+    GAS->>MCP: POST initialize（protocolVersion提案）
+    MCP-->>GAS: 200 + Mcp-Session-Id ヘッダー
+    GAS->>MCP: POST notifications/initialized（通知、応答不要）
+    GAS->>MCP: POST tools/list
+    MCP-->>GAS: ツール定義一覧（JSON Schema）
+    GAS->>GAS: mcpSchemaToGeminiParameters_()でMCPスキーマ→Gemini方言に変換
+    GAS->>Gemini: generateContent（tools: functionDeclarations）
+    Gemini-->>GAS: functionCall（tool call）
+    GAS->>MCP: POST tools/call（該当ツール実行）
+    MCP-->>GAS: 実行結果
+    GAS->>Gemini: functionResponseを付けて再送
+    Gemini-->>GAS: 最終回答 or 追加のfunctionCall
+  </div>
+  <table>
+    <thead><tr><th>課題</th><th>対応</th></tr></thead>
+    <tbody>
+      <tr><td>GASのUrlFetchAppは真のストリーミング（SSE逐次受信）非対応</td><td>レスポンス本文はストリームが閉じるまで待ってから丸ごと文字列取得できる特性を利用し、text/event-stream形式でもdata:行を自前パースすれば1リクエスト1レスポンスのJSON-RPCは成立する（mcpParseJsonRpcBody_）</td></tr>
+      <tr><td>MCPのJSON Schema（inputSchema）とGeminiのfunction calling方言に差異</td><td>mcpSchemaToGeminiParameters_で$refを$defsの実体に展開してから、$defs/deprecated/readOnly/writeOnly/x-始まりのベンダー拡張キー等を再帰的に除去（詳細は次章）</td></tr>
+      <tr><td>セッション管理</td><td>initialize応答のMcp-Session-Idヘッダーを以降の全リクエストに付与</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s3">
+  <h2>3. 検証①: Google純正MCP（Calendar）— 直面した壁の連鎖</h2>
+  <p>「Google純正のMCPサーバーだから、Google純正のGASからならすぐ使えるはず」という前提を検証したところ、<strong>5段階の壁が連続して発生した</strong>。各段階は独立した原因を持ち、1つ解決すると次が現れる形だった。</p>
+  <div class="mermaid">
+flowchart TD
+    S["testMcpCalendarOnly() 実行"] --> W1
+    W1["① OAuthスコープ不足<br/>tools/listがHTTP403<br/>（本文にはJSON-RPC結果は入っていた）"] -->|"appsscript.jsonにCalendarスコープ3種追加"| W2
+    W2["② Geminiのスキーマ非互換<br/>$defs/deprecated/x-google-*/readOnly等で<br/>generateContentが400"] -->|"再帰的スキーマサニタイザで解決"| W3
+    W3["③ GCPプロジェクトのAPI未有効化<br/>『Calendar MCP API』自体の有効化が必要<br/>（Calendar APIとは別プロダクト）"] -->|"自分がGCPプロジェクト管理者でなく<br/>有効化できない"| W4
+    W4["④ 自分名義のGCPプロジェクトに切替<br/>OAuth同意画面の設定が必須に"] -->|"設定中に誤って審査提出（実害なし）"| W5
+    W5["⑤ 'The caller does not have permission'<br/>フル権限スコープ追加後も未解決"] --> Native["ネイティブサービスへ方針転換（後述）"]
+  </div>
+
+  <h3>3.1 ①OAuthスコープ不足（HTTP 403だが本文は正常）</h3>
+  <p>初回実行時、tools/listがHTTP 403を返したが、<strong>レスポンス本文には正常なJSON-RPC結果（ツール一覧）が入っているという不可解な状態</strong>だった。debugOAuthScopes()（ScriptApp.getOAuthToken()をGoogleのtokeninfoエンドポイントに投げて実際の付与スコープを確認する自作の診断関数）で調べたところ、scopeにはscript.external_requestしか入っておらず、Calendarスコープが一切無いことが判明した。</p>
+  <p>原因：GASのOAuthスコープは通常「コード内でCalendarApp等の組み込みサービスを呼んでいるか」を自動検出して決まるが、本実装はUrlFetchAppで手動にHTTPを叩いているだけなので自動検出が効かない。appsscript.jsonにoauthScopesを明示しない限りCalendarスコープは絶対に付与されない。</p>
+  <div class="callout">→ calendar.calendarlist.readonly / calendar.events.freebusy / calendar.events.readonly の3スコープを追加して解決。</div>
+
+  <h3>3.2 ②Geminiのスキーマ非互換</h3>
+  <p>スコープ追加後、tools/listは正常化したが、今度はgenerateContentが400エラーになった。Calendar MCPのツールスキーマには、Geminiのfunction calling方言（OpenAPI 3.0のサブセット）が受け付けないキーが複数含まれていた：</p>
+  <table>
+    <thead><tr><th>検出されたキー</th><th>対応</th></tr></thead>
+    <tbody>
+      <tr><td>$defs / $ref</td><td>単純に削除すると参照先を失って壊れるため、$refを$defsの実体でその場に展開してから除去</td></tr>
+      <tr><td>deprecated</td><td>除去</td></tr>
+      <tr><td>x-google-enum-descriptions（ベンダー拡張）</td><td>x-始まりのキーを一括除去</td></tr>
+      <tr><td>readOnly / writeOnly</td><td>除去（1回目の修正で漏れており、2回目のテストで別エラーとして発覚）</td></tr>
+    </tbody>
+  </table>
+  <p>再帰的なスキーマサニタイザ（mcpResolveRefs_ → mcpStripUnsupportedKeys_）を実装して解決。</p>
+
+  <h3>3.3 ③GCPプロジェクトのAPI未有効化</h3>
+  <p>スキーマ修正後、tools/listは通ったが、実際にデータへアクセスするtools/call（list_events等）が以下のエラーで失敗した：</p>
+  <pre><code>Calendar MCP API has not been used in project【プロジェクト番号】before or it is disabled.</code></pre>
+  <p>これは<strong>「Google Calendar API」とは別に、「Calendar MCP API」という2026年発表の新プロダクト自体を、GCPプロジェクト側で個別に有効化する必要がある</strong>ことが原因。ユーザーはこのGASプロジェクトが紐づくGCPプロジェクトの管理者ではなかったため、この時点で自力での解決ができなかった。</p>
+
+  <h3>3.4 ④GCPプロジェクトの切り替えとOAuth同意画面</h3>
+  <p>自分名義の新規GCPプロジェクトを作成し、Apps Scriptの「GCPプロジェクトを変更」で切り替えることで、自分の権限でAPIを有効化できるようにした。ただし新規プロジェクトでは「OAuth同意画面の設定」が別途必須で、その設定中に誤ってGoogleへの検証（verification）審査を提出してしまう一幕があった。実害としては：「テスト中」ステータスのまま・自分がテストユーザーに登録済みであれば、審査結果を待たずに利用できるため問題は無かった。</p>
+
+  <h3>3.5 ⑤"The caller does not have permission"（未解決）</h3>
+  <p>GCPプロジェクト切り替え・API有効化・OAuth同意画面設定を終えた後、tools/callのエラーは変わったが解決はしなかった：</p>
+  <pre><code>{"content":[{"text":"The caller does not have permission","type":"text"}],"isError":true}</code></pre>
+  <p>その後、後述するネイティブサービスの実装でCalendarApp.createEvent()に<strong>フル権限のhttps://www.googleapis.com/auth/calendarスコープ</strong>が必要と判明し、これをoauthScopesに追加した。副次的にCalendar MCP側の権限問題も解決するのではと期待して再テストしたが、<strong>この時点でも"The caller does not have permission"のまま変化しなかった</strong>（本レポート末尾の「未解決事項・今後の方針」に記載）。</p>
+</section>
+
+<section id="s4">
+  <h2>4. 検証②③: サードパーティMCP（DeepWiki）と複数サーバー横断</h2>
+  <h3>4.1 DeepWiki MCP（認証不要）— 完全成功</h3>
+  <p>https://mcp.deepwiki.com/mcp（GitHubリポジトリのドキュメントQ&A、認証不要の公開MCPサーバー）に対しては、セッション確立・ツール一覧取得・ask_questionツールの呼び出し・最終回答生成まで、<strong>一度も障害なく成功</strong>した。これは「Google製以外のMCPサーバーもGASから同じ仕組みで問題なく操作できる」ことの直接的な証拠になった。</p>
+
+  <h3>4.2 複数MCPサーバー横断</h3>
+  <p>Calendar MCPとDeepWiki MCPを同時に1つのGeminiセッションへ渡し、「まず私の直近の予定を1件だけ教えてください。次に、GitHubリポジトリ〜」という複合質問を投げたところ、<strong>Gemini自身が質問の前半はCalendarツール（list_events）、後半はDeepWikiツール（ask_question）と正しく使い分けて</strong>回答を組み立てた。</p>
+  <div class="mermaid">
+sequenceDiagram
+    participant User as ユーザーの質問
+    participant Gemini
+    participant Cal as Calendar MCP
+    participant DW as DeepWiki MCP
+
+    User->>Gemini: "予定を1件教えて。次にリポジトリXの説明も"
+    Gemini->>Cal: tools/call list_events
+    Cal-->>Gemini: （Calendar側の権限問題により失敗、前章参照）
+    Gemini->>DW: tools/call ask_question
+    DW-->>Gemini: リポジトリの説明を取得
+    Gemini-->>User: 両方について1つの回答にまとめて返答
+  </div>
+  <div class="callout">これは「GAS+Geminiで複数のMCPサーバー（Google純正・サードパーティ問わず）を横断的に操作できるか」という当初の問いに対する、実証済みの回答である。</div>
+</section>
+
+<section id="s5">
+  <h2>5. 方針転換：GASネイティブサービス経由の実装</h2>
+  <p>ここまでのCalendar MCPでの経験を踏まえ、「決定的な処理（判断を伴わない自動化）にLLM/MCPを挟む必要は無い」という原則のもと、GASの組み込みAdvanced Servicesで同じ目的を達成する実装に切り替えた。</p>
+  <div class="mermaid">
+flowchart LR
+    subgraph MCP["MCP経由（前章で検証）"]
+        A1["GAS"] -->|"生のHTTP JSON-RPC"| A2["calendarmcp.googleapis.com"]
+        A2 -.->|"5段階の壁"| A3["❌"]
+    end
+    subgraph Native["ネイティブサービス経由（本節）"]
+        B1["GAS"] -->|"CalendarApp.createEvent()<br/>MailApp/GmailApp.sendEmail()<br/>Maps.newGeocoder()/newStaticMap()"| B2["各API"]
+        B2 --> B3["✅ GCPプロジェクトのAPI個別有効化不要"]
+    end
+  </div>
+  <p>実装したもの（すべてgas_mcp_demo.js内、本番未接続のデモ関数）：</p>
+  <table>
+    <thead><tr><th>機能</th><th>関数</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td>Calendar自動登録</td><td>demoCalendarAutoRegister_</td><td>「ナレッジ登録したら必ずカレンダーに追加」という決定的パイプラインの実装例</td></tr>
+      <tr><td>Gmail通知</td><td>demoGmailNotify_</td><td>「異常検知したら必ず通知」という決定的パイプラインの実装例。表示名変更・別アドレス（要Gmail側でSend As認証済み）からの送信の両方に対応</td></tr>
+      <tr><td>監視→アラート</td><td>demoMonitorAndAlert_</td><td>閾値判定は普通のコードで行い、超過時のみdemoGmailNotify_を呼ぶ。LLM/MCP不使用の決定的パイプラインそのもの</td></tr>
+      <tr><td>Maps表示</td><td>demoMapsShow_</td><td>場所名→ジオコーディング→静的地図画像URL生成</td></tr>
+    </tbody>
+  </table>
+  <p>実装過程で判明した、ネイティブサービス固有のスコープ・課金要件（いずれもドキュメントの表記だけでは分からず、実機検証で確定させたもの）：</p>
+  <table>
+    <thead><tr><th>サービス</th><th>要求される権限・条件</th><th>実機で判明した注意点</th></tr></thead>
+    <tbody>
+      <tr><td>CalendarApp.createEvent()</td><td>https://www.googleapis.com/auth/calendar（フル権限）</td><td>新しい細分化スコープcalendar.eventsでは「Specified permissions are not sufficient」エラーになる。CalendarAppは古典的なフルスコープ体系のみ認識する</td></tr>
+      <tr><td>Session.getActiveUser() / getEffectiveUser()</td><td>https://www.googleapis.com/auth/userinfo.email</td><td>送信先未指定時に自分のメアドを解決するために必要。両メソッドとも同じスコープを要求するため、getEffectiveUser()への切り替えでは回避できない（公式ドキュメントで確認済み）</td></tr>
+      <tr><td>GmailApp.sendEmail(...,&#123;from: alias&#125;)</td><td>https://mail.google.com/（フル権限）</td><td>送信専用の狭いスコープが存在しない。「送信元を変えたい」という目的に対してはかなり広い権限要求になる。fromにはGmailApp.getAliases()が返す、Gmail側で事前に認証済みのアドレスしか指定できない</td></tr>
+      <tr><td>Maps.newStaticMap().getMapUrl()</td><td>MAPS_API_KEYスクリプトプロパティ（課金設定済みAPIキー）</td><td>OAuthスコープではなく別体系のAPIキー認証。2018年以降、Google Maps Static APIはAPIキー無しだと画像を返さない仕様（エラー画像 or 実用にならないレート制限）。未設定のままだとmapUrl生成自体は成功するため、実際にブラウザで開いて初めて失敗に気づく。対策としてdemoMapsShow_はURLを返す前にサーバー側でUrlFetchApp.fetchにより画像取得を検証し、失敗時は原因を明示するエラーで即座に落とすようにした</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s6">
+  <h2>6. Web GUI</h2>
+  <p>Apps Scriptエディタの「実行」ボタン＋実行ログでの動作確認に代えて、ブラウザから各機能をボタン操作でテストできるWeb GUIをdoGet(e)として追加した。</p>
+  <div class="mermaid">
+flowchart TB
+    Browser["ブラウザ（doGetで配信されるHTML）"] -->|"google.script.run"| UiFn["uiXxx() ラッパー群<br/>（uiMcpCalendar/uiCalendarRegister等）"]
+    UiFn --> Capture["_uiCapture_()<br/>結果 + Logger.getLog() をまとめて返す"]
+    Capture --> Existing["既存の実装（変更なし）<br/>runMcpGeminiAgent_ / demoCalendarAutoRegister_ 等"]
+    Capture -->|"JSON"| Browser
+    Browser -->|"Maps結果はmapUrlを&lt;img&gt;としてその場に描画"| Render["ページ内に地図画像表示"]
+  </div>
+  <ul>
+    <li>9枚のカード（①〜⑤: MCP経由、⑥〜⑨: ネイティブサービス経由）で構成</li>
+    <li>_uiCapture_()が各テスト実行のLogger出力を丸ごとキャプチャして返すため、GUIの「詳細ログ」パネルにApps Scriptエディタの実行ログと同等の詳細traceが表示される</li>
+    <li>既存のテスト関数（testMcpCalendarOnly()等）は変更せず、GUI用の薄いラッパー関数を追加する形で実装したため、エディタからの直接実行と両方の経路が使える</li>
+    <li>デプロイは「デプロイ→新しいデプロイ→種類:ウェブアプリ→実行ユーザー:自分→アクセス:自分のみ」を推奨（「全員」にすると、アクセスした全員の操作がデプロイ者のGoogleアカウント権限で実行される点に注意）</li>
+  </ul>
+</section>
+
+<section id="s7">
+  <h2>7. 変更ファイル一覧</h2>
+  <table>
+    <thead><tr><th>ファイル</th><th>変更内容</th></tr></thead>
+    <tbody>
+      <tr><td>scripts/gas_mcp_demo.js</td><td>新規作成・継続拡張。MCP JSON-RPCクライアントの実装、Calendar MCPの検証、DeepWiki・複数サーバーの検証、ネイティブサービスでの実装、Web GUIを単一ファイルに集約</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">本番のscripts/gas_cloud_rag.jsへの変更は無し（意図的に分離。ユーザーの明示的な要望）。</div>
+</section>
+
+<section id="s8">
+  <h2>8. 未解決事項・今後の方針</h2>
+  <table>
+    <thead><tr><th>#</th><th>項目</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Calendar MCPの"The caller does not have permission"が未解決</td><td>フル権限スコープ（calendar）追加後も解消せず。GCPプロジェクト単位のIAM設定、または組織のGoogle Workspace側API制御が別途関わっている可能性がある。前述のネイティブサービスの実装で代替できているため優先度は高くないが、原因は特定できていない</td></tr>
+      <tr><td>2</td><td>Maps Static APIの課金要件</td><td>MAPS_API_KEYは無料枠（月200ドル分のクレジット）はあるが課金アカウントの設定が前提。個人検証用途を超えて使う場合はコスト監視が必要</td></tr>
+      <tr><td>3</td><td>GmailAppのフル権限スコープ</td><td>「送信元アドレスを変えたい」というささやかな目的に対して、Gmailの読み書き削除を含む広い権限を要求する設計。表示名変更だけで足りるならMailApp（狭いスコープ）に留めるべき</td></tr>
+      <tr><td>4</td><td>将来のFirebase等への移行を見据えた設計</td><td>GASを離れる場合、ネイティブサービスの代替が無くなるため、その時点でGoogle製MCPサーバーまたはgoogleapisライブラリ経由のREST APIが選択肢になる。呼び出し側のロジックを変えずに実装だけ差し替えられるよう、薄いアダプタ層を挟む方針を提案済み（未実装）</td></tr>
+      <tr><td>5</td><td>RAG本体への統合</td><td>今回の実装は全て検証用デモに留めており、実際のナレッジ登録フローや監視処理への組み込みはまだ行っていない</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  関連ドキュメント: <a href="../docs/model-strategy-report.md">docs/model-strategy-report.md</a>（Google管理MCPサーバーの一次調査） ／ <a href="../docs/claude-token-security-report.md">docs/claude-token-security-report.md</a>（cloudRAGのClaude APIセキュリティ設計） ／ <a href="setup-guide.md">setup-guide.md</a>（このデモの導入手順書）
+</footer>
+
+</div>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default') });
+</script>
+</body>
+</html>

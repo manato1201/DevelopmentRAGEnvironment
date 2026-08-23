@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gas_mcp_demo.js 導入手順書</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1117;
+    --panel: #171a23;
+    --border: #2a2e3a;
+    --text: #e6e8ee;
+    --muted: #9aa1b4;
+    --accent: #7aa2ff;
+    --good: #6fd08c;
+    --bad: #ef7a7a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --border: #e1e4ec;
+      --text: #1b1e27;
+      --muted: #5b6270;
+      --accent: #3358d6;
+      --good: #1f8a4c;
+      --bad: #c23a3a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    line-height: 1.75;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+  header.hero {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  header.hero h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+  header.hero .meta { color: var(--muted); font-size: .9rem; }
+  .badge {
+    display: inline-block;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: .15rem .7rem;
+    font-size: .78rem;
+    color: var(--accent);
+    margin-right: .4rem;
+  }
+  nav.toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.3rem;
+    margin-bottom: 2.5rem;
+  }
+  nav.toc summary { cursor: pointer; font-weight: 600; }
+  nav.toc ol { margin: .8rem 0 0; padding-left: 1.3rem; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  section { margin-bottom: 3rem; }
+  h2 {
+    font-size: 1.2rem;
+    border-left: 4px solid var(--accent);
+    padding-left: .6rem;
+    margin-top: 0;
+  }
+  h3 { font-size: 1.02rem; color: var(--text); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: .88rem;
+    overflow-x: auto;
+    display: block;
+  }
+  table thead { display: table; width: 100%; table-layout: fixed; }
+  table tbody { display: table; width: 100%; table-layout: fixed; }
+  th, td {
+    border: 1px solid var(--border);
+    padding: .5rem .7rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--panel); color: var(--accent); }
+  code {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: .1rem .35rem;
+    font-size: .88em;
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: .85rem;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  .mermaid { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; overflow-x: auto; }
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--panel);
+    padding: .8rem 1rem;
+    border-radius: 0 8px 8px 0;
+    margin: 1rem 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-color: var(--bad); }
+  ol.steps { padding-left: 1.4rem; }
+  ol.steps li { margin-bottom: .4rem; }
+  footer { color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); padding-top: 1.2rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="badge">導入手順書</span><span class="badge">セットアップガイド</span>
+  <h1>gas_mcp_demo.js 導入手順書</h1>
+  <div class="meta">対象読者: このデモを初めてセットアップし、Web GUIから動かしてみたい人　｜　関連: <a href="gas-mcp-demo-report.md">gas-mcp-demo-report.md</a>（実装の詳しい背景）</div>
+</header>
+
+<nav class="toc">
+  <details open>
+  <summary>目次</summary>
+  <ol>
+    <li><a href="#s1">これは何か</a></li>
+    <li><a href="#s2">事前に用意するもの</a></li>
+    <li><a href="#s3">Apps Scriptプロジェクトを作成する</a></li>
+    <li><a href="#s4">コードとマニフェストを配置する</a></li>
+    <li><a href="#s5">スクリプトプロパティを設定する</a></li>
+    <li><a href="#s6">Web GUIをデプロイする</a></li>
+    <li><a href="#s7">初回の認可</a></li>
+    <li><a href="#s8">動作確認（まずは何から試すか）</a></li>
+    <li><a href="#s9">（任意・上級者向け）Calendar MCPを試す場合</a></li>
+    <li><a href="#s10">トラブルシューティング</a></li>
+  </ol>
+  </details>
+</nav>
+
+<section id="s1">
+  <h2>1. これは何か</h2>
+  <p>gas_mcp_demo.jsは、Google Apps Script（GAS）上でGeminiとMCP（Model Context Protocol）連携、およびGoogleサービス（Calendar/Gmail/Maps）連携がどこまでできるかを検証するためのデモです。ブラウザで開けるWeb GUIから、ボタン操作で9つの機能を試せます。</p>
+  <ul>
+    <li><strong>本番システムとは完全に独立</strong>しています。既存のシステムには一切影響しません</li>
+    <li>検証専用なので、自分だけがアクセスできる形でデプロイすることを推奨します（6章で説明）</li>
+  </ul>
+  <div class="mermaid">
+flowchart LR
+    A["① Apps Scriptプロジェクト作成"] --> B["② コード・マニフェスト配置"]
+    B --> C["③ スクリプトプロパティ設定"]
+    C --> D["④ Web GUIとしてデプロイ"]
+    D --> E["⑤ 初回認可"]
+    E --> F["⑥ ブラウザで動作確認"]
+  </div>
+</section>
+
+<section id="s2">
+  <h2>2. 事前に用意するもの</h2>
+  <table>
+    <thead><tr><th>項目</th><th>必須か</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td>Googleアカウント</td><td>必須</td><td>Apps Scriptの実行に使う</td></tr>
+      <tr><td>Gemini APIキー</td><td>必須</td><td><a href="https://aistudio.google.com/">Google AI Studio</a>で無料発行できる</td></tr>
+      <tr><td>Google Maps Platform APIキー</td><td>任意（Maps表示機能を使うなら実質必須）</td><td>Google Cloud Consoleで発行。課金アカウントの設定が必要（月200ドル分の無料枠あり）</td></tr>
+      <tr><td>試したい外部MCPサーバーのURL・トークン</td><td>任意</td><td>「任意のMCPサーバー」カードを使う場合のみ（例: GitHub MCP）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s3">
+  <h2>3. Apps Scriptプロジェクトを作成する</h2>
+  <ol class="steps">
+    <li><a href="https://script.google.com/">script.google.com</a> を開く</li>
+    <li>「新しいプロジェクト」をクリック</li>
+    <li>左上のプロジェクト名（「無題のプロジェクト」）をクリックし、分かりやすい名前に変更する（例: 「MCP連携デモ」）</li>
+  </ol>
+</section>
+
+<section id="s4">
+  <h2>4. コードとマニフェストを配置する</h2>
+  <ol class="steps">
+    <li>エディタに最初から入っている <code>コード.gs</code> の中身をすべて削除し、<a href="gas_mcp_demo.js">gas_mcp_demo.js</a> の内容を丸ごと貼り付ける</li>
+    <li>左メニューの<strong>歯車アイコン</strong>（プロジェクトの設定）を開き、「<strong>"appsscript.json" マニフェスト ファイルをエディタで表示する</strong>」にチェックを入れる</li>
+    <li>ファイル一覧に新しく現れる <code>appsscript.json</code> を開き、中身をすべて削除して、<a href="appscript.json">appscript.json</a> の内容を貼り付けて保存する</li>
+  </ol>
+  <p>appscript.jsonには、この後の手順で説明する全機能分のOAuthスコープと、Web GUIのデプロイ設定（自分のみアクセス可）があらかじめ入っています。</p>
+</section>
+
+<section id="s5">
+  <h2>5. スクリプトプロパティを設定する</h2>
+  <p>左メニューの<strong>歯車アイコン</strong>（プロジェクトの設定）→ 一番下の「<strong>スクリプト プロパティ</strong>」→「<strong>スクリプト プロパティを編集</strong>」から追加します。</p>
+  <table>
+    <thead><tr><th>プロパティ名</th><th>必須か</th><th>用途</th><th>値の取得方法</th><th>未設定のときの挙動</th></tr></thead>
+    <tbody>
+      <tr><td><code>GEMINI_API_KEY</code></td><td><strong>必須</strong></td><td>Gemini API（generateContent）の呼び出しに使う</td><td><a href="https://aistudio.google.com/">Google AI Studio</a>で発行</td><td>MCP系の全機能（①〜④）がエラーになる</td></tr>
+      <tr><td><code>MAPS_API_KEY</code></td><td>任意（Maps表示機能⑨を使うなら実質必須）</td><td>地図画像（Maps Static API）の取得に使う</td><td>Google Cloud Console →「APIとサービス」→「認証情報」で発行。「Maps Static API」の有効化と課金アカウントの設定が必要</td><td>地図画像を取得できず、機能⑨がエラーで落ちる（2018年以降、APIキー無しでは画像を返さない仕様のため）</td></tr>
+      <tr><td><code>GMAIL_FROM_ALIAS</code></td><td>任意</td><td>Gmail通知（機能⑦）の送信元アドレスを、自分の別アドレスに変更したい場合</td><td>Gmail設定の「他のメールアドレスから送信」で事前に認証済みのアドレス</td><td>送信元アドレスは変わらない（表示名のみ変更されたMailAppでの送信になる）</td></tr>
+      <tr><td><code>MCP_CUSTOM_URL</code></td><td>任意</td><td>「任意のMCPサーバー」カード（機能④）で、GUIに毎回URLを入力しなくて済むようにする</td><td>試したいMCPサーバーのエンドポイントURL（例: https://api.githubcopilot.com/mcp/）</td><td>GUIのカードにURLを直接入力すれば、この設定が無くても動く</td></tr>
+      <tr><td><code>MCP_CUSTOM_BEARER_TOKEN</code></td><td>任意</td><td>上記カスタムMCPサーバーの認証トークン</td><td>サービスごとに取得方法が異なる（例: GitHubのPersonal Access Token）</td><td>GUIのカードに直接入力すれば、この設定が無くても動く。両方未設定なら認証不要のMCPサーバーのみ試せる</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s6">
+  <h2>6. Web GUIをデプロイする</h2>
+  <ol class="steps">
+    <li>エディタ右上の「<strong>デプロイ</strong>」→「<strong>新しいデプロイ</strong>」</li>
+    <li>「種類の選択」の歯車アイコンをクリックし、「<strong>ウェブアプリ</strong>」を選ぶ</li>
+    <li>「次のユーザーとして実行」→「<strong>自分</strong>」</li>
+    <li>「アクセスできるユーザー」→「<strong>自分のみ</strong>」</li>
+    <li>「デプロイ」をクリック</li>
+  </ol>
+  <div class="callout warn">「アクセスできるユーザー」を「全員」にする場合の注意：このデモを他の人にも触ってもらいたい場合に選ぶことになりますが、アクセスした人の操作（Calendarへの書き込み・メール送信を含む）は<strong>すべてデプロイした人のGoogleアカウント権限で実行されます</strong>。人に見せる際は、自分のアカウントで代表して操作を見せる（画面共有）方が安全です。</div>
+  <p>デプロイが完了すると、Web GUIのURLが発行されます。このURLをブラウザで開くと画面が表示されます。</p>
+</section>
+
+<section id="s7">
+  <h2>7. 初回の認可</h2>
+  <p>初めて機能を実行すると、Googleの認可画面がポップアップで表示されます。</p>
+  <ol class="steps">
+    <li>アカウントを選択</li>
+    <li>「このアプリは Google で確認されていません」という警告が出ます → これは<strong>自分で作成したスクリプトだから</strong>表示される通常の画面です。「<strong>詳細</strong>」をクリックし、「<strong>（プロジェクト名）に移動（安全ではないページ）</strong>」を選ぶ</li>
+    <li>要求される権限一覧を確認し、「<strong>許可</strong>」をクリック</li>
+  </ol>
+  <p>機能を追加で使うたびに（Calendar・Gmail等、新しいスコープを初めて使う瞬間）、再度この認可画面が出ることがあります。</p>
+</section>
+
+<section id="s8">
+  <h2>8. 動作確認（まずは何から試すか）</h2>
+  <table>
+    <thead><tr><th>順番</th><th>カード名</th><th>特徴</th></tr></thead>
+    <tbody>
+      <tr><td>1番手におすすめ</td><td>② DeepWiki MCP</td><td>追加設定が一切不要。認証不要の公開MCPサーバーなので、GEMINI_API_KEYさえ設定してあればすぐ動く</td></tr>
+      <tr><td>2番手</td><td>⑨ Maps表示</td><td>MAPS_API_KEYさえ設定すれば、その場で地図画像が表示されて分かりやすい</td></tr>
+      <tr><td>3番手</td><td>⑥⑦⑧ Calendar自動登録／Gmail通知／監視アラート</td><td>GASネイティブサービスのみで完結。appsscript.jsonのスコープが正しければすぐ動く</td></tr>
+      <tr><td>上級者向け</td><td>① Google Calendar MCP</td><td>追加のGoogle Cloud側設定が必要（次章参照）。既知の未解決問題があります</td></tr>
+    </tbody>
+  </table>
+  <p>各カードには「実行」ボタンと「詳細ログ」の折りたたみがあります。詳細ログにはApps Scriptの実行ログと同等の詳しい経過が表示されるので、うまくいかない場合はまずここを確認してください。</p>
+</section>
+
+<section id="s9">
+  <h2>9. （任意・上級者向け）Calendar MCPを試す場合</h2>
+  <p>「① Google Calendar MCP」カードのみ、追加の設定と心構えが必要です。</p>
+  <ul>
+    <li>GASプロジェクトが紐づくGoogle CloudプロジェクトでCalendar MCP APIを有効化する必要があります（プロジェクトの管理者権限が必要）</li>
+    <li>自分がそのプロジェクトの管理者でない場合、自分名義の別プロジェクトに切り替える必要があります（OAuth同意画面の設定も追加で必要）</li>
+    <li><strong>実機検証の結果、上記をすべて終えても"The caller does not have permission"というエラーが解消しないケースが確認されています</strong>（原因未特定）</li>
+  </ul>
+  <div class="callout">このカード以外（②〜⑨）は、この面倒な設定は一切不要です。まずはそちらから試すことを強くおすすめします。詳しい経緯は <a href="gas-mcp-demo-report.md">gas-mcp-demo-report.md</a> の「Google純正MCP（Calendar）— 直面した壁の連鎖」章にまとめてあります。</div>
+</section>
+
+<section id="s10">
+  <h2>10. トラブルシューティング</h2>
+  <table>
+    <thead><tr><th>症状</th><th>原因・対処</th></tr></thead>
+    <tbody>
+      <tr><td>Gemini APIエラー（400番台）</td><td>GEMINI_API_KEYが未設定・無効な可能性。5章を確認</td></tr>
+      <tr><td>Calendar登録・Gmail通知でスコープ関連のエラー</td><td>appsscript.jsonのoauthScopesが正しく貼り付けられているか確認（4章）。新しいスコープを追加した直後は再認可（7章）が必要</td></tr>
+      <tr><td>Maps表示で「地図画像を取得できませんでした」</td><td>MAPS_API_KEYが未設定、またはMaps Static APIが未有効化／課金未設定。5章を確認</td></tr>
+      <tr><td>「① Google Calendar MCP」だけ失敗する</td><td>既知の問題です。9章を参照。他のカードには影響しません</td></tr>
+      <tr><td>デプロイしたURLを開いても真っ白</td><td>デプロイ設定（6章）で種類が「ウェブアプリ」になっているか確認。コード貼り付け後は保存を忘れずに</td></tr>
+    </tbody>
+  </table>
+  <p>より詳しい技術的背景（実際に発生したエラーの詳細・原因調査の過程）は <a href="gas-mcp-demo-report.md">gas-mcp-demo-report.md</a> を参照してください。</p>
+</section>
+
+<footer>
+  関連ドキュメント: <a href="gas-mcp-demo-report.md">gas-mcp-demo-report.md</a>（実装ログ・実機検証レポート）
+</footer>
+
+</div>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default') });
+</script>
+</body>
+</html>
