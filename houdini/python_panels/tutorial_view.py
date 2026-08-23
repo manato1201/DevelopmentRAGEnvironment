@@ -344,6 +344,7 @@ class TutorialGeneratePanel(QWidget):
                 "rag_mode":    cfg.get("mode", "local"),
                 "gas_url":     cfg.get("gas_url", ""),
                 "gas_api_key": cfg.get("gas_api_key", ""),
+                "model":       cfg.get("tutorial_model", "claude-sonnet-5"),
             }
             self._worker = TutorialChainWorker(topic, chain_kwargs)
             self._worker.progress.connect(self._on_progress)
@@ -361,6 +362,7 @@ class TutorialGeneratePanel(QWidget):
             rag_mode=cfg.get("mode", "local"),
             gas_url=cfg.get("gas_url", ""),
             gas_api_key=cfg.get("gas_api_key", ""),
+            model=cfg.get("tutorial_model", "claude-sonnet-5"),
         )
         level = self._level_combo.currentText()
         self._worker = TutorialWorker(self._agent, topic, level=level)

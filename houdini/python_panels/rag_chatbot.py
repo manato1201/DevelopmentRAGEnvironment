@@ -86,6 +86,9 @@ _DEFAULT_CONFIG = {
     "local_port":       8766,      # ローカルブリッジのポート番号
     "local_bridge_dir": "",        # rag_local_bridge.py が含まれるプロジェクトのパス
     "llm_backend":      "claude",  # "claude" | "gemini"（Local モード LLM 切り替え）
+    "tutorial_model":   "claude-sonnet-5",  # チュートリアル生成（GAS経由Claude）のモデル。
+                                    # "claude-sonnet-5"（高品質・高コスト）|
+                                    # "claude-haiku-4-5"（低コスト。token消費対策）
     "score_user_id":    "",        # 理解度スコア記録用ユーザーID
     "video_factory_exe_path": "",  # LearningQt video_factory_cloudrag_poc.exe のフルパス
                                     # （チュートリアル保存時に自動で動画生成を起動する）
@@ -733,6 +736,29 @@ class RAGChatbotPanel(QWidget):
         self._backend_combo.setCurrentText(self._cfg.get("llm_backend", "claude"))
         layout.addWidget(self._backend_combo)
 
+        # チュートリアル生成モデル（token消費対策）: claude-sonnet-5（既定・高品質）と
+        # claude-haiku-4-5（低コスト）を切り替え可能にする。tutorial_agent.py の
+        # AVAILABLE_MODELS が価格テーブルの正なので、それをインポートして選択肢にする
+        # （このファイル側で選択肢を重複定義しない）。tutorial_agent.py が見つからない
+        # 環境（テスト等）ではフォールバックの固定リストを使う。
+        layout.addWidget(QLabel("チュートリアル生成モデル（コスト影響あり）:"))
+        self._tutorial_model_combo = QComboBox()
+        try:
+            from tutorial_agent import AVAILABLE_MODELS
+        except ImportError:
+            AVAILABLE_MODELS = ("claude-sonnet-5", "claude-haiku-4-5")
+        self._tutorial_model_combo.addItems(list(AVAILABLE_MODELS))
+        self._tutorial_model_combo.setCurrentText(
+            self._cfg.get("tutorial_model", "claude-sonnet-5")
+        )
+        layout.addWidget(self._tutorial_model_combo)
+        hint = QLabel(
+            "claude-sonnet-5: 高品質・高コスト（既定） / "
+            "claude-haiku-4-5: 低コストだが生成品質は下がる場合があります"
+        )
+        hint.setStyleSheet("color:#888;")
+        layout.addWidget(hint)
+
         # スコアユーザーID
         layout.addWidget(QLabel("スコアユーザーID:"))
         self._score_uid_edit = QLineEdit(self._cfg.get("score_user_id", ""))
@@ -914,6 +940,7 @@ class RAGChatbotPanel(QWidget):
         self._cfg["gas_db_key"]       = self._db_key_edit.text().strip() or "all"
         self._cfg["local_bridge_dir"] = self._bridge_dir_edit.text().strip()
         self._cfg["llm_backend"]      = self._backend_combo.currentText()
+        self._cfg["tutorial_model"]   = self._tutorial_model_combo.currentText()
         self._cfg["score_user_id"]    = self._score_uid_edit.text().strip()
         self._cfg["video_factory_exe_path"] = self._video_factory_exe_edit.text().strip()
         try:

@@ -80,11 +80,12 @@ uv run python scripts\rag_local_bridge.py
 1. `houdini_tools.py` / `tutorial_agent.py` / `tutorial_view.py` / `token_usage.py` も `rag_chatbot.py` と同じ Python Panels フォルダにコピー
 2. Settings タブで **GAS WebApp URL / API Key を設定**（Cloud/Local どちらのRAG検索モードでも必須。チュートリアル生成のClaude API呼び出しは常にGAS経由になるため）
    - Houdiniマシン側にANTHROPIC_API_KEYを環境変数として置く必要は**ない**（生のキーはGASのスクリプトプロパティにのみ保存する構成に変更済み。詳細 → [docs/cloud-rag.md §8.14](docs/cloud-rag.md)）
+   - 同じ Settings タブで **チュートリアル生成モデル**（`claude-sonnet-5`＝既定・高品質 / `claude-haiku-4-5`＝低コスト）を選択できる。token消費対策として追加した機能で、既定は変更していない（詳細 → [docs/model-strategy-report.md](docs/model-strategy-report.md) §4）
 3. Houdini パネルの **Tutorial** タブでトピックを入力、または Chat タブで `/tutorial <トピック>` と入力
-4. RAG検索（houdini21 名前空間のみ・Local/Cloud両対応）→ エージェントループ（最大40回・$0.50 上限のローカル推定に加え、GAS側のAPIキーごとのClaudeトークン上限が実際に強制される）でノードグラフを組み立て → Markdown プレビュー →「保存」を押すと `localRAG/tutorials/` に `.md`＋`.json` を保存
+4. RAG検索（houdini21 名前空間のみ・Local/Cloud両対応）→ エージェントループ（最大40回・$5.00 上限のローカル推定に加え、GAS側のAPIキーごとのClaudeトークン上限が実際に強制される）でノードグラフを組み立て → Markdown プレビュー →「保存」を押すと `localRAG/tutorials/` に `.md`＋`.json` を保存
 5. 過去の生成物は **History** タブでノードグラフとあわせて確認できる
 
-詳細 → [docs/content-generation.md](docs/content-generation.md) §2（実機検証レポート → [docs/houdini21-tutorial-gen-report.md](docs/houdini21-tutorial-gen-report.md)、講義資料 → [lecture/houdini21-tutorial-gen-lecture.html](lecture/houdini21-tutorial-gen-lecture.html)）
+詳細 → [docs/content-generation.md](docs/content-generation.md) §2（実機検証レポート → [docs/houdini21-tutorial-gen-report.md](docs/houdini21-tutorial-gen-report.md)、講義資料 → [lecture/houdini21-tutorial-gen-lecture.html](lecture/houdini21-tutorial-gen-lecture.html)、モデル運用戦略・コスト対策 → [docs/model-strategy-report.md](docs/model-strategy-report.md)）
 
 ### グラフ JSON を手動で生成したい
 
