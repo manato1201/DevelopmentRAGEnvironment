@@ -136,7 +136,7 @@ function _usesDrive_(dbKey) {
 // 同じコードを手動コピペでデプロイしている場合、各デプロイの管理画面（⚙ 管理 →
 // 🔑 APIキー管理タブ上部）に表示されるこの値を突き合わせることで、「片方だけ
 // 更新し忘れた」というデプロイドリフトに気づけるようにする。
-var GAS_CODE_VERSION = '2026-07-24-01';
+var GAS_CODE_VERSION = '2026-08-14-01';
 
 var ALL_NAMESPACES    = Object.keys(DB_KEY_MAP);
 var SHEET_NAME        = 'RAG_Index';
@@ -2712,16 +2712,50 @@ function kbCreateNotionPage_(dbId, title, summary, sourceUrl, bodyText) {
   return { id: page.id, lastEdited: page.last_edited_time || new Date().toISOString() };
 }
 
-/** 作成したページをその場でチャンク化・埋め込みしてインデックスに追加する */
+/**
+ * 作成したページをその場でチャンク化・埋め込みしてインデックスに追加する（単発呼び出し用）。
+ * 実体は kbBulkEmbedAndIndex_ の1件版（Phase0バッチ化対策で共通化。§後述）。
+ */
 function kbIndexPage_(pageId, lastEdited, dbKey, title, fullText) {
-  var sheet  = getSheet_();
-  var chunks = chunkText_('# ' + title + '\n' + fullText, 500, 100);
-  var rows   = [];
-  chunks.forEach(function(chunk, k) {
-    var emb = embedDoc_(chunk.substring(0, 2000));
-    if (!emb) return;
-    rows.push([pageId + '::' + k, dbKey, title, chunk, lastEdited, JSON.stringify(emb)]);
+  return kbBulkEmbedAndIndex_(dbKey, [{ pageId: pageId, lastEdited: lastEdited, title: title, fullText: fullText }]);
+}
+
+/**
+ * 複数ページ分（indexItems: [{pageId, lastEdited, title, fullText}, ...]）を
+ * まとめてチャンク化 → 埋め込みAPIをfetchAllで10件ずつバッチ実行 → RAG_Indexシートへの
+ * 追記を1回にまとめる。既存の syncDriveToSheets（Google Drive同期）と同じ
+ * バッチパターンを流用している。
+ *
+ * 背景（token消費対策 Phase0）: 従来 adminKbImportQaCsv は1行（Q&Aペア）ごとに
+ * kbWriteAndIndex_ → kbIndexPage_ を呼び、チャンクごとに embedDoc_() を1件ずつ
+ * 直列実行していた。100行の一括登録では埋め込みAPI呼び出しが直列に積み重なり、
+ * GASの実行時間上限（6分）に達することがあった。全ページ分のチャンクをまとめて
+ * バッチ化することで、埋め込み呼び出しの往復回数を大幅に減らす。
+ */
+function kbBulkEmbedAndIndex_(dbKey, indexItems) {
+  var sheet     = getSheet_();
+  var allChunks = [];
+  indexItems.forEach(function(item) {
+    var chunks = chunkText_('# ' + item.title + '\n' + item.fullText, 500, 100);
+    chunks.forEach(function(chunk, k) {
+      allChunks.push({ text: chunk, pageId: item.pageId, title: item.title, lastEdited: item.lastEdited, k: k });
+    });
   });
+  if (!allChunks.length) return 0;
+
+  var BATCH_SIZE = 10, rows = [];
+  for (var b = 0; b < allChunks.length; b += BATCH_SIZE) {
+    var batch     = allChunks.slice(b, b + BATCH_SIZE);
+    var embedReqs = batch.map(function(c) { return embedRequest_(c.text, 'RETRIEVAL_DOCUMENT'); });
+    UrlFetchApp.fetchAll(embedReqs).forEach(function(res, j) {
+      var c   = batch[j];
+      var emb = parseEmbedResponse_(res);
+      if (!emb) return;  // 失敗分はスキップ（従来のembedDoc_失敗時と同じ挙動: 該当チャンクは索引されない）
+      rows.push([c.pageId + '::' + c.k, dbKey, c.title, c.text, c.lastEdited, JSON.stringify(emb)]);
+    });
+    if (b + BATCH_SIZE < allChunks.length) Utilities.sleep(200);
+  }
+
   _appendRowsSafely_(sheet, rows, 6);
   invalidateIndexCache_();
   return rows.length;
@@ -2741,6 +2775,129 @@ function kbCreateDriveDoc_(folderId, title, bodyText) {
   DriveApp.getFolderById(folderId).addFile(file);
   try { DriveApp.getRootFolder().removeFile(file); } catch(e) {}
   return { id: file.getId(), lastEdited: new Date().toISOString() };
+}
+
+/**
+ * items（各要素に title/summary/bodyText を持つ）に対応するNotionページを
+ * fetchAllで10件ずつバッチ作成し、成功結果を item.notion = {id, lastEdited} に
+ * 書き込む。単発版 kbCreateNotionPage_ と同じ「400 かつ summary あり→
+ * title-onlyで再試行」フォールバックを、失敗分だけの再バッチとして再現する。
+ * 個別の作成失敗はthrowせず item.error に記録するだけに留め（1件の失敗で
+ * バッチ全体を巻き込んで失敗させない）、呼び出し側で成功分だけを索引する。
+ */
+function kbBulkCreateNotionPages_(dbId, items) {
+  function buildPayload_(item, titleOnly) {
+    var properties = { title: { title: [{ text: { content: item.title.substring(0, 200) } }] } };
+    if (!titleOnly && item.summary) {
+      properties.summary = { rich_text: [{ text: { content: item.summary.substring(0, 1900) } }] };
+    }
+    var children = [];
+    var body = (item.bodyText || '').substring(0, 40000);
+    for (var i = 0; i < body.length && children.length < 95; i += 1800) {
+      children.push({ object: 'block', type: 'paragraph',
+        paragraph: { rich_text: [{ text: { content: body.substring(i, i + 1800) } }] } });
+    }
+    return { parent: { database_id: dbId }, properties: properties, children: children };
+  }
+  function req_(item, titleOnly) {
+    return { url: 'https://api.notion.com/v1/pages', method: 'post', headers: notionHeaders_(),
+             contentType: 'application/json', payload: JSON.stringify(buildPayload_(item, titleOnly)),
+             muteHttpExceptions: true };
+  }
+
+  var BATCH_SIZE = 10;
+  for (var b = 0; b < items.length; b += BATCH_SIZE) {
+    var batch     = items.slice(b, b + BATCH_SIZE);
+    var responses = UrlFetchApp.fetchAll(batch.map(function(item) { return req_(item, false); }));
+
+    var retryItems = [];
+    responses.forEach(function(res, j) {
+      var item = batch[j];
+      if (res.getResponseCode() === 200) {
+        var page = JSON.parse(res.getContentText());
+        item.notion = { id: page.id, lastEdited: page.last_edited_time || new Date().toISOString() };
+      } else if (res.getResponseCode() === 400 && item.summary) {
+        retryItems.push(item);  // summary系プロパティがないDB → title-onlyで再試行
+      } else {
+        item.error = 'Notion: ' + res.getContentText().substring(0, 200);
+      }
+    });
+
+    if (retryItems.length) {
+      var retryRes = UrlFetchApp.fetchAll(retryItems.map(function(item) { return req_(item, true); }));
+      retryRes.forEach(function(res, k) {
+        var item = retryItems[k];
+        if (res.getResponseCode() === 200) {
+          var page = JSON.parse(res.getContentText());
+          item.notion = { id: page.id, lastEdited: page.last_edited_time || new Date().toISOString() };
+        } else {
+          item.error = 'Notion: ' + res.getContentText().substring(0, 200);
+        }
+      });
+    }
+
+    if (b + BATCH_SIZE < items.length) Utilities.sleep(200);
+  }
+}
+
+/**
+ * QA CSV一括登録の本体（バッチ化版。token消費対策 Phase0）。
+ * kbWriteAndIndex_/kbRegister_（単発登録経路）とは別関数にしている理由:
+ *   ① Notionページ作成をfetchAllで並列化できる（単発経路はkbCreateNotionPage_を
+ *      1件ずつ呼ぶままでよく、変更不要）
+ *   ② 埋め込みを全ペア分まとめて1回のバッチ処理にできる（ペアごとに
+ *      kbBulkEmbedAndIndex_を呼ぶと10件バッチの粒度がペア内に閉じてしまうため）
+ * Driveへの書き込み（DocumentApp/DriveApp）はGASのネイティブサービス呼び出しで
+ * UrlFetchApp.fetchAllの対象にできないため、こちらは引き続き1件ずつの逐次実行になる
+ * （Notionページ作成ほどの改善効果は無いが、埋め込みバッチ化の恩恵は受ける）。
+ * 個別の作成失敗はスキップして続行し、失敗件数を failCount として返す
+ * （従来はforEach内で例外が飛ぶとCSV全体が失敗し、KB_Logへの記録すら残らなかった）。
+ */
+function kbBulkImportQaPairs_(dbKey, pairs) {
+  var useNotion      = _usesNotion_(dbKey);
+  var useDrive       = _usesDrive_(dbKey);
+  var notionDbId     = useNotion ? kbNotionDbId_(dbKey) : null;
+  var driveFolderId  = useDrive  ? kbDriveFolderId_(dbKey) : null;
+
+  var items = pairs.map(function(p) {
+    var summary  = p[1].substring(0, 200);
+    var bodyText = '質問: ' + p[0] + '\n\n回答: ' + p[1];
+    return {
+      title:    'Q: ' + p[0].substring(0, 90),
+      summary:  summary,
+      bodyText: bodyText,
+      fullText: (summary ? summary + '\n' : '') + bodyText,
+      notion: null, drive: null, error: null,
+    };
+  });
+
+  if (useNotion) kbBulkCreateNotionPages_(notionDbId, items);
+
+  if (useDrive) {
+    items.forEach(function(item) {
+      try {
+        item.drive = kbCreateDriveDoc_(driveFolderId, item.title, item.fullText);
+      } catch (e) {
+        item.error = (item.error ? item.error + ' / ' : '') + 'Drive: ' + e.message;
+      }
+    });
+  }
+
+  var indexItems = [], allTargets = [], failCount = 0;
+  items.forEach(function(item) {
+    if (item.notion) {
+      indexItems.push({ pageId: item.notion.id, lastEdited: item.notion.lastEdited, title: item.title, fullText: item.fullText });
+      allTargets.push({ source: 'notion', id: item.notion.id, lastEdited: item.notion.lastEdited });
+    }
+    if (item.drive) {
+      indexItems.push({ pageId: 'drive_' + item.drive.id, lastEdited: item.drive.lastEdited, title: item.title, fullText: item.fullText });
+      allTargets.push({ source: 'drive', id: item.drive.id, lastEdited: item.drive.lastEdited });
+    }
+    if (!item.notion && !item.drive) failCount++;
+  });
+
+  var chunks = kbBulkEmbedAndIndex_(dbKey, indexItems);
+  return { targets: allTargets, chunks: chunks, failCount: failCount };
 }
 
 /**
@@ -2832,16 +2989,14 @@ function adminKbImportQaCsv(apiKey, dbKey, csvText) {
   if (!pairs.length) throw new Error('有効なQ&A行が見つかりませんでした（1列目=質問、2列目=回答）');
   if (pairs.length > 100) throw new Error('一度に登録できるのは100行までです（' + pairs.length + '行あります）。分割してください');
 
-  var opId = kbNewOpId_(), allTargets = [], chunks = 0;
-  pairs.forEach(function(p) {
-    var result = kbWriteAndIndex_(dbKey, 'Q: ' + p[0].substring(0, 90), p[1].substring(0, 200), '',
-                                  '質問: ' + p[0] + '\n\n回答: ' + p[1]);
-    chunks += result.chunks;
-    allTargets = allTargets.concat(result.targets);
-  });
+  // token消費対策 Phase0: ページ作成（Notion）と埋め込みをバッチ化した専用経路を使う
+  // （旧: 1行ずつkbWriteAndIndex_を直列呼び出し。100行で6分の実行時間上限に達することがあった）
+  var opId   = kbNewOpId_();
+  var result = kbBulkImportQaPairs_(dbKey, pairs);
+  var title  = 'Q&A CSV ' + pairs.length + '件' + (result.failCount ? '（' + result.failCount + '件失敗）' : '');
   getKbLogSheet_().appendRow([opId, new Date().toISOString(), 'qa_csv', dbKey,
-                              'Q&A CSV ' + pairs.length + '件', JSON.stringify(allTargets), 'done']);
-  return { opId: opId, pages: allTargets.length, chunks: chunks, title: 'Q&A CSV ' + pairs.length + '件' };
+                              title, JSON.stringify(result.targets), 'done']);
+  return { opId: opId, pages: result.targets.length, chunks: result.chunks, title: title, failCount: result.failCount };
 }
 
 /** YouTube動画（字幕の自動取得を試み、失敗時は文字起こしの貼り付けを促す） */

@@ -10,7 +10,8 @@ docs/content-generation.md §2 の設計に基づく:
      どちらのモードでも取得後に db フィールドが houdini21 のものだけに
      絞り込む（GAS側は許可namespaceが無いと "all" に自動フォールバックする
      ため、呼び出し側でも二重にホワイトリストを強制する）
-  ② エージェントループ: MODEL 定数のClaudeモデル + HOUDINI_TOOLS（最大MAX_ITERATIONS回）
+  ② エージェントループ: DEFAULT_MODEL（既定claude-sonnet-5、TutorialAgent(model=...)で
+     claude-haiku-4-5等に変更可）+ HOUDINI_TOOLS（最大MAX_ITERATIONS回）
      プロンプトキャッシュ: システムプロンプト・ツール定義・RAGコンテキストを
      cache_control で固定
      Claude API呼び出しは必ず GAS（gas_cloud_rag.js、action:'claude_messages'）
@@ -42,7 +43,8 @@ from houdini_tools import HOUDINI_TOOLS, HoudiniToolExecutor
 
 # ─── 定数 ────────────────────────────────────────────────────────────────────────
 
-MODEL = "claude-sonnet-5"     # 設計判断（§4.1）。変更はコストが変わるため要ユーザー確認
+DEFAULT_MODEL = "claude-sonnet-5"  # 設計判断（§4.1）。既定値。generate()単価/品質に影響するため
+                                    # 変更時はTutorialAgent(model=...)で明示的に指定する
 MAX_ITERATIONS = 40           # 反復上限（§2.6）
 COST_LIMIT_USD = 5.00         # ローカル側の実測コスト打ち切り上限（§2.7）。実際の利用上限は
                                # GAS側のclaudeCapacity（管理画面で調整）が唯一の正であり、
@@ -55,15 +57,29 @@ RAG_NAMESPACES = ["houdini21"]  # 生成機能が参照してよい namespace �
 RAG_LIMIT = 6
 CLOUD_RAG_DB_KEY = "houdini21"  # Cloud RAG（GAS）に問い合わせる際の dbKey
 
-# MODEL の単価（USD / 1M tokens）。コスト上限判定の実測計算に使う。
-# claude-sonnet-5 は標準価格が $3/$15（導入価格 $2/$10 は2026-08-31まで、
-# 過大評価になるだけで安全側なのでここでは標準価格を採用）
-_PRICE = {
-    "input": 3.00,
-    "output": 15.00,
-    "cache_write": 3.75,
-    "cache_read": 0.30,
+# モデル別単価（USD / 1M tokens）。コスト上限判定の実測計算に使う。
+# token消費対策（コスト面で継続利用しやすくする）として、既定のclaude-sonnet-5に加えて
+# 低コストなclaude-haiku-4-5を選択可能にしている。dictのkey順がそのままUIの表示順。
+# - claude-sonnet-5: 標準価格 $3/$15（導入価格 $2/$10 は2026-08-31までだが、
+#   過大評価になるだけで安全側なのでここでは標準価格を採用）
+# - claude-haiku-4-5: $1/$5。cache_write/cache_readは公表値がないため、
+#   他モデルと同じ比率（write=input×1.25、read=input×0.1）で概算
+_MODEL_PRICES: dict[str, dict[str, float]] = {
+    "claude-sonnet-5": {
+        "input": 3.00,
+        "output": 15.00,
+        "cache_write": 3.75,
+        "cache_read": 0.30,
+    },
+    "claude-haiku-4-5": {
+        "input": 1.00,
+        "output": 5.00,
+        "cache_write": 1.25,
+        "cache_read": 0.10,
+    },
 }
+# UI（Settingsタブ）のモデル選択プルダウンに出す順序・選択肢
+AVAILABLE_MODELS: tuple[str, ...] = tuple(_MODEL_PRICES.keys())
 
 # よく使うSopノードタイプの一覧。list_available_node_types の呼び出しを毎回
 # しなくても済むように、頻出タイプ名をシステムプロンプトに直接埋め込んでおく
@@ -241,6 +257,7 @@ class TutorialAgent:
         rag_mode: str = "local",
         gas_url: str = "",
         gas_api_key: str = "",
+        model: str = DEFAULT_MODEL,
         progress_cb: Callable[[str], None] | None = None,
         executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
     ) -> None:
@@ -249,6 +266,8 @@ class TutorialAgent:
         self._rag_mode = rag_mode if rag_mode in ("local", "cloud") else "local"
         self._gas_url = gas_url
         self._gas_api_key = gas_api_key
+        # 未知のモデル名（設定ファイルの旧値・手編集など）はデフォルトにフォールバック
+        self._model = model if model in _MODEL_PRICES else DEFAULT_MODEL
         self._progress = progress_cb or (lambda _: None)
         self._executor_factory = executor_factory or HoudiniToolExecutor
         self.executor: HoudiniToolExecutor | None = None  # 生成後もサンドボックス削除用に保持
@@ -693,7 +712,7 @@ class TutorialAgent:
         payload = json.dumps({
             "action": "claude_messages",
             "apiKey": self._gas_api_key,
-            "model": MODEL,
+            "model": self._model,
             "max_tokens": MAX_TOKENS_PER_TURN,
             "system": system_blocks,
             "tools": tools,
@@ -732,13 +751,13 @@ class TutorialAgent:
             raise RuntimeError(data.get("error", {}).get("message") or f"GAS Claudeプロキシエラー: {data}")
         return data
 
-    @staticmethod
-    def _usage_cost(usage: dict) -> float:
+    def _usage_cost(self, usage: dict) -> float:
+        price = _MODEL_PRICES[self._model]
         return (
-            usage.get("input_tokens", 0) * _PRICE["input"]
-            + usage.get("output_tokens", 0) * _PRICE["output"]
-            + usage.get("cache_creation_input_tokens", 0) * _PRICE["cache_write"]
-            + usage.get("cache_read_input_tokens", 0) * _PRICE["cache_read"]
+            usage.get("input_tokens", 0) * price["input"]
+            + usage.get("output_tokens", 0) * price["output"]
+            + usage.get("cache_creation_input_tokens", 0) * price["cache_write"]
+            + usage.get("cache_read_input_tokens", 0) * price["cache_read"]
         ) / 1_000_000
 
     def _count_iterations(self) -> int:
@@ -878,7 +897,7 @@ rag_indexed: false
 {chr(10).join(source_lines)}
 
 ---
-*自動生成: model={MODEL} / iterations={result.iterations} / cost=${result.cost_usd:.3f} / sandbox={result.sandbox_path}*
+*自動生成: model={self._model} / iterations={result.iterations} / cost=${result.cost_usd:.3f} / sandbox={result.sandbox_path}*
 """
 
 
@@ -894,6 +913,7 @@ def build_level_chain(
     rag_mode: str = "local",
     gas_url: str = "",
     gas_api_key: str = "",
+    model: str = DEFAULT_MODEL,
     progress_cb: Callable[[str], None] | None = None,
     executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
     levels: tuple[str, ...] = _LEVEL_CHAIN_ORDER,
@@ -924,6 +944,7 @@ def build_level_chain(
             rag_mode=rag_mode,
             gas_url=gas_url,
             gas_api_key=gas_api_key,
+            model=model,
             progress_cb=progress_cb,
             executor_factory=executor_factory,
         )
