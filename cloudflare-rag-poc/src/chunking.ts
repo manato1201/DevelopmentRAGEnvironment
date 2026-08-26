@@ -21,3 +21,22 @@ export function chunkText(text: string, size = 1000, overlap = 150): string[] {
 export function newOpId(): string {
   return `op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
+
+// 1ファイルの処理（Gemini File APIのアップロード＋ACTIVE待ちポーリング等）が想定外に
+// 長引くと、Cloudflareのエッジ側がリクエスト自体を打ち切りHTMLエラーページ（非JSON、
+// HTTP 503）を返してしまい、クライアント側でバッチ全体が失敗扱いになる不具合が実機で
+// 発生した（2026-08-27）。Promise.raceで期限を区切ることで、遅い1件を「タイムアウト」
+// としてスキップし、バッチの残りとレスポンス自体は正常に返せるようにする。
+// 注意：内部のfetch自体を中断するわけではない（真のキャンセルにはAbortControllerを
+// 個々の実装まで通す必要がある）ため、あくまで「レスポンスを待たない」ための対策。
+export async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}がタイムアウトしました（${Math.round(ms / 1000)}秒経過）`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}

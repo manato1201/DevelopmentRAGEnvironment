@@ -2,7 +2,13 @@ import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { requireAdmin } from "./auth";
 import { getGoogleAccessToken } from "./googleAuth";
 import { ingestDocument, logKb } from "./kbIngest";
-import { newOpId } from "./chunking";
+import { newOpId, withTimeout } from "./chunking";
+
+// PDFのFile APIアップロード＋動画のACTIVE待ちポーリングを含むと1件で数十秒かかることがあり、
+// これがCloudflareエッジのリクエスト打ち切り（非JSON応答・HTTP 503）を引き起こしていた
+// （2026-08-27、batchSize=1でも発生を確認）。1件あたりの処理に上限を設け、超過分は
+// そのファイルだけスキップしてバッチ全体は正常応答できるようにする。
+const PER_FILE_TIMEOUT_MS = 45_000;
 import { extractTextFromPdf, extractTextFromDocxSource, extractTextFromPptxSource } from "./docExtract";
 import type { ByteRangeSource } from "./docExtract";
 import { transcribeAudioVideo } from "./mediaTranscribe";
@@ -185,7 +191,7 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
 
   for (const file of batch) {
     try {
-      const text = await extractDriveFileText(env, token, file);
+      const text = await withTimeout(extractDriveFileText(env, token, file), PER_FILE_TIMEOUT_MS, `${file.name}の変換`);
       if (text === null) {
         skipped.push({ file: file.name, reason: `未対応のmimeType: ${file.mimeType}` });
         await logKb(env, opId, namespace, "drive", file.name, "skipped", `未対応mimeType: ${file.mimeType}`);

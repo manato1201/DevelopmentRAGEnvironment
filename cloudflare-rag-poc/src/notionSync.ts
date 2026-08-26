@@ -2,7 +2,11 @@ import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { requireAdmin } from "./auth";
 import { listNotionPages, getPageText } from "./notion";
 import { ingestDocument, logKb } from "./kbIngest";
-import { newOpId } from "./chunking";
+import { newOpId, withTimeout } from "./chunking";
+
+// depth=8への引き上げでネストが深いページのブロック取得回数が増えたため、Drive側と同様に
+// 1ページあたりの処理に上限を設ける（2026-08-27）。
+const PER_PAGE_TIMEOUT_MS = 30_000;
 
 // 1回のWorker呼び出しで処理するページ数。Cloudflareのサブリクエスト数上限
 // （1リクエストあたりfetch呼び出し合計。有料プランで1,000）に引っかからないよう、
@@ -41,7 +45,7 @@ export async function handleSyncNotion(req: Request, env: Env, user: AuthedUser)
 
   for (const page of batch) {
     try {
-      const text = await getPageText(env, page.id);
+      const text = await withTimeout(getPageText(env, page.id), PER_PAGE_TIMEOUT_MS, `${page.title}の取得`);
       if (!text.trim()) {
         skipped.push({ file: page.title, reason: "本文が空です" });
         await logKb(env, opId, namespace, "notion", page.title, "skipped", "本文が空");
