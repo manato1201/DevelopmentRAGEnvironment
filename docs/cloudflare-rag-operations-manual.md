@@ -129,6 +129,36 @@ flowchart LR
 
 誤ったデータを同期してしまった場合、同期履歴（`POST /admin/kb/history`）に記録された`opId`を使ってロールバックできる（`POST /admin/kb/rollback`）。**埋め込み前の生データは保持していないため、取り消し後に再度使いたい場合は再同期が必要。**
 
+### 6.3 D1データを直接確認する
+
+管理タブのAPI経由では見えない生データ（テーブル中身そのもの）を確認したい場合、`wrangler d1 execute`でSQLを直接実行できる。`cloudflare-rag-poc/`ディレクトリで実行する。
+
+```bash
+# 本番（--remote、Cloudflare上の実データ）に対して実行
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT * FROM namespaces;"
+
+# ローカルの開発用DB（wrangler devが使うSQLiteファイル、本番とは別データ）に対して実行する場合は --remote を外す
+npx wrangler d1 execute rag-poc-db --command "SELECT * FROM namespaces;"
+```
+
+`--remote`の有無を間違えると「ローカルの空DBを見て『データが無い』と勘違いする」事故につながりやすいので、本番データを見たい時は必ず`--remote`を付けること。
+
+よく使う確認クエリ：
+
+| 確認したいこと | クエリ例 |
+|---|---|
+| namespace一覧と検索件数上限 | `SELECT namespace_id, scope, result_limit FROM namespaces;` |
+| 直近の同期履歴（エラーのみ） | `SELECT * FROM kb_log WHERE status='error' ORDER BY id DESC LIMIT 20;` |
+| あるnamespaceに登録済みのチャンク数 | `SELECT namespace, COUNT(*) FROM chunks_fts GROUP BY namespace;` |
+| APIキーに紐づくnamespace許可 | `SELECT * FROM key_namespace_grants WHERE user_id='<user_idの先頭数文字>...';` |
+| トークン予算の消費状況 | `SELECT user_id, budget_type, used_tokens, limit_tokens FROM token_budgets;` |
+| 監査ログ（誰がいつ何を検索したか） | `SELECT user_id, namespace_id, tokens_used, latency_ms FROM audit_log ORDER BY id DESC LIMIT 20;` |
+| namespaceごとのDriveフォルダ/Notion DB設定 | `SELECT * FROM kb_sources;` |
+
+JSON形式で結果が欲しい場合は`--json`オプションを付ける（スクリプトから加工したい場合に便利）。テーブル定義そのものを確認したい場合は`migrations/`配下の各SQLファイル、または[技術解説書§4データモデル](cloudflare-rag-technical-report.md#4-データモデル)のER図を参照。
+
+Cloudflareダッシュボード（[dash.cloudflare.com](https://dash.cloudflare.com) → Workers & Pages → D1 → `rag-poc-db`）からもブラウザ上でSQLを実行・閲覧できる。CLIでのアドホックな確認にはwrangler、繰り返し見る・共有したい場合はダッシュボードが向いている。
+
 ## 7. Houdiniチュートリアル生成をCloudflare経由に切り替える
 
 `houdini/python_panels/tutorial_agent.py`は、既定でGAS経由でClaude API・RAG検索を呼ぶ。Cloudflare経由に切り替える場合：
