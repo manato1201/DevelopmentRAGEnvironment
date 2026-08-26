@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cloudflare RAG POC 技術解説書</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1117;
+    --panel: #171a23;
+    --border: #2a2e3a;
+    --text: #e6e8ee;
+    --muted: #9aa1b4;
+    --accent: #7aa2ff;
+    --good: #6fd08c;
+    --bad: #ef7a7a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --border: #e1e4ec;
+      --text: #1b1e27;
+      --muted: #5b6270;
+      --accent: #3358d6;
+      --good: #1f8a4c;
+      --bad: #c23a3a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    line-height: 1.75;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+  header.hero {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  header.hero h1 { font-size: 1.6rem; margin: 0 0 .5rem; }
+  header.hero .meta { color: var(--muted); font-size: .9rem; }
+  .badge {
+    display: inline-block;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: .15rem .7rem;
+    font-size: .78rem;
+    color: var(--accent);
+    margin-right: .4rem;
+  }
+  nav.toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.3rem;
+    margin-bottom: 2.5rem;
+  }
+  nav.toc summary { cursor: pointer; font-weight: 600; }
+  nav.toc ol { margin: .8rem 0 0; padding-left: 1.3rem; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  section { margin-bottom: 3rem; }
+  h2 {
+    font-size: 1.25rem;
+    border-left: 4px solid var(--accent);
+    padding-left: .6rem;
+    margin-top: 0;
+  }
+  h3 { font-size: 1.05rem; color: var(--text); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: .9rem;
+    overflow-x: auto;
+    display: block;
+  }
+  table thead { display: table; width: 100%; table-layout: fixed; }
+  table tbody { display: table; width: 100%; table-layout: fixed; }
+  th, td {
+    border: 1px solid var(--border);
+    padding: .5rem .7rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--panel); color: var(--accent); }
+  code {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: .1rem .35rem;
+    font-size: .88em;
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: .85rem;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  .mermaid { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; overflow-x: auto; }
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--panel);
+    padding: .8rem 1rem;
+    border-radius: 0 8px 8px 0;
+    margin: 1rem 0;
+    font-size: .92rem;
+  }
+  .callout.warn { border-color: var(--bad); }
+  footer { color: var(--muted); font-size: .82rem; border-top: 1px solid var(--border); padding-top: 1.2rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <span class="badge">技術資料</span><span class="badge">アーキテクチャ</span><span class="badge">Cloudflare Workers</span>
+  <h1>Cloudflare RAG POC 技術解説書</h1>
+  <div class="meta">作成日: 2026-08-26　｜　対象: <code>cloudflare-rag-poc/</code>（Cloudflare Workers + D1 + Vectorize によるRAG基盤の検証実装）</div>
+</header>
+
+<nav class="toc">
+  <details open>
+  <summary>目次</summary>
+  <ol>
+    <li><a href="#s1">概要</a></li>
+    <li><a href="#s2">なぜCloudflareか</a></li>
+    <li><a href="#s3">システム全体構成</a></li>
+    <li><a href="#s4">データモデル</a></li>
+    <li><a href="#s5">主要フロー</a></li>
+    <li><a href="#s6">セキュリティ・アクセス制御</a></li>
+    <li><a href="#s7">知識ベース取り込みパイプライン</a></li>
+    <li><a href="#s8">実装上の技術的な工夫と、実際に発見・修正したバグ</a></li>
+    <li><a href="#s9">GAS版との機能対応表（サマリ）</a></li>
+    <li><a href="#s10">今後の課題</a></li>
+  </ol>
+  </details>
+</nav>
+
+<section id="s1">
+  <h2>1. 概要</h2>
+  <p>GAS版（<code>gas_cloud_rag.js</code>、約3,450行・100関数超）が持つRAG機能一式を、Cloudflare Workers上でTypeScriptにより再実装した。方針は「どんどん機能を入れて最終的にGASと同等以上にする」で、単なる技術検証にとどまらず、実際のNotionデータベース・Google Driveフォルダを使った実データでの動作確認を継続的に行いながら開発した。</p>
+  <p>この過程で、実データ・実運用でしか顕在化しない複数のバグ（Vectorizeのベクトル長・件数上限、Cloudflareのサブリクエスト数上限、Workersのメモリ上限など）を発見し、その都度対処してきた。詳細は<a href="../cloudflare-rag-poc/README.md">README.mdのトラブルシューティング</a>を参照。</p>
+</section>
+
+<section id="s2">
+  <h2>2. なぜCloudflareか</h2>
+  <p>既存の検討資料（<a href="cloud-local-unification-plan.md">docs/cloud-local-unification-plan.md</a>）が示す「Cloud RAG（Google Apps Script）とLocal RAG（Python + ChromaDB）の二重運用を統合したい」という課題に対し、Cloudflareを選んだ理由：</p>
+  <ul>
+    <li><strong>エッジで完結するサーバーレス</strong>：Workers（compute）・D1（SQLite互換DB）・Vectorize（ベクトルDB）が単一プラットフォームに揃っており、GASのような「実行時間・呼び出し回数の制約が読みにくい」問題を避けられる</li>
+    <li><strong>GASからの移行コストの低さ</strong>：GASも「サーバーサイドでAPIキーを隠蔽し、クライアントに直接外部APIを叩かせない」という設計思想を持つため、Workersでも同じ構造（クライアント→Worker→外部API）をそのまま踏襲できる</li>
+    <li><strong>明示的な制約が事前にわかる</strong>：GASの「実行時間6分」「同時実行数」のような曖昧な制約と異なり、Workersの制約（サブリクエスト数上限・CPU時間・メモリ128MB）はドキュメント化されており、対策を設計に織り込みやすい</li>
+  </ul>
+  <p>ただし実装を進める中で、Workers特有の制約（Vectorizeバインディングを実行時に動的生成できない、サブリクエスト数上限、npm依存関係がedge-compatibleである必要がある等）も明らかになった。詳細は<a href="#s8">§8</a>、および<a href="cloudflare-vs-firebase-comparison.md">Firebaseで実装した場合との比較資料</a>を参照。</p>
+</section>
+
+<section id="s3">
+  <h2>3. システム全体構成</h2>
+  <div class="mermaid">
+graph TB
+    subgraph Client["クライアント"]
+        Browser["ブラウザ（Webチャット画面）"]
+        Houdini["Houdini（tutorial_agent.py）"]
+    end
+
+    subgraph Worker["Cloudflare Worker（1ファイルにバンドル、src/index.tsがルーター）"]
+        direction TB
+        RAG["RAGパイプライン<br/>hybrid.ts・retrieve.ts・embeddings.ts"]
+        KB["知識ベース同期<br/>notionSync・driveSync・urlImport・qaImport・mediaImport"]
+        DocExtract["文書変換<br/>docExtract.ts（PDF/DOCX/PPTX）<br/>mediaTranscribe.ts（音声/動画/YouTube）"]
+        Admin["Admin API<br/>keyAdmin・namespaceAdmin・kbAdmin・kbRollback・backup"]
+        ClaudeProxy["Claude APIプロキシ<br/>claude.ts"]
+        Health["ヘルスチェック<br/>healthCheck.ts・alerts.ts"]
+        Graph["グラフ可視化<br/>graph.ts"]
+    end
+
+    subgraph Storage["Cloudflareストレージ"]
+        D1[("D1 (SQLite)")]
+        Vectorize[("Vectorize<br/>VEC_SHARED / VEC_PERSONAL")]
+    end
+
+    subgraph External["外部API"]
+        Gemini["Gemini API"]
+        Anthropic["Anthropic API"]
+        Notion["Notion API"]
+        Drive["Google Drive API"]
+        Slack["Slack"]
+        Gmail["Gmail API"]
+    end
+
+    Browser & Houdini -->|Bearer APIキー| RAG & KB & Admin & ClaudeProxy & Graph
+
+    RAG <--> D1
+    RAG <--> Vectorize
+    RAG --> Gemini
+    KB --> D1 & Vectorize & Gemini & Notion & Drive
+    KB --> DocExtract
+    DocExtract --> Gemini
+    Admin <--> D1
+    ClaudeProxy --> Anthropic
+    ClaudeProxy <--> D1
+    Health <--> D1
+    Health --> Slack & Gmail
+    Graph <--> D1
+    Graph <--> Vectorize
+  </div>
+  <div class="callout">
+    <strong>設計判断：個人スコープの論理分離。</strong> 設計書§6-1の「ユーザーごとに物理的に別インデックス」案は、Vectorizeバインディングが<code>wrangler.jsonc</code>に静的記述する必要があり実行時に動的生成できないため断念。代わりに個人スコープ用インデックスを1本（<code>VEC_PERSONAL</code>）にまとめ、<code>owner_user_id</code>メタデータでの厳格なフィルタを書き込み・検索の両方で強制することで、実質的に物理分離に近い安全性を確保した。
+  </div>
+</section>
+
+<section id="s4">
+  <h2>4. データモデル</h2>
+  <div class="mermaid">
+erDiagram
+    users ||--o{ token_budgets : "has"
+    users ||--o{ namespaces : "owns (personal)"
+    users ||--o{ key_namespace_grants : "granted"
+    users ||--o{ memory : "creates"
+    users ||--o{ audit_log : "logs"
+    namespaces ||--o{ key_namespace_grants : "granted to"
+    namespaces ||--o| kb_sources : "syncs from"
+
+    users {
+        text user_id PK "APIキーのSHA-256"
+        text display_name
+        text role "admin|member|guest"
+        int created_at
+    }
+    namespaces {
+        text namespace_id PK "shared:xxx / personal:xxx"
+        text scope "shared|personal"
+        text owner_user_id FK
+        int result_limit "検索件数上限（任意）"
+    }
+    token_budgets {
+        text user_id FK
+        text budget_type "rag|claude"
+        int limit_tokens
+        int used_tokens
+        int reset_at
+        int reset_interval_hours
+    }
+    kb_sources {
+        text namespace_id PK_FK
+        text notion_database_id
+        text drive_folder_id
+    }
+    kb_log {
+        int id PK
+        text op_id
+        text namespace_id FK
+        text source "notion|drive|manual"
+        text file
+        text status "ok|error|skipped"
+        text detail
+    }
+    memory {
+        int id PK
+        text user_id FK
+        text query
+        text answer
+        text sources_json
+        int rating
+    }
+    audit_log {
+        int id PK
+        text user_id FK
+        text namespace_id
+        text query_hash
+        int tokens_used
+        int latency_ms
+    }
+    chunks_fts {
+        text chunk_id PK
+        text file
+        text namespace
+        text scope
+        text owner_user_id
+        text body "FTS5 trigram索引"
+    }
+  </div>
+  <p><code>chunks_fts</code>（D1 FTS5仮想テーブル）はキーワード検索専用で、実際の本文全文とメタデータは<strong>Vectorize側にも</strong>メタデータとして重複して持たせている（<code>ChunkMetadata</code>：file/namespace/scope/chunk_index/text/source/size/ingested_at）。ベクトル検索・キーワード検索を1回のリクエストで独立に行い、結果をアプリケーション層でRRF統合する設計のため、両ストアが同じチャンクIDで対応付けられている必要がある。</p>
+</section>
+
+<section id="s5">
+  <h2>5. 主要フロー</h2>
+  <h3>5.1 RAGクエリ（<code>/query</code>）</h3>
+  <div class="mermaid">
+sequenceDiagram
+    participant C as クライアント
+    participant W as Worker
+    participant G as Gemini API
+    participant D as D1 (FTS5)
+    participant V as Vectorize
+
+    C->>W: POST /query {query, namespaces?, level?}
+    W->>W: レート制限・トークン予算チェック
+    W->>G: HyDE仮回答生成
+    G-->>W: 仮回答テキスト
+    W->>G: 仮回答をベクトル化
+    par ベクトル検索
+        W->>V: query(埋め込み, namespace絞り込み)
+        V-->>W: 類似チャンク上位K件
+    and キーワード検索
+        W->>D: MATCH（BM25, trigram）
+        D-->>W: 一致チャンク上位K件
+    end
+    W->>W: RRFで統合 + namespace別上限で間引き
+    W->>G: 検索結果を根拠に最終回答生成
+    G-->>W: 回答（[1][2]等の出典番号付き）
+    W->>W: 出典引用率算出・予算消費
+    W->>D: audit_log・memoryに記録
+    W-->>C: {answer, sources, extractionRate}
+  </div>
+  <p><strong>出典引用率（<code>extractionRate</code>）</strong>は、回答文中に実際に出現した<code>[n]</code>番号を検出し、提示した参考情報のうち何割が実際に根拠として使われたかを表す。GAS版の<code>parseExtractionRate_</code>と同じ考え方で、「もっともらしいが根拠のない回答」を検知するハルシネーション対策指標として使っている。</p>
+
+  <h3>5.2 知識ベース同期（バッチ処理パターン）</h3>
+  <div class="mermaid">
+sequenceDiagram
+    participant UI as 管理UI（クライアントJS）
+    participant W as Worker
+    participant Ext as Notion/Drive API
+    participant G as Gemini API
+
+    loop nextIndexがnullになるまで
+        UI->>W: POST /admin/sync/notion {startIndex, batchSize, opId}
+        W->>Ext: ページ/ファイル一覧・本文取得
+        loop バッチ内の各ファイル
+            W->>G: チャンクごとに埋め込み生成
+            W->>W: Vectorize upsert + D1 FTS5 insert
+        end
+        W-->>UI: {documents, chunks, skipped, nextIndex}
+        UI->>UI: 進捗表示、startIndex = nextIndex
+    end
+  </div>
+  <p>Cloudflare Workersの「1回の呼び出しあたりのサブリクエスト数上限」に対応するため、<strong>1回のHTTPリクエストで全件を処理せず、クライアント側がループしてバッチを送り続ける</strong>設計にしている（<code>startIndex</code>/<code>batchSize</code>/<code>opId</code>/<code>nextIndex</code>）。この設計は実際にHoudini21データベース（80ページ）の同期でサブリクエスト数上限エラーに遭遇したことから導入した。PDF/PPTX/音声動画の変換が絡むDrive同期はNotion同期よりさらに重いため、<code>batchSize</code>をより小さく（実運用では1）する必要があることも実機検証で判明している。</p>
+</section>
+
+<section id="s6">
+  <h2>6. セキュリティ・アクセス制御</h2>
+  <ul>
+    <li><strong>APIキー認証</strong>：生キーは発行時にしか表示されず、以後はSHA-256ハッシュのみをDBに保持する</li>
+    <li><strong>namespace RBAC</strong>：<code>key_namespace_grants</code>テーブルで「どのキーがどのshared namespaceを見られるか」を明示的に管理。adminロールは無条件に全shared namespaceを閲覧可能、それ以外は許可リストに無いnamespaceには一切アクセスできない</li>
+    <li><strong>個人スコープの二重強制</strong>：<code>personal:&lt;userId&gt;</code>への書き込み・検索は、リクエスト元ユーザー自身のnamespace以外を拒否する（他ユーザーの個人データへの越権アクセスを防止）</li>
+    <li><strong>レート制限</strong>：既存の<code>audit_log</code>の直近件数を数える固定ウィンドウ方式（60秒30回）。専用テーブルを追加せずに実現</li>
+    <li><strong>トークン予算</strong>：<code>token_budgets</code>（<code>budget_type</code>が<code>rag</code>/<code>claude</code>で分離）。呼び出し前にチェックし、呼び出し後に実測トークン数で消費する。予算超過は429で拒否</li>
+    <li><strong>秘密情報の保持</strong>：Gemini/Notion/Google/Anthropic/Slack/GmailのAPIキー・トークンはすべてWorkerのシークレット（<code>wrangler secret put</code>）にのみ保持し、クライアントには一切渡さない</li>
+  </ul>
+</section>
+
+<section id="s7">
+  <h2>7. 知識ベース取り込みパイプライン</h2>
+  <div class="mermaid">
+flowchart LR
+    Source["Notion / Drive / URL / QA CSV / 直接アップロード"] --> Extract{"形式判定"}
+    Extract -->|"テキスト系"| Text["そのまま取得"]
+    Extract -->|"PDF"| PDF["Geminiネイティブ文書理解<br/>(小: インライン / 大: File API)"]
+    Extract -->|"DOCX/PPTX"| Zip["自前ZIPパーサ<br/>(DecompressionStream)<br/>+ XMLタグ除去"]
+    Extract -->|"音声/動画"| Media["Gemini File API<br/>アップロード→ACTIVE待ち→文字起こし"]
+    Extract -->|"YouTube URL"| YT["Gemini fileData<br/>(URLを直接渡す、DL不要)"]
+    Extract -->|"HTML(URL)"| HTML["HTMLRewriterで<br/>script/style除去→テキスト抽出"]
+
+    Text & PDF & Zip & Media & YT & HTML --> Sanitize["制御文字・孤立サロゲート除去"]
+    Sanitize --> Chunk["スライディングウィンドウ分割<br/>(1000文字, overlap 150)"]
+    Chunk --> Embed["Geminiで埋め込み生成"]
+    Embed --> Store["Vectorize upsert<br/>+ D1 FTS5 insert"]
+  </div>
+  <p>DOCX/PPTXの変換は、外部ライブラリを追加せず<strong>ZIP形式を自前でパース</strong>する実装にしている（Workers組み込みの<code>DecompressionStream('deflate-raw')</code>でDEFLATE展開）。PDFは専用パーサを実装する代わりに<strong>Geminiのマルチモーダル文書理解に丸ごと渡す</strong>方式を採った。これによりレイアウト崩れに強く、実装コストも抑えられる一方、Gemini呼び出しの追加コスト・レイテンシが発生する点はトレードオフとして認識しておく必要がある。</p>
+</section>
+
+<section id="s8">
+  <h2>8. 実装上の技術的な工夫と、実際に発見・修正したバグ</h2>
+  <p>開発を通じて、ローカル検証だけでは見つからない実運用特有のバグを複数発見した。代表的なもの：</p>
+  <table>
+    <thead><tr><th>症状</th><th>原因</th><th>対処</th></tr></thead>
+    <tbody>
+      <tr><td><code>VECTOR_UPSERT_ERROR: id too long</code></td><td>Vectorizeのベクト ID は64バイト上限。日本語の長いタイトルをそのままIDに使うと超過</td><td>ハッシュベースの固定長ID（<code>sha256(namespace+file)</code>の先頭40文字＋チャンク番号）に変更</td></tr>
+      <tr><td><code>Too many subrequests by single Worker invocation</code></td><td>Notion/Drive同期で1ページごとに複数回の外部API呼び出しが積み重なる</td><td><code>startIndex</code>/<code>batchSize</code>/<code>opId</code>によるバッチ処理化（クライアント側ループ）</td></tr>
+      <tr><td><code>VECTOR_QUERY_ERROR: max top K is 50</code></td><td><code>returnMetadata:"all"</code>時のtopK上限を、候補プール拡大ロジックの二重乗算で超過</td><td>一箇所で<code>Math.min(limit*3, 50)</code>を計算し共有</td></tr>
+      <tr><td><code>getByIds(): too many ids</code></td><td>Vectorizeの<code>getByIds()</code>は1回20件までしか受け付けない（<code>upsert</code>とは別の上限）</td><td>20件ずつのチャンクに分割して複数回呼ぶ</td></tr>
+      <tr><td><code>Memory limit exceeded before EOF</code></td><td>大きいPPTXファイルのダウンロード・ZIP展開でWorkers isolateのメモリ上限（128MB）に到達</td><td>ダウンロード前に<code>Content-Length</code>で足切り、処理自体も該当ファイルだけスキップして続行</td></tr>
+      <tr><td>管理UIで<code>Unexpected token '&lt;'</code>（JSON解析エラー）</td><td>Drive同期がPDF/PPTX変換込みで1リクエスト115秒かかり、ブラウザ/プロキシ側がタイムアウトしHTMLエラーページを返す</td><td>管理UIのDrive同期ボタンの<code>batchSize</code>を1に縮小、非JSON応答時に分かりやすいエラーメッセージを表示</td></tr>
+      <tr><td>GCPの<code>iam.disableServiceAccountKeyCreation</code>でサービスアカウントキーが作れない</td><td>Google Workspaceの「セキュアなデフォルト」ポリシーが個人プロジェクトにも自動適用</td><td>プロジェクト単位でポリシーを無効化。Gmail送信は個人アカウント特有の制約（Domain-Wide Delegation不可）のため別途OAuthリフレッシュトークン方式に切り替え</td></tr>
+    </tbody>
+  </table>
+  <p>これら以外にも、Windows/Git-Bash環境での日本語文字化け、PowerShellの<code>curl</code>エイリアス、workers.devドメインへのボット対策403など、開発環境特有の問題にも多数遭遇した。詳細と対処法は<a href="../cloudflare-rag-poc/README.md">README.mdのトラブルシューティング</a>に集約している。</p>
+</section>
+
+<section id="s9">
+  <h2>9. GAS版との機能対応表（サマリ）</h2>
+  <p>詳細な機能単位の対応表は<a href="gas-feature-parity.md">docs/gas-feature-parity.md</a>を参照。2026-08-26時点のサマリ：</p>
+  <table>
+    <thead><tr><th>状況</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>✅ 完了</td><td>コア検索・回答生成、Admin API、Notion/Drive同期（PDF/DOCX/PPTX/音声動画/YouTube/URL/QA CSV含む）、UI（タブ構成・3Dグラフ・ブラウザ内Admin）、利用統計・評価統計、レート制限、期限切れ履歴の自動削除、バックアップ、ヘルスチェック・アラート（Slack/Gmail）、Claude APIプロキシ（Houdiniチュートリアル生成の移行先）</td></tr>
+      <tr><td>🚧 保留</td><td>チャット履歴検索のRAG統合（ユーザー判断により保留）</td></tr>
+      <tr><td>🚫 対象外</td><td>Houdiniチュートリアル生成専用のClaude呼び出しは、当初「RAGには不要」として対象外にしていたが、後に<code>tutorial_agent.py</code>のGAS依存を移行する目的で追加した経緯がある</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s10">
+  <h2>10. 今後の課題</h2>
+  <table>
+    <thead><tr><th>#</th><th>課題</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Houdini実機での統合テスト未実施</td><td>Google Drive・Claude APIプロキシとも実データでの動作確認は済んだが、開発環境にHoudiniが無いため<code>tutorial_agent.py</code>統合のHoudini実機テストは未実施</td></tr>
+      <tr><td>2</td><td>大きいファイルの未対応ケース</td><td>20MB超のPPTXや極端に長い動画ファイルなど、Workersのメモリ・実行時間制約に起因する未対応ケースが残っている</td></tr>
+      <tr><td>3</td><td>チャット履歴のRAG統合は保留</td><td>過去の会話を検索コンテキストとして再利用する機能（<code>searchMemory_</code>相当）は設計判断が必要なため保留中</td></tr>
+      <tr><td>4</td><td>利用統計の内訳表示</td><td>利用統計ダッシュボードがGemini/Claude両方のトークン消費を合算表示しており、budget_type別の内訳表示は今後の改善候補</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  関連ドキュメント: <a href="../cloudflare-rag-poc/README.md">cloudflare-rag-poc/README.md</a> ／ <a href="gas-feature-parity.md">docs/gas-feature-parity.md</a> ／ <a href="cloudflare-rag-operations-manual.md">docs/cloudflare-rag-operations-manual.md</a> ／ <a href="cloudflare-vs-firebase-comparison.md">docs/cloudflare-vs-firebase-comparison.md</a>
+</footer>
+
+</div>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default') });
+</script>
+</body>
+</html>
