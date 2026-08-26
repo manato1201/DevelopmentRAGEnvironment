@@ -6,17 +6,120 @@
 
 ## 実装済みの内容
 
-- `POST /search` — 既存の `rag_local_bridge.py` の `/search` と同一のリクエスト/レスポンス契約（`docs/cloud-local-unification-plan.md` §8.3）。**ハイブリッド検索**（Vectorizeのベクトル検索 ＋ D1 FTS5のBM25キーワード検索をRRFで統合）と**HyDE**（質問文の代わりに仮回答を生成してから埋め込む）を実装済み
-- `POST /query` — LLMによる最終回答まで生成するチャット用エンドポイント（`/search`は検索結果のみを返す「生」の経路）。回答文中の`[1]`等の出典番号を検知して引用率（`extractionRate`）を算出する、既存GASのハルシネーション対策と同じ仕組みを実装
-- `POST /ingest` — 検証用の投入エンドポイント（本番のNotion/ChromaDB連携は行わない）。GeminiでベクトルEmbeddingを作りVectorizeへ、同時にD1 FTS5テーブルにも書き込む
-- **トークン予算の実強制** — `token_budgets`テーブルの残量をリクエスト前にチェックし（`assertBudgetAvailable`）、実際に使ったトークン数を都度加算する（`consumeBudget`）。上限到達時は`429`を返す。予算レコードが無いユーザーは無制限（開発用の既定動作）
-- **チャット履歴（メモリ）** — `/query`成功のたびに会話を`memory`テーブルへ保存し、`POST /memory/list`で直近履歴を取得、`POST /memory/rate`で回答の役立ち度（👍/👎）を記録できる（既存GAS `saveMemory_`/`getUserMemory`/`rateMemoryEntry`相当）
-- **Webチャット画面** — `GET /`（または`/chat`）でブラウザから直接使えるチャットUIを提供。APIキー入力・レベル選択・出典引用率の表示・評価ボタン・履歴読み込みに対応（既存GAS `getChatHtml_`相当、軽量版）
-- **知識ベース同期（Notion / Google Drive）** — `POST /admin/sync/notion`・`POST /admin/sync/drive`で、Notionデータベースの各ページ本文、またはDriveフォルダ内のGoogleドキュメント/プレーンテキストを取得し、チャンク分割→Gemini埋め込み→Vectorize+FTS5への登録まで自動で行う（既存GAS `syncNotionToSheets`/`syncDriveToSheets`相当）。管理者ロールのみ実行可能。**PDF/DOCX/音声/動画の変換・文字起こしは未対応**（下記「今後チューニングすべき点」参照）
-- **Admin API（APIキー発行・namespace管理）** — `/admin/keys/*`でAPIキーの発行（生成した鍵はその場限りでしか取得できない）・一覧・削除・namespace許可の変更・トークン予算の上限設定＋自動リセット間隔・残量補充。`/admin/namespaces/*`でnamespaceの作成・一覧・削除。いずれも管理者ロールのみ（既存GAS `adminCreateKey`/`adminListKeys`/`adminUpdateKey`/`adminSetKeyCapacity`/`adminChargeKeyBalance`/`adminCreateNamespace`/`adminListNamespaces`相当）
-- D1（`migrations/`配下、0001〜0005）— users / namespaces / token_budgets / audit_log / memory / kb_sources / kb_log / key_namespace_grants の各テーブル＋FTS5仮想テーブル`chunks_fts`
+**2026-08-26時点で、[docs/gas-feature-parity.md](../docs/gas-feature-parity.md)で追跡している既存GAS（`scripts/gas_cloud_rag.js`）の機能はほぼ実装・実データ検証済み。** 詳しい設計・データフローは [docs/cloudflare-rag-technical-report.md](../docs/cloudflare-rag-technical-report.md)（HTML版: [.html](../docs/cloudflare-rag-technical-report.html)）を、日常運用の手順は [docs/cloudflare-rag-operations-manual.md](../docs/cloudflare-rag-operations-manual.md) を参照。
+
+### コア検索・回答生成
+- `POST /search` — **ハイブリッド検索**（Vectorizeのベクトル検索 ＋ D1 FTS5のBM25キーワード検索をRRFで統合）と**HyDE**（質問文の代わりに仮回答を生成してから埋め込む）
+- `POST /query` — LLMによる最終回答生成＋出典引用率（`extractionRate`）算出。**個別DBに絞った検索**（`namespaces`パラメータ、2026-08-26追加）にも対応
+- レート制限（60秒30回の固定ウィンドウ）・トークン予算の実強制（`token_budgets`、429で拒否）
+
+### 知識ベース管理
+- Notion / Google Drive同期（`/admin/sync/notion`・`/admin/sync/drive`）。**PDF・DOCX・PowerPoint・音声/動画・YouTube・任意URL・QA CSV一括登録**にも対応（Geminiのネイティブ文書理解・File API・自前ZIPパーサを使い分け）
+- KB操作履歴・opId単位のロールバック（`/admin/kb/history`・`/admin/kb/rollback`）
+
+### 管理・運用
+- Admin API（APIキー発行/namespace管理/namespace別検索件数上限）、利用統計・評価統計ダッシュボード、設定バックアップのJSONエクスポート
+- ヘルスチェック・アラート通知（Slack Incoming Webhook / Gmail、30分ごとのCron Trigger）
+- 期限切れチャット履歴の自動削除（Cron Trigger）
+
+### UI・その他
+- Webチャット画面（`GET /`）— チャット／グラフ（Three.jsによる3D知識グラフ）／履歴／管理の4タブ構成
+- **Claude Messages APIプロキシ**（`/claude/messages`、2026-08-26追加）— `houdini/python_panels/tutorial_agent.py`（Houdiniチュートリアル生成）がGAS経由で行っていたClaude呼び出しの移行先。RAG自体は引き続きGeminiのみ
+- チャット履歴（メモリ）保存・一覧・評価
+- D1（`migrations/`配下）: users / namespaces / token_budgets / audit_log / memory / kb_sources / kb_log / key_namespace_grants ＋ FTS5仮想テーブル`chunks_fts`
 - Vectorize 2インデックス（`VEC_SHARED` / `VEC_PERSONAL`）による共有・個人スコープの分離
-- APIキー（SHA-256ハッシュ）によるユーザー認証、**キーごとの共有namespaceアクセス制御**（`key_namespace_grants`、adminロールは無条件に全shared namespaceを閲覧可）、adminロールによる管理operationの制限
+- APIキー（SHA-256ハッシュ）によるユーザー認証、キーごとの共有namespaceアクセス制御（`key_namespace_grants`）
+
+## アーキテクチャ
+
+```mermaid
+graph TB
+    subgraph Client["クライアント"]
+        Browser["ブラウザ（Webチャット画面）"]
+        Houdini["Houdini（tutorial_agent.py）"]
+    end
+
+    subgraph Worker["Cloudflare Worker（rag-poc）"]
+        Router["src/index.ts（ルーター）"]
+        RAG["RAGパイプライン<br/>hybrid.ts / retrieve.ts / embeddings.ts"]
+        KB["知識ベース同期<br/>notionSync / driveSync / urlImport / qaImport"]
+        Admin["Admin API<br/>keyAdmin / namespaceAdmin / kbAdmin"]
+        ClaudeProxy["Claude APIプロキシ<br/>claude.ts"]
+        Health["ヘルスチェック<br/>healthCheck.ts / alerts.ts"]
+    end
+
+    subgraph Storage["ストレージ（Cloudflare）"]
+        D1[("D1 (SQLite)<br/>users/namespaces/budgets/<br/>audit_log/memory/kb_log/<br/>chunks_fts (FTS5)")]
+        Vectorize[("Vectorize<br/>VEC_SHARED / VEC_PERSONAL")]
+    end
+
+    subgraph External["外部API"]
+        Gemini["Gemini API<br/>embedding + 生成"]
+        Anthropic["Anthropic API<br/>Claude Messages"]
+        Notion["Notion API"]
+        Drive["Google Drive API"]
+        Slack["Slack Webhook"]
+        Gmail["Gmail API"]
+    end
+
+    Browser -->|"Bearer APIキー"| Router
+    Houdini -->|"Bearer APIキー"| Router
+    Router --> RAG
+    Router --> KB
+    Router --> Admin
+    Router --> ClaudeProxy
+    Router --> Health
+
+    RAG <--> D1
+    RAG <--> Vectorize
+    RAG --> Gemini
+    KB --> D1
+    KB --> Vectorize
+    KB --> Gemini
+    KB --> Notion
+    KB --> Drive
+    Admin <--> D1
+    ClaudeProxy --> Anthropic
+    ClaudeProxy <--> D1
+    Health <--> D1
+    Health --> Slack
+    Health --> Gmail
+
+    style Worker fill:#7aa2ff33,stroke:#7aa2ff
+    style Storage fill:#6fd08c33,stroke:#6fd08c
+    style External fill:#ef7a7a33,stroke:#ef7a7a
+```
+
+### RAGクエリの流れ（`/query`）
+
+```mermaid
+sequenceDiagram
+    participant C as クライアント
+    participant W as Worker
+    participant G as Gemini API
+    participant D as D1 (FTS5)
+    participant V as Vectorize
+
+    C->>W: POST /query {query, namespaces?, level?}
+    W->>W: レート制限・予算チェック
+    W->>G: HyDE仮回答生成
+    G-->>W: 仮回答テキスト
+    W->>G: 仮回答をベクトル化
+    G-->>W: 埋め込みベクトル
+    par ベクトル検索
+        W->>V: query(埋め込みベクトル, namespace絞り込み)
+        V-->>W: 類似チャンク上位K件
+    and キーワード検索
+        W->>D: MATCH（BM25、trigramトークナイザ）
+        D-->>W: キーワード一致チャンク上位K件
+    end
+    W->>W: RRF（Reciprocal Rank Fusion）で統合<br/>+ namespace別上限（result_limit）で間引き
+    W->>G: 検索結果を根拠に最終回答を生成
+    G-->>W: 回答テキスト（[1][2]等の出典番号付き）
+    W->>W: 出典引用率を算出・トークン予算を消費
+    W->>D: audit_log・memoryに記録
+    W-->>C: {answer, sources, extractionRate, ...}
+```
 
 **⚠️ 挙動の変更（2026-08-24、Admin API実装に伴う）：** これまでは「全ユーザーが全shared namespaceを閲覧できる」という簡略化した挙動だったが、GAS本来の「キーごとに見られるnamespaceを制御する」設計に合わせて厳格化した。**既存ユーザーは移行時に自動で全shared namespaceへの許可を付与済み**（`migrations/0005_key_admin.sql`のバックフィル）なので既存の動作確認には影響しないが、**今後`/admin/keys/create`で新規発行するキーは、`namespaces`を明示的に指定しない限りどのshared namespaceも見えない**点に注意。
 
@@ -466,7 +569,15 @@ with urllib.request.urlopen(req, timeout=30) as res:
 - [x] ~~ヘルスチェック・アラート通知（Slack/Gmail）~~ → `src/healthCheck.ts`＋`src/alerts.ts`。30分ごとのCron TriggerでD1接続・KB同期エラー・予算枯渇を検知しSlack/Gmailへ通知。手動実行・テスト通知用のエンドポイントも追加（2026-08-26）。**Slack・Gmailともに実際に通知の送受信まで確認済み。** Gmailは当初サービスアカウント方式（Google Workspace限定と判明）→個人アカウントのOAuthリフレッシュトークン方式に切り替え済み
 - [x] ~~バックアップ機能~~ → `POST /admin/backup/export`（`src/backup.ts`）。設定系テーブルのJSONスナップショットを管理タブからダウンロード可能に（2026-08-26）
 - [x] ~~Claude APIプロキシ（Houdiniチュートリアル生成の移行先）~~ → `POST /claude/messages`（`src/claude.ts`、`@anthropic-ai/sdk`）。`houdini/python_panels/tutorial_agent.py`のGAS依存（Claude呼び出し・houdini21 RAG検索の両方）をCloudflare側に切り替えられるようにした（`claude_backend`/`rag_mode="cloudflare"`、既定値は既存動作を変えない"gas"）。**RAG検索・Claude呼び出し（ツール実行含む）ともに実際にエンドツーエンドで動作確認済み**（2026-08-26）
-- [ ] Drive上のPDF/Word文書の変換、音声/動画の文字起こし対応（既存GAS `_convertBinaryBlobToText_`/`_transcribeAudioVideoBlob_`相当）
+- [x] ~~Drive上のPDF/Word文書の変換、音声/動画の文字起こし対応~~ → 上記「PDF/Word/PowerPoint変換・音声/動画文字起こし・YouTube登録」で完了済み（重複記載だったため統合）
+- [x] ~~個別DBに絞った検索（検索精度向上）~~ → `POST /query`に`namespaces`パラメータ追加、`POST /me/namespaces`で一般ユーザーも自分の許可namespace一覧を取得可能に、チャットUIにドロップダウン追加（2026-08-26）。実データで動作確認済み
 - [ ] 既存`houdini21DB`（Notion・約7,810ファイル相当）を実際に`/admin/sync/notion`で全件投入する（§6-3の再埋め込み移行の実行）
 - [ ] レイテンシ・コストの実測（設計書§8.4は見積もりのみ）
 - [ ] 他の未実装機能は `docs/gas-feature-parity.md` の一覧を参照
+
+## 関連ドキュメント
+
+- [docs/gas-feature-parity.md](../docs/gas-feature-parity.md) — GAS版との機能対応表（進捗管理）
+- [docs/cloudflare-rag-technical-report.md](../docs/cloudflare-rag-technical-report.md)（HTML版: [.html](../docs/cloudflare-rag-technical-report.html)）— アーキテクチャ・データモデル・設計判断の技術解説書
+- [docs/cloudflare-rag-operations-manual.md](../docs/cloudflare-rag-operations-manual.md) — セットアップ・日常運用の手順書
+- [docs/cloudflare-vs-firebase-comparison.md](../docs/cloudflare-vs-firebase-comparison.md) — Firebaseで実装した場合との違いの比較資料

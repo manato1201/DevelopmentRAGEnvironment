@@ -107,8 +107,8 @@
 
 ---
 
-**現時点のまとめ：** 上記1〜11がすべて完了し、`docs/gas-feature-parity.md`で追跡していたGAS機能のうち実装可能な項目はほぼ実装・実データ検証済みとなった。残るのは保留中の「チャット履歴検索のRAG統合」と、対象外の「Claude APIプロキシ」のみ。
+**現時点のまとめ（2026-08-26）：** 上記1〜11がすべて完了し、`docs/gas-feature-parity.md`で追跡していたGAS機能のうち実装可能な項目はほぼ実装・実データ検証済みとなった。Claude APIプロキシは当初「RAGには不要」として対象外にしていたが、後にHoudiniチュートリアル生成（`tutorial_agent.py`）のGAS依存移行という別の目的で実装済みに変わっている。残るのは保留中の「チャット履歴検索のRAG統合」のみ。設計・アーキテクチャの詳細は[docs/cloudflare-rag-technical-report.md](cloudflare-rag-technical-report.md)、運用手順は[docs/cloudflare-rag-operations-manual.md](cloudflare-rag-operations-manual.md)を参照。
 
 ---
 
-*関連ドキュメント: [docs/cloud-local-unification-plan.md](cloud-local-unification-plan.md) / [cloudflare-rag-poc/README.md](../cloudflare-rag-poc/README.md)*
+*関連ドキュメント: [docs/cloud-local-unification-plan.md](cloud-local-unification-plan.md) / [cloudflare-rag-poc/README.md](../cloudflare-rag-poc/README.md) / [docs/cloudflare-rag-technical-report.md](cloudflare-rag-technical-report.md)（HTML版: [.html](cloudflare-rag-technical-report.html)）/ [docs/cloudflare-rag-operations-manual.md](cloudflare-rag-operations-manual.md) / [docs/cloudflare-vs-firebase-comparison.md](cloudflare-vs-firebase-comparison.md)*
