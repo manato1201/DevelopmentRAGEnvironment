@@ -252,7 +252,7 @@ erDiagram
         int reset_interval_hours
     }
     kb_sources {
-        text namespace_id PK_FK
+        text namespace_id PK, FK
         text notion_database_id
         text drive_folder_id
     }
@@ -389,7 +389,8 @@ flowchart LR
       <tr><td><code>Too many subrequests by single Worker invocation</code></td><td>Notion/Drive同期で1ページごとに複数回の外部API呼び出しが積み重なる</td><td><code>startIndex</code>/<code>batchSize</code>/<code>opId</code>によるバッチ処理化（クライアント側ループ）</td></tr>
       <tr><td><code>VECTOR_QUERY_ERROR: max top K is 50</code></td><td><code>returnMetadata:"all"</code>時のtopK上限を、候補プール拡大ロジックの二重乗算で超過</td><td>一箇所で<code>Math.min(limit*3, 50)</code>を計算し共有</td></tr>
       <tr><td><code>getByIds(): too many ids</code></td><td>Vectorizeの<code>getByIds()</code>は1回20件までしか受け付けない（<code>upsert</code>とは別の上限）</td><td>20件ずつのチャンクに分割して複数回呼ぶ</td></tr>
-      <tr><td><code>Memory limit exceeded before EOF</code></td><td>大きいPPTXファイルのダウンロード・ZIP展開でWorkers isolateのメモリ上限（128MB）に到達</td><td>ダウンロード前に<code>Content-Length</code>で足切り、処理自体も該当ファイルだけスキップして続行</td></tr>
+      <tr><td><code>Memory limit exceeded before EOF</code></td><td>大きいPPTXファイルのダウンロード・ZIP展開でWorkers isolateのメモリ上限（128MB）に到達</td><td>応急処置としてダウンロード前に<code>Content-Length</code>で足切りしていたが、chunked転送で<code>Content-Length</code>が無いケースでは素通りする不備があった。最終的にはDOCX/PPTXについて「ファイル全体をダウンロードしない」設計に変更</td></tr>
+      <tr><td>PPTX/DOCXが20MB（後に約90MB）を超えると同期できない</td><td>ダウンロード上限が、容量の大半を占める埋め込み動画・画像も含めた「ファイル全体」に対する足切りだった。抽出対象は実際には小さなXMLのみ</td><td>HTTP RangeリクエストでZIPの必要な部分だけを取得する方式に変更（<code>docExtract.ts</code>の<code>ByteRangeSource</code>、<code>driveSync.ts</code>の<code>driveRangeSource</code>）。ファイル全体を一度もメモリに載せないため、実質的にファイルサイズ上限が無くなった（2026-08-27）。PDF・音声・動画はGeminiに実データを渡す必要があるためこの手法は使えず、約90MBの上限が残る</td></tr>
       <tr><td>管理UIで<code>Unexpected token '&lt;'</code>（JSON解析エラー）</td><td>Drive同期がPDF/PPTX変換込みで1リクエスト115秒かかり、ブラウザ/プロキシ側がタイムアウトしHTMLエラーページを返す</td><td>管理UIのDrive同期ボタンの<code>batchSize</code>を1に縮小、非JSON応答時に分かりやすいエラーメッセージを表示</td></tr>
       <tr><td>GCPの<code>iam.disableServiceAccountKeyCreation</code>でサービスアカウントキーが作れない</td><td>Google Workspaceの「セキュアなデフォルト」ポリシーが個人プロジェクトにも自動適用</td><td>プロジェクト単位でポリシーを無効化。Gmail送信は個人アカウント特有の制約（Domain-Wide Delegation不可）のため別途OAuthリフレッシュトークン方式に切り替え</td></tr>
     </tbody>
@@ -416,7 +417,7 @@ flowchart LR
     <thead><tr><th>#</th><th>課題</th><th>内容</th></tr></thead>
     <tbody>
       <tr><td>1</td><td>Houdini実機での統合テスト未実施</td><td>Google Drive・Claude APIプロキシとも実データでの動作確認は済んだが、開発環境にHoudiniが無いため<code>tutorial_agent.py</code>統合のHoudini実機テストは未実施</td></tr>
-      <tr><td>2</td><td>大きいファイルの未対応ケース</td><td>20MB超のPPTXや極端に長い動画ファイルなど、Workersのメモリ・実行時間制約に起因する未対応ケースが残っている</td></tr>
+      <tr><td>2</td><td>大きいファイルの未対応ケース</td><td>PPTX/DOCXはHTTP Range方式への切り替え（2026-08-27）で事実上サイズ上限が無くなったが、PDF・音声・動画はGeminiに実データを渡す必要があるため、Workersのメモリ上限に起因する約90MBの上限が残っている</td></tr>
       <tr><td>3</td><td>チャット履歴のRAG統合は保留</td><td>過去の会話を検索コンテキストとして再利用する機能（<code>searchMemory_</code>相当）は設計判断が必要なため保留中</td></tr>
       <tr><td>4</td><td>利用統計の内訳表示</td><td>利用統計ダッシュボードがGemini/Claude両方のトークン消費を合算表示しており、budget_type別の内訳表示は今後の改善候補</td></tr>
     </tbody>
