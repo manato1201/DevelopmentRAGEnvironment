@@ -123,7 +123,7 @@ erDiagram
         int reset_interval_hours
     }
     kb_sources {
-        text namespace_id PK_FK
+        text namespace_id PK, FK
         text notion_database_id
         text drive_folder_id
     }
@@ -260,7 +260,8 @@ DOCX/PPTXの変換は、外部ライブラリを追加せず**ZIP形式を自前
 | `Too many subrequests by single Worker invocation` | Notion/Drive同期で1ページごとに複数回の外部API呼び出しが積み重なる | `startIndex`/`batchSize`/`opId`によるバッチ処理化（クライアント側ループ） |
 | `VECTOR_QUERY_ERROR: max top K is 50` | `returnMetadata:"all"`時のtopK上限を、候補プール拡大ロジックの二重乗算で超過 | 一箇所で`Math.min(limit*3, 50)`を計算し共有 |
 | `getByIds(): too many ids` | Vectorizeの`getByIds()`は1回20件までしか受け付けない（`upsert`とは別の上限） | 20件ずつのチャンクに分割して複数回呼ぶ |
-| `Memory limit exceeded before EOF` | 大きいPPTXファイルのダウンロード・ZIP展開でWorkers isolateのメモリ上限（128MB）に到達 | ダウンロード前に`Content-Length`で足切り、処理自体も該当ファイルだけスキップして続行 |
+| `Memory limit exceeded before EOF` | 大きいPPTXファイルのダウンロード・ZIP展開でWorkers isolateのメモリ上限（128MB）に到達 | 応急処置としてダウンロード前に`Content-Length`で足切りしていたが、chunked転送で`Content-Length`が無いケースでは素通りしてしまう不備があった。最終的にはDOCX/PPTXについて「ファイル全体をダウンロードしない」設計に変更（下記参照） |
+| PPTX/DOCXが20MB（後に約90MB）を超えると同期できない | 上記対策のダウンロード上限は、ファイル容量の大半を占める埋め込み動画・画像も含めた「ファイル全体」に対する足切りだった。抽出対象は実際には`word/document.xml`・`ppt/slides/slideN.xml`という小さなXMLのみ | HTTP RangeリクエストでZIPのEnd of Central Directory・central directory・対象XMLエントリだけを個別に取得する方式に変更（`docExtract.ts`の`ByteRangeSource`、`driveSync.ts`の`driveRangeSource`）。ファイル全体を一度もメモリに載せないため、実質的にファイルサイズの上限が無くなった（2026-08-27）。PDF・音声・動画はGeminiに実データを渡す必要がある性質上この手法は使えず、約90MBの上限が残る |
 | 管理UIで`Unexpected token '<'`（JSON解析エラー） | Drive同期がPDF/PPTX変換込みで1リクエスト115秒かかり、ブラウザ/プロキシ側がタイムアウトしHTMLエラーページを返す | 管理UIのDrive同期ボタンの`batchSize`を1に縮小、非JSON応答時に分かりやすいエラーメッセージを表示 |
 | GCPの`iam.disableServiceAccountKeyCreation`でサービスアカウントキーが作れない | Google Workspaceの「セキュアなデフォルト」ポリシーが個人プロジェクトにも自動適用 | プロジェクト単位でポリシーを無効化。Gmail送信は個人アカウント特有の制約（Domain-Wide Delegation不可）のため別途OAuthリフレッシュトークン方式に切り替え |
 
@@ -277,7 +278,7 @@ DOCX/PPTXの変換は、外部ライブラリを追加せず**ZIP形式を自前
 ## 10. 今後の課題
 
 - Google Drive・Claude APIプロキシとも実データでの動作確認は済んだが、**Houdini実機での`tutorial_agent.py`統合テストは未実施**（開発環境にHoudiniが無いため）
-- 大きいPPTX（20MB超）や極端に長い動画ファイルなど、Workersのメモリ・実行時間制約に起因する未対応ケースが残っている
+- 大きいPPTX/DOCXは、ファイル全体をダウンロードせずHTTP Rangeで本文XMLだけ取得する方式に切り替え（2026-08-27）、事実上サイズ上限が無くなった（[§8](#8-実装上の技術的な工夫と実際に発見修正したバグ)参照）。ただしPDF・音声・動画はGeminiに実データを渡す必要がある性質上、引き続きダウンロード自体が必要で、Workersのメモリ上限（128MB）に対する安全マージンとして約90MBの上限が残っている
 - チャット履歴を検索コンテキストとして再利用する機能（`searchMemory_`相当）は設計判断が必要なため保留中
 - 利用統計ダッシュボードがGemini/Claude両方のトークン消費を合算表示しており、budget_type別の内訳表示は今後の改善候補
 

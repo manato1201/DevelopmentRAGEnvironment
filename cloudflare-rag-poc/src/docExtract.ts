@@ -46,6 +46,28 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
 
 // ---- DOCX/PPTX（OOXML）: 実体はZIPアーカイブなので、必要なXMLエントリだけを取り出して
 // テキストを抽出する。Workers上にZIPライブラリを追加せずに済むよう最小限の実装にしている。
+//
+// ZIPの実体データ（EOCD・central directory・各エントリ）へのアクセスをByteRangeSourceで
+// 抽象化しているのは、ファイル全体をArrayBufferに読み込まずに済ませるため。
+// DOCX/PPTXの容量の大半は埋め込み画像・動画で、抽出対象のXML本文（word/document.xml・
+// ppt/slides/slideN.xml）自体はファイル全体に比べて非常に小さいことが多い。Google Drive
+// から取得する場合はHTTP Rangeリクエストで必要な範囲だけを取得することで、Workers
+// isolateのメモリ上限（128MB）に関係なく、実質的に無制限に近いサイズのファイルを
+// 扱えるようにしている（2026-08-27、driveSync.tsのdriveRangeSource参照）。
+export interface ByteRangeSource {
+  readonly totalSize: number;
+  read(start: number, length: number): Promise<Uint8Array>;
+}
+
+// 既存の「ファイル全体をArrayBufferで持っている」呼び出し元（手元アップロードのbase64経路）
+// 向けに、メモリ上のバッファをByteRangeSourceとして扱うアダプタ。
+export function bufferRangeSource(bytes: ArrayBuffer): ByteRangeSource {
+  const view = new Uint8Array(bytes);
+  return {
+    totalSize: view.byteLength,
+    read: async (start, length) => view.subarray(start, Math.min(start + length, view.byteLength)),
+  };
+}
 
 interface ZipEntry {
   fileName: string;
@@ -54,23 +76,29 @@ interface ZipEntry {
   localHeaderOffset: number;
 }
 
-function findEndOfCentralDirectory(view: DataView): { cdOffset: number; cdCount: number } {
+async function findEndOfCentralDirectory(src: ByteRangeSource): Promise<{ cdOffset: number; cdSize: number; cdCount: number }> {
   const EOCD_SIG = 0x06054b50;
-  const searchStart = Math.max(0, view.byteLength - 66000);
-  for (let i = view.byteLength - 22; i >= searchStart; i--) {
+  const tailSize = Math.min(66000, src.totalSize);
+  const tailStart = src.totalSize - tailSize;
+  const tail = await src.read(tailStart, tailSize);
+  const view = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
+  for (let i = tailSize - 22; i >= 0; i--) {
     if (view.getUint32(i, true) === EOCD_SIG) {
       const cdCount = view.getUint16(i + 10, true);
+      const cdSize = view.getUint32(i + 12, true);
       const cdOffset = view.getUint32(i + 16, true);
-      return { cdOffset, cdCount };
+      return { cdOffset, cdSize, cdCount };
     }
   }
   throw new Error("ZIP形式として解析できませんでした（End of Central Directoryが見つかりません）");
 }
 
-function readCentralDirectory(view: DataView, cdOffset: number, cdCount: number): ZipEntry[] {
+async function readCentralDirectory(src: ByteRangeSource, cdOffset: number, cdSize: number, cdCount: number): Promise<ZipEntry[]> {
   const CD_SIG = 0x02014b50;
+  const buf = await src.read(cdOffset, cdSize);
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const entries: ZipEntry[] = [];
-  let offset = cdOffset;
+  let offset = 0;
   for (let i = 0; i < cdCount; i++) {
     if (view.getUint32(offset, true) !== CD_SIG) break;
     const compressionMethod = view.getUint16(offset + 10, true);
@@ -79,7 +107,7 @@ function readCentralDirectory(view: DataView, cdOffset: number, cdCount: number)
     const extraLen = view.getUint16(offset + 30, true);
     const commentLen = view.getUint16(offset + 32, true);
     const localHeaderOffset = view.getUint32(offset + 42, true);
-    const nameBytes = new Uint8Array(view.buffer, view.byteOffset + offset + 46, fileNameLen);
+    const nameBytes = buf.subarray(offset + 46, offset + 46 + fileNameLen);
     const fileName = new TextDecoder().decode(nameBytes);
     entries.push({ fileName, compressionMethod, compressedSize, localHeaderOffset });
     offset += 46 + fileNameLen + extraLen + commentLen;
@@ -92,16 +120,20 @@ async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-async function readZipEntryData(view: DataView, entry: ZipEntry): Promise<Uint8Array> {
+// ローカルヘッダーはfileName/extraの長さがcentral directoryと食い違うことがある仕様のため、
+// まず固定長30バイトだけ読んで長さを確定させてから、実データ部分を範囲取得する（2リクエスト）。
+async function readZipEntryData(src: ByteRangeSource, entry: ZipEntry): Promise<Uint8Array> {
   const LOCAL_SIG = 0x04034b50;
   const off = entry.localHeaderOffset;
-  if (view.getUint32(off, true) !== LOCAL_SIG) {
+  const header = await src.read(off, 30);
+  const headerView = new DataView(header.buffer, header.byteOffset, header.byteLength);
+  if (headerView.getUint32(0, true) !== LOCAL_SIG) {
     throw new Error(`ZIPのローカルヘッダーが不正です（${entry.fileName}）`);
   }
-  const fileNameLen = view.getUint16(off + 26, true);
-  const extraLen = view.getUint16(off + 28, true);
+  const fileNameLen = headerView.getUint16(26, true);
+  const extraLen = headerView.getUint16(28, true);
   const dataStart = off + 30 + fileNameLen + extraLen;
-  const raw = new Uint8Array(view.buffer, view.byteOffset + dataStart, entry.compressedSize);
+  const raw = await src.read(dataStart, entry.compressedSize);
   if (entry.compressionMethod === 0) return raw;
   if (entry.compressionMethod === 8) return inflateRaw(raw);
   throw new Error(`未対応の圧縮方式です（method=${entry.compressionMethod}）`);
@@ -125,33 +157,38 @@ function stripXmlTags(xml: string): string {
     .trim();
 }
 
-// DOCX/PPTXはZIP解凍・XML文字列全体をメモリ上に保持する実装のため、Workers isolateの
-// メモリ上限（128MB）に対して大きすぎるファイルは事前に弾く。実際に埋め込み動画/画像を
-// 多く含む大きいPPTX（CEDECの発表資料）で"Memory limit exceeded before EOF"が発生し、
-// 原因を特定した上で追加した対策（2026-08-26）。
-const OOXML_SIZE_LIMIT = 20 * 1024 * 1024;
+// 手元アップロード（base64でリクエストボディに載せる）経路は、リクエスト自体が
+// 既に全体をメモリ上に持っているため、そのバッファに対してだけ安全マージンを設ける。
+// Driveからの取得はByteRangeSource経由になり、この上限の対象外（下記extractText*Source参照）。
+const OOXML_UPLOAD_SIZE_LIMIT = 20 * 1024 * 1024;
 
 export async function extractTextFromDocx(bytes: ArrayBuffer): Promise<string> {
-  if (bytes.byteLength > OOXML_SIZE_LIMIT) {
-    throw new Error(`ファイルが大きすぎます（${Math.round(bytes.byteLength / 1024 / 1024)}MB）。現在は約20MBまでに対応しています`);
+  if (bytes.byteLength > OOXML_UPLOAD_SIZE_LIMIT) {
+    throw new Error(`ファイルが大きすぎます（${Math.round(bytes.byteLength / 1024 / 1024)}MB）。手動アップロードは現在約20MBまでに対応しています（Drive同期は容量無制限で対応可能）`);
   }
-  const view = new DataView(bytes);
-  const { cdOffset, cdCount } = findEndOfCentralDirectory(view);
-  const entries = readCentralDirectory(view, cdOffset, cdCount);
+  return extractTextFromDocxSource(bufferRangeSource(bytes));
+}
+
+export async function extractTextFromPptx(bytes: ArrayBuffer): Promise<string> {
+  if (bytes.byteLength > OOXML_UPLOAD_SIZE_LIMIT) {
+    throw new Error(`ファイルが大きすぎます（${Math.round(bytes.byteLength / 1024 / 1024)}MB）。手動アップロードは現在約20MBまでに対応しています（Drive同期は容量無制限で対応可能）`);
+  }
+  return extractTextFromPptxSource(bufferRangeSource(bytes));
+}
+
+export async function extractTextFromDocxSource(src: ByteRangeSource): Promise<string> {
+  const { cdOffset, cdSize, cdCount } = await findEndOfCentralDirectory(src);
+  const entries = await readCentralDirectory(src, cdOffset, cdSize, cdCount);
   const docEntry = entries.find((e) => e.fileName === "word/document.xml");
   if (!docEntry) throw new Error("word/document.xmlが見つかりません（.docx形式ではない可能性があります）");
-  const xmlBytes = await readZipEntryData(view, docEntry);
+  const xmlBytes = await readZipEntryData(src, docEntry);
   const xml = new TextDecoder("utf-8").decode(xmlBytes);
   return stripXmlTags(xml);
 }
 
-export async function extractTextFromPptx(bytes: ArrayBuffer): Promise<string> {
-  if (bytes.byteLength > OOXML_SIZE_LIMIT) {
-    throw new Error(`ファイルが大きすぎます（${Math.round(bytes.byteLength / 1024 / 1024)}MB）。現在は約20MBまでに対応しています`);
-  }
-  const view = new DataView(bytes);
-  const { cdOffset, cdCount } = findEndOfCentralDirectory(view);
-  const entries = readCentralDirectory(view, cdOffset, cdCount);
+export async function extractTextFromPptxSource(src: ByteRangeSource): Promise<string> {
+  const { cdOffset, cdSize, cdCount } = await findEndOfCentralDirectory(src);
+  const entries = await readCentralDirectory(src, cdOffset, cdSize, cdCount);
   const slideEntries = entries
     .filter((e) => /^ppt\/slides\/slide\d+\.xml$/.test(e.fileName))
     .sort((a, b) => {
@@ -163,7 +200,7 @@ export async function extractTextFromPptx(bytes: ArrayBuffer): Promise<string> {
 
   const texts: string[] = [];
   for (let i = 0; i < slideEntries.length; i++) {
-    const xmlBytes = await readZipEntryData(view, slideEntries[i]);
+    const xmlBytes = await readZipEntryData(src, slideEntries[i]);
     const xml = new TextDecoder("utf-8").decode(xmlBytes);
     texts.push(`--- スライド${i + 1} ---\n${stripXmlTags(xml)}`);
   }

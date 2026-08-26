@@ -99,7 +99,7 @@
 6. **完了：Google Drive実同期の検証**（2026-08-26、サービスアカウント認証で実際のDriveフォルダ3件を同期。houdini22で8ドキュメント登録まで確認）
 7. **完了：知識ベース管理の周辺機能**（2026-08-26）— URL手動登録（HTMLRewriterでテキスト抽出）、QA CSV一括登録、KBロールバック（opId単位でVectorize/D1から削除）を実装。いずれも実データで動作確認済み
 8. **完了：利用統計・評価統計・レート制限・期限切れ履歴の自動削除**（2026-08-25〜26）— トークン使用量ダッシュボード、評価集計、固定ウィンドウ方式のレート制限（60秒30回）、Cron Triggerによる90日超の履歴自動削除
-9. **完了：PDF/Word/PowerPoint変換・音声/動画文字起こし・YouTube登録**（2026-08-26）— PDFはGeminiのネイティブ文書理解（小さければインライン、大きければFile API）、DOCX/PPTXは自前の最小限ZIPパーサ、音声/動画とYouTubeはGemini File API/fileDataで文字起こし。実際のCEDEC発表資料（PDF/PPTX）で検証済み。20MB超の一部大きいPPTXはWorkers側のメモリ上限でスキップされることがある
+9. **完了：PDF/Word/PowerPoint変換・音声/動画文字起こし・YouTube登録**（2026-08-26）— PDFはGeminiのネイティブ文書理解（小さければインライン、大きければFile API）、DOCX/PPTXは自前の最小限ZIPパーサ、音声/動画とYouTubeはGemini File API/fileDataで文字起こし。実際のCEDEC発表資料（PDF/PPTX）で検証済み。**2026-08-27追記：** 当初はDrive同期のDOCX/PPTXが20MB超（後に約90MB超）でWorkers側のメモリ上限によりスキップされていたが、HTTP RangeでZIPの必要な部分だけを取得する方式に変更し、事実上サイズ上限が無くなった（PDF・音声・動画はGeminiに実データを渡す必要があるため、引き続き約90MBの上限あり）
 10. **完了：ヘルスチェック・アラート**（2026-08-26）— D1接続・KB同期エラー・トークン予算枯渇間近を検知しSlack/Gmailへ通知。30分ごとのCron Triggerで自動実行。**Slack・Gmailともに実際にテスト通知の送受信まで確認済み。** Gmailは当初サービスアカウント方式（Google Workspace限定と判明）→個人アカウントのOAuthリフレッシュトークン方式に切り替え、GCPプロジェクトでのGmail API有効化も実施して稼働確認した
 11. **完了：バックアップ機能**（2026-08-26）— 設定系テーブル（users/namespaces/kb_sources/token_budgets/key_namespace_grants）のJSONエクスポート。実データ（チャット履歴本文・ベクトル）はD1の自動バックアップに任せる方針
 12. **保留：チャット履歴検索のRAG統合**（`searchMemory_`相当）— ユーザー指示により一旦保留（2026-08-26）

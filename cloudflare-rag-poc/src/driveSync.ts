@@ -3,7 +3,8 @@ import { requireAdmin } from "./auth";
 import { getGoogleAccessToken } from "./googleAuth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
-import { extractTextFromPdf, extractTextFromDocx, extractTextFromPptx } from "./docExtract";
+import { extractTextFromPdf, extractTextFromDocxSource, extractTextFromPptxSource } from "./docExtract";
+import type { ByteRangeSource } from "./docExtract";
 import { transcribeAudioVideo } from "./mediaTranscribe";
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -98,19 +99,59 @@ async function extractDriveFileText(env: Env, token: string, file: DriveFile): P
   const isDocx = file.mimeType === DOCX_MIME;
   const isPptx = file.mimeType === PPTX_MIME;
   const isAudioVideo = file.mimeType.startsWith("audio/") || file.mimeType.startsWith("video/");
-  if (isPdf || isDocx || isPptx || isAudioVideo) {
+
+  // DOCX/PPTXはファイル全体をダウンロードせず、HTTP RangeでZIPの必要な部分
+  // （central directory・対象XMLエントリ）だけを取得する。容量の大半を占める埋め込み
+  // 動画/画像に触れないため、ファイルサイズの実質的な上限が無くなる（2026-08-27）。
+  if (isDocx || isPptx) {
+    const totalSize = await getDriveFileSize(token, file.id);
+    const source = driveRangeSource(token, file.id, totalSize);
+    return isDocx ? extractTextFromDocxSource(source) : extractTextFromPptxSource(source);
+  }
+
+  if (isPdf || isAudioVideo) {
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) throw new Error(`Drive download APIエラー (${res.status}): ${await res.text()}`);
     const bytes = await readBodyWithLimit(res, MAX_DOWNLOAD_BYTES);
     if (isPdf) return extractTextFromPdf(env, bytes, file.name);
-    if (isDocx) return extractTextFromDocx(bytes);
-    if (isPptx) return extractTextFromPptx(bytes);
     return transcribeAudioVideo(env, bytes, file.mimeType, file.name);
   }
 
   return null; // 未対応mimeType（画像等）
+}
+
+// ファイルサイズはDrive files.getのメタデータ（fields=size）で取得する。
+// alt=mediaのレスポンスヘッダーから読み取る方式だと、Content-Length省略時に
+// 破綻するリスクがある（readBodyWithLimit参照）ため、メタデータAPIを使う。
+async function getDriveFileSize(token: string, fileId: string): Promise<number> {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=size`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Driveファイルサイズ取得エラー (${res.status}): ${await res.text()}`);
+  const data = (await res.json()) as { size?: string };
+  const size = Number(data.size || 0);
+  if (!size) throw new Error("Driveファイルのサイズを取得できませんでした");
+  return size;
+}
+
+async function fetchDriveRange(token: string, fileId: string, start: number, length: number): Promise<Uint8Array> {
+  const end = start + length - 1;
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${token}`, Range: `bytes=${start}-${end}` },
+  });
+  if (res.status !== 206 && res.status !== 200) {
+    throw new Error(`Drive range取得エラー (${res.status}): ${await res.text()}`);
+  }
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+function driveRangeSource(token: string, fileId: string, totalSize: number): ByteRangeSource {
+  return {
+    totalSize,
+    read: (start, length) => fetchDriveRange(token, fileId, start, Math.min(length, totalSize - start)),
+  };
 }
 
 // POST /admin/sync/drive — 既存GAS syncDriveToSheets相当（PDF/DOCX等の変換・音声動画の文字起こしは未対応）。
