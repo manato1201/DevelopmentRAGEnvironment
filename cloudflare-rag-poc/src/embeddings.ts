@@ -41,3 +41,80 @@ export async function sha256Hex(input: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
+
+export interface GenerateResult {
+  text: string;
+  promptTokens: number;
+  candidateTokens: number;
+}
+
+// Gemini APIの1パート（テキスト／インラインバイナリ／アップロード済みファイル参照・YouTube URL）
+export type GeminiPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } }
+  | { fileData: { mimeType?: string; fileUri: string } };
+
+// Gemini generateContent（HyDE仮回答生成・最終回答生成・PDF/音声/動画の理解に共用。既存GAS callGemini_相当）。
+// テキストのみの呼び出しは generateContent() から、PDF/音声/動画/YouTubeなどマルチモーダルな
+// 呼び出しは generateContentWithParts() から使う（下記のPDF/DOCX/音声動画/YouTube変換で利用）。
+export async function generateContentWithParts(env: Env, parts: GeminiPart[]): Promise<GenerateResult> {
+  const model = env.GENERATION_MODEL || "gemini-flash-latest";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts }],
+    }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`Gemini generateContent APIエラー (${res.status}): ${detail}`);
+  }
+
+  const data = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  };
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (typeof text !== "string") {
+    throw new Error("Gemini generateContent APIのレスポンス形式が想定と異なります");
+  }
+  return {
+    text,
+    promptTokens: data.usageMetadata?.promptTokenCount ?? 0,
+    candidateTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+  };
+}
+
+async function generateContent(env: Env, prompt: string): Promise<GenerateResult> {
+  return generateContentWithParts(env, [{ text: prompt }]);
+}
+
+// HyDE（Hypothetical Document Embeddings）: 質問文の代わりに「こう答えるだろう」という
+// 仮の回答を先に生成し、それを埋め込みに使うことで、言い回しギャップを補正する
+// （既存GAS hydeExpand_相当。docs/glossary.md「HyDE」参照）。
+export async function hydeExpand(env: Env, query: string): Promise<GenerateResult> {
+  const prompt = `次の質問に対して、実際の回答であるかのように簡潔な仮の説明文を1〜3文で書いてください。わからない場合でも、それらしい説明を書いてください。質問: ${query}`;
+  return generateContent(env, prompt);
+}
+
+// 検索結果を踏まえた最終回答生成（既存GAS ragQueryInternal_の回答生成部分に相当）
+export async function generateAnswer(
+  env: Env,
+  query: string,
+  contextTexts: string[],
+  history: Array<{ role: string; content: string }>
+): Promise<GenerateResult> {
+  const historyText = history.length > 0
+    ? "これまでの会話:\n" + history.map((h) => `${h.role}: ${h.content}`).join("\n") + "\n\n"
+    : "";
+  const prompt =
+    `${historyText}以下の検索結果だけを根拠に、質問に日本語で答えてください。` +
+    `根拠にした情報には必ず番号（[1]や[2]など、検索結果に付いている番号）を付けて示してください。` +
+    `検索結果に答えがない場合は、正直に「わかりません」と答えてください。\n\n` +
+    `${contextTexts.join("\n")}\n\n質問: ${query}`;
+  return generateContent(env, prompt);
+}
