@@ -339,12 +339,17 @@ class TutorialGeneratePanel(QWidget):
         if self._chain_checkbox.isChecked():
             self._status.setText("3段階連続生成中（basic→applied→advanced）...")
             chain_kwargs = {
-                "bridge_port": cfg.get("local_port", 8766),
-                "project_dir": cfg.get("local_bridge_dir", ""),
-                "rag_mode":    cfg.get("mode", "local"),
-                "gas_url":     cfg.get("gas_url", ""),
-                "gas_api_key": cfg.get("gas_api_key", ""),
-                "model":       cfg.get("tutorial_model", "claude-sonnet-5"),
+                "bridge_port":    cfg.get("local_port", 8766),
+                "project_dir":    cfg.get("local_bridge_dir", ""),
+                # tutorial_rag_mode が未設定なら従来通りチャットの mode 設定に追随する
+                # （後方互換。既存ユーザーの挙動は変わらない）
+                "rag_mode":       cfg.get("tutorial_rag_mode") or cfg.get("mode", "local"),
+                "gas_url":        cfg.get("gas_url", ""),
+                "gas_api_key":    cfg.get("gas_api_key", ""),
+                "model":          cfg.get("tutorial_model", "claude-sonnet-5"),
+                "claude_backend": cfg.get("tutorial_claude_backend", "gas"),
+                "cf_url":         cfg.get("cf_url", ""),
+                "cf_api_key":     cfg.get("cf_api_key", ""),
             }
             self._worker = TutorialChainWorker(topic, chain_kwargs)
             self._worker.progress.connect(self._on_progress)
@@ -359,10 +364,13 @@ class TutorialGeneratePanel(QWidget):
         self._agent = TutorialAgent(
             bridge_port=cfg.get("local_port", 8766),
             project_dir=cfg.get("local_bridge_dir", ""),
-            rag_mode=cfg.get("mode", "local"),
+            rag_mode=cfg.get("tutorial_rag_mode") or cfg.get("mode", "local"),
             gas_url=cfg.get("gas_url", ""),
             gas_api_key=cfg.get("gas_api_key", ""),
             model=cfg.get("tutorial_model", "claude-sonnet-5"),
+            claude_backend=cfg.get("tutorial_claude_backend", "gas"),
+            cf_url=cfg.get("cf_url", ""),
+            cf_api_key=cfg.get("cf_api_key", ""),
         )
         level = self._level_combo.currentText()
         self._worker = TutorialWorker(self._agent, topic, level=level)
