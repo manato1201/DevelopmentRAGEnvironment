@@ -92,6 +92,12 @@ _DEFAULT_CONFIG = {
     "score_user_id":    "",        # 理解度スコア記録用ユーザーID
     "video_factory_exe_path": "",  # LearningQt video_factory_cloudrag_poc.exe のフルパス
                                     # （チュートリアル保存時に自動で動画生成を起動する）
+    # houdini21チュートリアル生成専用の設定（2026-08-26追加）。上のCloud RAG（GAS）設定とは
+    # 独立しており、未設定なら従来通りgas_url/gas_api_key・"mode"に追随する（後方互換）。
+    "tutorial_rag_mode":      "",  # ""(未設定=chatの"mode"に追随) | "local" | "cloud" | "cloudflare"
+    "tutorial_claude_backend": "gas",  # "gas" | "cloudflare"（チュートリアル生成のClaude呼び出し先）
+    "cf_url":                 "",  # Cloudflare RAG WebAppのデプロイURL（例: https://rag-poc.xxx.workers.dev）
+    "cf_api_key":              "",  # Cloudflare RAG APIキー
 }
 
 
@@ -759,6 +765,35 @@ class RAGChatbotPanel(QWidget):
         hint.setStyleSheet("color:#888;")
         layout.addWidget(hint)
 
+        # チュートリアル生成の呼び出し先（GAS or Cloudflare、2026-08-26追加）。
+        # 上のCloud RAG設定（GAS）とは独立して切り替えられるようにしてある。
+        layout.addWidget(QLabel("チュートリアル生成: Claude呼び出し先:"))
+        self._tutorial_backend_combo = QComboBox()
+        self._tutorial_backend_combo.addItems(["gas", "cloudflare"])
+        self._tutorial_backend_combo.setCurrentText(
+            self._cfg.get("tutorial_claude_backend", "gas")
+        )
+        layout.addWidget(self._tutorial_backend_combo)
+
+        layout.addWidget(QLabel("チュートリアル生成: RAG検索先（空欄=上のCloud RAG設定に追随）:"))
+        self._tutorial_rag_mode_combo = QComboBox()
+        self._tutorial_rag_mode_combo.addItems(["", "local", "cloud", "cloudflare"])
+        self._tutorial_rag_mode_combo.setCurrentText(
+            self._cfg.get("tutorial_rag_mode", "")
+        )
+        layout.addWidget(self._tutorial_rag_mode_combo)
+
+        layout.addWidget(QLabel("Cloudflare RAG WebApp URL:"))
+        self._cf_url_edit = QLineEdit(self._cfg.get("cf_url", ""))
+        self._cf_url_edit.setPlaceholderText("https://rag-poc.xxxx.workers.dev")
+        layout.addWidget(self._cf_url_edit)
+
+        layout.addWidget(QLabel("Cloudflare RAG APIキー:"))
+        self._cf_api_key_edit = QLineEdit(self._cfg.get("cf_api_key", ""))
+        self._cf_api_key_edit.setPlaceholderText("管理タブで発行したAPIキー")
+        self._cf_api_key_edit.setEchoMode(QLineEdit.Password)
+        layout.addWidget(self._cf_api_key_edit)
+
         # スコアユーザーID
         layout.addWidget(QLabel("スコアユーザーID:"))
         self._score_uid_edit = QLineEdit(self._cfg.get("score_user_id", ""))
@@ -941,6 +976,10 @@ class RAGChatbotPanel(QWidget):
         self._cfg["local_bridge_dir"] = self._bridge_dir_edit.text().strip()
         self._cfg["llm_backend"]      = self._backend_combo.currentText()
         self._cfg["tutorial_model"]   = self._tutorial_model_combo.currentText()
+        self._cfg["tutorial_claude_backend"] = self._tutorial_backend_combo.currentText()
+        self._cfg["tutorial_rag_mode"] = self._tutorial_rag_mode_combo.currentText()
+        self._cfg["cf_url"]           = self._cf_url_edit.text().strip()
+        self._cfg["cf_api_key"]       = self._cf_api_key_edit.text().strip()
         self._cfg["score_user_id"]    = self._score_uid_edit.text().strip()
         self._cfg["video_factory_exe_path"] = self._video_factory_exe_edit.text().strip()
         try:

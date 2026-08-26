@@ -7,18 +7,25 @@ docs/content-generation.md §2 の設計に基づく:
        - "local": ローカルブリッジ /search（rag_local_bridge.py）
        - "cloud": GAS WebApp（gas_cloud_rag.js）を mode:'raw' で呼び、
          最終回答生成をスキップして検索結果のみ取得する
-     どちらのモードでも取得後に db フィールドが houdini21 のものだけに
-     絞り込む（GAS側は許可namespaceが無いと "all" に自動フォールバックする
-     ため、呼び出し側でも二重にホワイトリストを強制する）
+       - "cloudflare": Cloudflare Workers（cloudflare-rag-poc、/search）を呼ぶ
+         （2026-08-26追加。GAS Cloud RAGの後継）
+     "cloud"モードは取得後に db フィールドが houdini21 のものだけに絞り込む
+     （GAS側は許可namespaceが無いと "all" に自動フォールバックするため、呼び出し
+     側でも二重にホワイトリストを強制する）。"cloudflare"モードはサーバー側の
+     namespace許可制御がGASのような抜け道を持たないため二重フィルタ不要
   ② エージェントループ: DEFAULT_MODEL（既定claude-sonnet-5、TutorialAgent(model=...)で
      claude-haiku-4-5等に変更可）+ HOUDINI_TOOLS（最大MAX_ITERATIONS回）
      プロンプトキャッシュ: システムプロンプト・ツール定義・RAGコンテキストを
      cache_control で固定
-     Claude API呼び出しは必ず GAS（gas_cloud_rag.js、action:'claude_messages'）
-     経由で行う。生のANTHROPIC_API_KEYはクライアントに持たせず、GASが
-     APIキーごとのClaude専用トークン予算（claudeCapacity/claudeBalance）を
-     サーバー側で強制する。gas_url/gas_api_key（Settingsタブ、rag_mode=local
-     でも共通）が未設定だと生成を開始できない（docs/cloud-rag.md §8.14）
+     Claude API呼び出しは claude_backend で切り替える（既定"gas"、後方互換）:
+       - "gas": GAS（gas_cloud_rag.js、action:'claude_messages'）経由
+       - "cloudflare": Cloudflare Workers（cloudflare-rag-poc、/claude/messages）
+         経由（2026-08-26追加。GAS Claudeプロキシの後継）
+     どちらの場合も生のANTHROPIC_API_KEYはクライアントに持たせず、サーバー側が
+     APIキーごとのClaude専用トークン予算を強制する（GAS: claudeCapacity/claudeBalance、
+     Cloudflare: token_budgets/budget_type='claude'）。対応する gas_url/gas_api_key
+     または cf_url/cf_api_key（Settingsタブ）が未設定だと生成を開始できない
+     （docs/cloud-rag.md §8.14）
   ③ コスト上限: 累積 COST_LIMIT_USD を超えたら自動打ち切り（usage から実測計算。
      ローカル側の推定値であり、実際の課金上限はGAS側のclaudeCapacityが強制する）
   ④ 生成完了後 NodeGraphAsset JSON をエクスポート
@@ -56,6 +63,9 @@ MAX_TOKENS_PER_TURN = 4096
 RAG_NAMESPACES = ["houdini21"]  # 生成機能が参照してよい namespace のホワイトリスト（§5）
 RAG_LIMIT = 6
 CLOUD_RAG_DB_KEY = "houdini21"  # Cloud RAG（GAS）に問い合わせる際の dbKey
+CLOUDFLARE_RAG_NAMESPACES = ["shared:houdini21"]  # Cloudflare RAG（cloudflare-rag-poc）側のnamespace名
+                                    # （2026-08-26追加。GASのCloud RAGの後継として、GAS/Cloudflare
+                                    # どちらも選べるようにした。RAG_NAMESPACESとは別名になっている点に注意）
 
 # モデル別単価（USD / 1M tokens）。コスト上限判定の実測計算に使う。
 # token消費対策（コスト面で継続利用しやすくする）として、既定のclaude-sonnet-5に加えて
@@ -258,14 +268,24 @@ class TutorialAgent:
         gas_url: str = "",
         gas_api_key: str = "",
         model: str = DEFAULT_MODEL,
+        claude_backend: str = "gas",
+        cf_url: str = "",
+        cf_api_key: str = "",
         progress_cb: Callable[[str], None] | None = None,
         executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
     ) -> None:
         self._port = bridge_port
         self._project_dir = project_dir
-        self._rag_mode = rag_mode if rag_mode in ("local", "cloud") else "local"
+        self._rag_mode = rag_mode if rag_mode in ("local", "cloud", "cloudflare") else "local"
         self._gas_url = gas_url
         self._gas_api_key = gas_api_key
+        # claude_backend: Claude Messages APIをどちら経由で呼ぶか（2026-08-26追加）。
+        # 既定は既存動作を変えない"gas"。cloudflare-rag-poc側にClaude APIプロキシ
+        # （/claude/messages）を追加したことでの移行先。GASのようなCloudトークン予算
+        # 強制は、Cloudflare側ではtoken_budgets（budget_type='claude'）が担う。
+        self._claude_backend = claude_backend if claude_backend in ("gas", "cloudflare") else "gas"
+        self._cf_url = cf_url
+        self._cf_api_key = cf_api_key
         # 未知のモデル名（設定ファイルの旧値・手編集など）はデフォルトにフォールバック
         self._model = model if model in _MODEL_PRICES else DEFAULT_MODEL
         self._progress = progress_cb or (lambda _: None)
@@ -292,10 +312,17 @@ class TutorialAgent:
         result = TutorialResult()
         result.level = level
 
-        # Claude APIは必ずGAS（gas_cloud_rag.js）経由で呼ぶ。生のANTHROPIC_API_KEYを
-        # クライアントに持たせない構成にすることで、APIキーごとのトークン上限を
-        # クライアント側から迂回できないようにしている（docs/cloud-rag.md §8.14）。
-        if not self._gas_url or not self._gas_api_key:
+        # Claude APIは必ずGASまたはCloudflare経由で呼ぶ（claude_backendで選択）。生の
+        # ANTHROPIC_API_KEYをクライアントに持たせない構成にすることで、APIキーごとの
+        # トークン上限をクライアント側から迂回できないようにしている
+        # （docs/cloud-rag.md §8.14、Cloudflare側はtoken_budgets/budget_type='claude'）。
+        if self._claude_backend == "cloudflare":
+            if not self._cf_url or not self._cf_api_key:
+                raise RuntimeError(
+                    "Cloudflare RAG WebApp URL / APIキーが未設定です。Settingsタブで設定してください"
+                    "（houdini21チュートリアル生成はClaude APIをCloudflare経由で呼ぶため必須です）。"
+                )
+        elif not self._gas_url or not self._gas_api_key:
             raise RuntimeError(
                 "GAS WebApp URL / APIキーが未設定です。Settingsタブで設定してください"
                 "（houdini21チュートリアル生成はClaude APIをGAS経由で呼ぶため必須です）。"
@@ -406,7 +433,10 @@ class TutorialAgent:
     # ── RAG検索 ─────────────────────────────────────────────────────────────────
 
     def _rag_search(self, topic: str, level: str = _DEFAULT_LEVEL) -> tuple[list[str], list[dict]]:
-        """rag_mode に応じてローカルブリッジ or GAS（Cloud RAG）から houdini21 namespace の生チャンクを取得する。"""
+        """rag_mode に応じてローカルブリッジ / GAS（Cloud RAG）/ Cloudflare（cloudflare-rag-poc）
+        いずれかから houdini21 namespace の生チャンクを取得する。"""
+        if self._rag_mode == "cloudflare":
+            return self._rag_search_cloudflare(topic, level)
         if self._rag_mode == "cloud":
             return self._rag_search_cloud(topic)
         return self._rag_search_local(topic, level)
@@ -495,6 +525,49 @@ class TutorialAgent:
             return texts, sources
         except Exception as exc:
             self._progress(f"Cloud RAG検索エラー（続行します）: {exc}")
+            return [], []
+
+    def _rag_search_cloudflare(self, topic: str, level: str = _DEFAULT_LEVEL) -> tuple[list[str], list[dict]]:
+        """
+        Cloudflare Workers RAG（cloudflare-rag-poc）の /search から
+        houdini21 相当のnamespace（shared:houdini21）の生チャンクを取得する
+        （GAS Cloud RAGの後継、2026-08-26追加）。
+
+        Cloudflare側はnamespaceアクセス制御がAPIキーごとの許可リストで厳格に
+        行われ、GASのような「権限が無いと"all"に自動フォールバックする」挙動が
+        無いため、_rag_search_cloud のような応答側でのdb二重フィルタは不要（サーバー側の
+        namespaceパラメータそのものが唯一のホワイトリストとして機能する）。
+        レスポンス形式は rag_local_bridge.py の /search と同じ {texts, sources} なので、
+        そのまま _rag_search_local と同じ扱いでよい。
+        """
+        if not self._cf_url or not self._cf_api_key:
+            self._progress("Cloudflare RAG検索エラー: URL/APIキーが未設定です（続行します）")
+            return [], []
+        try:
+            body = json.dumps({
+                "query": topic,
+                "limit": RAG_LIMIT,
+                "namespaces": CLOUDFLARE_RAG_NAMESPACES,
+                "level": level,
+            }, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                f"{self._cf_url.rstrip('/')}/search",
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self._cf_api_key}",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read())
+            return data.get("texts", []), data.get("sources", [])
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            self._progress(f"Cloudflare RAG検索エラー {exc.code}（続行します）: {detail}")
+            return [], []
+        except Exception as exc:
+            self._progress(f"Cloudflare RAG検索エラー（続行します）: {exc}")
             return [], []
 
     # ── プロンプト構築 ──────────────────────────────────────────────────────────
@@ -696,6 +769,69 @@ class TutorialAgent:
         self._progress("反復上限に達したため打ち切ります")
 
     def _call_api(
+        self, system_blocks: list[dict],
+        tools: list[dict], messages: list[dict],
+    ) -> dict:
+        """claude_backend に応じてGASまたはCloudflare経由でClaude Messages APIを呼ぶ。"""
+        if self._claude_backend == "cloudflare":
+            return self._call_api_cloudflare(system_blocks, tools, messages)
+        return self._call_api_gas(system_blocks, tools, messages)
+
+    def _call_api_cloudflare(
+        self, system_blocks: list[dict],
+        tools: list[dict], messages: list[dict],
+    ) -> dict:
+        """
+        Claude Messages API を、Cloudflare Workers（cloudflare-rag-poc、/claude/messages）
+        経由で呼ぶ（GAS Claudeプロキシの後継、2026-08-26追加）。
+
+        GAS版と同様、生のANTHROPIC_API_KEYはクライアントに持たせない。Cloudflare側は
+        APIキーごとのClaude専用トークン予算（token_budgets, budget_type='claude'）を
+        サーバー側で強制する。GASの{status:'quota_exceeded'|'rate_limited'|...}という
+        レスポンス内ステータスと異なり、Cloudflare側はHTTPステータスコード
+        （429=予算超過/レート制限、401/403=認証エラー）でエラーを表現するため、
+        エラーハンドリングの構造がGAS版と異なる点に注意。
+        成功時のレスポンスは生のAnthropic Messageオブジェクトそのもの
+        （contentやusageを直接読める）なので、呼び出し元（_run_loop）はGAS版と同じ
+        コードでそのまま読める。
+        """
+        payload = json.dumps({
+            "model": self._model,
+            "max_tokens": MAX_TOKENS_PER_TURN,
+            "system": system_blocks,
+            "tools": tools,
+            "messages": messages,
+        }, ensure_ascii=False).encode("utf-8")
+
+        req = urllib.request.Request(
+            f"{self._cf_url.rstrip('/')}/claude/messages",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self._cf_api_key}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            try:
+                message = json.loads(detail).get("error", detail)
+            except (json.JSONDecodeError, AttributeError):
+                message = detail
+            if exc.code == 429:
+                raise RuntimeError(
+                    f"Claudeトークンの利用上限またはレート制限に達しています: {message}"
+                ) from exc
+            if exc.code in (401, 403):
+                raise RuntimeError(
+                    f"認証エラー: Cloudflare APIキーが無効です。Settingsタブを確認してください: {message}"
+                ) from exc
+            raise RuntimeError(f"Cloudflare Claudeプロキシエラー {exc.code}: {message}") from exc
+
+    def _call_api_gas(
         self, system_blocks: list[dict],
         tools: list[dict], messages: list[dict],
     ) -> dict:
@@ -914,6 +1050,9 @@ def build_level_chain(
     gas_url: str = "",
     gas_api_key: str = "",
     model: str = DEFAULT_MODEL,
+    claude_backend: str = "gas",
+    cf_url: str = "",
+    cf_api_key: str = "",
     progress_cb: Callable[[str], None] | None = None,
     executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
     levels: tuple[str, ...] = _LEVEL_CHAIN_ORDER,
@@ -945,6 +1084,9 @@ def build_level_chain(
             gas_url=gas_url,
             gas_api_key=gas_api_key,
             model=model,
+            claude_backend=claude_backend,
+            cf_url=cf_url,
+            cf_api_key=cf_api_key,
             progress_cb=progress_cb,
             executor_factory=executor_factory,
         )

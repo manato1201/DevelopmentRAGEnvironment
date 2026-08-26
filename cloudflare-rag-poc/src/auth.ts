@@ -24,18 +24,42 @@ export async function authenticate(
 
   if (!userRow) return null;
 
-  // このユーザーがアクセスできるnamespace = 全shared + 自分がowner_user_idの個人namespace
-  const nsRows = await env.DB.prepare(
-    "SELECT namespace_id FROM namespaces WHERE scope = 'shared' OR owner_user_id = ?",
-  )
-    .bind(userId)
-    .all<{ namespace_id: string }>();
+  // このユーザーがアクセスできるnamespace：
+  // - adminロールは全shared namespace + 自分の個人namespaceを無条件に閲覧できる
+  // - それ以外のロールは、key_namespace_grantsで明示的に許可されたsharedのみ + 自分の個人namespace
+  //   （既存GASのallowed_namespaces＝キーごとの許可リストという設計を踏襲。migrations/0005参照）
+  const nsRows =
+    userRow.role === "admin"
+      ? await env.DB.prepare("SELECT namespace_id FROM namespaces WHERE scope = 'shared' OR owner_user_id = ?")
+          .bind(userId)
+          .all<{ namespace_id: string }>()
+      : await env.DB.prepare(
+          `SELECT namespace_id FROM namespaces
+           WHERE (scope = 'shared' AND namespace_id IN (SELECT namespace_id FROM key_namespace_grants WHERE user_id = ?))
+              OR owner_user_id = ?`
+        )
+          .bind(userId, userId)
+          .all<{ namespace_id: string }>();
 
   return {
     userId,
     role: userRow.role,
     allowedNamespaces: (nsRows.results ?? []).map((r) => r.namespace_id),
   };
+}
+
+// 知識ベース同期等の管理operationはadminロールのみ許可する（既存GAS requireAdmin_相当）。
+export class ForbiddenError extends Error {
+  constructor(message = "管理者権限が必要です") {
+    super(message);
+    this.name = "ForbiddenError";
+  }
+}
+
+export function requireAdmin(user: AuthedUser): void {
+  if (user.role !== "admin") {
+    throw new ForbiddenError();
+  }
 }
 
 // docs/cloud-local-unification-plan.md §6-1（物理分離）の実装上の要点：

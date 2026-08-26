@@ -31,6 +31,15 @@
 	"vars": {
 		// 開発用の非機密設定のみ。GEMINI_API_KEYは `wrangler secret put GEMINI_API_KEY` で別途設定する。
 		// text-embedding-004はGoogle側で廃止済み（2026-08-23確認）のためgemini-embedding-001を使用
-		"EMBEDDING_MODEL": "gemini-embedding-001"
+		"EMBEDDING_MODEL": "gemini-embedding-001",
+		// HyDE仮回答生成・最終回答生成に使うモデル。"-latest"エイリアスを使い、
+		// text-embedding-004のような個別モデル廃止の影響を受けにくくしている
+		"GENERATION_MODEL": "gemini-flash-latest"
+	},
+	// Cron Trigger。src/index.tsのscheduled()がevent.cronの値で処理を振り分ける：
+	// "0 3 * * *" = 期限切れチャット履歴の自動削除（毎日UTC 3時）
+	// "*/30 * * * *" = ヘルスチェック・異常検知アラート（30分ごと）
+	"triggers": {
+		"crons": ["0 3 * * *", "*/30 * * * *"]
 	}
 }
