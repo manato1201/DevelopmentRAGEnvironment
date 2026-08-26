@@ -79,10 +79,13 @@ function extractTitle(properties: Record<string, unknown>): string {
 
 // ページ本文（ブロック）を再帰的に取得し、プレーンテキストへ結合する
 // （既存GAS extractPageData_相当。ネストしたブロックはdepth段まで辿る）。
+// depth=3だと目次付きページ等でネストが深い場合に本文が欠落する実例があったため8に引き上げ
+// （2026-08-27）。depthを増やすとネストしたブロックの数だけサブリクエストが増えるため、
+// Cloudflareのサブリクエスト数上限に近づく可能性がある点とのトレードオフ。
 export async function getPageText(
   env: Env,
   pageId: string,
-  depth = 3,
+  depth = 8,
 ): Promise<string> {
   const lines: string[] = [];
   await collectBlockText(env, pageId, depth, lines);
