@@ -369,7 +369,12 @@ export function chatUiHtml(): string {
   apiKeyEl.value = localStorage.getItem("ragPocApiKey") || "";
   apiKeyEl.addEventListener("change", () => { localStorage.setItem("ragPocApiKey", apiKeyEl.value); loadNamespaceFocus(); });
 
-  async function api(path, body) {
+  // Cloudflareエッジ側の一時的なエラー（503等）やレスポンスがHTMLになるケースは、
+  // 実際には数秒待って再試行すると成功することが多い一過性の障害であることが多い。
+  // 毎回ユーザーに手動でbatchSizeを下げて再試行させるのではなく、まず自動で
+  // 数回リトライしてから諦めるようにした（2026-08-27）。
+  const RETRYABLE_STATUS = new Set([502, 503, 504]);
+  async function apiOnce(path, body) {
     const res = await fetch(path, {
       method: "POST",
       headers: { "Authorization": "Bearer " + apiKeyEl.value, "Content-Type": "application/json" },
@@ -381,12 +386,35 @@ export function chatUiHtml(): string {
       data = JSON.parse(text);
     } catch {
       // タイムアウト等でCloudflare/プロキシ側がHTMLエラーページを返すと発生する
-      // （バッチが大きすぎて処理に時間がかかりすぎている可能性が高い。batchSizeを
-      // 下げて再試行することを促す）
-      throw new Error("応答がJSONではありません（処理に時間がかかりすぎてタイムアウトした可能性があります。batchSizeを下げて再試行してください）: HTTP " + res.status);
+      const err = new Error("応答がJSONではありません（処理に時間がかかりすぎてタイムアウトした可能性があります）: HTTP " + res.status);
+      err.status = res.status;
+      err.retryable = true;
+      throw err;
     }
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    if (!res.ok) {
+      const err = new Error(data.error || ("HTTP " + res.status));
+      err.status = res.status;
+      err.retryable = RETRYABLE_STATUS.has(res.status);
+      throw err;
+    }
     return data;
+  }
+
+  async function api(path, body, retriesLeft) {
+    if (retriesLeft === undefined) retriesLeft = 2;
+    try {
+      return await apiOnce(path, body);
+    } catch (e) {
+      if (e.retryable && retriesLeft > 0) {
+        const waitMs = (3 - retriesLeft) * 4000 + 3000; // 3s, 7s
+        await new Promise((r) => setTimeout(r, waitMs));
+        return api(path, body, retriesLeft - 1);
+      }
+      if (e.retryable) {
+        e.message += "（自動再試行しましたが失敗しました。batchSizeを下げて再試行してください）";
+      }
+      throw e;
+    }
   }
 
   // ---------- 個別DBに絞った検索（検索精度向上のため2026-08-26追加） ----------
