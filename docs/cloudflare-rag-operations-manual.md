@@ -67,13 +67,14 @@ batchSizeが大きすぎると、1リクエストが100秒を超えてブラウ�
 | Notionページ本文 | そのまま取得 |
 | Googleドキュメント・テキスト・Markdown | そのまま取得 |
 | PDF | Geminiのネイティブ文書理解（18MB以下はインライン、超えるとFile API） |
-| Word（.docx）・PowerPoint（.pptx） | 自前のZIPパーサでXML本文を抽出 |
+| Word（.docx）・PowerPoint（.pptx）（Drive同期） | 自前のZIPパーサ＋HTTP Rangeで、ファイル全体をダウンロードせず本文XMLだけを取得（2026-08-27〜、事実上ファイルサイズ無制限） |
+| Word（.docx）・PowerPoint（.pptx）（手動アップロード`/admin/kb/upload-doc`） | base64でリクエストボディに載せる方式のため、こちらは約20MBまで |
 | 音声・動画ファイル | Gemini File APIにアップロードして文字起こし |
 | YouTube URL | `POST /admin/kb/import-youtube`（ダウンロード不要） |
 | 任意のWebページURL | `POST /admin/kb/import-url`（HTMLRewriterでテキスト抽出） |
 | QAペアのCSV | `POST /admin/kb/import-qa-csv`（question, answer列が必要） |
 
-20MBを超えるPPTX・非常に大きい動画ファイルは、Workersのメモリ・実行時間制約により登録できない場合がある（同期結果の`skipped`欄で確認できる）。
+PDF・音声・動画ファイルはGeminiに実データを渡す必要があるため、Drive同期でもダウンロード自体は避けられず、Workersのメモリ上限（128MB）に対する安全マージンとして約90MBの上限がある（超えると同期結果の`skipped`欄に理由が出る）。DOCX/PPTXはこの制約を受けない（上表参照）。
 
 ## 3. APIキー・namespaceの管理
 
