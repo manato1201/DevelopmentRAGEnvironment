@@ -11,6 +11,38 @@ const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.
 // Workers isolateのメモリ上限（128MB）に対する安全マージンとして、ダウンロード時点で弾く上限
 const MAX_DOWNLOAD_BYTES = 90 * 1024 * 1024;
 
+// Content-Lengthヘッダーに頼らず、実際に受信したバイト数をストリーミングで数えながら
+// 上限を超えた時点で読み込みを打ち切る。Drive の alt=media レスポンスがchunked転送で
+// Content-Lengthを返さないことがあり、ヘッダーだけのチェックでは大きいPPTXの
+// "Memory limit exceeded before EOF"を防げなかった（実機で確認、2026-08-27）ための対策。
+async function readBodyWithLimit(res: Response, maxBytes: number): Promise<ArrayBuffer> {
+  if (!res.body) return res.arrayBuffer();
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error(`ファイルが大きすぎます（${Math.round(total / 1024 / 1024)}MB超）。現在は約${Math.round(maxBytes / 1024 / 1024)}MBまでに対応しています`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined.buffer;
+}
+
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 // Notion同期と同じ理由（Cloudflareのサブリクエスト数上限対策）でバッチ処理にしている。
 const DEFAULT_BATCH_SIZE = 5;
@@ -71,14 +103,7 @@ async function extractDriveFileText(env: Env, token: string, file: DriveFile): P
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) throw new Error(`Drive download APIエラー (${res.status}): ${await res.text()}`);
-    // Content-Lengthを事前に見て、Workers isolateのメモリ上限（128MB）を超えそうな
-    // ファイルはダウンロード自体を諦める。実際に大きいPPTXで"Memory limit exceeded
-    // before EOF"（arrayBuffer()途中でのOOM）が発生したため、バッファ前に弾く対策（2026-08-26）。
-    const contentLength = Number(res.headers.get("content-length") || 0);
-    if (contentLength > MAX_DOWNLOAD_BYTES) {
-      throw new Error(`ファイルが大きすぎます（${Math.round(contentLength / 1024 / 1024)}MB）。現在は約${MAX_DOWNLOAD_BYTES / 1024 / 1024}MBまでに対応しています`);
-    }
-    const bytes = await res.arrayBuffer();
+    const bytes = await readBodyWithLimit(res, MAX_DOWNLOAD_BYTES);
     if (isPdf) return extractTextFromPdf(env, bytes, file.name);
     if (isDocx) return extractTextFromDocx(bytes);
     if (isPptx) return extractTextFromPptx(bytes);
