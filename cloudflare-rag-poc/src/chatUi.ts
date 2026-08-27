@@ -89,14 +89,21 @@ export function chatUiHtml(): string {
   .cited-badge.uncited { color: var(--muted); }
   #composer {
     border-top: 1px solid var(--border); padding: .8rem 1.2rem;
-    display: flex; gap: .6rem; max-width: 860px; margin: 0 auto; width: 100%;
+    display: flex; flex-direction: column; gap: .5rem; max-width: 860px; margin: 0 auto; width: 100%;
   }
+  .composer-row { display: flex; gap: .6rem; }
   #composer textarea {
     flex: 1; resize: none; background: var(--panel); border: 1px solid var(--border); color: var(--text);
     border-radius: 10px; padding: .6rem .8rem; font-size: .92rem; font-family: inherit; min-height: 2.6rem; max-height: 8rem;
   }
   #composer button { background: var(--accent); border: none; color: #fff; border-radius: 10px; padding: 0 1.2rem; font-size: .9rem; cursor: pointer; }
   #composer button:disabled { opacity: .5; cursor: default; }
+  .attach-btn {
+    display: flex; align-items: center; justify-content: center; width: 2.6rem; min-width: 2.6rem;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; font-size: 1.1rem;
+  }
+  .attach-preview { display: flex; align-items: center; gap: .5rem; font-size: .8rem; color: var(--muted); }
+  .attach-preview button { background: none; border: none; color: var(--bad); cursor: pointer; font-size: .85rem; padding: 0; }
   #status { text-align: center; color: var(--muted); font-size: .8rem; padding: .3rem; }
   .error { color: var(--bad); }
 
@@ -185,8 +192,12 @@ export function chatUiHtml(): string {
   <div id="messages"></div>
   <div id="status"></div>
   <div id="composer">
-    <textarea id="input" placeholder="質問を入力（Enterで送信、Shift+Enterで改行）" rows="1"></textarea>
-    <button id="send">送信</button>
+    <div id="imageAttachPreview" class="attach-preview" style="display:none;"></div>
+    <div class="composer-row">
+      <label class="attach-btn" title="画像を添付する（VLM入力。8MBまで、検索には使わず最終回答生成時にだけ渡す）">📎<input type="file" id="imageAttachInput" accept="image/*" style="display:none;"></label>
+      <textarea id="input" placeholder="質問を入力（Enterで送信、Shift+Enterで改行）" rows="1"></textarea>
+      <button id="send">送信</button>
+    </div>
   </div>
 </div>
 
@@ -335,6 +346,17 @@ export function chatUiHtml(): string {
       <div class="field-row"><label>ファイル</label><input type="file" id="fileUploadInput" accept=".pdf,.docx,.pptx,audio/*,video/*"></div>
       <button class="btn primary" id="fileUploadBtn">アップロード・登録</button>
       <div id="fileUploadResult" class="hint"></div>
+    </div>
+
+    <div class="section">
+      <h2>FAQ単発登録</h2>
+      <p class="hint">質問と回答を1件だけ登録します。まとめて登録したい場合は下のQA CSV一括登録を使ってください。</p>
+      <div class="field-row"><label>namespace</label><input type="text" id="faqNamespace" placeholder="例: shared:tool_docs"></div>
+      <div class="field-row"><label>質問</label><input type="text" id="faqQuestion" placeholder="例: HyDEとは何ですか？"></div>
+      <div class="field-row"><label>回答</label><input type="text" id="faqAnswer" placeholder="例: 仮の回答を先に生成してから検索する手法です"></div>
+      <label style="display:flex; align-items:center; gap:.4rem; margin:.4rem 0;"><input type="checkbox" id="faqAlsoNotion"> このnamespaceの同期先Notion DBにもページを作成する（namespaceにNotion DB設定が必要）</label>
+      <button class="btn primary" id="faqAddBtn">登録</button>
+      <div id="faqAddResult" class="hint"></div>
     </div>
 
     <div class="section">
@@ -636,19 +658,53 @@ export function chatUiHtml(): string {
     }
   }
 
+  // ---------- 質問への画像添付（VLM入力。既存GASのimage:{mimeType,data}と同一契約） ----------
+  let pendingImage = null; // { mimeType, data(base64) } | null
+  const imageAttachInput = $("imageAttachInput");
+  const imageAttachPreview = $("imageAttachPreview");
+  const MAX_ATTACH_IMAGE_BYTES = 8 * 1024 * 1024;
+
+  function clearPendingImage() {
+    pendingImage = null;
+    imageAttachInput.value = "";
+    imageAttachPreview.style.display = "none";
+    imageAttachPreview.innerHTML = "";
+  }
+  imageAttachInput.addEventListener("change", async () => {
+    const file = imageAttachInput.files[0];
+    if (!file) return;
+    if (file.size > MAX_ATTACH_IMAGE_BYTES) {
+      setStatus("添付画像が大きすぎます（上限8MB）", true);
+      imageAttachInput.value = "";
+      return;
+    }
+    const data = await readFileAsBase64(file);
+    pendingImage = { mimeType: file.type || "image/png", data };
+    imageAttachPreview.style.display = "flex";
+    imageAttachPreview.innerHTML = "";
+    imageAttachPreview.appendChild(document.createTextNode("📎 " + file.name + " を添付中"));
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.textContent = "✕";
+    clearBtn.addEventListener("click", clearPendingImage);
+    imageAttachPreview.appendChild(clearBtn);
+  });
+
   async function send() {
     const text = inputEl.value.trim();
     if (!text) return;
     if (!apiKeyEl.value.trim()) { setStatus("APIキーを入力してください", true); return; }
+    const imageToSend = pendingImage;
     inputEl.value = "";
     inputEl.style.height = "auto";
+    clearPendingImage();
     renderUserMessage(messagesEl, text);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     sendBtn.disabled = true;
     setStatus("検索・回答生成中…");
     try {
       const focusNs = namespaceFocusEl.value;
-      const data = await api("/query", { query: text, limit: 5, level: levelEl.value, namespaces: focusNs ? [focusNs] : undefined });
+      const data = await api("/query", { query: text, limit: 5, level: levelEl.value, namespaces: focusNs ? [focusNs] : undefined, image: imageToSend || undefined });
       renderAssistantMessage(messagesEl, data.answer, data.sources, data.extractionRate, data.extractionDetail, data.memoryId, null);
       messagesEl.scrollTop = messagesEl.scrollHeight;
       setStatus("");
@@ -1422,6 +1478,26 @@ export function chatUiHtml(): string {
       loadKbHistory();
     } catch (e) {
       $("fileUploadResult").textContent = "エラー: " + e.message;
+    }
+  });
+
+  // ---------- 管理タブ：FAQ単発登録 ----------
+  $("faqAddBtn").addEventListener("click", async () => {
+    const namespace = $("faqNamespace").value.trim();
+    const question = $("faqQuestion").value.trim();
+    const answer = $("faqAnswer").value.trim();
+    const alsoWriteToNotion = $("faqAlsoNotion").checked;
+    const resultEl = $("faqAddResult");
+    if (!namespace || !question || !answer) { resultEl.textContent = "namespace・質問・回答を入力してください"; return; }
+    resultEl.textContent = "登録中…";
+    try {
+      const data = await api("/admin/kb/add-faq", { namespace, question, answer, alsoWriteToNotion });
+      resultEl.textContent = "完了: " + data.chunks + "チャンク登録" + (data.notionPageId ? "（Notionページも作成: " + data.notionPageId + "）" : "");
+      $("faqQuestion").value = "";
+      $("faqAnswer").value = "";
+      loadKbHistory();
+    } catch (e) {
+      resultEl.textContent = "エラー: " + e.message;
     }
   });
 
