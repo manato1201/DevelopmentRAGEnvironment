@@ -37,6 +37,9 @@ export interface SourceEntry {
   difficulty?: string;
   score: number;
   cited?: boolean;
+  // 回答文中で [n] が実際に何回参照されたか（同じ出典を繰り返し根拠にした場合ほど大きくなる）。
+  // 複数出典を引用した際の「貢献度の比率」表示に使う（2026-08-27追加）。
+  citationCount?: number;
 }
 
 // POST /search レスポンス（既存契約と同一形式：texts/sources/status）
