@@ -2,7 +2,7 @@ import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { requireAdmin } from "./auth";
 import { getGoogleAccessToken } from "./googleAuth";
 import { ingestDocument, logKb } from "./kbIngest";
-import { newOpId, withTimeout } from "./chunking";
+import { newOpId, withAbortTimeout } from "./chunking";
 
 // PDFのFile APIアップロード＋動画のACTIVE待ちポーリングを含むと1件で数十秒かかることがあり、
 // これがCloudflareエッジのリクエスト打ち切り（非JSON応答・HTTP 503）を引き起こしていた
@@ -58,8 +58,13 @@ interface DriveFile {
   id: string;
   name: string;
   mimeType: string;
+  size?: string; // Google Drive APIは文字列で返す（bytes）。Googleネイティブ形式は無し
 }
 
+// サイズの小さい順に並べ替えて返す（2026-08-27追加）。小さいファイルから先に処理することで、
+// バッチの先頭で大きい/重い変換に時間を取られて後続がタイムアウトする事態を避け、
+// 同じ処理時間内でより多くのファイルを確実に登録できるようにする。サイズ不明
+// （Googleネイティブ形式のドキュメント等）は「小さい」側として先頭寄りに扱う。
 async function listDriveFiles(token: string, folderId: string): Promise<DriveFile[]> {
   const files: DriveFile[] = [];
   let pageToken: string | undefined;
@@ -67,7 +72,7 @@ async function listDriveFiles(token: string, folderId: string): Promise<DriveFil
   do {
     const url = new URL("https://www.googleapis.com/drive/v3/files");
     url.searchParams.set("q", `'${folderId}' in parents and trashed = false`);
-    url.searchParams.set("fields", "nextPageToken, files(id, name, mimeType)");
+    url.searchParams.set("fields", "nextPageToken, files(id, name, mimeType, size)");
     url.searchParams.set("pageSize", "1000");
     if (pageToken) url.searchParams.set("pageToken", pageToken);
 
@@ -78,6 +83,7 @@ async function listDriveFiles(token: string, folderId: string): Promise<DriveFil
     pageToken = data.nextPageToken;
   } while (pageToken);
 
+  files.sort((a, b) => Number(a.size || 0) - Number(b.size || 0));
   return files;
 }
 
@@ -85,10 +91,11 @@ async function listDriveFiles(token: string, folderId: string): Promise<DriveFil
 // PDF・DOCX・PPTXはバイナリをダウンロードしてから変換、音声/動画はGemini File API経由で
 // 文字起こしする（既存GAS _convertBinaryBlobToText_・_transcribeAudioVideoBlob_相当、
 // 2026-08-26追加。詳細は src/docExtract.ts, src/mediaTranscribe.ts 参照）。
-async function extractDriveFileText(env: Env, token: string, file: DriveFile): Promise<string | null> {
+async function extractDriveFileText(env: Env, token: string, file: DriveFile, signal: AbortSignal): Promise<string | null> {
   if (file.mimeType === "application/vnd.google-apps.document") {
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}/export?mimeType=text/plain`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal,
     });
     if (!res.ok) throw new Error(`Drive export APIエラー (${res.status}): ${await res.text()}`);
     return await res.text();
@@ -96,6 +103,7 @@ async function extractDriveFileText(env: Env, token: string, file: DriveFile): P
   if (file.mimeType === "text/plain" || file.mimeType === "text/markdown") {
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal,
     });
     if (!res.ok) throw new Error(`Drive download APIエラー (${res.status}): ${await res.text()}`);
     return await res.text();
@@ -110,14 +118,15 @@ async function extractDriveFileText(env: Env, token: string, file: DriveFile): P
   // （central directory・対象XMLエントリ）だけを取得する。容量の大半を占める埋め込み
   // 動画/画像に触れないため、ファイルサイズの実質的な上限が無くなる（2026-08-27）。
   if (isDocx || isPptx) {
-    const totalSize = await getDriveFileSize(token, file.id);
-    const source = driveRangeSource(token, file.id, totalSize);
+    const totalSize = await getDriveFileSize(token, file.id, signal);
+    const source = driveRangeSource(token, file.id, totalSize, signal);
     return isDocx ? extractTextFromDocxSource(source) : extractTextFromPptxSource(source);
   }
 
   if (isPdf || isAudioVideo) {
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal,
     });
     if (!res.ok) throw new Error(`Drive download APIエラー (${res.status}): ${await res.text()}`);
     const bytes = await readBodyWithLimit(res, MAX_DOWNLOAD_BYTES);
@@ -131,9 +140,10 @@ async function extractDriveFileText(env: Env, token: string, file: DriveFile): P
 // ファイルサイズはDrive files.getのメタデータ（fields=size）で取得する。
 // alt=mediaのレスポンスヘッダーから読み取る方式だと、Content-Length省略時に
 // 破綻するリスクがある（readBodyWithLimit参照）ため、メタデータAPIを使う。
-async function getDriveFileSize(token: string, fileId: string): Promise<number> {
+async function getDriveFileSize(token: string, fileId: string, signal: AbortSignal): Promise<number> {
   const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=size`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal,
   });
   if (!res.ok) throw new Error(`Driveファイルサイズ取得エラー (${res.status}): ${await res.text()}`);
   const data = (await res.json()) as { size?: string };
@@ -142,10 +152,11 @@ async function getDriveFileSize(token: string, fileId: string): Promise<number> 
   return size;
 }
 
-async function fetchDriveRange(token: string, fileId: string, start: number, length: number): Promise<Uint8Array> {
+async function fetchDriveRange(token: string, fileId: string, start: number, length: number, signal: AbortSignal): Promise<Uint8Array> {
   const end = start + length - 1;
   const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
     headers: { Authorization: `Bearer ${token}`, Range: `bytes=${start}-${end}` },
+    signal,
   });
   if (res.status !== 206 && res.status !== 200) {
     throw new Error(`Drive range取得エラー (${res.status}): ${await res.text()}`);
@@ -153,10 +164,10 @@ async function fetchDriveRange(token: string, fileId: string, start: number, len
   return new Uint8Array(await res.arrayBuffer());
 }
 
-function driveRangeSource(token: string, fileId: string, totalSize: number): ByteRangeSource {
+function driveRangeSource(token: string, fileId: string, totalSize: number, signal: AbortSignal): ByteRangeSource {
   return {
     totalSize,
-    read: (start, length) => fetchDriveRange(token, fileId, start, Math.min(length, totalSize - start)),
+    read: (start, length) => fetchDriveRange(token, fileId, start, Math.min(length, totalSize - start), signal),
   };
 }
 
@@ -191,7 +202,11 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
 
   for (const file of batch) {
     try {
-      const text = await withTimeout(extractDriveFileText(env, token, file), PER_FILE_TIMEOUT_MS, `${file.name}の変換`);
+      const text = await withAbortTimeout(
+        (signal) => extractDriveFileText(env, token, file, signal),
+        PER_FILE_TIMEOUT_MS,
+        `${file.name}の変換`,
+      );
       if (text === null) {
         skipped.push({ file: file.name, reason: `未対応のmimeType: ${file.mimeType}` });
         await logKb(env, opId, namespace, "drive", file.name, "skipped", `未対応mimeType: ${file.mimeType}`);
