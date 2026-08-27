@@ -69,6 +69,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSplitter,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -464,6 +465,12 @@ class RAGChatbotPanel(QWidget):
 
     def _build_ui(self) -> None:
         """ルートレイアウトを構築してタブを追加する。"""
+        # Houdiniのペインが縦に長い場合でも、このウィジェット自身が利用可能な高さを
+        # 素直に受け取れるようにする（既定のPreferredのままだと、内部レイアウトの
+        # 都合でウィジェット自体がペインの一部しか使わず、下部（入力欄など）が
+        # ペインの空白領域の外に取り残されて操作不能になる不具合の対策、2026-08-27）。
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
         root = QVBoxLayout(self)
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(4)
@@ -609,13 +616,18 @@ class RAGChatbotPanel(QWidget):
         self._chat_layout  = QVBoxLayout(self._chat_inner)
         self._chat_layout.addStretch()  # バブルを下から積み上げるためのスペーサー
         self._chat_scroll.setWidget(self._chat_inner)
-        layout.addWidget(self._chat_scroll, stretch=1)
 
-        # テキスト入力
+        # 入力欄＋ボタン行（1つのウィジェットにまとめてスプリッターの下段に置く）
+        input_area = QWidget()
+        input_layout = QVBoxLayout(input_area)
+        input_layout.setContentsMargins(0, 0, 0, 0)
+        input_layout.setSpacing(4)
+
         self._input = QTextEdit()
-        self._input.setFixedHeight(70)
+        self._input.setMinimumHeight(50)
+        self._input.setMaximumHeight(140)
         self._input.setPlaceholderText("質問を入力（Ctrl+Enter で送信）")
-        layout.addWidget(self._input)
+        input_layout.addWidget(self._input)
 
         btn_row = QHBoxLayout()
         self._send_btn = QPushButton("送信")
@@ -625,7 +637,25 @@ class RAGChatbotPanel(QWidget):
         btn_row.addStretch()
         btn_row.addWidget(self._send_btn)
         btn_row.addWidget(clear_btn)
-        layout.addLayout(btn_row)
+        input_layout.addLayout(btn_row)
+        input_area.setMinimumHeight(90)
+
+        # メッセージエリアと入力エリアをスプリッターにする（2026-08-27）。
+        # 以前は単純な縦積みレイアウトで、Houdiniのペインが縦に狭い/新規追加直後の
+        # 状態だと入力欄・送信ボタンがペインの表示領域からはみ出し、見えない・
+        # 操作できないという不具合が報告された。スプリッターにしておけば、万一
+        # 上段（メッセージ表示）が必要以上に大きく確保されても、ハンドルを
+        # ドラッグして下段を必ず表に出せる。setCollapsible(1, False)で下段
+        # （入力エリア）自体がドラッグで完全に隠れてしまうことも防ぐ。
+        splitter = QSplitter(Qt.Vertical)
+        splitter.addWidget(self._chat_scroll)
+        splitter.addWidget(input_area)
+        splitter.setCollapsible(0, True)
+        splitter.setCollapsible(1, False)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([400, 110])
+        layout.addWidget(splitter, stretch=1)
 
         # Ctrl+Enter の検知は eventFilter で行う
         self._input.installEventFilter(self)
