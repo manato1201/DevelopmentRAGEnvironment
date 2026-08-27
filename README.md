@@ -1,6 +1,6 @@
 # ゲーム開発 RAG 環境
 
-**更新日:** 2026-07-04
+**更新日:** 2026-08-27
 
 ---
 
@@ -32,6 +32,7 @@
 | **情報抽出度メトリクス** | 回答中の引用数÷ソース数で抽出効率を可視化（✓引用バッジ・進捗バー）|
 | **houdini21 名前空間** | Houdini 21ドキュメント専用DB（GAS・LocalRAG・Unity/Houdini UI統合）|
 | **houdini21チュートリアル自動生成** | 自然言語の依頼からHoudiniのノードグラフを実際に組み立て、cookエラーなしのチュートリアル（Markdown+ノードグラフJSON）を自動生成 |
+| **Cloudflare RAG POC**（検証環境） | クラウド RAG（GAS+Notion+Sheets）をCloudflare Workers+D1+Vectorizeで再実装できるか検証する技術検証。本番のクラウド RAGには影響しない独立実装 |
 
 ---
 
@@ -152,6 +153,11 @@ DevelopmentRAGEnvironment/
 │   ├── delete_non_txt.py              # .txt 以外のファイルを削除
 │   └── sync_houdini21_db.py            # ★ Notion houdini21DB → localRAG/houdini21/ 同期
 │
+├── cloudflare-rag-poc/                 # ★ クラウド RAG の Cloudflare Workers+D1+Vectorize検証実装（本番影響なし）
+│   ├── src/                            # TypeScript実装（同期・検索・Admin API等）
+│   ├── migrations/                     # D1マイグレーション
+│   └── README.md                       # セットアップ手順・実装済み機能一覧
+│
 ├── docs/                               # 設計・セットアップ・用語・ライセンスドキュメント
 │   ├── cloud-rag.md                    # クラウド RAG 設計・セットアップ（旧 cloud-rag-setup.md + rag-system-design.md統合）
 │   ├── local-rag.md                    # ローカル RAG 設計・セットアップ（旧 local-rag-setup.md 等7ファイル統合）
@@ -160,7 +166,12 @@ DevelopmentRAGEnvironment/
 │   ├── houdini21-tutorial-gen-report.html  # ★ 同レポートのHTML版
 │   ├── houdini21-learning-effect-study.md  # houdini21学習効果検証テスト 要件定義
 │   ├── terminology.md                  # 技術・用語解説
-│   └── license-compliance.md           # ライセンス・権利関連
+│   ├── license-compliance.md           # ライセンス・権利関連
+│   ├── cloudflare-rag-technical-report.md  # ★ Cloudflare RAG POCの設計・データフロー解説（+.html版）
+│   ├── cloudflare-rag-operations-manual.md # ★ Cloudflare RAG POCの日常運用手順
+│   ├── cloudflare-vs-firebase-comparison.md # ★ 同じ構成をFirebaseで作った場合との違い
+│   ├── gas-feature-parity.md           # ★ GAS版とCloudflare RAG POCの機能対応表
+│   └── axchatd-rag-integration-plan.md # ★ AXTechCare/AxChatDへのRAG環境統合計画
 │
 ├── lecture/                            # 講義資料（HTML）
 │   ├── cloud-rag-lecture.html          # ★ クラウド RAG 講義（コサイン類似度・Spring Layoutのcanvasアニメーション付き）
@@ -262,6 +273,22 @@ NIST SP 800-207（Zero Trust Architecture）の設計を取り入れた以下の
 | **情報抽出度** | 回答中の`[1][2]`引用を解析し、何件のソースが実際に活用されたかを表示 |
 | **adminUpdateKey** | APIキーのnamespace権限を削除・再作成不要で更新できる管理機能 |
 | **houdini21 namespace** | Houdini 21専用ドキュメントDB。GAS/LocalRAG/Unity/Houdini UIに統合済み |
+
+---
+
+## Cloudflare RAG POC（検証環境、2026-08 追加）
+
+`cloudflare-rag-poc/` に、クラウド RAG（GAS + Notion + Sheets）を Cloudflare Workers + D1 + Vectorize で置き換えられるか検証する独立実装がある。**本番のクラウド RAGには一切影響しない検証環境**で、実証実験（9月〜）の結果を待たずに本番構成は現行のまま動き続ける。
+
+Notion/Google Drive同期・PDF/DOCX/PPTX/音声動画の変換・ハイブリッド検索（Vectorize+D1 FTS5+HyDE）・Admin API・ヘルスチェック通知・Claude APIプロキシなど、既存GAS版の機能はほぼ実装・実データ検証済み（詳細 → [docs/gas-feature-parity.md](docs/gas-feature-parity.md)）。実際に `https://rag-poc.manato1201m.workers.dev` にデプロイし、houdini21DB（Notion・80ページ）の完全同期・実内容に基づく引用付き回答生成まで確認済み。
+
+| ドキュメント | 内容 |
+|---|---|
+| [cloudflare-rag-poc/README.md](cloudflare-rag-poc/README.md) | セットアップ手順・実装済み機能一覧 |
+| [docs/cloudflare-rag-technical-report.md](docs/cloudflare-rag-technical-report.md)（[HTML版](docs/cloudflare-rag-technical-report.html)） | 設計・データフロー・実際に発見/修正したバグの解説（mermaid図解付き） |
+| [docs/cloudflare-rag-operations-manual.md](docs/cloudflare-rag-operations-manual.md) | 日常運用手順（知識ベース同期・D1データの直接確認・障害対応等） |
+| [docs/cloudflare-vs-firebase-comparison.md](docs/cloudflare-vs-firebase-comparison.md) | 同じ構成をFirebaseで作った場合との違いの検証 |
+| [docs/axchatd-rag-integration-plan.md](docs/axchatd-rag-integration-plan.md) | 別プロジェクト（AXTechCare/AxChatD）のRAG環境統合に向けた作業洗い出し |
 
 ---
 
