@@ -63,7 +63,24 @@ _DEFAULT_NODE_COLOR = "#64748b"  # 未知の DB はグレー
 
 # ノードの x, y（[0, 1] 正規化座標）を掛けてシーン座標に変換するスケール値。
 # 大きいほどノード間の距離が広がる。
-_SCENE_SIZE = 900.0
+# 2026-08-27修正: 従来は固定値だったため、ノード数が増えるほど単位面積あたりの
+# ノード密度が上がり続け、実機で218ノード/358エッジのグラフがラベルもろとも
+# 団子状に潰れて読めなくなる不具合があった（「相変わらずひどい」として報告）。
+# ノード数のルートに比例させ、密度がおおよそ一定になるようにする
+# （50ノード時に900、218ノード時は約1880になる）。
+_BASE_SCENE_SIZE = 900.0
+_BASE_NODE_COUNT = 50.0
+
+
+def _scene_size_for(node_count: int) -> float:
+    return max(_BASE_SCENE_SIZE, _BASE_SCENE_SIZE * math.sqrt(max(node_count, 1) / _BASE_NODE_COUNT))
+
+
+# ラベルが長いと、ノード間隔がどれだけ広くても隣接ラベル同士が重なって読めなくなる
+# （実機の「CEDEC2025_[クリエイターズ]AIが牽引する...」のような長いタイトルで確認）。
+# 常時表示ではなくホバー時のみ表示に切り替え、それでも長すぎる場合はこの文字数で
+# 省略する（フルタイトルは選択時の詳細パネルに出るため、常時表示分は短くて構わない）。
+_LABEL_MAX_CHARS = 14
 
 
 def _spring_layout(
@@ -245,36 +262,46 @@ class NodeItem(QGraphicsEllipseItem):
         self.setPen(QPen(QColor("#1e293b"), 1.5))  # 暗いボーダーで形を際立たせる
         self.setZValue(1)  # エッジ（ZValue=0）より手前に描画
 
-        # ノード名ラベルを子アイテムとして配置（円の下に表示）
-        self._label = QGraphicsSimpleTextItem(node_data.get("label", ""), self)
+        # ノード名ラベルを子アイテムとして配置（円の下に表示）。長いタイトルは省略し、
+        # ノード数が多いグラフで隣接ラベル同士が重なって読めなくなるのを避けるため、
+        # 通常時は非表示にしてホバー/選択時のみ表示する（2026-08-27）。
+        full_label = node_data.get("label", "")
+        short_label = full_label if len(full_label) <= _LABEL_MAX_CHARS else full_label[:_LABEL_MAX_CHARS] + "…"
+        self._label = QGraphicsSimpleTextItem(short_label, self)
         font = QFont()
         font.setPointSize(8)
         self._label.setFont(font)
         self._label.setBrush(QBrush(QColor("#f8fafc")))
         br = self._label.boundingRect()
         self._label.setPos(-br.width() / 2, r + 2)  # 円の下中央に配置
+        self._label.setVisible(False)
+        self._label.setZValue(4)  # 表示時は他ノードの上に重ねて読めるようにする
 
     def hoverEnterEvent(self, event) -> None:
-        """ホバー開始時: ブラシを明るい色に変え、最前面に移動する。"""
+        """ホバー開始時: ブラシを明るい色に変え、最前面に移動してラベルを表示する。"""
         self.setBrush(self._hover_brush)
         self.setZValue(3)
+        self._label.setVisible(True)
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event) -> None:
-        """ホバー終了時: 選択中なら選択色、そうでなければデフォルト色に戻す。"""
+        """ホバー終了時: 選択中なら選択色、そうでなければデフォルト色に戻す。
+        ラベルは選択中のみ表示を維持する。"""
         self.setBrush(
             self._select_brush if self.isSelected() else self._default_brush
         )
         self.setZValue(1)
+        self._label.setVisible(self.isSelected())
         super().hoverLeaveEvent(event)
 
     def itemChange(self, change, value):
         """
         QGraphicsScene の選択状態が変化したときに呼ばれる。
-        選択: 黄色ブラシ / 非選択: デフォルト色ブラシ に切り替える。
+        選択: 黄色ブラシ＋ラベル表示 / 非選択: デフォルト色ブラシ＋ラベル非表示 に切り替える。
         """
         if change == QGraphicsItem.ItemSelectedChange:
             self.setBrush(self._select_brush if value else self._default_brush)
+            self._label.setVisible(bool(value))
         return super().itemChange(change, value)
 
 
@@ -314,13 +341,15 @@ class RAGGraphScene(QGraphicsScene):
     def build(self, data: dict) -> None:
         """
         グラフデータからノードとエッジを構築する。
-        ノードの x, y（[0, 1]）を _SCENE_SIZE でスケーリングしてシーン座標に変換する。
+        ノードの x, y（[0, 1]）を、ノード数から動的に決まるscene_size（_scene_size_for）
+        でスケーリングしてシーン座標に変換する。
         """
         self.clear()
         self._node_items.clear()
 
         nodes = data.get("nodes", [])
         edges = data.get("edges", [])
+        scene_size = _scene_size_for(len(nodes))
 
         # Cloud RAG（gas_cloud_rag.jsのbuildGraphData_）はx/yを返さないため、
         # 1つでも欠けていればフォースディレクテッドレイアウトを計算して補う
@@ -337,7 +366,7 @@ class RAGGraphScene(QGraphicsScene):
             else:
                 nx, ny = nd.get("x", 0.5), nd.get("y", 0.5)
             item = NodeItem(nd)
-            item.setPos(nx * _SCENE_SIZE, ny * _SCENE_SIZE)
+            item.setPos(nx * scene_size, ny * scene_size)
             self.addItem(item)
             self._node_items[nd["id"]] = item
 
