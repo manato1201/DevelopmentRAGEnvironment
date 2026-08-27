@@ -486,13 +486,20 @@ class RAGChatbotPanel(QWidget):
         tabs.addTab(self._build_settings_tab(), "Settings")
         self._tabs = tabs  # /tutorial コマンドでのタブ切り替えに使う
 
-        # 接続状態ランプをタブバーの右端に配置する。以前はTutorialタブの中だけに
-        # 表示していたが、他のタブを開いているときに確認できないのは不親切なため、
-        # setCornerWidgetでタブ切り替えに関わらず常時表示されるようにした。
+        # 接続状態ランプ。以前はQTabWidget.setCornerWidget()でタブバー右端に
+        # 埋め込んでいたが、Houdiniのペインに組み込んだ状態でパネルを開くと
+        # ウィンドウ全体がリサイズ不能になるという報告があり、疑わしい候補として
+        # 撤回した（2026-08-27）。setCornerWidgetは比較的マイナーなAPIで、
+        # Houdiniのペインホスト側のサイズ計算と干渉した可能性がある。
+        # 素直な行として独立させても「どのタブを開いていても見える」という
+        # 目的は変わらず達成できる。
         self._conn_lamp = _ConnectionLamp()
-        tabs.setCornerWidget(self._conn_lamp, Qt.TopRightCorner)
+        lamp_row = QHBoxLayout()
+        lamp_row.addStretch()
+        lamp_row.addWidget(self._conn_lamp)
+        root.addLayout(lamp_row)
 
-        root.addWidget(tabs)
+        root.addWidget(tabs, stretch=1)
 
         # 下部ステータスバー（接続状態や参照ドキュメントを表示）
         self._status = QLabel("")
