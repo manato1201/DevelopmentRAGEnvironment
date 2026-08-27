@@ -36,8 +36,8 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
   const { texts, sources } = buildContextTexts(ranked);
 
   const answerResult = await generateAnswer(env, query, texts, history);
-  const { cited, citedFlags } = parseExtractionRate(answerResult.text, sources.length);
-  const sourcesWithCitation: SourceEntry[] = sources.map((s, i) => ({ ...s, cited: citedFlags[i] }));
+  const { cited, citationCounts } = parseExtractionRate(answerResult.text, sources.length);
+  const sourcesWithCitation: SourceEntry[] = sources.map((s, i) => ({ ...s, cited: citationCounts[i] > 0, citationCount: citationCounts[i] }));
   const extractionRate = sources.length > 0 ? Math.round((cited / sources.length) * 100) : 0;
 
   const tokensUsed = hydeTokensUsed + answerResult.promptTokens + answerResult.candidateTokens;
@@ -63,16 +63,18 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
   } satisfies QueryResponse);
 }
 
-// 回答文中に [1] [2] 等の出典番号が実際に含まれているかを数える（既存GAS parseExtractionRate_相当）。
-// 「AIが出典を提示せずに答えている＝知ったかぶりの可能性」を検知するハルシネーション対策。
-function parseExtractionRate(answer: string, total: number): { cited: number; citedFlags: boolean[] } {
-  const citedFlags = new Array(total).fill(false);
+// 回答文中に [1] [2] 等の出典番号が実際に含まれているか、何回参照されたかを数える
+// （既存GAS parseExtractionRate_相当。回数まで数えるのは2026-08-27追加）。
+// 「AIが出典を提示せずに答えている＝知ったかぶりの可能性」を検知するハルシネーション対策に加え、
+// 複数出典を引用した際に「どの出典が根拠として重く使われたか」を示す貢献度表示にも使う。
+function parseExtractionRate(answer: string, total: number): { cited: number; citationCounts: number[] } {
+  const citationCounts = new Array(total).fill(0);
   const matches = answer.matchAll(/\[(\d+)\]/g);
   for (const m of matches) {
     const idx = parseInt(m[1], 10) - 1;
-    if (idx >= 0 && idx < total) citedFlags[idx] = true;
+    if (idx >= 0 && idx < total) citationCounts[idx] += 1;
   }
-  return { cited: citedFlags.filter(Boolean).length, citedFlags };
+  return { cited: citationCounts.filter((c) => c > 0).length, citationCounts };
 }
 
 function jsonResponse(status: number, body: unknown): Response {
