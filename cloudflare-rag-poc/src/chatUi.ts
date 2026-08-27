@@ -76,6 +76,7 @@ export function chatUiHtml(): string {
   details.sources ul { margin: .4rem 0 0; padding-left: 1.2rem; }
   details.sources li { margin-bottom: .3rem; }
   .source-composition { margin: .5rem 0; }
+  .composition-title { font-size: .72rem; color: var(--muted); margin-bottom: .25rem; }
   .composition-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border); }
   .composition-bar span { height: 100%; }
   .composition-legend { display: flex; flex-wrap: wrap; gap: .5rem .8rem; margin-top: .35rem; font-size: .72rem; }
@@ -115,6 +116,8 @@ export function chatUiHtml(): string {
   table.admin-table th, table.admin-table td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--border); word-break: break-all; }
   table.admin-table th { color: var(--muted); font-weight: 600; }
   .keybox { background: var(--bg); border: 1px solid var(--good); border-radius: 8px; padding: .6rem .8rem; font-family: monospace; font-size: .85rem; word-break: break-all; margin-top: .5rem; }
+  .keybox-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .35rem; }
+  .keybox-row code { word-break: break-all; }
   .hint { color: var(--muted); font-size: .78rem; margin: .3rem 0 0; }
 
   #graphContainer { flex: 1; position: relative; overflow: hidden; background: var(--bg); }
@@ -458,6 +461,7 @@ export function chatUiHtml(): string {
       if (btn.dataset.tab === "history") loadHistory();
       if (btn.dataset.tab === "graph") loadGraph();
       if (btn.dataset.tab === "admin") { loadNamespaceChecks(); loadKeys(); loadNamespaces(); loadKbHistory(); loadUsageStats(); loadRatingStats(); }
+      else clearNewKey(); // 管理タブを離れたら、発行直後のAPIキー表示が残らないようにする
     });
   });
 
@@ -514,7 +518,48 @@ export function chatUiHtml(): string {
       summary.textContent = "参照した情報源（" + sources.length + "件）";
       details.appendChild(summary);
 
-      // 複数DBにまたがって抽出された場合のみ、内訳（貢献度の比率）バーを表示する
+      // 実際に回答文中で引用された（[n]が1回以上出現した）出典が2件以上ある場合、
+      // 「どの出典が根拠としてどれだけ重く使われたか」を引用回数の比率で示す。
+      // namespace単位の内訳（下のブロック）は「どのDBから取れたか」を示すだけで、
+      // 複数出典を実際にどう重み付けして使ったかは分からない、という指摘への対応（2026-08-27）。
+      const citedSources = sources
+        .map((s, i) => ({ ...s, idx: i, count: s.citationCount || 0 }))
+        .filter((s) => s.count > 0);
+      const totalCitations = citedSources.reduce((sum, s) => sum + s.count, 0);
+      if (citedSources.length > 1 && totalCitations > 0) {
+        const contribWrap = document.createElement("div");
+        contribWrap.className = "source-composition";
+        const label = document.createElement("div");
+        label.className = "composition-title";
+        label.textContent = "引用の内訳（実際に引用された回数の比率、延べ" + totalCitations + "回）";
+        contribWrap.appendChild(label);
+        const bar = document.createElement("div");
+        bar.className = "composition-bar";
+        const legend = document.createElement("div");
+        legend.className = "composition-legend";
+        citedSources.forEach((s) => {
+          const color = NS_PALETTE[s.idx % NS_PALETTE.length];
+          const pct = Math.round((100 * s.count) / totalCitations);
+          const seg = document.createElement("span");
+          seg.style.background = color;
+          seg.style.width = pct + "%";
+          bar.appendChild(seg);
+
+          const item = document.createElement("span");
+          item.className = "item";
+          const dot = document.createElement("span");
+          dot.className = "dot";
+          dot.style.background = color;
+          item.appendChild(dot);
+          item.appendChild(document.createTextNode("[" + (s.idx + 1) + "] " + s.file + "（" + s.count + "回・" + pct + "%）"));
+          legend.appendChild(item);
+        });
+        contribWrap.appendChild(bar);
+        contribWrap.appendChild(legend);
+        details.appendChild(contribWrap);
+      }
+
+      // 複数DBにまたがって抽出された場合のみ、内訳（DB構成比）バーを表示する
       const nsCounts = new Map();
       sources.forEach((s) => nsCounts.set(s.namespace, (nsCounts.get(s.namespace) || 0) + 1));
       if (nsCounts.size > 1) {
@@ -1031,6 +1076,67 @@ export function chatUiHtml(): string {
     }
   }
 
+  // 発行直後の生キーは、画面を離れても（タブ切替・再読み込みしない限り）表示されたままに
+  // なっていた（肩越し閲覧・画面共有時の漏洩リスク）。コピー操作を挟める猶予は残しつつ、
+  // 60秒後の自動非表示・明示的な「隠す」ボタン・管理タブを離れた時点でのクリアの
+  // 3経路で確実に画面から消えるようにした（2026-08-27）。
+  let newKeyHideTimer = null;
+  let newKeyCountdownTimer = null;
+
+  function clearNewKey() {
+    if (newKeyHideTimer) { clearTimeout(newKeyHideTimer); newKeyHideTimer = null; }
+    if (newKeyCountdownTimer) { clearInterval(newKeyCountdownTimer); newKeyCountdownTimer = null; }
+    $("newKeyResult").innerHTML = "";
+  }
+
+  function showNewKey(apiKey) {
+    clearNewKey();
+    const box = $("newKeyResult");
+    const wrap = document.createElement("div");
+    wrap.className = "keybox";
+    const label = document.createElement("div");
+    label.textContent = "発行されたAPIキー（今だけ表示されます。必ずコピーしてから閉じてください）：";
+    wrap.appendChild(label);
+
+    const row = document.createElement("div");
+    row.className = "keybox-row";
+    const code = document.createElement("code");
+    code.textContent = apiKey;
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.textContent = "コピー";
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(apiKey);
+        copyBtn.textContent = "コピー済み";
+      } catch {
+        copyBtn.textContent = "コピー失敗（手動選択してください）";
+      }
+    });
+    const hideBtn = document.createElement("button");
+    hideBtn.type = "button";
+    hideBtn.textContent = "隠す";
+    hideBtn.addEventListener("click", clearNewKey);
+    row.appendChild(code);
+    row.appendChild(copyBtn);
+    row.appendChild(hideBtn);
+    wrap.appendChild(row);
+
+    const countdown = document.createElement("p");
+    countdown.className = "hint";
+    wrap.appendChild(countdown);
+    box.innerHTML = "";
+    box.appendChild(wrap);
+
+    let remaining = 60;
+    countdown.textContent = "あと" + remaining + "秒で自動的に非表示になります";
+    newKeyCountdownTimer = setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) countdown.textContent = "あと" + remaining + "秒で自動的に非表示になります";
+    }, 1000);
+    newKeyHideTimer = setTimeout(clearNewKey, 60000);
+  }
+
   $("createKeyBtn").addEventListener("click", async () => {
     const namespaces = Array.from($("newKeyNamespaces").querySelectorAll("input:checked")).map((c) => c.value);
     try {
@@ -1040,9 +1146,10 @@ export function chatUiHtml(): string {
         namespaces,
         ragCapacity: Number($("newKeyCapacity").value) || 100000,
       });
-      $("newKeyResult").innerHTML = '<div class="keybox">発行されたAPIキー（今だけ表示されます）：<br>' + data.apiKey + '</div>';
+      showNewKey(data.apiKey);
       loadKeys();
     } catch (e) {
+      clearNewKey();
       $("newKeyResult").innerHTML = '<p class="hint error">' + e.message + '</p>';
     }
   });
