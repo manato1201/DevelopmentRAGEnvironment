@@ -19,7 +19,7 @@
 | 個別DBに絞った検索（検索精度向上） | GAS版チャットUIのDB選択ドロップダウン相当 | ✅ 実装済み（2026-08-26、`POST /query`に`namespaces`パラメータ追加、`POST /me/namespaces`で一般ユーザーも自分の許可namespace一覧を取得可能に）。チャットUIに「🌐全DB横断検索」＋個別DBのドロップダウンを追加。実データで動作確認済み（`shared:cedecnotes`に絞ると他DBの結果が混ざらないことを確認） |
 | レベルフィルタ（Phase1レベリング basic/applied/advanced） | `_filter_groups_by_level`相当 | ✅ 実装済み |
 | ベクトル圧縮・近似候補選定（`_packSignature_`/ハミング距離） | `_vectorCandidatesFor_` | 対象外（Vectorizeが同等の役割を代替するため移植不要） |
-| 画像添付つき質問（マルチモーダルクエリ） | `_maxQueryImageBytes_` 周りの処理（`/query`相当エンドポイントに画像を添付） | ❌ 未実装（2026-08-27棚卸しで判明）。`/query`はテキストのみ受け付け、画像を添付して「この画像は何か」のように聞く機能が無い |
+| 画像添付つき質問（マルチモーダルクエリ） | `_maxQueryImageBytes_` 周りの処理（`/query`相当エンドポイントに画像を添付） | ✅ 実装済み（2026-08-27、`QueryRequest.image`、`src/query.ts`・`src/embeddings.ts`）。GAS版と同じ8MB上限・同じ`{mimeType, data}`契約。検索・埋め込みには使わず、最終回答生成のGemini呼び出し時だけ`inlineData`として追加する。チャットUIに📎添付ボタンを追加 |
 
 ## 2. セキュリティ・利用管理
 
@@ -47,8 +47,8 @@
 | KB操作履歴 | `adminKbHistory` | ✅ 実装済み（`POST /admin/kb/history`、`kb_log`テーブル）。管理タブでopId列も表示するようにした |
 | KBロールバック | `adminKbRollback` | ✅ 実装済み（2026-08-26、`POST /admin/kb/rollback`、`src/kbRollback.ts`）。opId単位でchunks_fts・Vectorize双方から削除。実データで動作確認済み |
 | namespaceごとの同期元設定 | `adminSetNotionDbId` / `adminSetDriveFolder` | ✅ 実装済み（`POST /admin/kb/set-source`、`kb_sources`テーブル） |
-| FAQ単発登録（1件だけサクッと追加） | `adminKbAddFaq` | ❌ 未実装（2026-08-27棚卸しで判明）。CSV一括登録（1行だけのCSV）で代用は可能だが、単発登録用の専用UI/APIは無い |
-| Notion/Driveへの書き込み（新規ページ・データベース作成） | `kbCreateNotionPage_` / `_createNotionDatabase_` / `kbCreateDriveDoc_` / `kbBulkCreateNotionPages_` | ❌ 未実装（2026-08-27棚卸しで判明）。POC側はNotion/Driveから**読み込む**同期のみで、ナレッジを新規ページとしてNotion/Driveへ**書き戻す**機能が無い |
+| FAQ単発登録（1件だけサクッと追加） | `adminKbAddFaq` | ✅ 実装済み（2026-08-27、`POST /admin/kb/add-faq`、`src/faqAdd.ts`）。管理タブに専用フォームを追加 |
+| Notion/Driveへの書き込み（新規ページ作成） | `kbCreateNotionPage_` / `kbBulkCreateNotionPages_` | ✅ 一部実装済み（2026-08-27、`src/notion.ts` `createNotionPage`）。FAQ単発登録に`alsoWriteToNotion`オプションとして追加し、namespaceの同期先Notion DBへページを作成できるようにした。**ただし`_createNotionDatabase_`（新規DB自体の作成）・`kbCreateDriveDoc_`（Drive側への書き込み）・一括登録の並列化（`kbBulkCreateNotionPages_`のfetchAllバッチ版）は未移植。** POC全体の設計はD1を直接の正とする方針のため、既存GASのように全ての登録経路が常にNotion/Driveへ書き込む構成にはしておらず、あくまでオプトインの複製機能としている |
 
 ## 4. API・モデル連携
 
@@ -64,7 +64,7 @@
 | 機能 | GAS側 | POC状況 |
 |---|---|---|
 | APIキー発行・削除・更新 | `adminCreateKey` / `adminDeleteKey` / `adminUpdateKey` | ✅ 実装済み（`src/keyAdmin.ts`。発行時のみ生キーを返し、以後はハッシュのみ保持） |
-| 初回管理者キーのブートストラップ | `bootstrapFirstAdminKey` | ❌ 未実装（2026-08-27棚卸しで判明）。「管理者キーが1つも無い状態から最初の1つを安全に作る」専用の仕組みが無く、実際には`wrangler d1 execute`での直接INSERTで対応している |
+| 初回管理者キーのブートストラップ | `bootstrapFirstAdminKey` | ✅ 実装済み（2026-08-27、`POST /admin/bootstrap`、`src/keyAdmin.ts` `handleBootstrapAdmin`）。GAS版と同じ「管理者ロールのユーザーが1人もいない場合にしか成功しない」安全策。`index.ts`で`authenticate()`より前段に置き、Authorizationヘッダー無しでも到達できるようにした（実機で403応答を確認済み） |
 | APIキー容量設定・チャージ | `adminSetKeyCapacity` / `adminChargeKeyBalance` | ✅ 実装済み（自動リセット間隔の指定にも対応。Cron Triggerを使わない遅延評価方式） |
 | namespace管理（作成・一覧・削除） | `adminListNamespaces` / `adminCreateNamespace` | ✅ 実装済み（`src/namespaceAdmin.ts`。更新は未実装、作成・一覧・削除のみ） |
 | キーごとのnamespaceアクセス制御 | `allowed_namespaces`（キー単位の許可リスト） | ✅ 実装済み（`key_namespace_grants`テーブル。旧実装は「全ユーザーが全shared namespace閲覧可」という簡略版だったため、GAS本来の設計に合わせて厳格化した） |
@@ -81,7 +81,7 @@
 | 履歴の評価（役に立った/立たなかった） | `rateMemoryEntry` | ✅ 実装済み（`POST /memory/rate`） |
 | チャット履歴検索（RAG検索への統合） | `searchMemory_` | ❌ 未実装（過去の会話を検索コンテキストとして再利用する機能。現状は保存・一覧・評価のみ） |
 | 期限切れ履歴の自動削除 | `purgeExpiredMemory_` | ✅ 実装済み（2026-08-26、`wrangler.jsonc`のCron Trigger、毎日UTC 3時に90日以上前の`memory`行を削除。`src/index.ts`の`scheduled`ハンドラ） |
-| 利用状況ログの期限切れ削除 | `purgeExpiredClaudeUsage_` / `purgeExpiredTokenUsage_` | ❌ 未実装（2026-08-27棚卸しで判明）。`memory`（チャット履歴）は自動削除されるが、`audit_log`（クエリ監査ログ）は無期限に蓄積され続ける。GAS版はGoogle Sheetsの行数上限を避けるための対策だったため、D1では緊急度は低いが未移植 |
+| 利用状況ログの期限切れ削除 | `purgeExpiredClaudeUsage_` / `purgeExpiredTokenUsage_` | ✅ 実装済み（2026-08-27、`src/index.ts`の`scheduled`ハンドラ、`AUDIT_LOG_RETENTION_DAYS=180`）。毎日UTC 3時のCron Triggerで`memory`と同じタイミングで180日超の`audit_log`行も削除する |
 
 ## 7. UI
 
@@ -109,19 +109,20 @@
 11. **完了：バックアップ機能**（2026-08-26）— 設定系テーブル（users/namespaces/kb_sources/token_budgets/key_namespace_grants）のJSONエクスポート。実データ（チャット履歴本文・ベクトル）はD1の自動バックアップに任せる方針
 12. **保留：チャット履歴検索のRAG統合**（`searchMemory_`相当）— ユーザー指示により一旦保留（2026-08-26）
 13. **対象外：Claude APIプロキシ**（Houdiniチュートリアル生成）— ユーザー確認済み（2026-08-24）。RAGには不要なため実装しない
+14. **完了：2026-08-27棚卸しで新たに判明した5件のうち4件**（FAQ単発登録／Notion書き込み（オプトイン、ページ作成のみ）／画像添付つき質問／利用状況ログの期限切れ削除／初回管理者キーのブートストラップ）
 
 ---
 
-**現時点のまとめ（2026-08-27更新）：** 上記1〜11がすべて完了し、`docs/gas-feature-parity.md`で当初追跡していたGAS機能のうち実装可能な項目はほぼ実装・実データ検証済みとなった。Claude APIプロキシは当初「RAGには不要」として対象外にしていたが、後にHoudiniチュートリアル生成（`tutorial_agent.py`）のGAS依存移行という別の目的で実装済みに変わっている。
+**現時点のまとめ（2026-08-27更新）：** 上記1〜11・14がすべて完了し、`docs/gas-feature-parity.md`で当初追跡していたGAS機能のうち実装可能な項目はほぼ実装・実データ検証済みとなった。Claude APIプロキシは当初「RAGには不要」として対象外にしていたが、後にHoudiniチュートリアル生成（`tutorial_agent.py`）のGAS依存移行という別の目的で実装済みに変わっている。
 
-**2026-08-27、GASの全関数（145個）を棚卸しし直したところ、これまで未追跡だった以下5件の未実装機能が新たに判明した：**
+2026-08-27にGASの全関数（145個）を棚卸しし直し、これまで未追跡だった6件が判明した。うち5件（保留中の1件を除く）はその日のうちに実装済み：
 
 1. **保留：チャット履歴検索のRAG統合**（`searchMemory_`）— ユーザー指示により一旦保留（既知）
-2. **未実装：Notion/Driveへの書き込み**（新規ページ/データベース作成）— POC側は読み込み専用
-3. **未実装：画像添付つき質問**（マルチモーダルクエリ）
-4. **未実装：FAQ単発登録**（CSV一括登録での代用は可能）
-5. **未実装：利用状況ログの期限切れ削除**（D1では緊急度は低い）
-6. **未実装：初回管理者キーのブートストラップ**（現状は手動INSERTで対応）
+2. **完了：Notion/Driveへの書き込み**（既存DBへのページ作成のみオプトインで実装。新規DB作成・Drive書き込み・一括登録の並列化は未移植）
+3. **完了：画像添付つき質問**（マルチモーダルクエリ）
+4. **完了：FAQ単発登録**
+5. **完了：利用状況ログの期限切れ削除**
+6. **完了：初回管理者キーのブートストラップ**
 
 設計・アーキテクチャの詳細は[docs/cloudflare-rag-technical-report.md](cloudflare-rag-technical-report.md)、運用手順は[docs/cloudflare-rag-operations-manual.md](cloudflare-rag-operations-manual.md)を参照。
 

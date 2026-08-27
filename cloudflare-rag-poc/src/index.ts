@@ -14,7 +14,9 @@ import {
   handleUpdateKeyNamespaces,
   handleSetKeyCapacity,
   handleChargeKey,
+  handleBootstrapAdmin,
 } from "./keyAdmin";
+import { handleAddFaq } from "./faqAdd";
 import { handleCreateNamespace, handleListNamespaces, handleDeleteNamespace, handleSetNamespaceLimit } from "./namespaceAdmin";
 import { handleGraph } from "./graph";
 import { handleUsageStats, handleRatingStats } from "./usageStats";
@@ -31,6 +33,10 @@ import { chatUiHtml } from "./chatUi";
 import { BudgetExceededError } from "./budget";
 
 const MEMORY_RETENTION_DAYS = 90;
+// 既存GASのpurgeExpiredTokenUsage_/purgeExpiredClaudeUsage_相当。GAS版はGoogle Sheetsの
+// 行数上限を避けるための対策だったが、D1にはその制約は無いため、監査目的も踏まえて
+// memoryより長めの180日にしている（2026-08-27追加。以前はaudit_logが無期限に蓄積していた）。
+const AUDIT_LOG_RETENTION_DAYS = 180;
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -48,6 +54,18 @@ export default {
 
     if (req.method !== "POST") {
       return json(405, { error: "POST のみ対応しています" });
+    }
+
+    // 管理者キーが1つも無い初回セットアップ専用の抜け道。authenticate()より前段で処理する
+    // （そもそも認証できるキーが存在しない、という鶏卵問題への対応。src/keyAdmin.ts参照）。
+    // handleBootstrapAdmin自身が「管理者が1人でも存在すれば403」を強制するため、
+    // 認証をバイパスしても既存環境を乗っ取れるわけではない。
+    if (url.pathname === "/admin/bootstrap") {
+      try {
+        return await handleBootstrapAdmin(req, env);
+      } catch (err) {
+        return json(500, { error: err instanceof Error ? err.message : String(err) });
+      }
     }
 
     const user = await authenticate(req, env);
@@ -105,6 +123,8 @@ export default {
           return await handleImportUrl(req, env, user);
         case "/admin/kb/import-qa-csv":
           return await handleImportQaCsv(req, env, user);
+        case "/admin/kb/add-faq":
+          return await handleAddFaq(req, env, user);
         case "/admin/kb/rollback":
           return await handleKbRollback(req, env, user);
         case "/admin/kb/import-youtube":
@@ -144,8 +164,10 @@ export default {
   //   "*/30 * * * *" … ヘルスチェック（既存GAS checkHealthAndAlert_相当）
   async scheduled(event: ScheduledController, env: Env): Promise<void> {
     if (event.cron === "0 3 * * *") {
-      const cutoff = Math.floor(Date.now() / 1000) - MEMORY_RETENTION_DAYS * 86400;
-      await env.DB.prepare("DELETE FROM memory WHERE created_at < ?").bind(cutoff).run();
+      const memoryCutoff = Math.floor(Date.now() / 1000) - MEMORY_RETENTION_DAYS * 86400;
+      await env.DB.prepare("DELETE FROM memory WHERE created_at < ?").bind(memoryCutoff).run();
+      const auditCutoff = Math.floor(Date.now() / 1000) - AUDIT_LOG_RETENTION_DAYS * 86400;
+      await env.DB.prepare("DELETE FROM audit_log WHERE created_at < ?").bind(auditCutoff).run();
       return;
     }
     await checkHealthAndAlert(env);
