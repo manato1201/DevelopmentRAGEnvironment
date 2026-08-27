@@ -5,6 +5,9 @@ import { assertNotRateLimited } from "./rateLimit";
 import { buildContextTexts, consumeBudget, resolveEffectiveNamespaces, retrieve } from "./retrieve";
 import { saveMemory } from "./memory";
 
+// クエリ添付画像（VLM入力）の既定上限。既存GASのDEFAULT_MAX_QUERY_IMAGE_MBと同じ値。
+const MAX_QUERY_IMAGE_BYTES = 8 * 1024 * 1024;
+
 // POST /query — 既存 rag_local_bridge.py の /query と同一契約。LLMを介した最終回答まで生成する
 // （/searchは検索結果のみを返す「生」のエンドポイント、/queryはチャット用の完成回答を返す）。
 export async function handleQuery(req: Request, env: Env, user: AuthedUser): Promise<Response> {
@@ -15,6 +18,16 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
   const level = body.level || "";
 
   if (!query) return jsonResponse(400, { error: "query は必須です" });
+
+  // 質問に添付された画像（既存GASの`image: {mimeType, data}`と同一契約、2026-08-27追加）。
+  // 検索・埋め込みには使わず、最終回答生成のときだけGeminiに渡す（下記generateAnswer呼び出し）。
+  const image = body.image?.data && body.image?.mimeType ? body.image : undefined;
+  if (image) {
+    const imageBytes = Math.floor((image.data.length * 3) / 4); // base64→バイト数の概算
+    if (imageBytes > MAX_QUERY_IMAGE_BYTES) {
+      return jsonResponse(400, { error: `添付画像が大きすぎます（上限 ${Math.floor(MAX_QUERY_IMAGE_BYTES / 1024 / 1024)}MB）。` });
+    }
+  }
 
   const effective = resolveEffectiveNamespaces(user, body.namespaces);
 
@@ -35,7 +48,7 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
   const { ranked, hydeTokensUsed } = await retrieve(env, user, query, effective, level, limit);
   const { texts, sources } = buildContextTexts(ranked);
 
-  const answerResult = await generateAnswer(env, query, texts, history);
+  const answerResult = await generateAnswer(env, query, texts, history, image);
   const { cited, citationCounts } = parseExtractionRate(answerResult.text, sources.length);
   const sourcesWithCitation: SourceEntry[] = sources.map((s, i) => ({ ...s, cited: citationCounts[i] > 0, citationCount: citationCounts[i] }));
   const extractionRate = sources.length > 0 ? Math.round((cited / sources.length) * 100) : 0;

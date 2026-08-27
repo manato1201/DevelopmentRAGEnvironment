@@ -101,12 +101,16 @@ export async function hydeExpand(env: Env, query: string): Promise<GenerateResul
   return generateContent(env, prompt);
 }
 
-// 検索結果を踏まえた最終回答生成（既存GAS ragQueryInternal_の回答生成部分に相当）
+// 検索結果を踏まえた最終回答生成（既存GAS ragQueryInternal_の回答生成部分に相当）。
+// image（既存GASの質問添付画像＝VLM入力と同一契約）が指定された場合、検索・埋め込みには
+// 使わず、最後のパートとしてinlineDataを追加するだけ（GAS版と同じ「Gemini自体が画像と
+// RAGコンテキストの両方を見た上で回答する」設計。ナレッジ登録時のOCRとは別物）。
 export async function generateAnswer(
   env: Env,
   query: string,
   contextTexts: string[],
-  history: Array<{ role: string; content: string }>
+  history: Array<{ role: string; content: string }>,
+  image?: { mimeType: string; data: string }
 ): Promise<GenerateResult> {
   const historyText = history.length > 0
     ? "これまでの会話:\n" + history.map((h) => `${h.role}: ${h.content}`).join("\n") + "\n\n"
@@ -116,5 +120,7 @@ export async function generateAnswer(
     `根拠にした情報には必ず番号（[1]や[2]など、検索結果に付いている番号）を付けて示してください。` +
     `検索結果に答えがない場合は、正直に「わかりません」と答えてください。\n\n` +
     `${contextTexts.join("\n")}\n\n質問: ${query}`;
-  return generateContent(env, prompt);
+  const parts: GeminiPart[] = [{ text: prompt }];
+  if (image) parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
+  return generateContentWithParts(env, parts);
 }

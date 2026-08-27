@@ -16,6 +16,60 @@ export interface NotionPageSummary {
   lastEditedTime: string;
 }
 
+export interface CreatedNotionPage {
+  id: string;
+  lastEditedTime: string;
+}
+
+// Notionに新規ページを作成する（既存GAS kbCreateNotionPage_相当、2026-08-27追加）。
+// 対象DBは既存の標準スキーマ（title / summary(rich_text) / source_url(url)）を想定しているが、
+// スキーマが異なるDBでも動くよう、400が返ったらtitleプロパティのみで再試行する
+// （GAS版と同じフォールバック。カスタムDBの実際のプロパティ構成までは検証できないため）。
+export async function createNotionPage(
+  env: Env,
+  databaseId: string,
+  title: string,
+  bodyText: string,
+  summary?: string,
+): Promise<CreatedNotionPage> {
+  const children: Array<{ object: "block"; type: "paragraph"; paragraph: { rich_text: Array<{ text: { content: string } }> } }> = [];
+  const body = bodyText.slice(0, 40000);
+  for (let i = 0; i < body.length && children.length < 95; i += 1800) {
+    children.push({
+      object: "block",
+      type: "paragraph",
+      paragraph: { rich_text: [{ text: { content: body.slice(i, i + 1800) } }] },
+    });
+  }
+
+  const buildProperties = (titleOnly: boolean) => {
+    const properties: Record<string, unknown> = {
+      title: { title: [{ text: { content: title.slice(0, 200) } }] },
+    };
+    if (!titleOnly && summary) {
+      properties.summary = { rich_text: [{ text: { content: summary.slice(0, 1900) } }] };
+    }
+    return properties;
+  };
+
+  const create = (titleOnly: boolean) =>
+    fetch("https://api.notion.com/v1/pages", {
+      method: "POST",
+      headers: notionHeaders(env),
+      body: JSON.stringify({ parent: { database_id: databaseId }, properties: buildProperties(titleOnly), children }),
+    });
+
+  let res = await create(false);
+  if (res.status === 400 && summary) {
+    res = await create(true); // summaryプロパティが無いDBではtitleのみで再試行
+  }
+  if (!res.ok) {
+    throw new Error(`Notionページの作成に失敗しました (${res.status}): ${await res.text()}`);
+  }
+  const page = (await res.json()) as { id: string; last_edited_time?: string };
+  return { id: page.id, lastEditedTime: page.last_edited_time || new Date().toISOString() };
+}
+
 // Notionデータベース内の全ページを取得する（既存GAS syncNotionToSheets相当のクエリ部分）。
 export async function listNotionPages(
   env: Env,

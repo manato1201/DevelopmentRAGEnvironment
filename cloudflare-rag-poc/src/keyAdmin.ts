@@ -11,6 +11,52 @@ function generateApiKey(): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+interface CreateKeyResult {
+  apiKey: string;
+  userId: string;
+  displayName: string;
+  role: "admin" | "member" | "guest";
+  personalNamespace: string;
+}
+
+// キー発行の実処理。handleCreateKey（要admin）とhandleBootstrapAdmin（管理者が1人も
+// いない場合のみ認証不要で通す、2026-08-27追加）の両方から呼ぶ共通ロジック。
+async function createKeyRecord(
+  env: Env,
+  opts: { displayName: string; role: "admin" | "member" | "guest"; namespaces?: string[]; ragCapacity?: number },
+): Promise<CreateKeyResult> {
+  const role = opts.role;
+  const apiKey = generateApiKey();
+  const newUserId = await sha256Hex(apiKey);
+  const now = Math.floor(Date.now() / 1000);
+
+  await env.DB.prepare("INSERT INTO users (user_id, display_name, role, created_at) VALUES (?, ?, ?, ?)")
+    .bind(newUserId, opts.displayName, role, now)
+    .run();
+
+  // 個人namespaceを自動作成する（既存の運用パターンに合わせる）
+  const personalNs = `personal:${newUserId}`;
+  await env.DB.prepare("INSERT INTO namespaces (namespace_id, scope, owner_user_id) VALUES (?, 'personal', ?)")
+    .bind(personalNs, newUserId)
+    .run();
+
+  // 共有namespaceへのアクセス許可（明示的に指定されたもののみ。指定が無ければ何も見えない。
+  // adminロールはauthenticate()側で全shared namespaceが無条件に見えるため実質未使用）
+  for (const ns of opts.namespaces ?? []) {
+    await env.DB.prepare("INSERT OR IGNORE INTO key_namespace_grants (user_id, namespace_id) VALUES (?, ?)")
+      .bind(newUserId, ns)
+      .run();
+  }
+
+  await env.DB.prepare(
+    "INSERT INTO token_budgets (user_id, budget_type, limit_tokens, used_tokens) VALUES (?, 'rag', ?, 0)"
+  )
+    .bind(newUserId, opts.ragCapacity ?? DEFAULT_RAG_CAPACITY)
+    .run();
+
+  return { apiKey, userId: newUserId, displayName: opts.displayName, role, personalNamespace: personalNs };
+}
+
 // POST /admin/keys/create — 新規APIキーを発行する（既存GAS adminCreateKey相当）。
 // 生のAPIキーはこの応答でしか手に入らない（ハッシュ値しか保存しないため、後から再表示できない）。
 // body: { displayName, namespaces?: string[]（許可する共有namespace）, role?: 'admin'|'member'|'guest', ragCapacity?: number }
@@ -26,42 +72,29 @@ export async function handleCreateKey(req: Request, env: Env, user: AuthedUser):
   const displayName = (body.displayName || "").trim();
   if (!displayName) return jsonResponse(400, { error: "displayName は必須です" });
 
-  const role = body.role ?? "member";
-  const apiKey = generateApiKey();
-  const newUserId = await sha256Hex(apiKey);
-  const now = Math.floor(Date.now() / 1000);
+  const result = await createKeyRecord(env, { displayName, role: body.role ?? "member", namespaces: body.namespaces, ragCapacity: body.ragCapacity });
+  return jsonResponse(200, { status: "ok", ...result });
+}
 
-  await env.DB.prepare("INSERT INTO users (user_id, display_name, role, created_at) VALUES (?, ?, ?, ?)")
-    .bind(newUserId, displayName, role, now)
-    .run();
-
-  // 個人namespaceを自動作成する（既存の運用パターンに合わせる）
-  const personalNs = `personal:${newUserId}`;
-  await env.DB.prepare("INSERT INTO namespaces (namespace_id, scope, owner_user_id) VALUES (?, 'personal', ?)")
-    .bind(personalNs, newUserId)
-    .run();
-
-  // 共有namespaceへのアクセス許可（明示的に指定されたもののみ。指定が無ければ何も見えない）
-  for (const ns of body.namespaces ?? []) {
-    await env.DB.prepare("INSERT OR IGNORE INTO key_namespace_grants (user_id, namespace_id) VALUES (?, ?)")
-      .bind(newUserId, ns)
-      .run();
+// POST /admin/bootstrap — 管理者キーが1つも存在しない状態から、最初の1つを安全に作る
+// （既存GAS bootstrapFirstAdminKey相当、2026-08-27追加）。
+// 通常のAdmin APIは「管理者キーを持っている」ことが前提だが、初回セットアップ時点では
+// そのキー自体が存在しないという鶏卵問題があった（これまでは手動でD1にINSERTして凌いでいた）。
+// この関数だけは index.ts でauthenticate()より前に呼ばれ、Authorizationヘッダー無しで
+// 到達できる。安全性は「管理者ロールのユーザーが1人もいない場合にしか成功しない」ことで
+// 担保する（GAS版の`hasAdmin`チェックと同じ）。1人でも存在すれば通常のadminCreateKey経由に
+// 誘導する。
+export async function handleBootstrapAdmin(req: Request, env: Env): Promise<Response> {
+  const existingAdmin = await env.DB.prepare("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1").first();
+  if (existingAdmin) {
+    return jsonResponse(403, { error: "管理者キーは既に存在します。追加発行は管理タブ（要既存の管理者キー）から行ってください" });
   }
 
-  await env.DB.prepare(
-    "INSERT INTO token_budgets (user_id, budget_type, limit_tokens, used_tokens) VALUES (?, 'rag', ?, 0)"
-  )
-    .bind(newUserId, body.ragCapacity ?? DEFAULT_RAG_CAPACITY)
-    .run();
+  const body = (await req.json().catch(() => ({}))) as { displayName?: string; ragCapacity?: number };
+  const displayName = (body.displayName || "").trim() || "管理者";
 
-  return jsonResponse(200, {
-    status: "ok",
-    apiKey, // 生のキー。これを渡した相手が二度と見られないことを案内すること
-    userId: newUserId,
-    displayName,
-    role,
-    personalNamespace: personalNs,
-  });
+  const result = await createKeyRecord(env, { displayName, role: "admin", ragCapacity: body.ragCapacity });
+  return jsonResponse(200, { status: "ok", ...result });
 }
 
 // POST /admin/keys/list — 発行済みキーの一覧（生のキーは表示できない。既存GAS adminListKeys相当）。

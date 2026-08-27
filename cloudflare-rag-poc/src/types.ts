@@ -58,6 +58,9 @@ export interface QueryRequest {
   limit?: number;
   level?: "basic" | "applied" | "advanced" | "";
   namespaces?: string[];
+  // 質問に添付する画像（VLM入力。既存GASの`image: {mimeType, data}`と同一契約、2026-08-27追加）。
+  // 検索・埋め込みには使わず、最終回答生成時にRAGコンテキストと一緒にGeminiへ渡すだけ。
+  image?: { mimeType: string; data: string };
 }
 
 // POST /query レスポンス（既存契約と同一形式。memoryIdはPOC独自追加、チャットUIの評価ボタン用）
