@@ -19,6 +19,7 @@
 | 個別DBに絞った検索（検索精度向上） | GAS版チャットUIのDB選択ドロップダウン相当 | ✅ 実装済み（2026-08-26、`POST /query`に`namespaces`パラメータ追加、`POST /me/namespaces`で一般ユーザーも自分の許可namespace一覧を取得可能に）。チャットUIに「🌐全DB横断検索」＋個別DBのドロップダウンを追加。実データで動作確認済み（`shared:cedecnotes`に絞ると他DBの結果が混ざらないことを確認） |
 | レベルフィルタ（Phase1レベリング basic/applied/advanced） | `_filter_groups_by_level`相当 | ✅ 実装済み |
 | ベクトル圧縮・近似候補選定（`_packSignature_`/ハミング距離） | `_vectorCandidatesFor_` | 対象外（Vectorizeが同等の役割を代替するため移植不要） |
+| 画像添付つき質問（マルチモーダルクエリ） | `_maxQueryImageBytes_` 周りの処理（`/query`相当エンドポイントに画像を添付） | ❌ 未実装（2026-08-27棚卸しで判明）。`/query`はテキストのみ受け付け、画像を添付して「この画像は何か」のように聞く機能が無い |
 
 ## 2. セキュリティ・利用管理
 
@@ -26,7 +27,7 @@
 |---|---|---|
 | APIキー認証（ハッシュ化） | `validateApiKey_` / `_hashApiKey_` | ✅ 実装済み（SHA-256、`src/auth.ts`） |
 | トークン予算管理（RAG用） | `_hasQuotaRemaining_` / `_consumeKeyBudget_` | ✅ 実装済み（`src/budget.ts`、`/search`・`/query`双方で強制） |
-| トークン予算管理（Claude用） | `_hasClaudeQuotaRemaining_` / `_consumeClaudeBudget_` | ⚠️ テーブル(`token_budgets`)はあるが、Claude呼び出し自体が未実装のため未使用 |
+| トークン予算管理（Claude用） | `_hasClaudeQuotaRemaining_` / `_consumeClaudeBudget_` | ✅ 実装済み（`src/claude.ts`、`budget_type='claude'`で強制）。**2026-08-27訂正：** 本行は以前「Claude呼び出し自体が未実装のため未使用」と記載していたが、Claude APIプロキシは2026-08-26に実装済みで、実際に`assertBudgetAvailable`/`consumeBudget`が`"claude"`指定で呼ばれている。記載が古いままだった |
 | レート制限 | `isRateLimited_` | ✅ 実装済み（2026-08-26、`src/rateLimit.ts`）。専用テーブルは追加せず、既存`audit_log`の直近件数を数える固定ウィンドウ方式（60秒間に30回まで）。`/search`・`/query`双方に適用、超過時は429を返す |
 | 監査ログ（クエリのSHA-256ハッシュ化記録） | `RAGAuditLogger`相当 | ✅ 実装済み（D1 `audit_log`テーブル） |
 | ヘルスチェック・アラート | `checkHealthAndAlert_` / `sendHealthAlert_` | ✅ 実装済み・**Slack/Gmail両方とも実際に通知の送受信まで確認済み**（2026-08-26、`src/healthCheck.ts`）。D1接続・直近1時間のKB同期エラー・トークン予算枯渇間近を検知し、Slack（Incoming Webhook）・Gmail（個人アカウントのOAuthリフレッシュトークン方式、`src/gmailOAuth.ts`）へアラート送信。30分ごとのCron Triggerで自動実行、手動実行用の`POST /admin/health/check`とテスト通知用の`POST /admin/health/test-alert`も用意。**当初はサービスアカウント＋Domain-Wide Delegation方式で実装したが、これはGoogle Workspace限定の機能で個人のgmail.comアカウントでは設定できないと判明し、OAuthリフレッシュトークン方式に切り替えた**（GCPプロジェクトでGmail APIの有効化も別途必要だった） |
@@ -46,6 +47,8 @@
 | KB操作履歴 | `adminKbHistory` | ✅ 実装済み（`POST /admin/kb/history`、`kb_log`テーブル）。管理タブでopId列も表示するようにした |
 | KBロールバック | `adminKbRollback` | ✅ 実装済み（2026-08-26、`POST /admin/kb/rollback`、`src/kbRollback.ts`）。opId単位でchunks_fts・Vectorize双方から削除。実データで動作確認済み |
 | namespaceごとの同期元設定 | `adminSetNotionDbId` / `adminSetDriveFolder` | ✅ 実装済み（`POST /admin/kb/set-source`、`kb_sources`テーブル） |
+| FAQ単発登録（1件だけサクッと追加） | `adminKbAddFaq` | ❌ 未実装（2026-08-27棚卸しで判明）。CSV一括登録（1行だけのCSV）で代用は可能だが、単発登録用の専用UI/APIは無い |
+| Notion/Driveへの書き込み（新規ページ・データベース作成） | `kbCreateNotionPage_` / `_createNotionDatabase_` / `kbCreateDriveDoc_` / `kbBulkCreateNotionPages_` | ❌ 未実装（2026-08-27棚卸しで判明）。POC側はNotion/Driveから**読み込む**同期のみで、ナレッジを新規ページとしてNotion/Driveへ**書き戻す**機能が無い |
 
 ## 4. API・モデル連携
 
@@ -61,6 +64,7 @@
 | 機能 | GAS側 | POC状況 |
 |---|---|---|
 | APIキー発行・削除・更新 | `adminCreateKey` / `adminDeleteKey` / `adminUpdateKey` | ✅ 実装済み（`src/keyAdmin.ts`。発行時のみ生キーを返し、以後はハッシュのみ保持） |
+| 初回管理者キーのブートストラップ | `bootstrapFirstAdminKey` | ❌ 未実装（2026-08-27棚卸しで判明）。「管理者キーが1つも無い状態から最初の1つを安全に作る」専用の仕組みが無く、実際には`wrangler d1 execute`での直接INSERTで対応している |
 | APIキー容量設定・チャージ | `adminSetKeyCapacity` / `adminChargeKeyBalance` | ✅ 実装済み（自動リセット間隔の指定にも対応。Cron Triggerを使わない遅延評価方式） |
 | namespace管理（作成・一覧・削除） | `adminListNamespaces` / `adminCreateNamespace` | ✅ 実装済み（`src/namespaceAdmin.ts`。更新は未実装、作成・一覧・削除のみ） |
 | キーごとのnamespaceアクセス制御 | `allowed_namespaces`（キー単位の許可リスト） | ✅ 実装済み（`key_namespace_grants`テーブル。旧実装は「全ユーザーが全shared namespace閲覧可」という簡略版だったため、GAS本来の設計に合わせて厳格化した） |
@@ -77,6 +81,7 @@
 | 履歴の評価（役に立った/立たなかった） | `rateMemoryEntry` | ✅ 実装済み（`POST /memory/rate`） |
 | チャット履歴検索（RAG検索への統合） | `searchMemory_` | ❌ 未実装（過去の会話を検索コンテキストとして再利用する機能。現状は保存・一覧・評価のみ） |
 | 期限切れ履歴の自動削除 | `purgeExpiredMemory_` | ✅ 実装済み（2026-08-26、`wrangler.jsonc`のCron Trigger、毎日UTC 3時に90日以上前の`memory`行を削除。`src/index.ts`の`scheduled`ハンドラ） |
+| 利用状況ログの期限切れ削除 | `purgeExpiredClaudeUsage_` / `purgeExpiredTokenUsage_` | ❌ 未実装（2026-08-27棚卸しで判明）。`memory`（チャット履歴）は自動削除されるが、`audit_log`（クエリ監査ログ）は無期限に蓄積され続ける。GAS版はGoogle Sheetsの行数上限を避けるための対策だったため、D1では緊急度は低いが未移植 |
 
 ## 7. UI
 
@@ -107,7 +112,18 @@
 
 ---
 
-**現時点のまとめ（2026-08-26）：** 上記1〜11がすべて完了し、`docs/gas-feature-parity.md`で追跡していたGAS機能のうち実装可能な項目はほぼ実装・実データ検証済みとなった。Claude APIプロキシは当初「RAGには不要」として対象外にしていたが、後にHoudiniチュートリアル生成（`tutorial_agent.py`）のGAS依存移行という別の目的で実装済みに変わっている。残るのは保留中の「チャット履歴検索のRAG統合」のみ。設計・アーキテクチャの詳細は[docs/cloudflare-rag-technical-report.md](cloudflare-rag-technical-report.md)、運用手順は[docs/cloudflare-rag-operations-manual.md](cloudflare-rag-operations-manual.md)を参照。
+**現時点のまとめ（2026-08-27更新）：** 上記1〜11がすべて完了し、`docs/gas-feature-parity.md`で当初追跡していたGAS機能のうち実装可能な項目はほぼ実装・実データ検証済みとなった。Claude APIプロキシは当初「RAGには不要」として対象外にしていたが、後にHoudiniチュートリアル生成（`tutorial_agent.py`）のGAS依存移行という別の目的で実装済みに変わっている。
+
+**2026-08-27、GASの全関数（145個）を棚卸しし直したところ、これまで未追跡だった以下5件の未実装機能が新たに判明した：**
+
+1. **保留：チャット履歴検索のRAG統合**（`searchMemory_`）— ユーザー指示により一旦保留（既知）
+2. **未実装：Notion/Driveへの書き込み**（新規ページ/データベース作成）— POC側は読み込み専用
+3. **未実装：画像添付つき質問**（マルチモーダルクエリ）
+4. **未実装：FAQ単発登録**（CSV一括登録での代用は可能）
+5. **未実装：利用状況ログの期限切れ削除**（D1では緊急度は低い）
+6. **未実装：初回管理者キーのブートストラップ**（現状は手動INSERTで対応）
+
+設計・アーキテクチャの詳細は[docs/cloudflare-rag-technical-report.md](cloudflare-rag-technical-report.md)、運用手順は[docs/cloudflare-rag-operations-manual.md](cloudflare-rag-operations-manual.md)を参照。
 
 ---
 
