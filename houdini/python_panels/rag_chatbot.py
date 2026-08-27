@@ -69,7 +69,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QSplitter,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -609,25 +608,26 @@ class RAGChatbotPanel(QWidget):
         mode_row.addStretch()
         layout.addLayout(mode_row)
 
-        # メッセージエリア（スクロール）
+        # メッセージエリア（スクロール）。0にはならない最低限の高さを明示しておく
+        # （2026-08-27: スプリッター案は「今度は逆に上（メッセージ欄）が消える」
+        # という結果になったため撤回。QSplitterのcollapsible/stretchFactorの
+        # 組み合わせに頼らず、素直なQVBoxLayout+stretchに戻し、両方に最低保証の
+        # 高さだけを与える、より予測しやすい構成にした）。
         self._chat_scroll  = QScrollArea()
         self._chat_scroll.setWidgetResizable(True)
+        self._chat_scroll.setMinimumHeight(120)
         self._chat_inner   = QWidget()
         self._chat_layout  = QVBoxLayout(self._chat_inner)
         self._chat_layout.addStretch()  # バブルを下から積み上げるためのスペーサー
         self._chat_scroll.setWidget(self._chat_inner)
+        layout.addWidget(self._chat_scroll, stretch=1)
 
-        # 入力欄＋ボタン行（1つのウィジェットにまとめてスプリッターの下段に置く）
-        input_area = QWidget()
-        input_layout = QVBoxLayout(input_area)
-        input_layout.setContentsMargins(0, 0, 0, 0)
-        input_layout.setSpacing(4)
-
+        # テキスト入力（固定高さ70→50に縮小。ボタン行と合わせた最低限の要求高さを
+        # 減らし、狭いペインでも収まりやすくする）
         self._input = QTextEdit()
-        self._input.setMinimumHeight(50)
-        self._input.setMaximumHeight(140)
+        self._input.setFixedHeight(50)
         self._input.setPlaceholderText("質問を入力（Ctrl+Enter で送信）")
-        input_layout.addWidget(self._input)
+        layout.addWidget(self._input)
 
         btn_row = QHBoxLayout()
         self._send_btn = QPushButton("送信")
@@ -637,29 +637,25 @@ class RAGChatbotPanel(QWidget):
         btn_row.addStretch()
         btn_row.addWidget(self._send_btn)
         btn_row.addWidget(clear_btn)
-        input_layout.addLayout(btn_row)
-        input_area.setMinimumHeight(90)
-
-        # メッセージエリアと入力エリアをスプリッターにする（2026-08-27）。
-        # 以前は単純な縦積みレイアウトで、Houdiniのペインが縦に狭い/新規追加直後の
-        # 状態だと入力欄・送信ボタンがペインの表示領域からはみ出し、見えない・
-        # 操作できないという不具合が報告された。スプリッターにしておけば、万一
-        # 上段（メッセージ表示）が必要以上に大きく確保されても、ハンドルを
-        # ドラッグして下段を必ず表に出せる。setCollapsible(1, False)で下段
-        # （入力エリア）自体がドラッグで完全に隠れてしまうことも防ぐ。
-        splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(self._chat_scroll)
-        splitter.addWidget(input_area)
-        splitter.setCollapsible(0, True)
-        splitter.setCollapsible(1, False)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
-        splitter.setSizes([400, 110])
-        layout.addWidget(splitter, stretch=1)
+        layout.addLayout(btn_row)
 
         # Ctrl+Enter の検知は eventFilter で行う
         self._input.installEventFilter(self)
+
+        # Houdiniが新規作成直後のPythonパネルに、最終的なペインサイズが確定する前の
+        # 小さい/不確定なサイズで最初のレイアウトを行わせてしまい、そのままレイアウトの
+        # 計算結果が固まって見える、という挙動を疑っている（未確認の推測）。次のイベント
+        # ループでもう一度サイズ再計算を強制することで、確定後の実サイズに追随させる。
+        QTimer.singleShot(0, self._nudge_relayout)
         return w
+
+    def _nudge_relayout(self) -> None:
+        """Chatタブのレイアウトを、ウィジェットが実際の最終サイズを得た後に再計算させる。"""
+        self._chat_scroll.updateGeometry()
+        self._input.updateGeometry()
+        self.updateGeometry()
+        if self.layout() is not None:
+            self.layout().activate()
 
     def _build_graph_tab(self) -> QWidget:
         """
