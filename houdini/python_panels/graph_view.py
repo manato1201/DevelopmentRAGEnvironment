@@ -1,16 +1,27 @@
 """
-graph_view.py — Houdini RAG グラフビュー（PySide6 QGraphicsView）
+graph_view.py — Houdini RAG グラフビュー（PySide6 QGraphicsView、3D表示）
 
 rag_chatbot.py の Graph タブに埋め込む自己完結ウィジェット。
 Local モードでは rag_local_bridge.py の /graph エンドポイントから、
 Cloud モードでは gas_cloud_rag.js（doPost の action:'graph'）からデータを取得して描画する。
 
+2026-08-28: 2D表示を3D表示化した。Cloudflare Web UI側のグラフ（chatUi.ts、Three.js）が
+既に3D実装済みで、Houdini側だけ2Dのままだと「webとアプリで表示が違う」状態になって
+いたため。新しいQtモジュール（Qt3D等、Houdiniのバンドル内に存在するか未確認）や
+埋め込みブラウザには依存せず、既存のQGraphicsView/QGraphicsSceneの上で手製の
+透視投影（perspective projection）を行うことで3D風の回転操作を実現している
+（動画再生問題の原因が埋め込みブラウザのコーデック非対応だったばかりなので、
+ブラウザ依存を増やす方向は避けた）。左ドラッグでカメラを回転、中ドラッグでパン、
+ホイールでズームする。
+
 アーキテクチャ:
   GraphFetchWorker  : /graph を非同期で取得する QThread
-  NodeItem          : クリッカブルなノード円（QGraphicsEllipseItem）
-  EdgeItem          : 類似度スコアに応じた透明度のエッジ（QGraphicsLineItem）
-  RAGGraphScene     : ノードとエッジを配置する QGraphicsScene
-  RAGGraphView      : ホイールズーム・ドラッグパン対応の QGraphicsView
+  Camera3D          : 方位角・仰角を持ち、3D座標を2Dスクリーン座標へ透視投影する
+  NodeItem          : クリッカブルなノード円（QGraphicsEllipseItem）。奥行きに応じて
+                       拡縮・不透明度が変わる
+  EdgeItem          : 類似度スコア×奥行きフォグに応じた透明度のエッジ（QGraphicsLineItem）
+  RAGGraphScene     : 3Dレイアウトを計算し、カメラ回転のたびに再投影する QGraphicsScene
+  RAGGraphView      : ホイールズーム・左ドラッグ回転・中ドラッグパン対応の QGraphicsView
   RAGGraphWidget    : 上記をまとめた完成ウィジェット（rag_chatbot.py が import する）
 
 Houdini での利用方法:
@@ -18,6 +29,10 @@ Houdini での利用方法:
     import sys, os
     sys.path.insert(0, os.path.dirname(__file__))
     from graph_view import RAGGraphWidget
+
+注意: このセッションの開発環境にはPySide6がインストールされておらず（Houdini本体でしか
+動かせないモジュールのため）、python_compileによる構文チェックのみで実機テストは
+できていない。Houdini上での動作確認が必要。
 """
 
 from __future__ import annotations
@@ -61,13 +76,15 @@ _DB_COLORS = {
 }
 _DEFAULT_NODE_COLOR = "#64748b"  # 未知の DB はグレー
 
-# ノードの x, y（[0, 1] 正規化座標）を掛けてシーン座標に変換するスケール値。
+# ノードの x, y, z（[0, 1] 正規化座標）を掛けてワールド座標に変換するスケール値。
 # 大きいほどノード間の距離が広がる。
 # 2026-08-27修正: 従来は固定値だったため、ノード数が増えるほど単位面積あたりの
 # ノード密度が上がり続け、実機で218ノード/358エッジのグラフがラベルもろとも
 # 団子状に潰れて読めなくなる不具合があった（「相変わらずひどい」として報告）。
 # ノード数のルートに比例させ、密度がおおよそ一定になるようにする
-# （50ノード時に900、218ノード時は約1880になる）。
+# （50ノード時に900、218ノード時は約1880になる）。3D化後もこの式を流用しているが、
+# 本来は体積(³√n)に対して比例させる方が理論的には正しく、実機の見え方次第では
+# 調整が必要かもしれない。
 _BASE_SCENE_SIZE = 900.0
 _BASE_NODE_COUNT = 50.0
 
@@ -83,43 +100,31 @@ def _scene_size_for(node_count: int) -> float:
 _LABEL_MAX_CHARS = 14
 
 
-def _spring_layout(
+def _spring_layout_3d(
     node_ids: list[str],
     edges: list[dict],
     iterations: int = 80,
-) -> dict[str, tuple[float, float]]:
+) -> dict[str, tuple[float, float, float]]:
     """
-    x/y が与えられていないノード群に対するフォースディレクテッド簡易レイアウト。
-    Local RAG の /graph エンドポイント（scripts/rag_graph_export.py の_spring_layout）
-    と同じアルゴリズムのクライアント側実装。
+    フォースディレクテッド簡易レイアウトの3D版。x/y版（_spring_layout、2026-08-27まで
+    存在。8-08修正の孤立ノード四隅集中バグ対策・ノード数正規化を含む）をz軸へ
+    そのまま拡張したもの。
 
-    Cloud RAG の buildGraphData_（gas_cloud_rag.js）は x/y を計算せずノードを返すため、
-    そのままだと RAGGraphScene.build() の `nd.get("x", 0.5)` フォールバックにより
-    全ノードが (0.5, 0.5) の同一点に重なって表示される（実機で「レイアウトがひどい」
-    として確認された不具合）。x/y が欠けている場合はここで位置を計算して補う。
-
-    2026-08-08 修正: ノード数が多い（実機で214ノード/356エッジ）グラフで、
-    ほとんどのノードが盤面の四隅の4点だけに収束してしまう不具合を修正した。
-    原因は反発力がノード数に比例して増え続けること（あるノードが受け取る
-    反発力は「他の全ノードとのペア」の合計であるため、ノード数が多いほど
-    合計値が大きくなる）と、エッジで繋がっていない孤立ノードには反発力に
-    対抗する引力が一切無いこと。結果として孤立ノードほど強く反発され続け、
-    [0.04, 0.96] のクランプ境界の中で最も「遠い」安定点である四隅に
-    次々と押し出されてしまっていた（scripts/rag_graph_export.py の同名
-    関数も同じ実装・同じ不具合だったため、あわせて修正している）。
-    対策は2つ: ①反発力をノード数で正規化し、ノード数に応じて合計反発力が
-    際限なく増えないようにする、②全ノードに中心(0.5, 0.5)へのごく弱い
-    求心力を加え、引力を持たない孤立ノードが盤面の隅に吹き飛ぶのを防ぐ。
+    Local RAGの/graphが返すx/y、Cloud RAGが返さないx/yのどちらも「2Dレイアウト」で
+    z成分を持たないため、3D表示ではバックエンドの座標を使わず常にここで計算する
+    （2D座標だけ流用してzだけこちらで足すと、レイアウトの意図が噛み合わず歪んだ
+    見た目になるため）。
     """
     if not node_ids:
         return {}
     if len(node_ids) == 1:
-        return {node_ids[0]: (0.5, 0.5)}
+        return {node_ids[0]: (0.5, 0.5, 0.5)}
 
     n = len(node_ids)
     rnd = random.Random(42)
     pos: dict[str, list[float]] = {
-        nid: [rnd.uniform(0.1, 0.9), rnd.uniform(0.1, 0.9)] for nid in node_ids
+        nid: [rnd.uniform(0.1, 0.9), rnd.uniform(0.1, 0.9), rnd.uniform(0.1, 0.9)]
+        for nid in node_ids
     }
     edge_scores: dict[tuple[str, str], float] = {}
     for e in edges:
@@ -129,33 +134,83 @@ def _spring_layout(
 
     center_pull = 0.01  # 求心力の強さ（弱め: 引力が働くノード同士の凝集は妨げない）
     for _ in range(iterations):
-        forces: dict[str, list[float]] = {nid: [0.0, 0.0] for nid in node_ids}
+        forces: dict[str, list[float]] = {nid: [0.0, 0.0, 0.0] for nid in node_ids}
         for ai in range(len(node_ids)):
             a = node_ids[ai]
             for bi in range(ai + 1, len(node_ids)):
                 b = node_ids[bi]
                 dx = pos[a][0] - pos[b][0]
                 dy = pos[a][1] - pos[b][1]
-                d = math.hypot(dx, dy) or 0.001
-                f_rep = 0.004 / (d * d) / n  # ノード数で正規化（①）
+                dz = pos[a][2] - pos[b][2]
+                d = math.sqrt(dx * dx + dy * dy + dz * dz) or 0.001
+                f_rep = 0.004 / (d * d) / n  # ノード数で正規化
                 forces[a][0] += dx / d * f_rep
                 forces[a][1] += dy / d * f_rep
+                forces[a][2] += dz / d * f_rep
                 forces[b][0] -= dx / d * f_rep
                 forces[b][1] -= dy / d * f_rep
+                forces[b][2] -= dz / d * f_rep
                 score = edge_scores.get((a, b), edge_scores.get((b, a), 0.0))
                 if score > 0:
                     f_att = score * 0.025
                     forces[a][0] -= dx * f_att
                     forces[a][1] -= dy * f_att
+                    forces[a][2] -= dz * f_att
                     forces[b][0] += dx * f_att
                     forces[b][1] += dy * f_att
+                    forces[b][2] += dz * f_att
         for nid in node_ids:
-            forces[nid][0] -= (pos[nid][0] - 0.5) * center_pull  # 求心力（②）
+            forces[nid][0] -= (pos[nid][0] - 0.5) * center_pull  # 求心力
             forces[nid][1] -= (pos[nid][1] - 0.5) * center_pull
+            forces[nid][2] -= (pos[nid][2] - 0.5) * center_pull
             pos[nid][0] = max(0.04, min(0.96, pos[nid][0] + forces[nid][0]))
             pos[nid][1] = max(0.04, min(0.96, pos[nid][1] + forces[nid][1]))
+            pos[nid][2] = max(0.04, min(0.96, pos[nid][2] + forces[nid][2]))
 
-    return {nid: (pos[nid][0], pos[nid][1]) for nid in node_ids}
+    return {nid: (pos[nid][0], pos[nid][1], pos[nid][2]) for nid in node_ids}
+
+
+# ─── カメラ / 透視投影 ──────────────────────────────────────────────────────────
+
+class Camera3D:
+    """
+    方位角(azimuth)・仰角(elevation)を持つ簡易カメラ。ワールド座標系の3D点を
+    Y軸→X軸の順に回転させ、透視除算（perspective divide）で2Dスクリーン座標へ
+    投影する。焦点距離はscene_sizeに比例させ、グラフの規模に関わらず同じような
+    見え方になるようにしている。
+    """
+
+    ELEVATION_LIMIT = math.radians(75)  # これを超えるとほぼ真上/真下からの見下ろしで
+                                          # 奥行きが分かりづらくなり、90度超で反転もするため
+
+    def __init__(self) -> None:
+        # 初期値はあえて真正面(0,0)にせず、最初から奥行きが見える角度にしておく
+        # （回転してもらわないと3D化した意味が伝わらないため）。
+        self.azimuth = math.radians(28.0)
+        self.elevation = math.radians(16.0)
+
+    def rotate(self, d_azimuth: float, d_elevation: float) -> None:
+        self.azimuth += d_azimuth
+        self.elevation = max(
+            -self.ELEVATION_LIMIT, min(self.ELEVATION_LIMIT, self.elevation + d_elevation)
+        )
+
+    def project(self, x: float, y: float, z: float, scene_size: float) -> tuple[float, float, float]:
+        """
+        中心済みワールド座標(x, y, z)を2Dスクリーン座標(sx, sy)へ投影し、あわせて
+        奥行き係数k（1.0=基準距離、1より大きい=手前で拡大、小さい=奥で縮小）を返す。
+        """
+        ca, sa = math.cos(self.azimuth), math.sin(self.azimuth)
+        x1 = x * ca + z * sa
+        z1 = -x * sa + z * ca
+        ce, se = math.cos(self.elevation), math.sin(self.elevation)
+        y2 = y * ce - z1 * se
+        z2 = y * se + z1 * ce
+
+        focal = scene_size * 1.6  # カメラの引き位置。scene_sizeに比例させグラフ規模に依存しないようにする
+        denom = max(z2 + focal, focal * 0.15)  # カメラに極端に近い点で分母が0/負にならないようクランプ
+        k = focal / denom
+        return x1 * k, y2 * k, k
 
 
 # ─── 非同期取得ワーカー ─────────────────────────────────────────────────────────
@@ -233,7 +288,9 @@ class GraphFetchWorker(QThread):
 
 class NodeItem(QGraphicsEllipseItem):
     """
-    クリッカブルなノード円。
+    クリッカブルなノード円。3D座標(pos3d)を保持し、RAGGraphScene.reproject()から
+    毎回 apply_projection() で画面上の位置・拡縮・不透明度を更新される
+    （手前のノードほど大きく・不透明に、奥のノードほど小さく・薄く見える）。
 
     状態と色:
       通常    : DB カラーパレットで決まる色
@@ -244,12 +301,24 @@ class NodeItem(QGraphicsEllipseItem):
     setFlag(ItemIsSelectable) で QGraphicsScene の選択機能と連携する。
     """
 
-    RADIUS = 18.0  # ノードの半径（ピクセル。ビュースケールに合わせて拡縮される）
+    RADIUS = 18.0  # ノードの半径（ピクセル。奥行きスケールと合わせてさらに拡縮される）
+
+    # 奥行きに応じた拡大率・不透明度のクランプ範囲。0や極端な値にはしない
+    # （遠いノードが消えて選択できなくなったり、近いノードが暴走的に巨大化しないため）。
+    _SCALE_RANGE = (0.5, 1.7)
+    _OPACITY_RANGE = (0.4, 1.0)
+
+    # ホバー/選択中のノードは常に最前面に来てほしいので、奥行きベースのzValue
+    # （後述のapply_projectionで most 2000程度まで）よりも十分大きいオフセットを足す。
+    _HOVER_Z_BOOST = 100000.0
+    _SELECT_Z_BOOST = 50000.0
 
     def __init__(self, node_data: dict) -> None:
         r = self.RADIUS
         super().__init__(-r, -r, r * 2, r * 2)  # 中心を原点に配置
         self.node_data = node_data
+        self.pos3d: tuple[float, float, float] = (0.0, 0.0, 0.0)  # ワールド座標。scene.build()が設定
+        self._base_z = 0.0  # 奥行き由来のzValue基準値。apply_projection()が更新する
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setAcceptHoverEvents(True)
 
@@ -260,7 +329,6 @@ class NodeItem(QGraphicsEllipseItem):
         self._select_brush   = QBrush(QColor("#fbbf24"))               # 選択時は黄色
         self.setBrush(self._default_brush)
         self.setPen(QPen(QColor("#1e293b"), 1.5))  # 暗いボーダーで形を際立たせる
-        self.setZValue(1)  # エッジ（ZValue=0）より手前に描画
 
         # ノード名ラベルを子アイテムとして配置（円の下に表示）。長いタイトルは省略し、
         # ノード数が多いグラフで隣接ラベル同士が重なって読めなくなるのを避けるため、
@@ -275,33 +343,51 @@ class NodeItem(QGraphicsEllipseItem):
         br = self._label.boundingRect()
         self._label.setPos(-br.width() / 2, r + 2)  # 円の下中央に配置
         self._label.setVisible(False)
-        self._label.setZValue(4)  # 表示時は他ノードの上に重ねて読めるようにする
+        self._label.setZValue(4)  # 子アイテムは常に親より手前に描画されるため、相対値のままでよい
+
+    def apply_projection(self, screen_x: float, screen_y: float, depth_k: float) -> None:
+        """
+        RAGGraphScene.reproject()から呼ばれる。透視投影後のスクリーン座標と
+        奥行き係数(depth_k、1.0=基準距離)を反映する。
+        """
+        clamped_scale = max(self._SCALE_RANGE[0], min(self._SCALE_RANGE[1], depth_k))
+        clamped_opacity = max(self._OPACITY_RANGE[0], min(self._OPACITY_RANGE[1], depth_k))
+        self.setPos(screen_x, screen_y)
+        self.setScale(clamped_scale)
+        self.setOpacity(clamped_opacity)
+        self._base_z = depth_k * 1000.0
+        # ホバー中/選択中はブースト込みのzValueを維持したいので、通常状態のときだけ
+        # 素の奥行きzValueを反映する（ホバー/選択解除時にhoverLeaveEvent/itemChangeが
+        # 呼ばれて正しい値へ戻る）。
+        if not self.isUnderMouse() and not self.isSelected():
+            self.setZValue(self._base_z)
 
     def hoverEnterEvent(self, event) -> None:
         """ホバー開始時: ブラシを明るい色に変え、最前面に移動してラベルを表示する。"""
         self.setBrush(self._hover_brush)
-        self.setZValue(3)
+        self.setZValue(self._base_z + self._HOVER_Z_BOOST)
         self._label.setVisible(True)
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event) -> None:
         """ホバー終了時: 選択中なら選択色、そうでなければデフォルト色に戻す。
-        ラベルは選択中のみ表示を維持する。"""
-        self.setBrush(
-            self._select_brush if self.isSelected() else self._default_brush
-        )
-        self.setZValue(1)
-        self._label.setVisible(self.isSelected())
+        ラベルは選択中のみ表示を維持する。zValueも奥行き基準値(+選択ブースト)へ戻す。"""
+        selected = self.isSelected()
+        self.setBrush(self._select_brush if selected else self._default_brush)
+        self.setZValue(self._base_z + (self._SELECT_Z_BOOST if selected else 0.0))
+        self._label.setVisible(selected)
         super().hoverLeaveEvent(event)
 
     def itemChange(self, change, value):
         """
         QGraphicsScene の選択状態が変化したときに呼ばれる。
-        選択: 黄色ブラシ＋ラベル表示 / 非選択: デフォルト色ブラシ＋ラベル非表示 に切り替える。
+        選択: 黄色ブラシ＋ラベル表示＋zValueブースト / 非選択: デフォルト色ブラシ＋
+        ラベル非表示＋奥行き基準zValueに切り替える。
         """
         if change == QGraphicsItem.ItemSelectedChange:
             self.setBrush(self._select_brush if value else self._default_brush)
             self._label.setVisible(bool(value))
+            self.setZValue(self._base_z + (self._SELECT_Z_BOOST if value else 0.0))
         return super().itemChange(change, value)
 
 
@@ -309,27 +395,43 @@ class EdgeItem(QGraphicsLineItem):
     """
     ドキュメント間の類似度エッジ。
 
-    alpha 値を score から計算することで、類似度が高いほど濃く表示する。
-      alpha = 50 + score * 160  (score=0 → 50, score=1 → 210)
+    元のスコアと、両端ノードの平均奥行き係数（フォグ効果。奥にあるほど薄く見せる）
+    の両方から透明度を計算する。update_geometry()はRAGGraphScene.reproject()から
+    カメラ回転のたびに呼ばれ、ノードの新しい画面座標に合わせて線を引き直す。
     pen.setCosmetic(True) でビューのズームに関わらず線幅を一定に保つ。
     """
 
-    def __init__(self, x1: float, y1: float, x2: float, y2: float, score: float) -> None:
-        super().__init__(x1, y1, x2, y2)
-        alpha = int(50 + score * 160)
-        pen = QPen(QColor(150, 150, 150, alpha), 1.2)
+    def __init__(self, score: float) -> None:
+        super().__init__()
+        self._score = score
+        pen = QPen(QColor(150, 150, 150, 128), 1.2)
         pen.setCosmetic(True)  # ズームしても線幅が変わらない
         self.setPen(pen)
-        self.setZValue(0)  # ノードより奥に描画
+
+    def update_geometry(self, x1: float, y1: float, x2: float, y2: float, depth_fog: float) -> None:
+        """depth_fog は両端ノードの平均奥行き係数(1.0=基準距離)。奥にあるほど薄くする。"""
+        self.setLine(x1, y1, x2, y2)
+        fog = max(0.35, min(1.0, depth_fog))
+        alpha = int((50 + self._score * 160) * fog)
+        pen = self.pen()
+        color = pen.color()
+        color.setAlpha(max(10, min(255, alpha)))
+        pen.setColor(color)
+        self.setPen(pen)
+        # 常にノード（zValue >= 0）より奥に描画されるよう、奥行きで軽くソートしつつ
+        # 確実に負の範囲へ収める。
+        self.setZValue(depth_fog * 10.0 - 1000.0)
 
 
 # ─── シーン ─────────────────────────────────────────────────────────────────────
 
 class RAGGraphScene(QGraphicsScene):
     """
-    ノードとエッジを管理する QGraphicsScene。
+    3Dレイアウトを計算し、カメラの回転に応じてノード/エッジを再投影する QGraphicsScene。
 
-    build() でノードとエッジを一括配置する。
+    build() で3Dレイアウトを計算してノードとエッジを配置し、reproject() で
+    現在のカメラ角度に基づく2D画面座標へ変換する。rotate_camera() はビューの
+    ドラッグ操作から呼ばれ、カメラ角度を更新してreproject()する。
     ノードが選択されると node_selected シグナルで node_data を発行する。
     """
     node_selected = Signal(dict)  # 選択されたノードの node_data
@@ -337,50 +439,72 @@ class RAGGraphScene(QGraphicsScene):
     def __init__(self) -> None:
         super().__init__()
         self._node_items: dict[str, NodeItem] = {}  # id → NodeItem の参照マップ
+        self._edges: list[tuple[EdgeItem, str, str]] = []  # (edge, source_id, target_id)
+        self._camera = Camera3D()
+        self._scene_size = _BASE_SCENE_SIZE
 
     def build(self, data: dict) -> None:
         """
-        グラフデータからノードとエッジを構築する。
-        ノードの x, y（[0, 1]）を、ノード数から動的に決まるscene_size（_scene_size_for）
-        でスケーリングしてシーン座標に変換する。
+        グラフデータから3Dレイアウトを計算し、ノードとエッジを構築する。
+        バックエンドが返すx/y（2D専用）は使わず、常にこちらで3Dレイアウトを
+        再計算する（_spring_layout_3dのdocstring参照）。
         """
         self.clear()
         self._node_items.clear()
+        self._edges.clear()
 
         nodes = data.get("nodes", [])
         edges = data.get("edges", [])
-        scene_size = _scene_size_for(len(nodes))
+        self._scene_size = _scene_size_for(len(nodes))
 
-        # Cloud RAG（gas_cloud_rag.jsのbuildGraphData_）はx/yを返さないため、
-        # 1つでも欠けていればフォースディレクテッドレイアウトを計算して補う
-        # （そうしないと全ノードが(0.5,0.5)に重なって表示されてしまう）。
-        computed_pos: dict[str, tuple[float, float]] = {}
-        if nodes and any(("x" not in nd or "y" not in nd) for nd in nodes):
-            node_ids = [nd["id"] for nd in nodes]
-            computed_pos = _spring_layout(node_ids, edges)
+        node_ids = [nd["id"] for nd in nodes]
+        layout_3d = _spring_layout_3d(node_ids, edges)
 
-        # ノードを配置
+        # ノードを配置（ワールド座標は中心を原点とする [-scene_size/2, scene_size/2]^3 へ変換）
         for nd in nodes:
-            if nd["id"] in computed_pos:
-                nx, ny = computed_pos[nd["id"]]
-            else:
-                nx, ny = nd.get("x", 0.5), nd.get("y", 0.5)
+            wx, wy, wz = layout_3d.get(nd["id"], (0.5, 0.5, 0.5))
             item = NodeItem(nd)
-            item.setPos(nx * scene_size, ny * scene_size)
+            item.pos3d = (
+                (wx - 0.5) * self._scene_size,
+                (wy - 0.5) * self._scene_size,
+                (wz - 0.5) * self._scene_size,
+            )
             self.addItem(item)
             self._node_items[nd["id"]] = item
 
-        # エッジを配置（ノードの中心座標で接続）
+        # エッジを配置（初期ジオメトリはreproject()で確定するので、ここではitem追加のみ）
         for ed in edges:
-            src = self._node_items.get(ed["source"])
-            tgt = self._node_items.get(ed["target"])
-            if src and tgt:
-                sp, tp = src.pos(), tgt.pos()
-                edge = EdgeItem(sp.x(), sp.y(), tp.x(), tp.y(), ed.get("score", 0.7))
+            src_id, tgt_id = ed.get("source"), ed.get("target")
+            if src_id in self._node_items and tgt_id in self._node_items:
+                edge = EdgeItem(ed.get("score", 0.7))
                 self.addItem(edge)
+                self._edges.append((edge, src_id, tgt_id))
 
-        # 選択変更シグナルを接続（build ごとに再接続）
         self.selectionChanged.connect(self._on_selection_changed)
+        self.reproject()
+
+    def reproject(self) -> None:
+        """現在のカメラ角度で全ノード/エッジの画面座標・拡縮・不透明度を計算し直す。"""
+        depth_by_id: dict[str, float] = {}
+        for node_id, item in self._node_items.items():
+            wx, wy, wz = item.pos3d
+            sx, sy, k = self._camera.project(wx, wy, wz, self._scene_size)
+            item.apply_projection(sx, sy, k)
+            depth_by_id[node_id] = k
+
+        for edge, src_id, tgt_id in self._edges:
+            src_item = self._node_items.get(src_id)
+            tgt_item = self._node_items.get(tgt_id)
+            if src_item is None or tgt_item is None:
+                continue
+            sp, tp = src_item.pos(), tgt_item.pos()
+            fog = (depth_by_id.get(src_id, 1.0) + depth_by_id.get(tgt_id, 1.0)) / 2.0
+            edge.update_geometry(sp.x(), sp.y(), tp.x(), tp.y(), fog)
+
+    def rotate_camera(self, d_azimuth: float, d_elevation: float) -> None:
+        """ビューのドラッグ操作から呼ばれる。カメラ角度を更新して再投影する。"""
+        self._camera.rotate(d_azimuth, d_elevation)
+        self.reproject()
 
     def _on_selection_changed(self) -> None:
         """選択アイテムが NodeItem の場合に node_selected シグナルを発行する。"""
@@ -393,26 +517,87 @@ class RAGGraphScene(QGraphicsScene):
 
 class RAGGraphView(QGraphicsView):
     """
-    ホイールズーム・ドラッグパン対応のグラフビュー。
+    ホイールズーム・左ドラッグ回転・中ドラッグパン対応のグラフビュー。
 
-    setDragMode(ScrollHandDrag) で左ドラッグによるパン操作を有効化する。
+    2D時代はScrollHandDrag（左ドラッグ＝パン）だったが、3D化にあたり左ドラッグは
+    カメラ回転に割り当てた。パンは中ドラッグに変更している。
     setTransformationAnchor(AnchorUnderMouse) でズーム中心をマウス位置にする。
     wheelEvent をオーバーライドして拡大率 1.15 倍 / 縮小率 1/1.15 倍のズームを実装する。
     """
 
+    # ドラッグ量→回転角(ラジアン)の変換係数。大きいほど少ないドラッグで大きく回る。
+    _ROTATE_SENSITIVITY = 0.008
+
     def __init__(self, scene: RAGGraphScene) -> None:
         super().__init__(scene)
         self.setRenderHint(QPainter.Antialiasing)                          # アンチエイリアス
-        self.setDragMode(QGraphicsView.ScrollHandDrag)                     # 左ドラッグでパン
+        self.setDragMode(QGraphicsView.NoDrag)                             # 左ドラッグは回転に使うため無効化
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)      # ズームのアンカー
         self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(QBrush(QColor("#1a1a2e")))                 # 暗い背景色
         self.setMinimumSize(300, 300)
 
+        self._rotating = False
+        self._panning = False
+        self._last_pos = None
+
     def wheelEvent(self, event: QWheelEvent) -> None:
         """スクロールホイールでズームする。上スクロール: 1.15 倍拡大、下: 縮小。"""
         factor = 1.15 if event.angleDelta().y() > 0 else 1.0 / 1.15
         self.scale(factor, factor)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._rotating = True
+            self._last_pos = event.position()
+            self.setCursor(Qt.SizeAllCursor)
+            event.accept()
+            return
+        if event.button() == Qt.MiddleButton:
+            self._panning = True
+            self._last_pos = event.position()
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._rotating and self._last_pos is not None:
+            pos = event.position()
+            dx = pos.x() - self._last_pos.x()
+            dy = pos.y() - self._last_pos.y()
+            self._last_pos = pos
+            scene = self.scene()
+            if isinstance(scene, RAGGraphScene):
+                scene.rotate_camera(dx * self._ROTATE_SENSITIVITY, dy * self._ROTATE_SENSITIVITY)
+            event.accept()
+            return
+        if self._panning and self._last_pos is not None:
+            pos = event.position()
+            dx = pos.x() - self._last_pos.x()
+            dy = pos.y() - self._last_pos.y()
+            self._last_pos = pos
+            hbar, vbar = self.horizontalScrollBar(), self.verticalScrollBar()
+            hbar.setValue(hbar.value() - int(dx))
+            vbar.setValue(vbar.value() - int(dy))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._rotating:
+            self._rotating = False
+            self._last_pos = None
+            self.unsetCursor()
+            event.accept()
+            return
+        if event.button() == Qt.MiddleButton and self._panning:
+            self._panning = False
+            self._last_pos = None
+            self.unsetCursor()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 # ─── 完成ウィジェット ───────────────────────────────────────────────────────────
@@ -424,7 +609,7 @@ class RAGGraphWidget(QWidget):
 
     構成:
       ツールバー  : 更新ボタン / 全体フィットボタン / ステータスラベル
-      グラフビュー: RAGGraphView（QGraphicsView）
+      グラフビュー: RAGGraphView（QGraphicsView、3D投影）
       詳細パネル  : 選択ノードの情報（ラベル / DB / チャンク数）
     """
 
@@ -508,7 +693,7 @@ class RAGGraphWidget(QWidget):
         self._scene.build(data)
         n = len(data.get("nodes", []))
         e = len(data.get("edges", []))
-        self._status.setText(f"{n} ノード / {e} エッジ  ドラッグ: パン  ホイール: ズーム")
+        self._status.setText(f"{n} ノード / {e} エッジ  左ドラッグ: 回転  中ドラッグ: パン  ホイール: ズーム")
         self._refresh_btn.setEnabled(True)
         self._fit_view()
 
