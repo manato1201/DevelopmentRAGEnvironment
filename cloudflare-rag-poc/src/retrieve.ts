@@ -113,16 +113,23 @@ export function resolveEffectiveNamespaces(
   return req.filter((ns) => user.allowedNamespaces.includes(ns));
 }
 
-// POST /me/namespaces — 自分がアクセス可能なnamespace一覧を返す（管理者権限不要）。
-// チャットUIの「個別DBに絞って検索」ドロップダウンを、管理者以外のユーザーでも
-// 正しく表示できるようにするための2026-08-26追加エンドポイント
+// POST /me/namespaces — 自分がアクセス可能なnamespace一覧（と自分のrole）を返す
+// （管理者権限不要）。チャットUIの「個別DBに絞って検索」ドロップダウンを、管理者
+// 以外のユーザーでも正しく表示できるようにするための2026-08-26追加エンドポイント
 // （/admin/namespaces/listは管理者専用のため、一般ユーザーは自分の許可リストを
 // 別の手段で知る必要があった）。
+// 2026-08-29: roleも返すようにした。APIキー入力直後にこのエンドポイントを叩いて
+// 「キーが有効か」と「管理タブを出してよいか」を同時に判定するため
+// （chatUi.ts参照。管理タブの表示/非表示自体はUIの都合であり、実際の権限チェックは
+// 各/admin/*エンドポイント側のrequireAdmin()が唯一の正）。
 export async function handleMyNamespaces(_req: Request, _env: Env, user: AuthedUser): Promise<Response> {
-  return new Response(JSON.stringify({ namespaces: user.allowedNamespaces, status: "ok" }), {
-    status: 200,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
+  return new Response(
+    JSON.stringify({ namespaces: user.allowedNamespaces, role: user.role, status: "ok" }),
+    {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    },
+  );
 }
 
 export { consumeBudget };
