@@ -58,6 +58,14 @@ export function chatUiHtml(): string {
   .tabpanel { display: none; flex: 1; min-height: 0; flex-direction: column; }
   .tabpanel.active { display: flex; }
 
+  /* APIキー未入力/未認証の間は機能を一切見せない（2026-08-29追加）。
+     nav.tabsとtabpanelだけを隠し、header自体（APIキー入力欄）は隠さない
+     ——そうしないとキーを入力する手段自体が消えてしまうため。 */
+  body.locked nav.tabs, body.locked .tabpanel { display: none !important; }
+  #authGate { display: none; padding: 3rem 1rem; text-align: center; color: var(--muted); font-size: 1rem; margin: 0; }
+  body.locked #authGate { display: block; }
+  nav.tabs button[data-tab="admin"].hidden-tab { display: none; }
+
   #messages { flex: 1; overflow-y: auto; padding: 1.2rem; max-width: 860px; margin: 0 auto; width: 100%; }
   .msg { margin-bottom: 1.1rem; max-width: 90%; }
   .msg.user { margin-left: auto; }
@@ -163,7 +171,7 @@ export function chatUiHtml(): string {
   .donut-cell { display: flex; align-items: center; gap: .5rem; }
 </style>
 </head>
-<body>
+<body class="locked">
 
 <header>
   <div class="header-row">
@@ -186,6 +194,8 @@ export function chatUiHtml(): string {
     <button data-tab="admin">管理</button>
   </nav>
 </header>
+
+<div id="authGate" class="hint">APIキーを入力してください</div>
 
 <!-- チャットタブ -->
 <div class="tabpanel active" id="tab-chat">
@@ -394,6 +404,28 @@ export function chatUiHtml(): string {
   apiKeyEl.value = localStorage.getItem("ragPocApiKey") || "";
   apiKeyEl.addEventListener("change", () => { localStorage.setItem("ragPocApiKey", apiKeyEl.value); loadNamespaceFocus(); });
 
+  // APIキー入力前は機能を一切見せない・管理者以外には管理タブを見せない（2026-08-29追加）。
+  // 実際の権限チェックはサーバー側の各/admin/*エンドポイントのrequireAdmin()が唯一の正で
+  // あり、これはあくまでUIの見た目を整えるためのもの（隠しているだけのタブを直接叩かれても
+  // サーバー側で弾かれる）。document.querySelectorを直接使い、後方で宣言されるtabButtons等
+  // に依存しない自己完結な実装にしている。
+  function setAuthGate(unlocked, role) {
+    document.body.classList.toggle("locked", !unlocked);
+    const adminBtn = document.querySelector('nav.tabs button[data-tab="admin"]');
+    if (!adminBtn) return;
+    const isAdmin = role === "admin";
+    adminBtn.classList.toggle("hidden-tab", !isAdmin);
+    if (!isAdmin && adminBtn.classList.contains("active")) {
+      // 管理タブを開いたまま非管理者キーに切り替えられた場合はチャットタブへ退避する
+      adminBtn.classList.remove("active");
+      document.querySelectorAll(".tabpanel").forEach((p) => p.classList.remove("active"));
+      const chatBtn = document.querySelector('nav.tabs button[data-tab="chat"]');
+      if (chatBtn) chatBtn.classList.add("active");
+      const chatPanel = document.getElementById("tab-chat");
+      if (chatPanel) chatPanel.classList.add("active");
+    }
+  }
+
   // Cloudflareエッジ側の一時的なエラー（503等）やレスポンスがHTMLになるケースは、
   // 実際には数秒待って再試行すると成功することが多い一過性の障害であることが多い。
   // 毎回ユーザーに手動でbatchSizeを下げて再試行させるのではなく、まず自動で
@@ -453,10 +485,11 @@ export function chatUiHtml(): string {
     return idx === -1 ? ns : ns.slice(idx + 1);
   }
   async function loadNamespaceFocus() {
-    if (!apiKeyEl.value.trim()) return;
+    if (!apiKeyEl.value.trim()) { setAuthGate(false, null); return; }
     const prevValue = namespaceFocusEl.value;
     try {
       const data = await api("/me/namespaces", {});
+      setAuthGate(true, data.role);
       namespaceFocusEl.innerHTML = '<option value="">🌐 全DB横断検索</option>';
       data.namespaces.slice().sort().forEach((ns) => {
         const opt = document.createElement("option");
@@ -466,7 +499,8 @@ export function chatUiHtml(): string {
       });
       if (data.namespaces.includes(prevValue)) namespaceFocusEl.value = prevValue;
     } catch (e) {
-      // 取得失敗時は「全DB横断検索」のみのまま（致命的ではないので黙って諦める）
+      // APIキーが無効、またはネットワークエラー。機能は隠したままにする
+      setAuthGate(false, null);
     }
   }
   loadNamespaceFocus();
