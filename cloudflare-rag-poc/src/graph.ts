@@ -9,7 +9,12 @@ import { splitNamespacesByScope } from "./auth";
 // 1回のgetByIdsでまとめて取得し、コサイン類似度をWorker内で計算してエッジを作る。
 // （ノードごとにVectorize.query()を呼ぶとサブリクエスト数が跳ね上がるため、
 // 既存のKB同期で学んだ教訓を踏まえてこの方式にした）
-const DEFAULT_MAX_NODES = 150;
+// 2026-08-29: 150→1000に引き上げ。DB内訳の合計がちょうど150（=当時の上限）に
+// 張り付いており、KB同期が進んでもグラフのノード数が増えないという実機報告があった
+// ため。エッジ計算がO(n²)のコサイン類似度総当たりのため、上限を上げるほどWorkerの
+// CPU時間を消費する（n=1000なら約100万ペア×768次元の内積）点は要注意。まずはこの値で
+// 実機の重さ・使い勝手を見て、必要ならエッジ計算の間引きやページングを検討する。
+const DEFAULT_MAX_NODES = 1000;
 const EDGE_THRESHOLD = 0.72;
 const MAX_EDGES_PER_NODE = 5;
 
@@ -50,7 +55,7 @@ export async function handleGraph(
     maxNodes?: number;
   };
   const effective = resolveEffectiveNamespaces(user, body.namespaces);
-  const maxNodes = Math.min(body.maxNodes ?? DEFAULT_MAX_NODES, 300);
+  const maxNodes = Math.min(body.maxNodes ?? DEFAULT_MAX_NODES, 1000);
 
   if (effective.length === 0) {
     return jsonResponse(200, { nodes: [], edges: [], status: "ok" });

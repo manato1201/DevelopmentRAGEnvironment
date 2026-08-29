@@ -958,7 +958,7 @@ export function chatUiHtml(): string {
     if (!apiKeyEl.value.trim()) { $("graphStats").textContent = "APIキーを入力してください"; return; }
     if (typeof THREE === "undefined") { $("graphStats").textContent = "3D描画ライブラリの読み込みに失敗しました"; return; }
     try {
-      const data = await api("/graph", { maxNodes: 150 });
+      const data = await api("/graph", { maxNodes: 1000 });
       $("graphStats").textContent = data.nodes.length + " ノード / " + data.edges.length + " エッジ" + (data.truncated ? "（上限により一部省略）" : "");
       if (data.nodes.length === 0) return;
 
