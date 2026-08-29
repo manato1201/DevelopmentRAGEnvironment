@@ -7,7 +7,7 @@ import type { Env } from "./types";
 // Vectorizeインデックス（768次元で作成済み）と合わせて768を明示指定する。
 const OUTPUT_DIMENSIONALITY = 768;
 
-export async function embedText(env: Env, text: string): Promise<number[]> {
+export async function embedText(env: Env, text: string, signal?: AbortSignal): Promise<number[]> {
   const model = env.EMBEDDING_MODEL || "gemini-embedding-001";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${env.GEMINI_API_KEY}`;
 
@@ -18,6 +18,7 @@ export async function embedText(env: Env, text: string): Promise<number[]> {
       content: { parts: [{ text }] },
       outputDimensionality: OUTPUT_DIMENSIONALITY,
     }),
+    signal,
   });
 
   if (!res.ok) {

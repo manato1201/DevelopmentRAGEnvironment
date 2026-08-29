@@ -1331,12 +1331,12 @@ export function chatUiHtml(): string {
       progressEl.textContent = "エラー: " + e.message;
     }
   }
-  // NotionはテキストのみでPDF/PPTX変換のような重い処理が無いためbatchSize=5でも速いが、
-  // Driveは同期時にPDF/PPTX/音声動画の変換（Gemini呼び出し込み）が挟まるため1件あたりが
-  // 大幅に遅くなる。batchSize=5のままだと1リクエストが100秒を超え、ブラウザ/中継プロキシ側の
-  // タイムアウトでHTMLエラーページが返り「Unexpected token '<'」というJSON解析エラーになる
-  // ことを実機で確認した（2026-08-26）。Drive側はbatchSize=1にして1リクエストを短く保つ。
-  $("kbSyncNotionBtn").addEventListener("click", () => runSync("/admin/sync/notion", 5));
+  // 当初Notionはテキストのみで変換が軽いためbatchSize=5にしていたが、ページ内の
+  // チャンク数が多いとGemini埋め込みだけで1ページ100秒近くかかることがあり
+  // （2026-08-29、PER_PAGE_TIMEOUT_MS引き上げの経緯参照）、5件×100秒では
+  // 1リクエストが極端に長くなりうる。Drive側と同じくbatchSize=1にして
+  // 1リクエストを短く保つ。
+  $("kbSyncNotionBtn").addEventListener("click", () => runSync("/admin/sync/notion", 1));
   $("kbSyncDriveBtn").addEventListener("click", () => runSync("/admin/sync/drive", 1));
 
   async function loadKbHistory() {
