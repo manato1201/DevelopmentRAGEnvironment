@@ -442,6 +442,11 @@ class RAGGraphScene(QGraphicsScene):
         self._edges: list[tuple[EdgeItem, str, str]] = []  # (edge, source_id, target_id)
         self._camera = Camera3D()
         self._scene_size = _BASE_SCENE_SIZE
+        # ここで一度だけ接続する。build()はclear()で全アイテムを消すだけで
+        # シグナル接続はそのまま残るため、以前はbuild()の中で毎回connect()して
+        # いたところ、「更新」を押すたびに接続が重複し、選択のたびに
+        # node_selected が複数回発火する不具合があった（2026-08-29修正）。
+        self.selectionChanged.connect(self._on_selection_changed)
 
     def build(self, data: dict) -> None:
         """
@@ -480,7 +485,6 @@ class RAGGraphScene(QGraphicsScene):
                 self.addItem(edge)
                 self._edges.append((edge, src_id, tgt_id))
 
-        self.selectionChanged.connect(self._on_selection_changed)
         self.reproject()
 
     def reproject(self) -> None:
@@ -547,18 +551,23 @@ class RAGGraphView(QGraphicsView):
         self.scale(factor, factor)
 
     def mousePressEvent(self, event) -> None:
+        """
+        左ボタン押下時に常に self._rotating = True としつつ、必ず super() へも
+        転送してQGraphicsSceneの通常のクリック処理（ノード選択）を素通りさせる。
+        2026-08-29修正: 当初はLeftButton/MiddleButtonの分岐でreturnしてsuper()を
+        一切呼んでいなかったため、ノードをクリックしても選択されない（selectionChanged
+        が一切発火しない）致命的な回帰があった。実際のドラッグ量はmouseMoveEvent側で
+        判定するため、押下時点でsuper()を呼んでも「回転操作」自体とは競合しない
+        （NodeItemはItemIsMovableを持たないため、Qt標準のドラッグ移動は発生しない）。
+        """
         if event.button() == Qt.LeftButton:
             self._rotating = True
             self._last_pos = event.position()
             self.setCursor(Qt.SizeAllCursor)
-            event.accept()
-            return
-        if event.button() == Qt.MiddleButton:
+        elif event.button() == Qt.MiddleButton:
             self._panning = True
             self._last_pos = event.position()
             self.setCursor(Qt.ClosedHandCursor)
-            event.accept()
-            return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
@@ -569,8 +578,9 @@ class RAGGraphView(QGraphicsView):
             self._last_pos = pos
             scene = self.scene()
             if isinstance(scene, RAGGraphScene):
-                scene.rotate_camera(dx * self._ROTATE_SENSITIVITY, dy * self._ROTATE_SENSITIVITY)
-            event.accept()
+                # 上へドラッグ(dy<0)で見下ろす角度になるよう、仰角側は符号反転
+                # （多くの3Dツールのオービット操作の慣習に合わせている）。
+                scene.rotate_camera(dx * self._ROTATE_SENSITIVITY, -dy * self._ROTATE_SENSITIVITY)
             return
         if self._panning and self._last_pos is not None:
             pos = event.position()
@@ -580,23 +590,18 @@ class RAGGraphView(QGraphicsView):
             hbar, vbar = self.horizontalScrollBar(), self.verticalScrollBar()
             hbar.setValue(hbar.value() - int(dx))
             vbar.setValue(vbar.value() - int(dy))
-            event.accept()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton and self._rotating:
+        if event.button() == Qt.LeftButton:
             self._rotating = False
             self._last_pos = None
             self.unsetCursor()
-            event.accept()
-            return
-        if event.button() == Qt.MiddleButton and self._panning:
+        elif event.button() == Qt.MiddleButton:
             self._panning = False
             self._last_pos = None
             self.unsetCursor()
-            event.accept()
-            return
         super().mouseReleaseEvent(event)
 
 
