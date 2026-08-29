@@ -8,7 +8,15 @@ import { newOpId, withAbortTimeout } from "./chunking";
 // これがCloudflareエッジのリクエスト打ち切り（非JSON応答・HTTP 503）を引き起こしていた
 // （2026-08-27、batchSize=1でも発生を確認）。1件あたりの処理に上限を設け、超過分は
 // そのファイルだけスキップしてバッチ全体は正常応答できるようにする。
-const PER_FILE_TIMEOUT_MS = 45_000;
+//
+// 2026-08-29修正: この上限は当初「ダウンロード＋テキスト変換」だけに掛かっており、
+// その後のingestDocument（チャンクごとのGemini埋め込み＋D1書き込み）は無制限のまま
+// だった。サイズの小さい順に処理する設計（listDriveFiles参照）のため、バッチが進むほど
+// 後段のファイルは大きく・チャンク数も多くなり、実機のhoudini21同期で85/335件目付近から
+// 埋め込みだけで45秒を超えて連続タイムアウトするようになっていた。ingestDocument側も
+// EMBED_CONCURRENCYで並列化して短縮したうえで、ダウンロード＋変換＋埋め込みの全体を
+// 1つのタイムアウトで包み、上限自体も引き上げる。
+const PER_FILE_TIMEOUT_MS = 100_000;
 import { extractTextFromPdf, extractTextFromDocxSource, extractTextFromPptxSource } from "./docExtract";
 import type { ByteRangeSource } from "./docExtract";
 import { transcribeAudioVideo } from "./mediaTranscribe";
@@ -202,26 +210,32 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
 
   for (const file of batch) {
     try {
-      const text = await withAbortTimeout(
-        (signal) => extractDriveFileText(env, token, file, signal),
+      // ダウンロード＋変換＋埋め込み＋D1書き込みまでを1つのタイムアウトで包む
+      // （2026-08-29: 以前はingestDocumentがこの枠の外にあり無制限だったため、
+      // サイズの大きいファイルで埋め込みだけがタイムアウトせず延々と実行され続けていた）。
+      const outcome = await withAbortTimeout(
+        async (signal): Promise<
+          | { kind: "skip"; reason: string }
+          | { kind: "ok"; chunks: number; skippedVectors: number }
+        > => {
+          const text = await extractDriveFileText(env, token, file, signal);
+          if (text === null) return { kind: "skip", reason: `未対応のmimeType: ${file.mimeType}` };
+          if (!text.trim()) return { kind: "skip", reason: "本文が空です" };
+          const result = await ingestDocument(env, namespace, file.name, text, "drive", signal);
+          return { kind: "ok", chunks: result.chunks, skippedVectors: result.skippedVectors.length };
+        },
         PER_FILE_TIMEOUT_MS,
-        `${file.name}の変換`,
+        `${file.name}の処理`,
       );
-      if (text === null) {
-        skipped.push({ file: file.name, reason: `未対応のmimeType: ${file.mimeType}` });
-        await logKb(env, opId, namespace, "drive", file.name, "skipped", `未対応mimeType: ${file.mimeType}`);
+      if (outcome.kind === "skip") {
+        skipped.push({ file: file.name, reason: outcome.reason });
+        await logKb(env, opId, namespace, "drive", file.name, "skipped", outcome.reason);
         continue;
       }
-      if (!text.trim()) {
-        skipped.push({ file: file.name, reason: "本文が空です" });
-        await logKb(env, opId, namespace, "drive", file.name, "skipped", "本文が空");
-        continue;
-      }
-      const result = await ingestDocument(env, namespace, file.name, text, "drive");
-      chunks += result.chunks;
+      chunks += outcome.chunks;
       documents += 1;
-      const skipNote = result.skippedVectors.length > 0 ? `（${result.skippedVectors.length}チャンクは登録失敗のためスキップ）` : "";
-      await logKb(env, opId, namespace, "drive", file.name, "ok", `${result.chunks}チャンク登録${skipNote}`);
+      const skipNote = outcome.skippedVectors > 0 ? `（${outcome.skippedVectors}チャンクは登録失敗のためスキップ）` : "";
+      await logKb(env, opId, namespace, "drive", file.name, "ok", `${outcome.chunks}チャンク登録${skipNote}`);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       skipped.push({ file: file.name, reason: detail });

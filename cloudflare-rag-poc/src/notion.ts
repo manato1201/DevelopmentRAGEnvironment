@@ -32,13 +32,19 @@ export async function createNotionPage(
   bodyText: string,
   summary?: string,
 ): Promise<CreatedNotionPage> {
-  const children: Array<{ object: "block"; type: "paragraph"; paragraph: { rich_text: Array<{ text: { content: string } }> } }> = [];
+  const children: Array<{
+    object: "block";
+    type: "paragraph";
+    paragraph: { rich_text: Array<{ text: { content: string } }> };
+  }> = [];
   const body = bodyText.slice(0, 40000);
   for (let i = 0; i < body.length && children.length < 95; i += 1800) {
     children.push({
       object: "block",
       type: "paragraph",
-      paragraph: { rich_text: [{ text: { content: body.slice(i, i + 1800) } }] },
+      paragraph: {
+        rich_text: [{ text: { content: body.slice(i, i + 1800) } }],
+      },
     });
   }
 
@@ -47,7 +53,9 @@ export async function createNotionPage(
       title: { title: [{ text: { content: title.slice(0, 200) } }] },
     };
     if (!titleOnly && summary) {
-      properties.summary = { rich_text: [{ text: { content: summary.slice(0, 1900) } }] };
+      properties.summary = {
+        rich_text: [{ text: { content: summary.slice(0, 1900) } }],
+      };
     }
     return properties;
   };
@@ -56,7 +64,11 @@ export async function createNotionPage(
     fetch("https://api.notion.com/v1/pages", {
       method: "POST",
       headers: notionHeaders(env),
-      body: JSON.stringify({ parent: { database_id: databaseId }, properties: buildProperties(titleOnly), children }),
+      body: JSON.stringify({
+        parent: { database_id: databaseId },
+        properties: buildProperties(titleOnly),
+        children,
+      }),
     });
 
   let res = await create(false);
@@ -64,10 +76,15 @@ export async function createNotionPage(
     res = await create(true); // summaryプロパティが無いDBではtitleのみで再試行
   }
   if (!res.ok) {
-    throw new Error(`Notionページの作成に失敗しました (${res.status}): ${await res.text()}`);
+    throw new Error(
+      `Notionページの作成に失敗しました (${res.status}): ${await res.text()}`,
+    );
   }
   const page = (await res.json()) as { id: string; last_edited_time?: string };
-  return { id: page.id, lastEditedTime: page.last_edited_time || new Date().toISOString() };
+  return {
+    id: page.id,
+    lastEditedTime: page.last_edited_time || new Date().toISOString(),
+  };
 }
 
 // Notionデータベース内の全ページを取得する（既存GAS syncNotionToSheets相当のクエリ部分）。
@@ -140,9 +157,10 @@ export async function getPageText(
   env: Env,
   pageId: string,
   depth = 8,
+  signal?: AbortSignal,
 ): Promise<string> {
   const lines: string[] = [];
-  await collectBlockText(env, pageId, depth, lines);
+  await collectBlockText(env, pageId, depth, lines, signal);
   return lines.join("\n");
 }
 
@@ -151,6 +169,7 @@ async function collectBlockText(
   blockId: string,
   depth: number,
   lines: string[],
+  signal?: AbortSignal,
 ): Promise<void> {
   let cursor: string | undefined;
   do {
@@ -158,7 +177,10 @@ async function collectBlockText(
     url.searchParams.set("page_size", "100");
     if (cursor) url.searchParams.set("start_cursor", cursor);
 
-    const res = await fetch(url.toString(), { headers: notionHeaders(env) });
+    const res = await fetch(url.toString(), {
+      headers: notionHeaders(env),
+      signal,
+    });
     if (!res.ok) {
       throw new Error(
         `Notion blocks APIエラー (${res.status}): ${await res.text()}`,
@@ -182,7 +204,7 @@ async function collectBlockText(
         lines.push(content.rich_text.map((t) => t.plain_text ?? "").join(""));
       }
       if (block.has_children && depth > 0) {
-        await collectBlockText(env, block.id, depth - 1, lines);
+        await collectBlockText(env, block.id, depth - 1, lines, signal);
       }
     }
     cursor = data.has_more ? (data.next_cursor ?? undefined) : undefined;
