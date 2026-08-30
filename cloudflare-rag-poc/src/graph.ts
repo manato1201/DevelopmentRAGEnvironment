@@ -68,10 +68,13 @@ export async function handleGraph(
     personal: [],
   };
 
+  // chunks_fts（全チャンク保持・chunk_idはUNINDEXED）を先頭ワイルドカードLIKEで
+  // 毎回フルスキャンしていたのをやめ、ドキュメント単位の軽量インデックステーブル
+  // kb_documents（namespaceにインデックス済み）を使う（migrations/0008参照、2026-08-29）。
   if (shared.length > 0) {
     const placeholders = shared.map(() => "?").join(",");
     const res = await env.DB.prepare(
-      `SELECT chunk_id, file, namespace FROM chunks_fts WHERE namespace IN (${placeholders}) AND chunk_id LIKE '%:0' LIMIT ?`,
+      `SELECT chunk_id, file, namespace FROM kb_documents WHERE namespace IN (${placeholders}) LIMIT ?`,
     )
       .bind(...shared, maxNodes)
       .all<{ chunk_id: string; file: string; namespace: string }>();
@@ -84,7 +87,7 @@ export async function handleGraph(
   if (personal.length > 0 && nodes.length < maxNodes) {
     const placeholders = personal.map(() => "?").join(",");
     const res = await env.DB.prepare(
-      `SELECT chunk_id, file, namespace FROM chunks_fts WHERE namespace IN (${placeholders}) AND owner_user_id = ? AND chunk_id LIKE '%:0' LIMIT ?`,
+      `SELECT chunk_id, file, namespace FROM kb_documents WHERE namespace IN (${placeholders}) AND owner_user_id = ? LIMIT ?`,
     )
       .bind(...personal, user.userId, maxNodes - nodes.length)
       .all<{ chunk_id: string; file: string; namespace: string }>();
