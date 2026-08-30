@@ -64,6 +64,7 @@
     <li><a href="#s3">このプロジェクト固有の用語</a></li>
     <li><a href="#s4">インフラ・技術基盤の用語</a></li>
     <li><a href="#s5">このプロジェクトのRAG分類</a></li>
+    <li><a href="#s6">周辺・派生手法の整理（2026-08-29調査分）</a></li>
   </ol>
   </details>
 </nav>
@@ -181,6 +182,104 @@
   <div class="callout" style="border-left:3px solid var(--accent);background:var(--panel);padding:.8rem 1rem;border-radius:0 8px 8px 0;margin-top:1rem;font-size:.9rem;">
     <strong>補足（実務でよく使われる名称ベースの分類との関係）：</strong> 「Naive→Advanced→Modular」はRAGの発展段階に基づく学術的な分類（Gao et al.）だが、実務では「Hybrid RAG」「Agentic RAG」「Graph RAG」等、手法ごとに名前を付ける分類も広く使われる（例：Level Up Coding「Top 8 RAG Architectures」）。この名称ベースの分類に当てはめると、本システムは検索方式の面で<strong>Hybrid RAG</strong>（ベクトル検索＋キーワード検索の統合）に明確に該当し、MCP経由でHoudiniを複数手順にわたって操作する面では<strong>Agentic RAG</strong>的な特性も併せ持つ。一方、Reranked／Multi-Query／Hierarchical／Graph／Corrective RAGに該当する仕組みは現状実装していない。これらは学術的な発展段階の分類とは別軸（技法ごとの命名）であるため、<strong>Modular RAGという結論自体に変化はない</strong>——Hybrid検索やAgentic的なツール統合は、いずれもModular RAGを構成するモジュールの一部として位置づけられる。
   </div>
+</section>
+
+<section id="s6">
+  <h2>6. 周辺・派生手法の整理（2026-08-29調査分）</h2>
+  <p>§5でRAGを「Naive→Advanced→Modular」という発展段階と、「Hybrid RAG」「Agentic RAG」「Graph RAG」等の名称ベースの分類の2軸で整理した。今回、追加で調査した手法群をこの2つの分類に照らし合わせて整理する。</p>
+
+  <h3 style="font-size:1rem;">6.0 まず結論：名称が違うだけのものと、本当に新しいものの見分け</h3>
+  <table>
+    <thead><tr><th>今回見つかった名称</th><th>§5・§2との関係</th><th>補足</th></tr></thead>
+    <tbody>
+      <tr><td><strong>GraphRAG / KAG</strong></td><td>§5の「Graph RAG」（未実装として明記済み）とほぼ同一</td><td>KAGはGraphRAGの発展形で、グラフ上の論理推論を特に強調する点がやや異なる。別物というより親戚関係</td></tr>
+      <tr><td><strong>CRAG（Corrective RAG）</strong></td><td>§5にそのままの名称で既出（未実装）</td><td>概念・名称ともに完全に同一</td></tr>
+      <tr><td><strong>Agentic RAG</strong></td><td>§5に既出（MCP経由のHoudini操作が該当すると明記済み）</td><td>同一</td></tr>
+      <tr><td><strong>HyDE</strong></td><td>§2に独立項目として既出（実装済み）</td><td>同一</td></tr>
+      <tr><td><strong>Adaptive RAG</strong></td><td>紛らわしいが§5の「適応的生成」とは別物</td><td>本システムの「適応的生成」は理解度スコアに応じた<strong>回答の難易度</strong>調整。Adaptive RAGは質問ごとに<strong>検索方式そのもの</strong>を切り替える仕組みで対象が違う。名前が似ているだけの別概念</td></tr>
+      <tr><td><strong>MAG（Multimodal-Augmented Generation）</strong></td><td>分類名としては初出だが実装自体は既にある</td><td>2026-08-27に追加した画像添付質問機能（query.tsのマルチモーダル対応）が実質MAGに該当する</td></tr>
+      <tr><td><strong>CAG（Cache-Augmented Generation）</strong></td><td>§5には無い。別途チャットで比較済み</td><td>新規</td></tr>
+      <tr><td><strong>DAG / TAG / Web-Augmented / Code-Augmented Generation</strong></td><td>§5には無い</td><td>完全に新規</td></tr>
+      <tr><td><strong>CoT / ToT / GoT / ReAct</strong></td><td>§5には無い（そもそも別カテゴリ）</td><td>検索拡張ではなく、プロンプト・推論時の工夫という別軸の技術。ReActは概念的にAgentic RAGのツール呼び出しループとほぼ同じ動作</td></tr>
+      <tr><td><strong>Fine-Tuning / LoRA・QLoRA / Doc-to-LoRA / Prompt Tuning</strong></td><td>§5には無い（そもそも別パラダイム）</td><td>モデル本体を書き換えるアプローチ。6.4で詳述</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--muted);font-size:.9rem;">まとめると：GraphRAG・CRAG・Agentic RAG・HyDEの4つは名称が違うだけで§5の分類に既に含まれている。Adaptive RAGは名前が似ているが別物。MAGは実装済みだが分類名を付けていなかっただけ。CAG・DAG・TAG・Web/Code-Augmented Generation・CoT系・Fine-Tuning系は本当に新規の観点。</p>
+
+  <h3 style="font-size:1rem;">6.1 ①外部データの持たせ方・連携（〇〇-Augmented Generation系）</h3>
+  <table>
+    <thead><tr><th>手法</th><th>特徴</th><th>利点</th><th>デメリット</th></tr></thead>
+    <tbody>
+      <tr><td><strong>GraphRAG / KAG</strong></td><td>情報を単語・概念間の「関係性」としてグラフ化してから参照する</td><td>複雑な相関関係の要約や複数ホップの質問に強い</td><td>ナレッジグラフの構築・保守が別途必要。本プロジェクトのようなチュートリアル/ノート中心のテキストは元々グラフ構造との相性がよくない</td></tr>
+      <tr><td><strong>CAG</strong></td><td>知識全体を事前にLLMのコンテキストへ詰め込み、KVキャッシュとして再利用する</td><td>検索ミスが原理的に起きない、レイテンシが下がる、構成がシンプル</td><td>コンテキストウィンドウに収まる規模の小さく安定した知識にしか使えない。更新のたびにキャッシュ再構築が必要</td></tr>
+      <tr><td><strong>DAG（Data-Augmented Generation）</strong></td><td>SQL/JSON/CSVのような構造化された数値データを直接処理して文章化する</td><td>売上データ等から財務レポート初稿を自動生成するような数値ベースの文章化に強い</td><td>本プロジェクト内で既に別の意味（PDG＝Procedural Dependency Graph）で使っている略称と衝突するので注意。文書中心の知識ベースには直接の適用先が乏しい</td></tr>
+      <tr><td><strong>TAG（Table-Augmented Generation）</strong></td><td>特にExcel/SQLのような表形式データのセル間集計・分析に特化</td><td>表の縦横関係を保ったまま処理できる</td><td>同上、適用先が乏しい</td></tr>
+      <tr><td><strong>MAG</strong></td><td>テキストだけでなく画像・動画・音声・図表を検索/参照対象にする</td><td>スクリーンショットや図解を含む質問に対応できる</td><td>画像埋め込み・ストレージのコストが増える</td></tr>
+      <tr><td><strong>Web-Augmented Generation</strong></td><td>Web検索エンジンをリアルタイムに叩いて最新情報を取り込む</td><td>社内DBの更新が追いつかない鮮度の高い情報に対応できる</td><td>外部Web検索を呼ぶ実装・コストが増える。信頼性担保が別課題になる</td></tr>
+      <tr><td><strong>Code-Augmented Generation</strong></td><td>裏でコードを自動生成・実行し、その結果を回答に組み込む</td><td>計算問題やスニペットの動作検証など「実際に動かして確認する」質問に強い</td><td>サンドボックス実行環境の構築・セキュリティ対策が別途必要</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size:1rem;">6.2 ②検索・処理プロセスの自動最適化（Advanced RAG・Agentic系）</h3>
+  <table>
+    <thead><tr><th>手法</th><th>特徴</th><th>利点</th><th>デメリット</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Agentic RAG</strong></td><td>AI自身がどのnamespaceをどう検索すべきか自律的に計画する</td><td>複数ステップにまたがる複雑な要求に対応できる</td><td>判断ミス時の挙動が読みにくい、レイテンシ・コストが増える</td></tr>
+      <tr><td><strong>CRAG</strong></td><td>検索結果が質問に合っているか自動評価し、不十分ならWeb検索等に切り替える</td><td>検索ミスを自動で補正できる</td><td>評価ステップ自体にLLM呼び出しが1回追加でかかる</td></tr>
+      <tr><td><strong>Adaptive RAG</strong></td><td>質問の難易度に応じて検索方式を自動使い分け</td><td>簡単な質問への無駄な検索コストを削減できる</td><td>難易度判定自体の精度に依存する</td></tr>
+      <tr><td><strong>Speculative RAG</strong></td><td>送信前の入力中に先読みして検索を始めておく</td><td>体感レイテンシを大きく下げられる</td><td>結局送信されない入力の分、無駄な検索コストが発生する</td></tr>
+      <tr><td><strong>HyDE</strong></td><td>質問文の代わりに仮の回答を生成し、その埋め込みで検索する</td><td>語彙ミスマッチを解消できる（実装済み）</td><td>仮回答生成の1LLM呼び出し分のコストが増える</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size:1rem;">6.3 ③プロンプト・推論時の拡張（Inference-Time Scaling）</h3>
+  <p style="font-size:.9rem;">検索拡張（〇〇-Augmented Generation）ではなく、「どう考えさせるか」でLLMの回答の質を上げる手法群。</p>
+  <table>
+    <thead><tr><th>手法</th><th>特徴</th><th>利点</th><th>デメリット</th></tr></thead>
+    <tbody>
+      <tr><td><strong>CoT</strong></td><td>「順を追って考えて」と指示し思考過程を書き出させる</td><td>論理的・数学的なミスを減らせる、実装コストがほぼゼロ</td><td>出力トークン数が増える分コスト・レイテンシが増える</td></tr>
+      <tr><td><strong>ToT</strong></td><td>複数の思考の枝を同時にシミュレーションし最良ルートを選ぶ</td><td>単一の思考プロセスより難問に強い</td><td>複数ルートを試す分コストが数倍に増える</td></tr>
+      <tr><td><strong>GoT</strong></td><td>思考同士を網目状に組み合わせ後戻りもする</td><td>ToTよりさらに複雑な問題に対応できる</td><td>実装・制御が複雑、コストも高い</td></tr>
+      <tr><td><strong>ReAct</strong></td><td>「思考」と「行動（ツール使用）」を交互に繰り返す</td><td>外部ツールと組み合わせた段階的な問題解決に強い</td><td>本プロジェクトのMCP経由Houdini操作は概念的にほぼReActと同じ動作を既に行っている</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size:1rem;">6.4 ④モデルの学習・チューニング（RAGとは別パラダイム）</h3>
+  <p style="font-size:.9rem;">RAGが「都度カンニングペーパーを持ち込む」方式なのに対し、こちらは「事前に頭に叩き込む」方式。</p>
+  <table>
+    <thead><tr><th>手法</th><th>特徴</th><th>利点</th><th>デメリット</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Full Fine-Tuning</strong></td><td>モデル全体のパラメータを新しいデータで再学習する</td><td>AIの振る舞い・専門性を根本から最適化できる</td><td>膨大な計算コスト・時間。知識更新のたびに再学習が必要（RAGの「ファイルを置くだけ」更新とは対照的）</td></tr>
+      <tr><td><strong>LoRA / QLoRA</strong></td><td>モデル本体は固定し、小さな差分（アダプター）だけを追加学習する</td><td>Full Fine-Tuningよりはるかに軽量</td><td>それでも学習データの準備・学習プロセスが必要</td></tr>
+      <tr><td><strong>Doc-to-LoRA</strong>（Sakana AI等、2026年注目）</td><td>ドキュメントのテキストから学習プロセスを経ずに差分パラメータを自動生成する</td><td>「学習なしでほぼ瞬時に文書内容をモデルに反映」というRAGとFine-Tuningの中間を狙う</td><td>まだ新しい技術で実運用実績が少ない</td></tr>
+      <tr><td><strong>Prompt Tuning / Prefix Tuning</strong></td><td>モデルパラメータはいじらず入力の先頭に特殊な仮想プロンプトを学習させる</td><td>LoRAよりさらに軽量</td><td>効果がLoRAより限定的なことが多い</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size:1rem;">6.5 「カンニングペーパー」の例えで整理する（ユーザー提供）</h3>
+  <table>
+    <thead><tr><th>手法</th><th>イメージ</th></tr></thead>
+    <tbody>
+      <tr><td>RAG</td><td>カンニングペーパーを<strong>その都度探して</strong>解く</td></tr>
+      <tr><td>CAG</td><td>教科書を丸ごと<strong>机に広げっぱなしにして</strong>解く</td></tr>
+      <tr><td>GraphRAG / KAG</td><td>相関図や家系図などの<strong>まとめノートを見て</strong>解く</td></tr>
+      <tr><td>Fine-Tuning系</td><td>事前に猛勉強して<strong>頭に叩き込んで</strong>解く</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size:1rem;">6.6 このプロジェクトへの当てはめ・組み込み優先度</h3>
+  <table>
+    <thead><tr><th>手法</th><th>優先度</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td><strong>CRAG</strong></td><td>高</td><td>情報抽出度（extractionRate）という「検索結果が質問に合っているか」の指標を既に持っているため、これをトリガーに切り替えるロジックは比較的低コストで追加できる</td></tr>
+      <tr><td><strong>CAG</strong></td><td>中</td><td>tool_docsのような小さく安定したnamespace限定でGeminiのコンテキストキャッシュ機能を使って試す価値がある</td></tr>
+      <tr><td><strong>Adaptive RAG</strong></td><td>中</td><td>挨拶や雑談的な質問への無駄な検索を省略できればコスト削減に直結する</td></tr>
+      <tr><td><strong>Speculative RAG</strong></td><td>低〜中</td><td>UX改善効果はあるが、無駄な検索コストとのトレードオフを要検証</td></tr>
+      <tr><td><strong>GraphRAG / KAG</strong></td><td>低</td><td>「複数ホップの関係を辿れず答えが出ない」という具体的な失敗事例が出ていない</td></tr>
+      <tr><td><strong>DAG / TAG / Web-Augmented / Code-Augmented</strong></td><td>低</td><td>知識ベースが文書中心で構造化データがほぼ無い、または実装コストに対して需要が低い</td></tr>
+      <tr><td><strong>Fine-Tuning系（LoRA含む）</strong></td><td>非推奨（現時点）</td><td>「ファイルを置くだけで知識が更新される」というRAGの運用しやすさを手放すことになる</td></tr>
+    </tbody>
+  </table>
 </section>
 
 <footer>
