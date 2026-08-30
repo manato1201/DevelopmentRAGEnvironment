@@ -182,6 +182,32 @@
   <div class="callout" style="border-left:3px solid var(--accent);background:var(--panel);padding:.8rem 1rem;border-radius:0 8px 8px 0;margin-top:1rem;font-size:.9rem;">
     <strong>補足（実務でよく使われる名称ベースの分類との関係）：</strong> 「Naive→Advanced→Modular」はRAGの発展段階に基づく学術的な分類（Gao et al.）だが、実務では「Hybrid RAG」「Agentic RAG」「Graph RAG」等、手法ごとに名前を付ける分類も広く使われる（例：Level Up Coding「Top 8 RAG Architectures」）。この名称ベースの分類に当てはめると、本システムは検索方式の面で<strong>Hybrid RAG</strong>（ベクトル検索＋キーワード検索の統合）に明確に該当し、MCP経由でHoudiniを複数手順にわたって操作する面では<strong>Agentic RAG</strong>的な特性も併せ持つ。一方、Reranked／Multi-Query／Hierarchical／Graph／Corrective RAGに該当する仕組みは現状実装していない。これらは学術的な発展段階の分類とは別軸（技法ごとの命名）であるため、<strong>Modular RAGという結論自体に変化はない</strong>——Hybrid検索やAgentic的なツール統合は、いずれもModular RAGを構成するモジュールの一部として位置づけられる。
   </div>
+
+  <h3 style="font-size:1rem;">16種類のRAG分類との対応</h3>
+  <p style="font-size:.9rem;">ユーザーが調査した「16種類のRAG」（Medium記事ベース、近い出典: <a href="https://medium.com/aingineer/a-complete-guide-to-retrieval-augmented-generation-rag-16-different-types-their-implementation-10d48248517b">Gaurav Nigam, "A Complete Guide to Retrieval-Augmented Generation (RAG): 16 Different Types"</a>。原文全体は未取得のため、ユーザー提供の各項目の説明文をそのまま引用元とする）に、本プロジェクトが該当するかどうかを1つずつ照らし合わせる。</p>
+  <table>
+    <thead><tr><th>#</th><th>種類</th><th>概要（原文要約）</th><th>本プロジェクトでの該当状況</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><strong>Standard RAG</strong></td><td>検索＋生成の基本形</td><td>✅ 該当（全システムの土台）</td></tr>
+      <tr><td>2</td><td><strong>Agentic RAG</strong></td><td>AIエージェントが自律的に検索・行動する</td><td>🟡 部分的に該当（チュートリアル自動生成でMCP経由のHoudini操作は該当するが、チャットのRAG検索自体は自律計画をしない単発の検索・生成）</td></tr>
+      <tr><td>3</td><td><strong>Graph RAG</strong></td><td>ナレッジグラフによる関係推論</td><td>❌ 非該当（グラフタブは文書間の類似度を可視化するUIであり、LLMの推論にグラフ構造を使ってはいない）</td></tr>
+      <tr><td>4</td><td><strong>Modular RAG</strong></td><td>検索・推論・生成を独立モジュール化</td><td>✅ 該当（§5の分類結論そのもの）</td></tr>
+      <tr><td>5</td><td><strong>Memory-Augmented RAG</strong></td><td>永続的な外部メモリで文脈を保持</td><td>🟡 一部該当（GAS版はRAG_Memoryシートで知識をQ&amp;A形式で蓄積・検索。Cloudflare版はチャット履歴のRAG還元は意図的に未実装のまま保留中）</td></tr>
+      <tr><td>6</td><td><strong>Multi-Modal RAG</strong></td><td>テキスト・画像・音声を横断処理</td><td>✅ 該当（画像添付質問機能＝実質MAG、Drive同期時のPDF/音声/動画の文字起こし取り込み）</td></tr>
+      <tr><td>7</td><td><strong>Federated RAG</strong></td><td>分散データソースからのプライバシー保護型検索</td><td>❌ 非該当（単一のD1/Vectorize・Sheetsに集約する構成）</td></tr>
+      <tr><td>8</td><td><strong>Streaming RAG</strong></td><td>リアルタイムの検索・生成</td><td>❌ 非該当（同期はバッチ処理・手動/cronトリガー）</td></tr>
+      <tr><td>9</td><td><strong>ODQA RAG</strong></td><td>大規模・多様なデータセットへの対応</td><td>🟡 部分的に該当（namespace横断検索はあるが自社ナレッジベース内に閉じたクローズドドメイン）</td></tr>
+      <tr><td>10</td><td><strong>Contextual Retrieval RAG</strong></td><td>セッション単位の文脈維持</td><td>✅ 該当（会話履歴historyを検索・回答生成に渡すマルチターン対応）</td></tr>
+      <tr><td>11</td><td><strong>Knowledge-Enhanced RAG</strong></td><td>構造化ドメインデータの統合</td><td>🟡 限定的に該当（namespace・difficulty等のメタデータは扱うが専門分野DBそのものとの統合ではない）</td></tr>
+      <tr><td>12</td><td><strong>Domain-Specific RAG</strong></td><td>特定業界向けにカスタマイズ</td><td>✅ 該当（Houdini/ゲーム開発ドメインに特化、HyDEプロンプトもドメイン別）</td></tr>
+      <tr><td>13</td><td><strong>Hybrid RAG</strong></td><td>複数の検索方式を組み合わせる</td><td>✅ 該当（ベクトル検索＋BM25/FTS5をRRFで統合）</td></tr>
+      <tr><td>14</td><td><strong>Self-RAG</strong></td><td>自己反省で回答を自ら改善・ファクトチェックする</td><td>❌ 非該当（情報抽出度は表示のみで自己修正には未使用。§6.6のCRAGがこの領域に相当）</td></tr>
+      <tr><td>15</td><td><strong>HyDE RAG</strong></td><td>仮説文書生成による検索強化</td><td>✅ 該当（実装済み）</td></tr>
+      <tr><td>16</td><td><strong>Recursive / Multi-Step RAG</strong></td><td>検索・生成のループを複数回行う</td><td>❌ 非該当（1回の検索→1回の生成のみ）</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:.9rem;"><strong>まとめ</strong>：16種類中、明確に該当するのは7種類（Standard, Modular, Multi-Modal, Contextual Retrieval, Domain-Specific, Hybrid, HyDE）。部分的に該当するのが4種類（Agentic, Memory-Augmented, ODQA, Knowledge-Enhanced）。非該当が5種類（Graph, Federated, Streaming, Self-RAG, Recursive/Multi-Step）。</p>
+  <p style="font-size:.9rem;color:var(--muted);">この16分類は§5の「Naive→Advanced→Modular」や「Hybrid／Agentic／Graph RAG」と重複する項目が多く（Modular・Hybrid・Agentic・Graph・HyDEは同じものを指す）、§5の分類と対立するものではなく、実務でよく挙げられる個別パターンをより細かく列挙したものと位置づけられる。非該当5種類のうちSelf-RAGは§6.6で優先度「高」としたCRAGと重なる領域で、次に着手する候補として引き続き有力。</p>
 </section>
 
 <section id="s6">

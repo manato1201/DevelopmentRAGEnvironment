@@ -135,6 +135,33 @@ RAG（検索拡張生成）は、実装の高度さによって大きく3段階�
 
 **補足（実務でよく使われる名称ベースの分類との関係）：** 「Naive→Advanced→Modular」はRAGの発展段階に基づく学術的な分類（Gao et al.）だが、実務では「Hybrid RAG」「Agentic RAG」「Graph RAG」等、手法ごとに名前を付ける分類も広く使われる（例：Level Up Coding「Top 8 RAG Architectures」）。この名称ベースの分類に当てはめると、本システムは検索方式の面で**Hybrid RAG**（ベクトル検索＋キーワード検索の統合）に明確に該当し、MCP経由でHoudiniを複数手順にわたって操作する面では**Agentic RAG**的な特性も併せ持つ。一方、Reranked／Multi-Query／Hierarchical／Graph／Corrective RAGに該当する仕組みは現状実装していない。これらは学術的な発展段階の分類とは別軸（技法ごとの命名）であるため、**Modular RAGという結論自体に変化はない**——Hybrid検索やAgentic的なツール統合は、いずれもModular RAGを構成するモジュールの一部として位置づけられる。
 
+### 16種類のRAG分類との対応
+
+ユーザーが調査した「16種類のRAG」（Medium記事ベース、近い出典: [Gaurav Nigam, "A Complete Guide to Retrieval-Augmented Generation (RAG): 16 Different Types"](https://medium.com/aingineer/a-complete-guide-to-retrieval-augmented-generation-rag-16-different-types-their-implementation-10d48248517b)。原文全体は未取得のため、ユーザー提供の各項目の説明文をそのまま引用元とする）に、本プロジェクトが該当するかどうかを1つずつ照らし合わせる。
+
+| # | 種類 | 概要（原文要約） | 本プロジェクトでの該当状況 |
+|---|---|---|---|
+| 1 | **Standard RAG** | 検索＋生成の基本形 | ✅ 該当（全システムの土台） |
+| 2 | **Agentic RAG** | AIエージェントが自律的に検索・行動する | 🟡 部分的に該当（チュートリアル自動生成でMCP経由のHoudini操作は該当するが、チャットのRAG検索自体は自律計画をしない単発の検索・生成） |
+| 3 | **Graph RAG** | ナレッジグラフによる関係推論 | ❌ 非該当（グラフタブは文書間の類似度を可視化するUIであり、LLMの推論にグラフ構造を使ってはいない。§6.1参照） |
+| 4 | **Modular RAG** | 検索・推論・生成を独立モジュール化 | ✅ 該当（§5の分類結論そのもの） |
+| 5 | **Memory-Augmented RAG** | 永続的な外部メモリで文脈を保持 | 🟡 一部該当（GAS版はRAG_Memoryシートに知識をQ&A形式で蓄積・検索する仕組みがある。Cloudflare版はチャット履歴をRAG検索に還元する機能は意図的に未実装のまま保留中） |
+| 6 | **Multi-Modal RAG** | テキスト・画像・音声を横断処理 | ✅ 該当（画像添付質問機能＝実質MAG、Drive同期時のPDF/音声/動画の文字起こし取り込み） |
+| 7 | **Federated RAG** | 分散データソースからのプライバシー保護型検索 | ❌ 非該当（単一のD1/Vectorize・Sheetsに集約する構成で、分散ソース間の連合検索は行っていない） |
+| 8 | **Streaming RAG** | リアルタイムの検索・生成 | ❌ 非該当（同期はバッチ処理・手動/cronトリガーで、ライブフィード的なリアルタイム性は無い） |
+| 9 | **ODQA RAG（Open-Domain QA）** | 大規模・多様なデータセットへの対応 | 🟡 部分的に該当（namespace横断の全DB検索はあるが、自社ナレッジベース内に閉じたクローズドドメインであり、Web全体を対象とするオープンドメインではない） |
+| 10 | **Contextual Retrieval RAG** | セッション単位の文脈維持 | ✅ 該当（会話履歴historyを検索・回答生成に渡すマルチターン対応） |
+| 11 | **Knowledge-Enhanced RAG** | 構造化ドメインデータの統合 | 🟡 限定的に該当（namespace・difficulty等の構造化メタデータは扱うが、専門分野向けの構造化データベースそのものとの統合ではない） |
+| 12 | **Domain-Specific RAG** | 特定業界向けにカスタマイズ | ✅ 該当（Houdini/ゲーム開発ドメインに特化。HyDEのプロンプトもドメインごとに調整済み） |
+| 13 | **Hybrid RAG** | 複数の検索方式を組み合わせる | ✅ 該当（ベクトル検索＋BM25/FTS5をRRFで統合。§5で既出） |
+| 14 | **Self-RAG** | 自己反省で回答を自ら改善・ファクトチェックする | ❌ 非該当（情報抽出度は表示のみでモデルの自己修正には使っていない。§6.6でCRAGとして優先度高と評価した部分がここに相当） |
+| 15 | **HyDE RAG** | 仮説文書生成による検索強化 | ✅ 該当（実装済み。§2で既出） |
+| 16 | **Recursive / Multi-Step RAG** | 検索・生成のループを複数回行う | ❌ 非該当（現状は1回の検索→1回の生成のみで、多段の検索ループは無い） |
+
+**まとめ**: 16種類中、明確に該当するのは7種類（Standard, Modular, Multi-Modal, Contextual Retrieval, Domain-Specific, Hybrid, HyDE）。部分的に該当するのが4種類（Agentic, Memory-Augmented, ODQA, Knowledge-Enhanced）。非該当が5種類（Graph, Federated, Streaming, Self-RAG, Recursive/Multi-Step）。
+
+この16分類は§5で既に整理した「Naive→Advanced→Modular」（学術的な発展段階）や「Hybrid／Agentic／Graph RAG」（名称ベース）と重複する項目が多い（Modular・Hybrid・Agentic・Graph・HyDEはいずれも同じものを指している）。したがって「16種類」は**§5の分類と対立するものではなく、実務でよく挙げられる個別パターンをより細かく列挙したもの**と位置づけられる。非該当5種類のうち、Self-RAGは§6.6で優先度「高」としたCRAG（Corrective RAG）と重なる領域であり、次に着手する候補として引き続き有力。
+
 ---
 
 ## 6. 周辺・派生手法の整理（2026-08-29調査分）
