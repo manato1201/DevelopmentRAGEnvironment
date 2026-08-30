@@ -102,6 +102,18 @@ export async function ingestDocument(
         )
           .bind(chunkId, file, namespaceId, "shared", chunks[i])
           .run();
+
+        // グラフビュー用の軽量インデックス（migrations/0008_kb_documents.sql参照）。
+        // ドキュメントごとに1行（chunk_index=0のチャンクIDのみ）を維持することで、
+        // graph.tsがchunks_fts本体（UNINDEXED列への先頭ワイルドカードLIKE、実質フル
+        // スキャン）を毎回スキャンせずに済むようにする。
+        if (i === 0) {
+          await env.DB.prepare(
+            "INSERT OR REPLACE INTO kb_documents (chunk_id, file, namespace, scope, owner_user_id) VALUES (?, ?, ?, ?, NULL)",
+          )
+            .bind(chunkId, file, namespaceId, "shared")
+            .run();
+        }
       }),
     );
   }
