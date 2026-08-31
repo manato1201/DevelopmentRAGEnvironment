@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import QThread, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QWheelEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -295,6 +296,11 @@ class TutorialGeneratePanel(QWidget):
         self._status.setStyleSheet("color:#aaa;font-size:11px;")
         layout.addWidget(self._status)
 
+        # 動画生成の進捗表示（2026-08-31追加）。_start_video_progress_poll()が更新する。
+        self._video_progress = QLabel("")
+        self._video_progress.setStyleSheet("color:#7dd3fc;font-size:11px;")
+        layout.addWidget(self._video_progress)
+
     # ── 外部 API（/tutorial コマンド用） ────────────────────────────────────────
 
     def start_with_topic(self, topic: str) -> None:
@@ -514,19 +520,74 @@ class TutorialGeneratePanel(QWidget):
         video_factory_bridge / screen_capture は LearningQt 側の video factory との
         連携用モジュールで、失敗してもチュートリアル保存そのものは既に成功済みなので
         例外は投げず、状態表示用の文字列として返すだけに留める。
+        起動に成功した場合は、続けてログファイルのポーリングによる進捗表示を開始する
+        （2026-08-31。以前は「バックグラウンドで開始しました」のまま数分待つだけだった）。
         """
         try:
             from video_factory_bridge import launch_video_generation
 
-            return launch_video_generation(
+            status, log_path = launch_video_generation(
                 md_path=md_path,
                 json_path=json_path,
                 sandbox_path=result.sandbox_path,
                 step_screenshots=result.step_screenshots,
                 exe_path=self._cfg_getter().get("video_factory_exe_path", ""),
             )
+            if log_path is not None:
+                self._start_video_progress_poll(log_path)
+            return status
         except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
             return f"動画生成の起動に失敗: {exc}"
+
+    # ── 動画生成の進捗表示（ログファイルのポーリング） ────────────────────────────
+
+    _VIDEO_PROGRESS_POLL_MS = 2000
+    _VIDEO_PROGRESS_MAX_POLLS = 900  # 2秒間隔で最大30分。それ以上は諦めてポーリングだけ止める
+
+    def _start_video_progress_poll(self, log_path: Path) -> None:
+        """
+        video_factory_cloudrag_poc.exe が書く<slug>_video_factory.logを定期的に
+        読み、"Rendered frame N / M" 行から進捗を、"Wrote "/"ERROR"行から完了・
+        失敗をそれぞれ検出して self._video_progress ラベルへ反映する。
+        プロセスの終了自体は追跡しない（設計方針は video_factory_bridge.py の
+        モジュールdocstring参照）ため、あくまでログの中身だけを見るベストエフォート。
+        """
+        state = {"polls": 0}
+
+        def poll() -> None:
+            state["polls"] += 1
+            try:
+                text = log_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return  # ログがまだ書かれ始めていない等。次回ポーリングに任せる
+
+            if "Wrote " in text:
+                self._video_progress.setText(f"動画生成: 完了（{log_path.name}）")
+                return
+            if "ERROR" in text or "エラー" in text:
+                last_line = text.strip().splitlines()[-1] if text.strip() else ""
+                self._video_progress.setText(f"動画生成: 失敗の可能性（{last_line[:80]}）")
+                return
+
+            match = None
+            for line in reversed(text.splitlines()):
+                m = re.search(r"Rendered frame (\d+) / (\d+)", line)
+                if m:
+                    match = m
+                    break
+            if match:
+                done, total = int(match.group(1)), int(match.group(2))
+                pct = int(done / total * 100) if total else 0
+                self._video_progress.setText(f"動画生成: フレーム {done}/{total}（{pct}%）")
+            else:
+                self._video_progress.setText(f"動画生成: 準備中…（{log_path.name}）")
+
+            if state["polls"] < self._VIDEO_PROGRESS_MAX_POLLS:
+                QTimer.singleShot(self._VIDEO_PROGRESS_POLL_MS, poll)
+            else:
+                self._video_progress.setText(f"動画生成: 進捗表示を終了しました（{log_path.name}を直接確認してください）")
+
+        QTimer.singleShot(self._VIDEO_PROGRESS_POLL_MS, poll)
 
     def _index_screenshots_async(self, result) -> None:
         """
@@ -793,6 +854,14 @@ class TutorialHistoryPanel(QWidget):
         refresh_btn.clicked.connect(self.refresh)
         toolbar.addWidget(refresh_btn)
 
+        # タイトル・難易度での絞り込み。一覧はrefresh()で全件読み込み済みなので、
+        # ディスクへは再アクセスせずQListWidgetItemの表示/非表示切替だけで済ませる
+        # （2026-08-31、生成本数が増えるほど目的のチュートリアルを探しにくくなるため追加）。
+        self._search_box = QLineEdit()
+        self._search_box.setPlaceholderText("タイトル・難易度で検索…")
+        self._search_box.textChanged.connect(self._apply_filter)
+        toolbar.addWidget(self._search_box, stretch=1)
+
         # 簡易（直列チェーンを折り畳んだ集約表示） / 詳細（全ノード表示）の切替。
         # ノード数が多い（既定 30 超）チュートリアルを開いたときは簡易を既定選択にする
         # （197ノード級の生成物を全部展開すると判読不能になるため）。
@@ -913,6 +982,19 @@ class TutorialHistoryPanel(QWidget):
             item.setData(Qt.UserRole, str(path))
             self._list.addItem(item)
         self._status.setText(f"{len(files)} 件")
+        self._apply_filter(self._search_box.text())
+
+    def _apply_filter(self, text: str) -> None:
+        """検索ボックスの文字列でリストの表示/非表示を切り替える（大文字小文字区別なし）。"""
+        needle = text.strip().lower()
+        visible = 0
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            hit = not needle or needle in item.text().lower()
+            item.setHidden(not hit)
+            visible += 1 if hit else 0
+        if needle:
+            self._status.setText(f"{visible} / {self._list.count()} 件（「{text}」で絞り込み中）")
 
     @staticmethod
     def _peek_difficulty(path: Path) -> str:
