@@ -282,18 +282,17 @@ class KnowledgeManager:
         if not rows:
             raise KnowledgeError("CSVを読み取れませんでした")
 
-        # ヘッダー検出: 1行目に question/answer（または 質問/回答）が含まれるか
+        # ヘッダー検出: "question,answer" または "質問,回答" の完全一致のみ自動判定し、
+        # それ以外は常に1列目=質問・2列目=回答とする。以前はquestion/answerそれぞれを
+        # 独立にキーワード走査しており、たとえば ["answer","notes"] のような並びだと
+        # a_idx=0に一致する一方q_idxは何にも一致せずデフォルト0のまま残ってq_idx==a_idx
+        # が衝突し、フォールバック（a_idx=q_idx+1）で実際は回答列が質問として使われる
+        # サイレントなデータ破損（質問と回答の入れ替わり）が起きていた
+        # （axchatd-knowledge-features-backport.md 1-2）。
         header = [c.strip().lower() for c in rows[0]]
-        q_idx, a_idx, start = 0, 1, 0
-        for i, col in enumerate(header):
-            if col in ("question", "質問", "q"):
-                q_idx = i
-            if col in ("answer", "回答", "a"):
-                a_idx = i
-        if any(c in ("question", "質問", "q", "answer", "回答", "a") for c in header):
-            start = 1
-        if q_idx == a_idx:
-            a_idx = q_idx + 1
+        is_header_row = (len(header) >= 2 and header[0] in ("question", "質問") and header[1] in ("answer", "回答"))
+        start = 1 if is_header_row else 0
+        q_idx, a_idx = 0, 1
 
         pairs = []
         for row in rows[start:]:
@@ -346,8 +345,16 @@ class KnowledgeManager:
         }
         sources.append(src)
         self._save_json(self.sources_path, sources)
-        # 初回取り込み
-        self.crawl_source(src["id"])
+        # 初回取り込み。失敗した場合は登録自体を取り消し、取得できなかったURLが
+        # 壊れたまま永久に登録され続け、以後のcrawl_dueで際限なく再試行されるのを防ぐ
+        # （crawl_sourceは失敗時にlast_crawledを更新しないため、期限チェックが常に
+        # 偽になり無限リトライストームになっていた。axchatd-knowledge-features-backport.md 1-1）。
+        try:
+            self.crawl_source(src["id"])
+        except Exception:
+            remaining = [s for s in self._sources() if s["id"] != src["id"]]
+            self._save_json(self.sources_path, remaining)
+            raise
         return [s for s in self._sources() if s["id"] == src["id"]][0]
 
     def delete_source(self, source_id: str) -> bool:
