@@ -72,9 +72,14 @@ def launch_video_generation(
         str(screenshots_path),
     ]
 
+    # cwdを明示しない場合、Popenは呼び出し元（Houdini自身）のカレントディレクトリを
+    # 継承するため、生成される.webmの出力先が実行のたびに変わりうる不定な状態だった。
+    # パネル内プレビュー機能（tutorial_view.py._open_video_preview）がファイルを
+    # 確実に見つけられるよう、常にexe自身のディレクトリを作業ディレクトリに固定する
+    # （main_cloudrag.cppの出力パスはCWD相対のため、2026-08-31）。
     try:
         with open(log_path, "w", encoding="utf-8") as log_file:
-            subprocess.Popen(args, stdout=log_file, stderr=subprocess.STDOUT)
+            subprocess.Popen(args, stdout=log_file, stderr=subprocess.STDOUT, cwd=str(Path(exe_path).parent))
     except OSError as exc:
         return f"動画生成の起動に失敗しました: {exc}", None
 
