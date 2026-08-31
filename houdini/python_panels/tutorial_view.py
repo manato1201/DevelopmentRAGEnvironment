@@ -23,12 +23,13 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QThread, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QWheelEvent
+from PySide6.QtCore import QThread, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QBrush, QColor, QDesktopServices, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QWheelEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDialog,
     QGraphicsItem,
     QGraphicsPathItem,
     QGraphicsRectItem,
@@ -216,6 +217,8 @@ class TutorialGeneratePanel(QWidget):
         self._chain_agents: list = []
         self._destroy_worker: _DestroySandboxWorker | None = None
         self._image_index_workers: list = []  # GC 防止のため参照を保持（rag_chatbot.pyのRateWorkerと同じ流儀）
+        self._last_video_path: Path | None = None  # プレビュー再生対象（生成完了検出時に設定）
+        self._preview_dialog = None  # プレビュー用QDialogのGC防止
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -296,10 +299,16 @@ class TutorialGeneratePanel(QWidget):
         self._status.setStyleSheet("color:#aaa;font-size:11px;")
         layout.addWidget(self._status)
 
-        # 動画生成の進捗表示（2026-08-31追加）。_start_video_progress_poll()が更新する。
+        # 動画生成の進捗表示・完了後のプレビュー再生（2026-08-31追加）。
+        video_row = QHBoxLayout()
         self._video_progress = QLabel("")
         self._video_progress.setStyleSheet("color:#7dd3fc;font-size:11px;")
-        layout.addWidget(self._video_progress)
+        video_row.addWidget(self._video_progress, stretch=1)
+        self._preview_btn = QPushButton("▶ プレビュー再生")
+        self._preview_btn.setEnabled(False)
+        self._preview_btn.clicked.connect(self._on_preview_video)
+        video_row.addWidget(self._preview_btn)
+        layout.addLayout(video_row)
 
     # ── 外部 API（/tutorial コマンド用） ────────────────────────────────────────
 
@@ -523,6 +532,7 @@ class TutorialGeneratePanel(QWidget):
         起動に成功した場合は、続けてログファイルのポーリングによる進捗表示を開始する
         （2026-08-31。以前は「バックグラウンドで開始しました」のまま数分待つだけだった）。
         """
+        exe_path = self._cfg_getter().get("video_factory_exe_path", "")
         try:
             from video_factory_bridge import launch_video_generation
 
@@ -531,10 +541,10 @@ class TutorialGeneratePanel(QWidget):
                 json_path=json_path,
                 sandbox_path=result.sandbox_path,
                 step_screenshots=result.step_screenshots,
-                exe_path=self._cfg_getter().get("video_factory_exe_path", ""),
+                exe_path=exe_path,
             )
             if log_path is not None:
-                self._start_video_progress_poll(log_path)
+                self._start_video_progress_poll(log_path, Path(exe_path).parent)
             return status
         except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
             return f"動画生成の起動に失敗: {exc}"
@@ -544,11 +554,14 @@ class TutorialGeneratePanel(QWidget):
     _VIDEO_PROGRESS_POLL_MS = 2000
     _VIDEO_PROGRESS_MAX_POLLS = 900  # 2秒間隔で最大30分。それ以上は諦めてポーリングだけ止める
 
-    def _start_video_progress_poll(self, log_path: Path) -> None:
+    def _start_video_progress_poll(self, log_path: Path, output_dir: Path) -> None:
         """
         video_factory_cloudrag_poc.exe が書く<slug>_video_factory.logを定期的に
         読み、"Rendered frame N / M" 行から進捗を、"Wrote "/"ERROR"行から完了・
         失敗をそれぞれ検出して self._video_progress ラベルへ反映する。
+        完了検出時は"Wrote <ファイル名>.webm"からファイル名を取り出し、output_dir
+        （video_factory_bridge.pyがPopenのcwdに固定したexe自身のディレクトリ）と
+        結合してプレビューボタンを有効化する（2026-08-31）。
         プロセスの終了自体は追跡しない（設計方針は video_factory_bridge.py の
         モジュールdocstring参照）ため、あくまでログの中身だけを見るベストエフォート。
         """
@@ -561,8 +574,13 @@ class TutorialGeneratePanel(QWidget):
             except OSError:
                 return  # ログがまだ書かれ始めていない等。次回ポーリングに任せる
 
-            if "Wrote " in text:
-                self._video_progress.setText(f"動画生成: 完了（{log_path.name}）")
+            wrote_match = re.search(r"Wrote (\S+\.webm)", text)
+            if wrote_match:
+                video_path = output_dir / wrote_match.group(1)
+                self._video_progress.setText(f"動画生成: 完了（{video_path.name}）")
+                if video_path.exists():
+                    self._last_video_path = video_path
+                    self._preview_btn.setEnabled(True)
                 return
             if "ERROR" in text or "エラー" in text:
                 last_line = text.strip().splitlines()[-1] if text.strip() else ""
@@ -588,6 +606,44 @@ class TutorialGeneratePanel(QWidget):
                 self._video_progress.setText(f"動画生成: 進捗表示を終了しました（{log_path.name}を直接確認してください）")
 
         QTimer.singleShot(self._VIDEO_PROGRESS_POLL_MS, poll)
+
+    def _on_preview_video(self) -> None:
+        """
+        「▶ プレビュー再生」ボタンのコールバック。QtWebEngineが使える環境では
+        パネルとは別の小さいウィンドウで、動画ファイルへ直接navigateして再生する
+        （VP9+Opus/WebMはChromiumならプロプライエタリコーデックの有無に関わらず
+        再生できるため、動画コーデックをVP9+Opusへ切り替えた対策と組み合わさって
+        機能する。詳細はLearningQt側のvideo_encoder.cppのコミット参照）。
+        QtWebEngineがこの環境のPySide6に含まれていない場合は、OS標準の
+        動画プレイヤー（外部ウィンドウ）で開くところまでは保証する。
+        """
+        path = self._last_video_path
+        if path is None or not path.exists():
+            self._video_progress.setText("動画生成: プレビュー対象のファイルが見つかりません")
+            return
+        try:
+            from PySide6.QtWebEngineWidgets import QWebEngineView
+        except ImportError:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"プレビュー: {path.name}")
+        dialog.resize(960, 620)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
+        view = QWebEngineView(dialog)
+        # HTMLに<video>タグを組み立ててsetHtml()するのではなく、動画ファイルへ直接
+        # navigateする（ChromiumはURLが動画ファイルそのものの場合、ブラウザで動画を
+        # 直接開いたときと同じネイティブの再生UIを自動的に表示する）。setHtml()経由の
+        # 合成HTMLだと、file://リソースへのアクセスがChromiumのオリジン制限に
+        # 引っかかりやすいため、この方が確実に動く。
+        view.load(QUrl.fromLocalFile(str(path)))
+        layout.addWidget(view)
+        dialog.show()
+        # ダイアログ自身がガベージコレクトされないよう保持する（複数回開いた場合は
+        # 直近のものだけ保持すればよい。閉じられたウィンドウの参照はOS側で解放される）。
+        self._preview_dialog = dialog
 
     def _index_screenshots_async(self, result) -> None:
         """
