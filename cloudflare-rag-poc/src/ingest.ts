@@ -28,6 +28,14 @@ export async function handleIngest(req: Request, env: Env, user: AuthedUser): Pr
   const sharedVectors: Array<{ id: string; values: number[]; metadata: ChunkMetadata }> = [];
   const personalVectors: Array<{ id: string; values: number[]; metadata: ChunkMetadata }> = [];
   const ftsRows: Array<{ chunk_id: string; file: string; namespace: string; scope: string; owner_user_id: string | null; difficulty: string | null; body: string }> = [];
+  // グラフビュー用の軽量インデックス（migrations/0008_kb_documents.sql、graph.ts参照）。
+  // このエンドポイントは1リクエストで複数(namespace,file)を任意の順・任意のチャンク数で
+  // 受け取れるため、kbIngest.tsのように「chunk_index===0」では判定できない
+  // （chunk_idのindexはこのリクエスト内のグローバルなループ位置iであり、ファイルごとの
+  // 先頭チャンクとは限らない）。代わりに(namespace,file)ごとに最初に出てきたチャンクの
+  // idを代表としてkb_documentsへ書く（グラフはそのドキュメントの代表ベクトル1本があれば
+  // 十分なため、必ずしもindex 0である必要はない）。
+  const documentRows = new Map<string, { chunk_id: string; file: string; namespace: string; scope: string; owner_user_id: string | null }>();
 
   for (let i = 0; i < body.chunks.length; i++) {
     const c = body.chunks[i];
@@ -64,6 +72,17 @@ export async function handleIngest(req: Request, env: Env, user: AuthedUser): Pr
       difficulty: c.difficulty ?? null,
       body: c.text,
     });
+
+    const docKey = `${c.namespace}::${c.file}`;
+    if (!documentRows.has(docKey)) {
+      documentRows.set(docKey, {
+        chunk_id: chunkId,
+        file: c.file,
+        namespace: c.namespace,
+        scope: metadata.scope,
+        owner_user_id: metadata.owner_user_id ?? null,
+      });
+    }
   }
 
   if (sharedVectors.length > 0) {
@@ -80,6 +99,14 @@ export async function handleIngest(req: Request, env: Env, user: AuthedUser): Pr
       "INSERT INTO chunks_fts (chunk_id, file, namespace, scope, owner_user_id, difficulty, body) VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
       .bind(row.chunk_id, row.file, row.namespace, row.scope, row.owner_user_id, row.difficulty, row.body)
+      .run();
+  }
+
+  for (const doc of documentRows.values()) {
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO kb_documents (chunk_id, file, namespace, scope, owner_user_id) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(doc.chunk_id, doc.file, doc.namespace, doc.scope, doc.owner_user_id)
       .run();
   }
 
