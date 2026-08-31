@@ -691,6 +691,16 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._handle_search(user)
             return
 
+        # 管理者向け検索テストパネル。ナレッジ登録直後に「実際に検索でヒットするか」を
+        # その場で確認できる専用エンドポイント（GAS/Cloudflare/Python版いずれにも無かった
+        # 機能ギャップ。既存の_handle_searchをそのまま呼ぶだけで、検索ロジックの新規実装は
+        # 不要。axchatd-knowledge-features-backport.md 2-3参照）。
+        if path == "/api/admin/search-test":
+            user = self._require_admin()
+            if user:
+                self._handle_search(user)
+            return
+
         # 画像埋め込み（CLIP、IMPROVEMENT_PLAN.md Phase2）。既存の /search・/query とは
         # 完全に独立した経路（テキスト検索の挙動には一切影響しない）。
         if path == "/index-images":
