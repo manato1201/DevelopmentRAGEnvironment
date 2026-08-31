@@ -538,7 +538,22 @@ export function chatUiHtml(): string {
     return "";
   }
 
-  function renderAssistantMessage(container, answer, sources, extractionRate, extractionDetail, memoryId, existingRating) {
+  // 回答＋出典一覧をMarkdown文字列に組み立てる（コピー機能・共有用）。
+  function buildMarkdownExport(question, answer, sources) {
+    let md = "";
+    if (question) md += "## 質問\n\n" + question + "\n\n";
+    md += "## 回答\n\n" + answer + "\n";
+    if (sources && sources.length > 0) {
+      md += "\n## 出典\n\n";
+      sources.forEach((s, i) => {
+        const cited = s.cited ? "引用" : "未引用";
+        md += "" + (i + 1) + ". " + s.file + "（" + s.namespace + "、" + cited + "）\n";
+      });
+    }
+    return md;
+  }
+
+  function renderAssistantMessage(container, question, answer, sources, extractionRate, extractionDetail, memoryId, existingRating) {
     const wrap = document.createElement("div");
     wrap.className = "msg assistant";
     const bubble = document.createElement("div");
@@ -565,6 +580,22 @@ export function chatUiHtml(): string {
       meta.appendChild(up);
       meta.appendChild(down);
     }
+
+    // 出典付きの回答をそのままチームに共有したいことがあるため、Markdown形式で
+    // クリップボードにコピーするボタンを用意する（2026-08-31）。
+    const exportBtn = document.createElement("button");
+    exportBtn.className = "rate-btn";
+    exportBtn.textContent = "Markdownコピー";
+    exportBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(buildMarkdownExport(question, answer, sources));
+        exportBtn.textContent = "コピーしました";
+      } catch {
+        exportBtn.textContent = "コピー失敗";
+      }
+      setTimeout(() => { exportBtn.textContent = "Markdownコピー"; }, 2000);
+    });
+    meta.appendChild(exportBtn);
     wrap.appendChild(meta);
 
     if (sources && sources.length > 0) {
@@ -739,7 +770,7 @@ export function chatUiHtml(): string {
     try {
       const focusNs = namespaceFocusEl.value;
       const data = await api("/query", { query: text, limit: 5, level: levelEl.value, namespaces: focusNs ? [focusNs] : undefined, image: imageToSend || undefined });
-      renderAssistantMessage(messagesEl, data.answer, data.sources, data.extractionRate, data.extractionDetail, data.memoryId, null);
+      renderAssistantMessage(messagesEl, text, data.answer, data.sources, data.extractionRate, data.extractionDetail, data.memoryId, null);
       messagesEl.scrollTop = messagesEl.scrollHeight;
       setStatus("");
     } catch (e) {
@@ -764,7 +795,7 @@ export function chatUiHtml(): string {
       if (data.entries.length === 0) { pane.innerHTML = '<p class="hint">履歴はまだありません</p>'; return; }
       data.entries.forEach((entry) => {
         renderUserMessage(pane, entry.query);
-        renderAssistantMessage(pane, entry.answer, entry.sources, 0, "-", entry.id, entry.rating);
+        renderAssistantMessage(pane, entry.query, entry.answer, entry.sources, 0, "-", entry.id, entry.rating);
       });
     } catch (e) {
       pane.innerHTML = '<p class="hint error">読み込みに失敗しました: ' + e.message + '</p>';
