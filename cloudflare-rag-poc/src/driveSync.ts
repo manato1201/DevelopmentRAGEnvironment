@@ -3,6 +3,7 @@ import { requireAdmin } from "./auth";
 import { getGoogleAccessToken } from "./googleAuth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
+import { notifySyncComplete } from "./syncNotify";
 
 // PDFのFile APIアップロード＋動画のACTIVE待ちポーリングを含むと1件で数十秒かかることがあり、
 // これがCloudflareエッジのリクエスト打ち切り（非JSON応答・HTTP 503）を引き起こしていた
@@ -244,6 +245,9 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
   }
 
   const nextIndex = startIndex + batchSize < files.length ? startIndex + batchSize : null;
+  if (nextIndex === null) {
+    await notifySyncComplete(env, opId, namespace, "drive");
+  }
 
   return jsonResponse(200, {
     status: "ok",

@@ -3,6 +3,7 @@ import { requireAdmin } from "./auth";
 import { listNotionPages, getPageText } from "./notion";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
+import { notifySyncComplete } from "./syncNotify";
 
 // depth=8への引き上げでネストが深いページのブロック取得回数が増えたため、Drive側と同様に
 // 1ページあたりの処理に上限を設ける（2026-08-27）。
@@ -84,6 +85,9 @@ export async function handleSyncNotion(req: Request, env: Env, user: AuthedUser)
   }
 
   const nextIndex = startIndex + batchSize < pages.length ? startIndex + batchSize : null;
+  if (nextIndex === null) {
+    await notifySyncComplete(env, opId, namespace, "notion");
+  }
 
   return jsonResponse(200, {
     status: "ok",
