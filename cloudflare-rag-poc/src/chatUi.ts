@@ -409,7 +409,7 @@ export function chatUiHtml(): string {
   // "input"はキー入力・貼り付けの両方で即座に発火するため、こちらをデバウンスして使う。
   let apiKeyDebounce = null;
   apiKeyEl.addEventListener("input", () => {
-    localStorage.setItem("ragPocApiKey", apiKeyEl.value);
+    localStorage.setItem("ragPocApiKey", apiKeyEl.value.trim());
     clearTimeout(apiKeyDebounce);
     apiKeyDebounce = setTimeout(loadNamespaceFocus, 500);
   });
@@ -419,8 +419,16 @@ export function chatUiHtml(): string {
   // あり、これはあくまでUIの見た目を整えるためのもの（隠しているだけのタブを直接叩かれても
   // サーバー側で弾かれる）。document.querySelectorを直接使い、後方で宣言されるtabButtons等
   // に依存しない自己完結な実装にしている。
-  function setAuthGate(unlocked, role) {
+  // messageは省略可（省略時はゲート文言を変更しない）。以前はキー未入力時も無効な
+  // キーが拒否された場合も全く同じ「APIキーを入力してください」のままで、ユーザーから
+  // 見ると「入力しても何も起きない」ようにしか見えなかった（実機報告、2026-08-31）。
+  // 状態ごとに違う文言を出すことで、少なくとも何が起きているかは分かるようにする。
+  function setAuthGate(unlocked, role, message) {
     document.body.classList.toggle("locked", !unlocked);
+    if (message !== undefined) {
+      const gate = document.getElementById("authGate");
+      if (gate) gate.textContent = message;
+    }
     const adminBtn = document.querySelector('nav.tabs button[data-tab="admin"]');
     if (!adminBtn) return;
     const isAdmin = role === "admin";
@@ -444,7 +452,12 @@ export function chatUiHtml(): string {
   async function apiOnce(path, body) {
     const res = await fetch(path, {
       method: "POST",
-      headers: { "Authorization": "Bearer " + apiKeyEl.value, "Content-Type": "application/json" },
+      // 空かどうかの判定は全箇所.trim()しているのに、実際にサーバーへ送る値だけ
+      // trimしていなかった。コピー元によっては前後に改行/スペースが混ざることがあり
+      // （見た目は同じキーに見える）、その場合ここだけ生の値を送るせいでサーバー側の
+      // キー照合が一致せず認証が通らない、という「入力しても何も起きない」不具合の
+      // 実質的な原因だったと考えられる（2026-08-31）。
+      headers: { "Authorization": "Bearer " + apiKeyEl.value.trim(), "Content-Type": "application/json" },
       body: JSON.stringify(body || {}),
     });
     const text = await res.text();
@@ -495,7 +508,8 @@ export function chatUiHtml(): string {
     return idx === -1 ? ns : ns.slice(idx + 1);
   }
   async function loadNamespaceFocus() {
-    if (!apiKeyEl.value.trim()) { setAuthGate(false, null); return; }
+    if (!apiKeyEl.value.trim()) { setAuthGate(false, null, "APIキーを入力してください"); return; }
+    setAuthGate(false, null, "APIキーを確認中…");
     const prevValue = namespaceFocusEl.value;
     try {
       const data = await api("/me/namespaces", {});
@@ -509,8 +523,10 @@ export function chatUiHtml(): string {
       });
       if (data.namespaces.includes(prevValue)) namespaceFocusEl.value = prevValue;
     } catch (e) {
-      // APIキーが無効、またはネットワークエラー。機能は隠したままにする
-      setAuthGate(false, null);
+      // APIキーが無効、またはネットワークエラー。理由が分かるようゲートの文言に出す
+      // （以前はここも無言で「APIキーを入力してください」に戻していたため、
+      // 「入力しても何も起きない」ように見えていた）。
+      setAuthGate(false, null, "認証に失敗しました: " + e.message);
     }
   }
   loadNamespaceFocus();
