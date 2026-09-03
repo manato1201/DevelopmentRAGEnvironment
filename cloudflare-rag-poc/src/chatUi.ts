@@ -402,7 +402,17 @@ export function chatUiHtml(): string {
   const namespaceFocusEl = $("namespaceFocus");
 
   apiKeyEl.value = localStorage.getItem("ragPocApiKey") || "";
-  apiKeyEl.addEventListener("change", () => { localStorage.setItem("ragPocApiKey", apiKeyEl.value); loadNamespaceFocus(); });
+  // "change"はフォーカスが外れて初めて発火するため、キーを貼り付け/入力した直後に
+  // フィールドからフォーカスを移さないと認証チェックが一度も走らず、ゲートが
+  // 開かないまま「APIキーを入力してください」に見えてしまう不具合があった
+  // （実機で「入力しても他の機能が出てこない」として報告された、2026-08-31）。
+  // "input"はキー入力・貼り付けの両方で即座に発火するため、こちらをデバウンスして使う。
+  let apiKeyDebounce = null;
+  apiKeyEl.addEventListener("input", () => {
+    localStorage.setItem("ragPocApiKey", apiKeyEl.value);
+    clearTimeout(apiKeyDebounce);
+    apiKeyDebounce = setTimeout(loadNamespaceFocus, 500);
+  });
 
   // APIキー入力前は機能を一切見せない・管理者以外には管理タブを見せない（2026-08-29追加）。
   // 実際の権限チェックはサーバー側の各/admin/*エンドポイントのrequireAdmin()が唯一の正で
