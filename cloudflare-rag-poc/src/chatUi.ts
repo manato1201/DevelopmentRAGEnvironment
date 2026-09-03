@@ -402,17 +402,22 @@ export function chatUiHtml(): string {
   const namespaceFocusEl = $("namespaceFocus");
 
   apiKeyEl.value = localStorage.getItem("ragPocApiKey") || "";
-  // "change"はフォーカスが外れて初めて発火するため、キーを貼り付け/入力した直後に
-  // フィールドからフォーカスを移さないと認証チェックが一度も走らず、ゲートが
-  // 開かないまま「APIキーを入力してください」に見えてしまう不具合があった
-  // （実機で「入力しても他の機能が出てこない」として報告された、2026-08-31）。
-  // "input"はキー入力・貼り付けの両方で即座に発火するため、こちらをデバウンスして使う。
-  let apiKeyDebounce = null;
-  apiKeyEl.addEventListener("input", () => {
-    localStorage.setItem("ragPocApiKey", apiKeyEl.value.trim());
-    clearTimeout(apiKeyDebounce);
-    apiKeyDebounce = setTimeout(loadNamespaceFocus, 500);
-  });
+  // "change"（フォーカスが外れて初めて発火）→"input"（キー入力・貼り付けで発火）と
+  // 2回直したが、それでも直らなかった。ブラウザのパスワードマネージャー/自動入力が
+  // 値をプログラム的にセットする場合、多くの実装でinput/changeどちらのイベントも
+  // 一切発火しないことが知られている（実機のスクリーンショットに🔑パスワード
+  // マネージャーアイコンが写っており、これが実際の原因だった可能性が高い）。
+  // イベントに一切依存せず、値そのものを短い間隔でポーリングして変化を検出する
+  // 方式に変更する。これなら自動入力・拡張機能経由の入力を含め、値がどう
+  // セットされても確実に検出できる（2026-08-31）。
+  let lastSeenApiKey = apiKeyEl.value.trim();
+  setInterval(() => {
+    const current = apiKeyEl.value.trim();
+    if (current === lastSeenApiKey) return;
+    lastSeenApiKey = current;
+    localStorage.setItem("ragPocApiKey", current);
+    loadNamespaceFocus();
+  }, 600);
 
   // APIキー入力前は機能を一切見せない・管理者以外には管理タブを見せない（2026-08-29追加）。
   // 実際の権限チェックはサーバー側の各/admin/*エンドポイントのrequireAdmin()が唯一の正で
