@@ -570,15 +570,23 @@ export function chatUiHtml(): string {
   }
 
   // 回答＋出典一覧をMarkdown文字列に組み立てる（コピー機能・共有用）。
+  // 注意: このファイル全体が外側でTypeScriptの1つの大きなテンプレートリテラルに
+  // 包まれているため、ここで改行エスケープをバックスラッシュ1個だけで書くと、外側の
+  // コンパイラの時点で実際の改行文字に変換されてしまう。その結果ブラウザに配信される
+  // スクリプト側ではダブルクォート文字列の途中に生の改行が入ることになり、
+  // SyntaxErrorでスクリプト全体が起動不能になる（実機で発生・確認、2026-09-03。
+  // このコメント自身も一度この書き方をして同じ壊れ方をしたため、コメント中でも
+  // 改行エスケープの実例を直接書かないようにしている）。ブラウザ側JSに改行エスケープを
+  // 文字として残すには、ここでは常にバックスラッシュを2個重ねて書く必要がある。
   function buildMarkdownExport(question, answer, sources) {
     let md = "";
-    if (question) md += "## 質問\n\n" + question + "\n\n";
-    md += "## 回答\n\n" + answer + "\n";
+    if (question) md += "## 質問\\n\\n" + question + "\\n\\n";
+    md += "## 回答\\n\\n" + answer + "\\n";
     if (sources && sources.length > 0) {
-      md += "\n## 出典\n\n";
+      md += "\\n## 出典\\n\\n";
       sources.forEach((s, i) => {
         const cited = s.cited ? "引用" : "未引用";
-        md += "" + (i + 1) + ". " + s.file + "（" + s.namespace + "、" + cited + "）\n";
+        md += "" + (i + 1) + ". " + s.file + "（" + s.namespace + "、" + cited + "）\\n";
       });
     }
     return md;
