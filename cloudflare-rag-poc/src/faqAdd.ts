@@ -3,6 +3,7 @@ import { requireAdmin } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { createNotionPage } from "./notion";
+import { jsonResponse } from "./http";
 
 // POST /admin/kb/add-faq — 質問と回答を1件だけサクッと登録する（既存GAS adminKbAddFaq相当、
 // 2026-08-27追加）。QA CSV一括登録（/admin/kb/import-qa-csv）はあったが、1件だけ試したい/
@@ -57,11 +58,4 @@ export async function handleAddFaq(req: Request, env: Env, user: AuthedUser): Pr
   await logKb(env, opId, namespace, "manual", title, "ok", `FAQ単発登録: ${result.chunks}チャンク登録${skipNote}${notionNote}`);
 
   return jsonResponse(200, { status: "ok", opId, title, chunks: result.chunks, skipped: result.skippedVectors.length, notionPageId });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
 }

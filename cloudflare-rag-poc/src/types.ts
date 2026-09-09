@@ -74,10 +74,6 @@ export interface QueryResponse {
   memoryId?: number;
 }
 
-export interface ErrorResponse {
-  error: string;
-}
-
 export interface AuthedUser {
   userId: string;
   role: "admin" | "member" | "guest";
@@ -106,4 +102,11 @@ export interface KbSyncResult {
   documents: number;
   chunks: number;
   skipped: Array<{ file: string; reason: string }>;
+  // このバッチ呼び出しで処理した各ファイル/ページの結果（管理画面の同期進捗表示用、2026-09-04追加）。
+  // batchSize=1で呼ばれる想定のUIでは実質1件だが、大きいbatchSizeでも動くよう配列にしている。
+  results: Array<{
+    file: string;
+    status: "ok" | "skipped" | "error";
+    detail: string;
+  }>;
 }

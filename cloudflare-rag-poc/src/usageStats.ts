@@ -1,5 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
+import { jsonResponse } from "./http";
 
 // POST /admin/usage/stats — 日次のトークン使用量集計（既存GAS adminTokenUsageStats相当）。
 // 管理画面の折れ線/棒グラフ表示用。日付はUTC基準（SQLiteのunixepoch由来のためタイムゾーン変換はしない）。
@@ -74,7 +75,13 @@ export async function handleRatingStats(
      JOIN users u ON u.user_id = m.user_id
      GROUP BY m.user_id
      ORDER BY total DESC`,
-  ).all<{ displayName: string; userId: string; total: number; good: number; bad: number }>();
+  ).all<{
+    displayName: string;
+    userId: string;
+    total: number;
+    good: number;
+    bad: number;
+  }>();
 
   return jsonResponse(200, {
     total: totalsRes?.total ?? 0,
@@ -83,12 +90,5 @@ export async function handleRatingStats(
     unrated: totalsRes?.unrated ?? 0,
     byUser: byUserRes.results ?? [],
     status: "ok",
-  });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
   });
 }

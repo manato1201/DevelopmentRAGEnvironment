@@ -1,4 +1,5 @@
 import type { AuthedUser, ChunkMetadata, Env } from "./types";
+import { jsonResponse } from "./http";
 import { resolveEffectiveNamespaces } from "./retrieve";
 import { splitNamespacesByScope } from "./auth";
 
@@ -167,12 +168,5 @@ export async function handleGraph(
     edges,
     status: "ok",
     truncated: nodes.length >= maxNodes,
-  });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
   });
 }

@@ -1,6 +1,7 @@
 import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
 import { sendSlackAlert, sendGmailAlert } from "./alerts";
+import { jsonResponse } from "./http";
 
 export interface HealthIssue {
   severity: "warning" | "error";
@@ -106,11 +107,4 @@ export async function handleTestAlert(req: Request, env: Env, user: AuthedUser):
   }
 
   return jsonResponse(200, { results, status: "ok" });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
 }

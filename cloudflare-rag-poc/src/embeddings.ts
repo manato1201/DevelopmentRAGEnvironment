@@ -34,6 +34,47 @@ export async function embedText(env: Env, text: string, signal?: AbortSignal): P
   return values;
 }
 
+// 複数テキストを1回のHTTPリクエストでまとめて埋め込む（:batchEmbedContents）。
+// embedText()をチャンク数だけ呼ぶより往復回数が減り、特にチャンク数が多い
+// 大きいファイルでレイテンシとレート制限リスクを大きく削減できる。
+// 1リクエストあたりの上限件数はGoogle側で公開されていないため、安全側の値を
+// 定数化してkbIngest.ts側で分割呼び出しする（呼び出し側の責務）。
+export async function embedTextBatch(env: Env, texts: string[], signal?: AbortSignal): Promise<number[][]> {
+  if (texts.length === 0) return [];
+  const model = env.EMBEDDING_MODEL || "gemini-embedding-001";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:batchEmbedContents?key=${env.GEMINI_API_KEY}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      requests: texts.map((text) => ({
+        model: `models/${model}`,
+        content: { parts: [{ text }] },
+        outputDimensionality: OUTPUT_DIMENSIONALITY,
+      })),
+    }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`Gemini batchEmbedContents APIエラー (${res.status}): ${detail}`);
+  }
+
+  const data = (await res.json()) as { embeddings?: Array<{ values?: number[] }> };
+  const embeddings = data.embeddings;
+  if (!embeddings || !Array.isArray(embeddings) || embeddings.length !== texts.length) {
+    throw new Error("Gemini batchEmbedContents APIのレスポンス形式が想定と異なります");
+  }
+  return embeddings.map((e) => {
+    if (!e.values || !Array.isArray(e.values)) {
+      throw new Error("Gemini batchEmbedContents APIのレスポンス形式が想定と異なります");
+    }
+    return e.values;
+  });
+}
+
 // クエリのSHA-256ハッシュ（既存RAGAuditLogger仕様を踏襲：監査ログにクエリ本文を残さない）
 export async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
@@ -58,7 +99,7 @@ export type GeminiPart =
 // Gemini generateContent（HyDE仮回答生成・最終回答生成・PDF/音声/動画の理解に共用。既存GAS callGemini_相当）。
 // テキストのみの呼び出しは generateContent() から、PDF/音声/動画/YouTubeなどマルチモーダルな
 // 呼び出しは generateContentWithParts() から使う（下記のPDF/DOCX/音声動画/YouTube変換で利用）。
-export async function generateContentWithParts(env: Env, parts: GeminiPart[]): Promise<GenerateResult> {
+export async function generateContentWithParts(env: Env, parts: GeminiPart[], signal?: AbortSignal): Promise<GenerateResult> {
   const model = env.GENERATION_MODEL || "gemini-flash-latest";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
 
@@ -68,6 +109,7 @@ export async function generateContentWithParts(env: Env, parts: GeminiPart[]): P
     body: JSON.stringify({
       contents: [{ parts }],
     }),
+    signal,
   });
 
   if (!res.ok) {

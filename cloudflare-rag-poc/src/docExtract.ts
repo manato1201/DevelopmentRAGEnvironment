@@ -8,40 +8,64 @@ import { uploadGeminiFile, waitForGeminiFileActive, deleteGeminiFile } from "./g
 // Gemini APIのインラインデータには実質的なサイズ上限（約20MB）があるため、それを超える
 // PDFはFile API（音声/動画と同じアップロード方式）に切り替える。実際に26MBのPDF
 // （CEDECの発表資料）でこの上限に達したことを確認済み（2026-08-26）。
-const INLINE_SIZE_LIMIT = 18 * 1024 * 1024;
+//
+// 2026-09-04修正: このアカウントがCloudflare Workers Freeプラン（CPU時間10ms固定、
+// Paidプランと違い引き上げ不可）だったと判明し、インラインパス側のbase64エンコード
+// （旧arrayBufferToBase64、下記参照）がCPU時間を食い潰しError 1102
+// （Worker exceeded resource limits）で強制終了される原因になっていた。File API経路
+// （アップロード方式）はbase64化が不要でCPU負荷がずっと低いため、閾値を大きく下げて
+// より多くのPDFをそちらへ回す（機能は変わらず、経路が変わるだけ）。
+const INLINE_SIZE_LIMIT = 4 * 1024 * 1024;
 const PDF_PROMPT = "このPDFに含まれる本文をすべてテキストとして書き出してください。要約や意見は加えず、原文の内容をできるだけそのまま出力してください。";
 
-export async function extractTextFromPdf(env: Env, bytes: ArrayBuffer, fileName = "document.pdf"): Promise<string> {
+export async function extractTextFromPdf(env: Env, bytes: ArrayBuffer, fileName = "document.pdf", signal?: AbortSignal): Promise<string> {
   if (bytes.byteLength <= INLINE_SIZE_LIMIT) {
     const base64 = arrayBufferToBase64(bytes);
     const result = await generateContentWithParts(env, [
       { inlineData: { mimeType: "application/pdf", data: base64 } },
       { text: PDF_PROMPT },
-    ]);
+    ], signal);
     return result.text;
   }
 
-  const file = await uploadGeminiFile(env, bytes, "application/pdf", fileName);
+  const file = await uploadGeminiFile(env, bytes, "application/pdf", fileName, signal);
   try {
-    const active = file.state === "ACTIVE" ? file : await waitForGeminiFileActive(env, file.name);
+    const active = file.state === "ACTIVE" ? file : await waitForGeminiFileActive(env, file.name, undefined, signal);
     const result = await generateContentWithParts(env, [
       { fileData: { mimeType: active.mimeType, fileUri: active.uri } },
       { text: PDF_PROMPT },
-    ]);
+    ], signal);
     return result.text;
   } finally {
     await deleteGeminiFile(env, file.name);
   }
 }
 
+// 旧実装（spread構文でのString.fromCharCode呼び出し＋文字列連結）はCPU時間を大きく
+// 消費していた。バイト単位のルックアップテーブル方式に切り替え、出力もUint8Array
+// （base64文字は全てASCII範囲＝TextDecoderのデコード結果は0-127の範囲で確実に一致する
+// ため、どのエンコーディングラベルでも安全）に直接書き込むことでCPU時間を短縮する
+// （2026-09-04、Freeプランの10ms CPU時間制限対策）。
+const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_CODES = new Uint8Array(BASE64_CHARS.length);
+for (let i = 0; i < BASE64_CHARS.length; i++) BASE64_CODES[i] = BASE64_CHARS.charCodeAt(i);
+const BASE64_PAD = 61; // '='
+
 function arrayBufferToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  const len = bytes.length;
+  const out = new Uint8Array(Math.ceil(len / 3) * 4);
+  let o = 0;
+  for (let i = 0; i < len; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < len ? bytes[i + 1] : 0;
+    const b2 = i + 2 < len ? bytes[i + 2] : 0;
+    out[o++] = BASE64_CODES[b0 >> 2];
+    out[o++] = BASE64_CODES[((b0 & 3) << 4) | (b1 >> 4)];
+    out[o++] = i + 1 < len ? BASE64_CODES[((b1 & 15) << 2) | (b2 >> 6)] : BASE64_PAD;
+    out[o++] = i + 2 < len ? BASE64_CODES[b2 & 63] : BASE64_PAD;
   }
-  return btoa(binary);
+  return new TextDecoder().decode(out);
 }
 
 // ---- DOCX/PPTX（OOXML）: 実体はZIPアーカイブなので、必要なXMLエントリだけを取り出して

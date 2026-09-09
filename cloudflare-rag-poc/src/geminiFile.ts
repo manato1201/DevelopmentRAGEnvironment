@@ -21,6 +21,7 @@ export async function uploadGeminiFile(
   bytes: ArrayBuffer,
   mimeType: string,
   displayName: string,
+  signal?: AbortSignal,
 ): Promise<GeminiFile> {
   const startRes = await fetch(`${UPLOAD_BASE}?key=${env.GEMINI_API_KEY}`, {
     method: "POST",
@@ -32,6 +33,7 @@ export async function uploadGeminiFile(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ file: { display_name: displayName } }),
+    signal,
   });
   if (!startRes.ok) {
     throw new Error(`Gemini File APIアップロード開始エラー (${startRes.status}): ${await startRes.text()}`);
@@ -47,6 +49,7 @@ export async function uploadGeminiFile(
       "X-Goog-Upload-Command": "upload, finalize",
     },
     body: bytes,
+    signal,
   });
   if (!uploadRes.ok) {
     throw new Error(`Gemini File APIアップロードエラー (${uploadRes.status}): ${await uploadRes.text()}`);
@@ -57,10 +60,15 @@ export async function uploadGeminiFile(
 
 // 動画ファイルは処理に時間がかかりACTIVEになるまで待つ必要がある（既存GAS実装の
 // ポーリング相当）。最大でおよそ waitMs 合計まで待機する。
-export async function waitForGeminiFileActive(env: Env, name: string, waitMs = 60000): Promise<GeminiFile> {
+// signalを渡した場合、ポーリング中でも即座に中断できるようにする（2026-09-04追加。
+// withAbortTimeoutの枠を過ぎてもこのポーリングだけ裏で動き続けてしまい、chunking.tsの
+// withAbortTimeout移行時に潰したはずの「タイムアウトさせたつもりが実は動き続ける」バグが
+// このFile API経路にだけ残っていた）。
+export async function waitForGeminiFileActive(env: Env, name: string, waitMs = 60000, signal?: AbortSignal): Promise<GeminiFile> {
   const start = Date.now();
   while (Date.now() - start < waitMs) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${name}?key=${env.GEMINI_API_KEY}`);
+    if (signal?.aborted) throw new Error("Gemini File APIのポーリングが中断されました");
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${name}?key=${env.GEMINI_API_KEY}`, { signal });
     if (!res.ok) throw new Error(`Gemini File API状態確認エラー (${res.status}): ${await res.text()}`);
     const file = (await res.json()) as GeminiFile;
     if (file.state === "ACTIVE") return file;
@@ -74,6 +82,8 @@ export async function deleteGeminiFile(env: Env, name: string): Promise<void> {
   await fetch(`https://generativelanguage.googleapis.com/v1beta/${name}?key=${env.GEMINI_API_KEY}`, {
     method: "DELETE",
   }).catch(() => {
-    // 削除失敗は致命的ではない（48時間後に自動削除されるため）ので握りつぶす
+    // 削除失敗は致命的ではない（48時間後に自動削除されるため）ので握りつぶす。
+    // signalは意図的に渡さない：呼び出し元のfinallyブロックで後片付けとして呼ばれるため、
+    // そのsignalが既にabort済みだと削除自体が即失敗し、Gemini側にファイルが残ってしまう。
   });
 }

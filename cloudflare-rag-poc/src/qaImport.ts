@@ -2,6 +2,7 @@ import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
+import { jsonResponse } from "./http";
 
 // 簡易CSVパーサ（RFC4180準拠：ダブルクォート囲み・""によるエスケープ・引用内の改行に対応）。
 // 外部ライブラリを追加せずに済む程度の単純なQA一覧を想定している。
@@ -119,12 +120,5 @@ export async function handleImportQaCsv(req: Request, env: Env, user: AuthedUser
     totalRows: dataRows.length,
     processedRange: [startIndex, startIndex + batch.length],
     nextIndex,
-  });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
   });
 }

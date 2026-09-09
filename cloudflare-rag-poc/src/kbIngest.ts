@@ -1,5 +1,5 @@
 import type { ChunkMetadata, Env } from "./types";
-import { embedText, sha256Hex } from "./embeddings";
+import { embedTextBatch, sha256Hex } from "./embeddings";
 import { chunkText } from "./chunking";
 
 // VectorizeのベクトルIDは64バイト上限。日本語の長いページタイトルをそのままIDに使うと
@@ -41,13 +41,20 @@ export interface IngestResult {
   skippedVectors: Array<{ chunkIndex: number; reason: string }>;
 }
 
-// 1リクエストあたりの埋め込みAPI同時呼び出し数。埋め込みは1チャンクずつ順番に
-// 待っていると、チャンク数の多いドキュメント（大きいPDF/Notionページ等）で
-// ingestDocument全体の所要時間がチャンク数に比例して伸び続け、withAbortTimeoutで
+// batchEmbedContentsに1回で渡すチャンク数。埋め込みを1チャンクずつ（あるいは
+// 少数ずつ並列に）待っていると、チャンク数の多いドキュメント（大きいPDF/Notion
+// ページ等）でHTTP往復回数がチャンク数に比例して増え続け、withAbortTimeoutで
 // 想定している「1ファイルあたりの処理時間」の枠を簡単に超えてしまう
 // （実機のDrive同期で85/335件目付近から連続タイムアウトとして発覚、2026-08-29）。
-// Gemini embedding APIの同時呼び出し数を増やして所要時間を短縮する。
-const EMBED_CONCURRENCY = 8;
+// 1リクエストにまとめて埋め込みAPIの往復回数自体を減らす。上限件数はGoogle側で
+// 公開されていないため、安全側の値を決め打ちしている。
+const EMBED_BATCH_SIZE = 50;
+// バッチ自体も複数を同時発行する。1バッチ50件の呼び出しは1件だけの呼び出しより
+// レスポンスに時間がかかる（サーバ側の処理量が増えるため）ので、バッチを完全に
+// 逐次実行すると「往復回数は減ったが並列に発行しなくなった分」で相殺されうる。
+// 往復回数削減と並列発行を両立させるため、バッチ単位でもEMBED_BATCH_CONCURRENCY
+// 個ずつ同時に投げる。
+const EMBED_BATCH_CONCURRENCY = 3;
 
 export async function ingestDocument(
   env: Env,
@@ -64,9 +71,10 @@ export async function ingestDocument(
   const ingestedAt = Math.floor(Date.now() / 1000);
   const size = fullText.length;
 
-  // 埋め込みはEMBED_CONCURRENCY件ずつ並列に呼び出す（D1書き込みは各チャンクの
-  // 埋め込みが返ってきた直後に行うため、全体としては「並列に埋め込み→都度D1書き込み」
-  // という順序になる。D1書き込み自体はチャンク間で独立なので並列実行しても問題ない）。
+  // 埋め込みはEMBED_BATCH_SIZE件ずつbatchEmbedContentsでまとめて呼び出し、さらに
+  // EMBED_BATCH_CONCURRENCY個のバッチを同時発行する（D1書き込みは各バッチの埋め込みが
+  // 返ってきた直後にそのバッチ内で並列実行する。D1書き込み自体はチャンク間で独立なので
+  // 並列実行しても問題ない）。
   const chunkIds = await Promise.all(
     chunks.map((_, i) => makeChunkId(namespaceId, file, i)),
   );
@@ -76,11 +84,11 @@ export async function ingestDocument(
     metadata: ChunkMetadata;
   }> = new Array(chunks.length);
 
-  for (let start = 0; start < chunks.length; start += EMBED_CONCURRENCY) {
-    const end = Math.min(start + EMBED_CONCURRENCY, chunks.length);
+  const processBatch = async (start: number, end: number) => {
+    const batchValues = await embedTextBatch(env, chunks.slice(start, end), signal);
     await Promise.all(
-      Array.from({ length: end - start }, (_, offset) => start + offset).map(async (i) => {
-        const values = await embedText(env, chunks[i], signal);
+      batchValues.map(async (values, offset) => {
+        const i = start + offset;
         const chunkId = chunkIds[i];
         const metadata: ChunkMetadata = {
           file,
@@ -116,6 +124,15 @@ export async function ingestDocument(
         }
       }),
     );
+  };
+
+  const batchRanges: Array<{ start: number; end: number }> = [];
+  for (let start = 0; start < chunks.length; start += EMBED_BATCH_SIZE) {
+    batchRanges.push({ start, end: Math.min(start + EMBED_BATCH_SIZE, chunks.length) });
+  }
+  for (let g = 0; g < batchRanges.length; g += EMBED_BATCH_CONCURRENCY) {
+    const group = batchRanges.slice(g, g + EMBED_BATCH_CONCURRENCY);
+    await Promise.all(group.map((r) => processBatch(r.start, r.end)));
   }
 
   // 1回のupsertにまとめて全チャンクを送ると、ドキュメントが大きい場合にリクエストが
@@ -147,7 +164,10 @@ export async function ingestDocument(
         } catch (singleErr) {
           const detail =
             singleErr instanceof Error ? singleErr.message : String(singleErr);
-          skippedVectors.push({ chunkIndex: v.metadata.chunk_index, reason: detail });
+          skippedVectors.push({
+            chunkIndex: v.metadata.chunk_index,
+            reason: detail,
+          });
         }
       }
     }

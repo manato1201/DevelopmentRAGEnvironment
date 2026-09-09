@@ -42,4 +42,9 @@
 	"triggers": {
 		"crons": ["0 3 * * *", "*/30 * * * *"]
 	}
+	// 2026-09-04調査メモ: Drive/Notion同期の「非JSON・HTTP 503」エラーはCloudflare側の
+	// CPU時間制限（Error 1102 "Worker exceeded resource limits"）が原因と判明したが、
+	// limits.cpu_msでの引き上げはWorkers Paidプラン限定機能で、このアカウントは
+	// 実際にはFreeプランのため設定できなかった（wrangler deployが
+	// code:100328で拒否）。対策は別途チャットで検討中。
 }
