@@ -10,50 +10,79 @@ export function chatUiHtml(): string {
 <title>RAG Chat (Cloudflare POC)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
 <style>
+  /*
+    2026-09-04: 添付のDalaスタイルガイドを元に配色・タイポグラフィを刷新。
+    このアプリは情報密度の高い機能的なダッシュボード/チャットツールであり、Dala側は
+    余白を大きく取ったマーケティングLPなので、トークン（配色・角丸・トラッキング）と
+    「単色アクセント＋ゴーストボタン＋無シャドウのフラットな黒背景」という設計思想は
+    忠実に踏襲しつつ、113pxの巨大見出しや粒子群のヒーロービジュアルはこのUIの用途に
+    そぐわないため持ち込んでいない。またDalaは英字の大文字トラッキングラベルを多用するが
+    本アプリの文言はほぼ日本語（大文字/小文字の概念が無い）のため、text-transform:uppercase
+    は適用していない（トラッキング自体は日本語にも効くため、そちらは踏襲）。
+    フォームや管理画面のテーブルはDala本来の「枠線ゼロ」を厳密に適用すると実用上
+    見分けが付かなくなるため、input/テーブル行の区切りだけは低コントラストな1pxの
+    hairlineを残している（可読性・操作性を優先した意図的な逸脱）。
+  */
   :root {
-    color-scheme: light dark;
-    --bg: #0f1117; --panel: #171a23; --border: #2a2e3a;
-    --text: #e6e8ee; --muted: #9aa1b4; --accent: #7aa2ff;
-    --user-bubble: #26314d; --assistant-bubble: #171a23;
-    --good: #6fd08c; --bad: #ef7a7a;
+    color-scheme: dark;
+    --bg: #000000; --panel: #0c0c0e; --border: #242429;
+    --text: #ffffff; --muted: #9a9a9a; --muted2: #bdbdbd;
+    --accent: #8052ff; --highlight: #ffb829; --teal: #15846e;
+    --user-bubble: #130f22; --assistant-bubble: transparent;
+    --good: #15846e; --bad: #ff6f5e;
   }
   @media (prefers-color-scheme: light) {
     :root {
-      --bg: #f7f8fb; --panel: #ffffff; --border: #e1e4ec;
-      --text: #1b1e27; --muted: #5b6270; --accent: #3358d6;
-      --user-bubble: #e7edff; --assistant-bubble: #ffffff;
-      --good: #1f8a4c; --bad: #c23a3a;
+      --bg: #ffffff; --panel: #f7f5ff; --border: #e4e1ea;
+      --text: #14121a; --muted: #6b6470; --muted2: #857e8c;
+      --accent: #6a3ef0; --highlight: #b8790f; --teal: #0f6656;
+      --user-bubble: #efe9ff; --assistant-bubble: transparent;
+      --good: #0f6656; --bad: #d94f3f;
     }
   }
   * { box-sizing: border-box; }
   html, body { overflow-x: hidden; max-width: 100%; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-family: "Inter", -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
     display: flex; flex-direction: column; height: 100vh;
   }
-  header { border-bottom: 1px solid var(--border); padding: .6rem 1.2rem; }
+  header { border-bottom: 1px solid var(--border); padding: .7rem 1.2rem; }
   .header-row { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; margin-bottom: .5rem; }
-  header h1 { font-size: 1rem; margin: 0; white-space: nowrap; }
+  header h1 {
+    font-size: 1.05rem; font-weight: 600; margin: 0; white-space: nowrap; letter-spacing: -.01em;
+    display: flex; align-items: center; gap: .5rem;
+  }
+  header h1::before {
+    content: ""; display: inline-block; width: 9px; height: 9px;
+    background: var(--accent); clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  }
   header input[type="password"], header select, header input[type="text"], header input[type="number"] {
     background: var(--panel); border: 1px solid var(--border); color: var(--text);
-    border-radius: 8px; padding: .4rem .6rem; font-size: .85rem;
+    border-radius: 10px; padding: .45rem .7rem; font-size: .85rem; font-family: inherit;
   }
   header input[type="password"] { flex: 1; min-width: 160px; }
+  header input:focus, header select:focus { outline: none; border-color: var(--accent); }
   header button, .btn {
-    background: var(--panel); border: 1px solid var(--border); color: var(--text);
-    border-radius: 8px; padding: .4rem .8rem; font-size: .85rem; cursor: pointer;
+    background: none; border: none; color: var(--muted);
+    border-radius: 999px; padding: .45rem .9rem; font-size: .85rem; font-family: inherit;
+    font-weight: 600; cursor: pointer; transition: color .15s ease;
   }
-  header button:hover, .btn:hover { border-color: var(--accent); }
-  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .btn.danger { color: var(--bad); border-color: var(--bad); }
-  nav.tabs { display: flex; gap: .3rem; }
+  header button:hover, .btn:hover { color: var(--text); }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary:hover { color: #fff; opacity: .88; }
+  .btn.danger { color: var(--bad); }
+  .btn:disabled { opacity: .4; cursor: default; }
+  nav.tabs { display: flex; gap: .2rem; }
   nav.tabs button {
     background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
-    color: var(--muted); padding: .5rem .9rem; font-size: .88rem; cursor: pointer;
+    color: var(--muted); padding: .5rem .9rem; font-size: .88rem; font-weight: 600; cursor: pointer;
   }
-  nav.tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  nav.tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
 
   .tabpanel { display: none; flex: 1; min-height: 0; flex-direction: column; }
   .tabpanel.active { display: flex; }
@@ -69,32 +98,59 @@ export function chatUiHtml(): string {
   #messages { flex: 1; overflow-y: auto; padding: 1.2rem; max-width: 860px; margin: 0 auto; width: 100%; }
   .msg { margin-bottom: 1.1rem; max-width: 90%; }
   .msg.user { margin-left: auto; }
-  .msg .bubble { padding: .7rem 1rem; border-radius: 12px; font-size: .92rem; line-height: 1.6; white-space: pre-wrap; }
+  .msg .bubble { padding: .7rem 1rem; border-radius: 18px; font-size: .92rem; line-height: 1.6; white-space: pre-wrap; }
   .msg.user .bubble { background: var(--user-bubble); }
-  .msg.assistant .bubble { background: var(--assistant-bubble); border: 1px solid var(--border); }
+  .msg.assistant .bubble { background: var(--assistant-bubble); padding-left: 0; padding-right: 0; }
   .meta { display: flex; align-items: center; gap: .6rem; margin-top: .4rem; font-size: .78rem; color: var(--muted); flex-wrap: wrap; }
-  .extraction { padding: .1rem .5rem; border-radius: 999px; border: 1px solid var(--border); }
-  .extraction.low { color: var(--bad); border-color: var(--bad); }
-  .extraction.high { color: var(--good); border-color: var(--good); }
-  .rate-btn { background: none; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; color: var(--muted); padding: .1rem .4rem; }
-  .rate-btn.active-up { color: var(--good); border-color: var(--good); }
-  .rate-btn.active-down { color: var(--bad); border-color: var(--bad); }
+  .extraction { padding: .1rem .55rem; border-radius: 999px; border: 1px solid var(--border); }
+  .extraction.low { color: var(--bad); }
+  .extraction.high { color: var(--teal); }
+  .rate-btn { background: none; border: none; border-radius: 999px; cursor: pointer; color: var(--muted); padding: .15rem .5rem; font-family: inherit; }
+  .rate-btn:hover { color: var(--text); }
+  .rate-btn.active-up { color: var(--teal); }
+  .rate-btn.active-down { color: var(--bad); }
+  .rate-btn.active-pin { color: var(--highlight); }
   details.sources { margin-top: .5rem; font-size: .8rem; color: var(--muted); }
   details.sources summary { cursor: pointer; }
   details.sources ul { margin: .4rem 0 0; padding-left: 1.2rem; }
   details.sources li { margin-bottom: .3rem; }
   .source-composition { margin: .5rem 0; }
   .composition-title { font-size: .72rem; color: var(--muted); margin-bottom: .25rem; }
-  .composition-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border); }
+  .composition-bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--border); }
   .composition-bar span { height: 100%; }
   .composition-legend { display: flex; flex-wrap: wrap; gap: .5rem .8rem; margin-top: .35rem; font-size: .72rem; }
   .composition-legend .item { display: inline-flex; align-items: center; gap: .3rem; }
   .composition-legend .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .ns-pill { display: inline-block; padding: 0 .4rem; border-radius: 999px; font-size: .7rem; color: #1b1e27; }
+  .ns-pill { display: inline-block; padding: 0 .5rem; border-radius: 999px; font-size: .7rem; font-weight: 600; color: #14121a; }
   .score-pct { font-size: .72rem; color: var(--muted); }
-  .cited-badge { font-size: .7rem; padding: 0 .4rem; border-radius: 999px; border: 1px solid var(--border); }
-  .cited-badge.cited { color: var(--good); border-color: var(--good); }
+  .cited-badge { font-size: .7rem; padding: 0 .5rem; border-radius: 999px; border: 1px solid var(--border); }
+  .cited-badge.cited { color: var(--teal); }
   .cited-badge.uncited { color: var(--muted); }
+  .citation-link { color: var(--highlight); cursor: pointer; text-decoration: underline; }
+  .citation-highlight {
+    background: var(--accent); color: #fff; border-radius: 4px;
+    transition: background 1.5s ease, box-shadow 1.5s ease;
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  /* トースト通知（2026-09-09追加）: alert()呼び出しの置き換え。既存のexportBtnの
+     「コピーしました」的な簡易フィードバックをこの1コンポーネントに集約する。 */
+  #toastStack {
+    position: fixed; bottom: 1.2rem; right: 1.2rem;
+    display: flex; flex-direction: column; gap: .5rem; z-index: 999;
+  }
+  .toast {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: .6rem 1rem; font-size: .82rem; color: var(--text);
+    opacity: 0; transform: translateY(8px);
+    transition: opacity .2s ease, transform .2s ease;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { border-color: var(--bad); color: var(--bad); }
+  .toast.success { border-color: var(--teal); color: var(--teal); }
+  /* ヘルスチェック結果の視覚化（2026-09-09追加）: セクション左端に健全度バーを出す。 */
+  .section.health-ok { border-left: 3px solid var(--teal); padding-left: 1rem; }
+  .section.health-warn { border-left: 3px solid var(--highlight); padding-left: 1rem; }
+  .section.health-bad { border-left: 3px solid var(--bad); padding-left: 1rem; }
   #composer {
     border-top: 1px solid var(--border); padding: .8rem 1.2rem;
     display: flex; flex-direction: column; gap: .5rem; max-width: 860px; margin: 0 auto; width: 100%;
@@ -102,46 +158,54 @@ export function chatUiHtml(): string {
   .composer-row { display: flex; gap: .6rem; }
   #composer textarea {
     flex: 1; resize: none; background: var(--panel); border: 1px solid var(--border); color: var(--text);
-    border-radius: 10px; padding: .6rem .8rem; font-size: .92rem; font-family: inherit; min-height: 2.6rem; max-height: 8rem;
+    border-radius: 18px; padding: .65rem .9rem; font-size: .92rem; font-family: inherit; min-height: 2.6rem; max-height: 8rem;
   }
-  #composer button { background: var(--accent); border: none; color: #fff; border-radius: 10px; padding: 0 1.2rem; font-size: .9rem; cursor: pointer; }
-  #composer button:disabled { opacity: .5; cursor: default; }
+  #composer textarea:focus { outline: none; border-color: var(--accent); }
+  #composer button { background: var(--accent); border: none; color: #fff; border-radius: 999px; padding: 0 1.3rem; font-size: .9rem; font-weight: 600; font-family: inherit; cursor: pointer; }
+  #composer button:disabled { opacity: .4; cursor: default; }
   .attach-btn {
     display: flex; align-items: center; justify-content: center; width: 2.6rem; min-width: 2.6rem;
-    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; font-size: 1.1rem;
+    background: none; border: 1px solid var(--border); border-radius: 999px; cursor: pointer; font-size: 1.1rem; color: var(--muted);
   }
+  .attach-btn:hover { color: var(--text); border-color: var(--muted); }
   .attach-preview { display: flex; align-items: center; gap: .5rem; font-size: .8rem; color: var(--muted); }
   .attach-preview button { background: none; border: none; color: var(--bad); cursor: pointer; font-size: .85rem; padding: 0; }
   #status { text-align: center; color: var(--muted); font-size: .8rem; padding: .3rem; }
   .error { color: var(--bad); }
 
   .pane-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 1.2rem; max-width: 960px; margin: 0 auto; width: 100%; }
-  .section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.2rem; margin-bottom: 1.2rem; max-width: 100%; }
-  .section h2 { font-size: .95rem; margin: 0 0 .8rem; }
+  .section { border-bottom: 1px solid var(--border); padding: 0 0 1.6rem; margin-bottom: 1.6rem; max-width: 100%; }
+  .section:last-child { border-bottom: none; }
+  .section h2 { font-size: 1rem; font-weight: 600; margin: 0 0 .9rem; letter-spacing: -.01em; }
   .field-row { display: flex; gap: .6rem; flex-wrap: wrap; margin-bottom: .6rem; align-items: center; }
-  .field-row label { font-size: .8rem; color: var(--muted); min-width: 110px; }
+  .field-row label { font-size: .78rem; color: var(--muted); min-width: 110px; }
   .field-row input[type="text"], .field-row input[type="number"] {
-    flex: 1; min-width: 160px; background: var(--bg); border: 1px solid var(--border); color: var(--text);
-    border-radius: 6px; padding: .4rem .6rem; font-size: .85rem;
+    flex: 1; min-width: 160px; background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    border-radius: 10px; padding: .45rem .7rem; font-size: .85rem; font-family: inherit;
   }
+  .field-row input:focus { outline: none; border-color: var(--accent); }
   .checks { display: flex; gap: .5rem; flex-wrap: wrap; }
-  .checks label { display: flex; align-items: center; gap: .3rem; font-size: .8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: .25rem .5rem; }
+  .checks label { display: flex; align-items: center; gap: .3rem; font-size: .8rem; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: .3rem .7rem; }
   .table-scroll { overflow-x: auto; max-width: 100%; }
   table.admin-table { width: 100%; border-collapse: collapse; font-size: .82rem; table-layout: fixed; }
-  table.admin-table th, table.admin-table td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--border); word-break: break-all; }
-  table.admin-table th { color: var(--muted); font-weight: 600; }
-  .keybox { background: var(--bg); border: 1px solid var(--good); border-radius: 8px; padding: .6rem .8rem; font-family: monospace; font-size: .85rem; word-break: break-all; margin-top: .5rem; }
+  table.admin-table th, table.admin-table td { text-align: left; padding: .5rem .5rem; border-bottom: 1px solid var(--border); word-break: break-all; }
+  table.admin-table th { color: var(--muted); font-weight: 600; font-size: .72rem; letter-spacing: .02em; }
+  .keybox { background: var(--panel); border: 1px solid var(--teal); border-radius: 12px; padding: .6rem .8rem; font-family: monospace; font-size: .85rem; word-break: break-all; margin-top: .5rem; }
   .keybox-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .35rem; }
   .keybox-row code { word-break: break-all; }
   .hint { color: var(--muted); font-size: .78rem; margin: .3rem 0 0; }
+  #kbSyncProgress { white-space: pre-line; }
+  #myBudget { white-space: nowrap; display: inline-flex; align-items: center; }
+  .budget-low { color: var(--bad); font-weight: 600; }
+  .radial-progress { vertical-align: middle; margin-right: .2rem; }
 
   #graphContainer { flex: 1; position: relative; overflow: hidden; background: var(--bg); }
   #graphContainer canvas { display: block; }
   .graph-toolbar { display: flex; gap: .6rem; align-items: center; padding: .6rem 1.2rem; border-bottom: 1px solid var(--border); font-size: .82rem; color: var(--muted); }
   #graphDetail {
     position: absolute; top: .8rem; right: .8rem; width: 260px; max-height: calc(100% - 1.6rem);
-    overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-    padding: .8rem 1rem; font-size: .8rem; display: none; box-shadow: 0 4px 16px rgba(0,0,0,.25);
+    overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: .8rem 1rem; font-size: .8rem; display: none;
   }
   #graphDetail.visible { display: block; }
   #graphDetail h3 { font-size: .88rem; margin: 0 0 .4rem; word-break: break-word; }
@@ -152,13 +216,13 @@ export function chatUiHtml(): string {
 
   #graphControls {
     position: absolute; top: .8rem; left: .8rem; width: 220px; max-height: calc(100% - 1.6rem);
-    overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-    padding: .8rem 1rem; font-size: .78rem; box-shadow: 0 4px 16px rgba(0,0,0,.25);
+    overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: .8rem 1rem; font-size: .78rem;
   }
   #graphControls h4 { font-size: .8rem; margin: 0 0 .4rem; color: var(--muted); }
   #graphControls .slider-row { margin-bottom: .8rem; }
   #graphControls .slider-row label { display: flex; justify-content: space-between; color: var(--muted); margin-bottom: .2rem; }
-  #graphControls input[type="range"] { width: 100%; }
+  #graphControls input[type="range"] { width: 100%; accent-color: var(--accent); }
   #graphPlayPause { width: 100%; margin-bottom: .8rem; }
   #graphLegend { list-style: none; margin: 0; padding: 0; }
   #graphLegend li { display: flex; align-items: center; gap: .4rem; padding: .2rem 0; cursor: pointer; }
@@ -169,6 +233,14 @@ export function chatUiHtml(): string {
   .usage-chart-wrap { overflow-x: auto; }
   #usageChart { display: block; }
   .donut-cell { display: flex; align-items: center; gap: .5rem; }
+
+  /* チャット空状態のヒーロービジュアル（2026-09-04追加）。まだ何も質問していない間だけ、
+     このユーザーが実際にアクセスできるナレッジベースのノードを小さな三角形の粒子群として
+     アンビエント表示する（Dalaスタイルガイドの「粒子群」モチーフを、装飾ではなく
+     実データで表現したもの）。最初の質問を送った時点で#messagesに切り替える。 */
+  #chatHero { flex: 1; display: none; min-height: 0; width: 100%; }
+  #tab-chat.chat-empty #chatHero { display: block; }
+  #tab-chat.chat-empty #messages { display: none; }
 </style>
 </head>
 <body class="locked">
@@ -186,11 +258,13 @@ export function chatUiHtml(): string {
       <option value="applied">applied</option>
       <option value="advanced">advanced</option>
     </select>
+    <span id="myBudget" class="hint" title="自分のAPIキーのトークン予算残量"></span>
   </div>
   <nav class="tabs">
     <button data-tab="chat" class="active">チャット</button>
     <button data-tab="graph">グラフ</button>
     <button data-tab="history">履歴</button>
+    <button data-tab="pinned">お気に入り</button>
     <button data-tab="admin">管理</button>
   </nav>
 </header>
@@ -199,6 +273,8 @@ export function chatUiHtml(): string {
 
 <!-- チャットタブ -->
 <div class="tabpanel active" id="tab-chat">
+  <div class="graph-toolbar"><button class="btn" id="exportSessionBtn">会話全体をエクスポート</button></div>
+  <canvas id="chatHero"></canvas>
   <div id="messages"></div>
   <div id="status"></div>
   <div id="composer">
@@ -248,6 +324,13 @@ export function chatUiHtml(): string {
 <!-- 履歴タブ -->
 <div class="tabpanel" id="tab-history">
   <div class="pane-scroll" id="historyPane">
+    <p class="hint">このタブを開くと自動的に読み込まれます。</p>
+  </div>
+</div>
+
+<!-- お気に入りタブ -->
+<div class="tabpanel" id="tab-pinned">
+  <div class="pane-scroll" id="pinnedPane">
     <p class="hint">このタブを開くと自動的に読み込まれます。</p>
   </div>
 </div>
@@ -324,9 +407,11 @@ export function chatUiHtml(): string {
       <div class="field-row"><label>Notion DB ID</label><input type="text" id="kbNotionId" placeholder="任意"></div>
       <div class="field-row"><label>Drive フォルダID</label><input type="text" id="kbDriveId" placeholder="任意"></div>
       <button class="btn" id="kbSetSourceBtn">同期元を設定</button>
+      <div class="field-row"><label><input type="checkbox" id="kbNotifyErrorOnly" style="width:auto;"> Slack通知はエラーがあった時だけ</label></div>
       <div style="margin-top:.8rem;">
         <button class="btn primary" id="kbSyncNotionBtn">Notion同期を実行</button>
         <button class="btn primary" id="kbSyncDriveBtn">Drive同期を実行</button>
+        <button class="btn" id="kbRetryFailedBtn" disabled>失敗ファイルだけ再同期</button>
       </div>
       <div id="kbSyncProgress" class="hint"></div>
     </div>
@@ -394,9 +479,33 @@ export function chatUiHtml(): string {
   </div>
 </div>
 
+<div id="toastStack"></div>
+
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
+
+  // トースト通知（2026-09-09追加）: alert()はUIをブロックし既存のダークテーマとも
+  // 視覚的に統一感がなかったため、この1関数に集約してalert()呼び出しを置き換える。
+  // #toastStackは上のHTMLに常設しているが、念のためfallbackも用意しておく。
+  function createToastStack() {
+    const stack = document.createElement("div");
+    stack.id = "toastStack";
+    document.body.appendChild(stack);
+    return stack;
+  }
+  function showToast(message, kind) {
+    const stack = $("toastStack") || createToastStack();
+    const toast = document.createElement("div");
+    toast.className = "toast " + (kind || "");
+    toast.textContent = message;
+    stack.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add("show"));
+    setTimeout(() => {
+      toast.classList.remove("show");
+      toast.addEventListener("transitionend", () => toast.remove(), { once: true });
+    }, 3200);
+  }
   const apiKeyEl = $("apiKey");
   const levelEl = $("level");
   const namespaceFocusEl = $("namespaceFocus");
@@ -496,7 +605,9 @@ export function chatUiHtml(): string {
         return api(path, body, retriesLeft - 1);
       }
       if (e.retryable) {
-        e.message += "（自動再試行しましたが失敗しました。batchSizeを下げて再試行してください）";
+        // 同期はbatchSize=1固定のため「batchSizeを下げて」という助言はもう成立しない
+        // （2026-09-04、CPU時間制限引き上げで対処したため文言も更新）。
+        e.message += "（自動再試行しましたが失敗しました。しばらく時間をおいて再試行するか、失敗したファイルだけ再同期を試してください）";
       }
       throw e;
     }
@@ -527,11 +638,78 @@ export function chatUiHtml(): string {
         namespaceFocusEl.appendChild(opt);
       });
       if (data.namespaces.includes(prevValue)) namespaceFocusEl.value = prevValue;
+      loadMyBudget();
+      loadChatHero();
     } catch (e) {
       // APIキーが無効、またはネットワークエラー。理由が分かるようゲートの文言に出す
       // （以前はここも無言で「APIキーを入力してください」に戻していたため、
       // 「入力しても何も起きない」ように見えていた）。
       setAuthGate(false, null, "認証に失敗しました: " + e.message);
+    }
+  }
+
+  // トークン予算のパーセンテージをSVG円環ゲージとして描画する（2026-09-09追加）。
+  // 既存コードはXSS対策としてtextContent/appendChildを徹底しinnerHTMLをほぼ
+  // 使っていないため、文字列結合+innerHTMLではなくSVG要素をDOM APIで直接組み立てる。
+  function budgetRadialSvg(pct, isLow) {
+    const r = 8, c = 2 * Math.PI * r;
+    const clamped = Math.max(0, Math.min(100, pct));
+    const offset = c * (1 - clamped / 100);
+    const color = isLow ? "var(--bad)" : "var(--accent)";
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("width", "20");
+    svg.setAttribute("height", "20");
+    svg.setAttribute("viewBox", "0 0 20 20");
+    svg.setAttribute("class", "radial-progress");
+    const track = document.createElementNS(NS, "circle");
+    track.setAttribute("cx", "10");
+    track.setAttribute("cy", "10");
+    track.setAttribute("r", String(r));
+    track.setAttribute("fill", "none");
+    track.setAttribute("stroke", "var(--border)");
+    track.setAttribute("stroke-width", "2");
+    const fg = document.createElementNS(NS, "circle");
+    fg.setAttribute("cx", "10");
+    fg.setAttribute("cy", "10");
+    fg.setAttribute("r", String(r));
+    fg.setAttribute("fill", "none");
+    fg.setAttribute("stroke", color);
+    fg.setAttribute("stroke-width", "2");
+    fg.setAttribute("stroke-dasharray", String(c));
+    fg.setAttribute("stroke-dashoffset", String(offset));
+    fg.setAttribute("stroke-linecap", "round");
+    fg.setAttribute("transform", "rotate(-90 10 10)");
+    svg.appendChild(track);
+    svg.appendChild(fg);
+    return svg;
+  }
+
+  // 自分のAPIキーのトークン予算残量を表示する（2026-09-04追加）。従来は管理者しか
+  // 使用量を見れず、一般ユーザーはBudgetExceededError（429）に当たって初めて上限の
+  // 存在を知る状態だった。無制限（予算レコード無し）の場合は何も表示しない。
+  async function loadMyBudget() {
+    const el = $("myBudget");
+    el.innerHTML = "";
+    try {
+      const data = await api("/me/budget", {});
+      const entries = [["RAG", data.rag], ["Claude", data.claude]].filter(([, b]) => b.limit != null);
+      if (entries.length === 0) return; // 予算未設定（無制限）のキーは何も表示しない
+      const titleLines = [];
+      entries.forEach(([label, b], i) => {
+        if (i > 0) el.appendChild(document.createTextNode(" ／ "));
+        const pct = b.limit > 0 ? Math.round((100 * b.remaining) / b.limit) : 0;
+        const isLow = pct <= 10;
+        el.appendChild(budgetRadialSvg(pct, isLow));
+        const span = document.createElement("span");
+        span.className = isLow ? "budget-low" : "";
+        span.textContent = label + " 残り" + pct + "%";
+        el.appendChild(span);
+        titleLines.push(label + ": " + b.used.toLocaleString() + " / " + b.limit.toLocaleString() + " 使用");
+      });
+      el.title = titleLines.join("\\n");
+    } catch {
+      el.innerHTML = "";
     }
   }
   loadNamespaceFocus();
@@ -546,6 +724,7 @@ export function chatUiHtml(): string {
       btn.classList.add("active");
       document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
       if (btn.dataset.tab === "history") loadHistory();
+      if (btn.dataset.tab === "pinned") loadPinned();
       if (btn.dataset.tab === "graph") loadGraph();
       if (btn.dataset.tab === "admin") { loadNamespaceChecks(); loadKeys(); loadNamespaces(); loadKbHistory(); loadUsageStats(); loadRatingStats(); }
       else clearNewKey(); // 管理タブを離れたら、発行直後のAPIキー表示が残らないようにする
@@ -558,9 +737,121 @@ export function chatUiHtml(): string {
   const inputEl = $("input");
   const sendBtn = $("send");
 
+  // 現在のセッション内でのQ&A履歴（「会話全体をエクスポート」用、2026-09-04追加）。
+  // 履歴タブ/お気に入りタブから読み込んだ過去の会話はここには含めない
+  // （今このタブで交わした会話をまとめてエクスポートする、という用途のため）。
+  const sessionLog = [];
+
+  // ---------- チャット空状態のヒーロービジュアル ----------
+  // まだ質問していない間だけ、このユーザーが実際にアクセスできるナレッジベースの
+  // ノードを小さな三角形の粒子群としてアンビエント表示する（2026-09-04追加。
+  // Dalaスタイルガイドの「粒子群」モチーフを、ダミーの装飾ではなく実データ
+  // （/graphの結果）で表現したもの）。namespace色はグラフ/出典表示と共通のnsColor()を使う。
+  let heroAnimId = null;
+  let heroResizeHandler = null;
+
+  async function loadChatHero() {
+    if (heroAnimId !== null) return; // 既に開始済み（タブ切替のたびに再認証されても二重開始しない）
+    try {
+      const data = await api("/graph", { maxNodes: 150 });
+      if (!data.nodes || data.nodes.length === 0) return; // ノードが無ければ何も出さない（空欄のまま）
+      // クラス付与を先に行い、canvasをdisplay:blockにしてからサイズを測る（startHeroAnimation
+      // 内のresize()はgetBoundingClientRect()でサイズを取るため、display:noneのままだと
+      // 0x0で確定してしまい何も描画されない不具合があった。2026-09-04修正）。
+      $("tab-chat").classList.add("chat-empty");
+      startHeroAnimation(data.nodes);
+    } catch {
+      // 背景演出はあくまで付加価値なので、失敗しても機能には影響させない
+    }
+  }
+
+  function stopChatHero() {
+    $("tab-chat").classList.remove("chat-empty");
+    if (heroAnimId !== null) { cancelAnimationFrame(heroAnimId); heroAnimId = null; }
+    if (heroResizeHandler) { window.removeEventListener("resize", heroResizeHandler); heroResizeHandler = null; }
+  }
+
+  function startHeroAnimation(nodes) {
+    const canvas = $("chatHero");
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.round(rect.width * dpr));
+      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize();
+    heroResizeHandler = resize;
+    window.addEventListener("resize", heroResizeHandler);
+
+    const particles = nodes.map((n) => ({
+      x: Math.random(),
+      y: Math.random(),
+      r: 3 + Math.random() * 5,
+      color: nsColor(n.namespace),
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.4 + Math.random() * 0.6,
+      driftX: (Math.random() - 0.5) * 0.00012,
+      driftY: (Math.random() - 0.5) * 0.00012,
+    }));
+
+    function drawTriangle(cx, cy, size, color, alpha) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - size);
+      ctx.lineTo(cx - size * 0.87, cy + size * 0.5);
+      ctx.lineTo(cx + size * 0.87, cy + size * 0.5);
+      ctx.closePath();
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+
+    function frame(t) {
+      const rect = canvas.getBoundingClientRect();
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      particles.forEach((p) => {
+        p.x += p.driftX;
+        p.y += p.driftY;
+        if (p.x < 0) p.x += 1; else if (p.x > 1) p.x -= 1;
+        if (p.y < 0) p.y += 1; else if (p.y > 1) p.y -= 1;
+        const alpha = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(t * 0.0005 * p.speed + p.phase));
+        drawTriangle(p.x * rect.width, p.y * rect.height, p.r, p.color, alpha);
+      });
+      ctx.globalAlpha = 1;
+      heroAnimId = requestAnimationFrame(frame);
+    }
+    heroAnimId = requestAnimationFrame(frame);
+  }
+
   function setStatus(text, isError) {
     statusEl.textContent = text || "";
     statusEl.className = isError ? "error" : "";
+  }
+
+  // 履歴/お気に入りタブでは、クエリ実行時に計算されたextractionRate/extractionDetailを
+  // そのまま保持していないため、保存済みのsources（各s.cited）から同じ計算をやり直す
+  // （query.tsのparseExtractionRate相当の計算をクライアント側で再現。2026-09-04、
+  // 0%固定表示で出典バッジと矛盾していた不備を修正）。
+  function computeExtraction(sources) {
+    if (!sources || sources.length === 0) return { rate: 0, detail: "0/0" };
+    const cited = sources.filter((s) => s.cited).length;
+    return { rate: Math.round((100 * cited) / sources.length), detail: cited + "/" + sources.length };
+  }
+
+  // 管理タブの各テーブル行を安全に構築する（textContentで挿入するため、ファイル名や
+  // 表示名などサーバー由来の未検証文字列が誤ってHTMLとして解釈されることがない。
+  // 2026-09-04、innerHTML文字列結合で組み立てていた各テーブルをこれに統一）。
+  function appendRow(tbody, values) {
+    const tr = document.createElement("tr");
+    values.forEach((v) => {
+      const td = document.createElement("td");
+      td.textContent = v;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+    return tr;
   }
 
   function extractionClass(rate) {
@@ -592,12 +883,46 @@ export function chatUiHtml(): string {
     return md;
   }
 
-  function renderAssistantMessage(container, question, answer, sources, extractionRate, extractionDetail, memoryId, existingRating) {
+  function renderAssistantMessage(container, question, answer, sources, extractionRate, extractionDetail, memoryId, existingRating, existingPinned) {
     const wrap = document.createElement("div");
     wrap.className = "msg assistant";
+
+    // 出典一覧（この関数の下の方で構築）へのジャンプ先。回答文中の[n]をクリックした際に
+    // 対応する<li>を開いてハイライトする（2026-09-04追加、citation-link参照）。
+    let sourcesDetailsEl = null;
+    const sourceLiRefs = [];
+    function jumpToSource(n) {
+      const li = sourceLiRefs[n - 1];
+      if (!li) return;
+      if (sourcesDetailsEl) sourcesDetailsEl.open = true;
+      li.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      li.classList.add("citation-highlight");
+      setTimeout(() => li.classList.remove("citation-highlight"), 1500);
+    }
+
     const bubble = document.createElement("div");
     bubble.className = "bubble";
-    bubble.textContent = answer;
+    // 回答文中の[1]や[2]をクリック可能にし、出典一覧の該当行へジャンプできるようにする。
+    // 引用番号以外の地の文はこれまで通りtextContent相当（テキストノード）のまま扱い、
+    // モデル出力をHTMLとして解釈しない（XSS対策）。
+    const citationRe = /\[(\d+)\]/g;
+    let lastIndex = 0;
+    let m;
+    while ((m = citationRe.exec(answer)) !== null) {
+      if (m.index > lastIndex) bubble.appendChild(document.createTextNode(answer.slice(lastIndex, m.index)));
+      const n = Number(m[1]);
+      if (sources && n >= 1 && n <= sources.length) {
+        const link = document.createElement("span");
+        link.className = "citation-link";
+        link.textContent = m[0];
+        link.onclick = () => jumpToSource(n);
+        bubble.appendChild(link);
+      } else {
+        bubble.appendChild(document.createTextNode(m[0]));
+      }
+      lastIndex = m.index + m[0].length;
+    }
+    bubble.appendChild(document.createTextNode(answer.slice(lastIndex)));
     wrap.appendChild(bubble);
 
     const meta = document.createElement("div");
@@ -618,6 +943,13 @@ export function chatUiHtml(): string {
       down.onclick = () => rate(memoryId, -1, up, down);
       meta.appendChild(up);
       meta.appendChild(down);
+
+      // お気に入り登録（2026-09-04追加）。ratingとは独立に「あとで見返したい」を残せるようにする。
+      const pinBtn = document.createElement("button");
+      pinBtn.className = "rate-btn" + (existingPinned ? " active-pin" : "");
+      pinBtn.textContent = existingPinned ? "★お気に入り" : "☆お気に入り";
+      pinBtn.onclick = () => togglePin(memoryId, !pinBtn.classList.contains("active-pin"), pinBtn);
+      meta.appendChild(pinBtn);
     }
 
     // 出典付きの回答をそのままチームに共有したいことがあるため、Markdown形式で
@@ -639,6 +971,7 @@ export function chatUiHtml(): string {
 
     if (sources && sources.length > 0) {
       const details = document.createElement("details");
+      sourcesDetailsEl = details;
       details.className = "sources";
       const summary = document.createElement("summary");
       summary.textContent = "参照した情報源（" + sources.length + "件）";
@@ -734,6 +1067,7 @@ export function chatUiHtml(): string {
         citedBadge.className = "cited-badge " + (s.cited ? "cited" : "uncited");
         citedBadge.textContent = s.cited ? "✓引用" : "未引用";
         li.appendChild(citedBadge);
+        sourceLiRefs[i] = li;
         ul.appendChild(li);
       });
       details.appendChild(ul);
@@ -758,7 +1092,17 @@ export function chatUiHtml(): string {
       upBtn.classList.toggle("active-up", value === 1);
       downBtn.classList.toggle("active-down", value === -1);
     } catch (e) {
-      alert("評価の送信に失敗しました: " + e.message);
+      showToast("評価の送信に失敗しました: " + e.message, "error");
+    }
+  }
+
+  async function togglePin(memoryId, pinned, btn) {
+    try {
+      await api("/memory/pin", { id: memoryId, pinned });
+      btn.classList.toggle("active-pin", pinned);
+      btn.textContent = pinned ? "★お気に入り" : "☆お気に入り";
+    } catch (e) {
+      showToast("お気に入り登録に失敗しました: " + e.message, "error");
     }
   }
 
@@ -802,6 +1146,7 @@ export function chatUiHtml(): string {
     inputEl.value = "";
     inputEl.style.height = "auto";
     clearPendingImage();
+    stopChatHero();
     renderUserMessage(messagesEl, text);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     sendBtn.disabled = true;
@@ -809,7 +1154,8 @@ export function chatUiHtml(): string {
     try {
       const focusNs = namespaceFocusEl.value;
       const data = await api("/query", { query: text, limit: 5, level: levelEl.value, namespaces: focusNs ? [focusNs] : undefined, image: imageToSend || undefined });
-      renderAssistantMessage(messagesEl, text, data.answer, data.sources, data.extractionRate, data.extractionDetail, data.memoryId, null);
+      renderAssistantMessage(messagesEl, text, data.answer, data.sources, data.extractionRate, data.extractionDetail, data.memoryId, null, false);
+      sessionLog.push({ question: text, answer: data.answer, sources: data.sources });
       messagesEl.scrollTop = messagesEl.scrollHeight;
       setStatus("");
     } catch (e) {
@@ -823,6 +1169,23 @@ export function chatUiHtml(): string {
   inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
   inputEl.addEventListener("input", () => { inputEl.style.height = "auto"; inputEl.style.height = Math.min(inputEl.scrollHeight, 128) + "px"; });
 
+  // 今のセッションで交わした一問一答をまとめて1つのMarkdownファイルとしてダウンロードする
+  // （2026-09-04追加。1問1答単位のコピーは既にあるが、会議後の記録用途などまとめて
+  // 保存したい場面には向かなかった）。
+  $("exportSessionBtn").addEventListener("click", () => {
+    if (sessionLog.length === 0) { showToast("まだ会話がありません", "error"); return; }
+    const md = sessionLog.map((entry) => buildMarkdownExport(entry.question, entry.answer, entry.sources)).join("\\n---\\n\\n");
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "rag-chat-" + new Date().toISOString().slice(0, 19).replace(/:/g, "-") + ".md";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
   // ---------- 履歴タブ ----------
   async function loadHistory() {
     const pane = $("historyPane");
@@ -834,7 +1197,27 @@ export function chatUiHtml(): string {
       if (data.entries.length === 0) { pane.innerHTML = '<p class="hint">履歴はまだありません</p>'; return; }
       data.entries.forEach((entry) => {
         renderUserMessage(pane, entry.query);
-        renderAssistantMessage(pane, entry.query, entry.answer, entry.sources, 0, "-", entry.id, entry.rating);
+        const ext = computeExtraction(entry.sources);
+        renderAssistantMessage(pane, entry.query, entry.answer, entry.sources, ext.rate, ext.detail, entry.id, entry.rating, entry.pinned);
+      });
+    } catch (e) {
+      pane.innerHTML = '<p class="hint error">読み込みに失敗しました: ' + e.message + '</p>';
+    }
+  }
+
+  // ---------- お気に入りタブ ----------
+  async function loadPinned() {
+    const pane = $("pinnedPane");
+    if (!apiKeyEl.value.trim()) { pane.innerHTML = '<p class="hint error">APIキーを入力してください</p>'; return; }
+    pane.innerHTML = '<p class="hint">読み込み中…</p>';
+    try {
+      const data = await api("/memory/pinned", {});
+      pane.innerHTML = "";
+      if (data.entries.length === 0) { pane.innerHTML = '<p class="hint">お気に入り登録した回答はまだありません</p>'; return; }
+      data.entries.forEach((entry) => {
+        renderUserMessage(pane, entry.query);
+        const ext = computeExtraction(entry.sources);
+        renderAssistantMessage(pane, entry.query, entry.answer, entry.sources, ext.rate, ext.detail, entry.id, entry.rating, entry.pinned);
       });
     } catch (e) {
       pane.innerHTML = '<p class="hint error">読み込みに失敗しました: ' + e.message + '</p>';
@@ -853,7 +1236,9 @@ export function chatUiHtml(): string {
   let gPlaying = true;
   let gRepel = 4000, gCenter = 0.002;
   const LINK_TARGET_LEN = 60;
-  const NS_PALETTE = ["#e8843c", "#5b8def", "#5cb85c", "#e0555f", "#9b6fd0", "#3ec1c9", "#e0c73e", "#e07fc0", "#8d99a6", "#c97a3d", "#4fc9a5", "#d64f8a"];
+  // ブランドカラー（violet/amber/teal）を先頭に置き、以降は同系統でまとめつつ多数の
+  // namespaceでも見分けが付くよう広げた配色（2026-09-04、Dalaスタイル刷新に合わせて再選定）。
+  const NS_PALETTE = ["#8052ff", "#ffb829", "#15846e", "#5b8def", "#e0555f", "#9b6fd0", "#3ec1c9", "#e0a03e", "#d64f8a", "#4fc9a5", "#8d99a6", "#c97a3d"];
   let gNsColors = new Map();
 
   // namespace(DB)ごとに固定色を割り当てる。グラフタブ・チャットの出典表示など画面全体で共有し、
@@ -1137,7 +1522,7 @@ export function chatUiHtml(): string {
     const w = cssW, h = 220;
     ctx.clearRect(0, 0, w, h);
     const muted = getComputedStyle(document.body).getPropertyValue("--muted").trim() || "#888";
-    const accent = getComputedStyle(document.body).getPropertyValue("--accent").trim() || "#3358d6";
+    const accent = getComputedStyle(document.body).getPropertyValue("--accent").trim() || "#8052ff";
     if (daily.length === 0) {
       ctx.fillStyle = muted;
       ctx.font = "13px sans-serif";
@@ -1188,8 +1573,8 @@ export function chatUiHtml(): string {
     const cx = size / 2, cy = size / 2, r = size / 2 - 3;
     const ratio = limit ? Math.min(used / limit, 1) : 0;
     const muted = getComputedStyle(document.body).getPropertyValue("--border").trim() || "#ccc";
-    const color = ratio > 0.9 ? (getComputedStyle(document.body).getPropertyValue("--bad").trim() || "#c23a3a")
-      : (getComputedStyle(document.body).getPropertyValue("--accent").trim() || "#3358d6");
+    const color = ratio > 0.9 ? (getComputedStyle(document.body).getPropertyValue("--bad").trim() || "#ff6f5e")
+      : (getComputedStyle(document.body).getPropertyValue("--accent").trim() || "#8052ff");
     ctx.lineWidth = 4;
     ctx.strokeStyle = muted;
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
@@ -1206,9 +1591,7 @@ export function chatUiHtml(): string {
       const tbody = $("usageByUserTable").querySelector("tbody");
       tbody.innerHTML = "";
       data.byUser.forEach((u) => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = "<td>" + (u.displayName || u.userId) + "</td><td>" + u.queries + "</td><td>" + u.tokens + "</td>";
-        tbody.appendChild(tr);
+        appendRow(tbody, [u.displayName || u.userId, u.queries, u.tokens]);
       });
     } catch (e) {
       $("usageByUserTable").querySelector("tbody").innerHTML = '<tr><td colspan=3>取得に失敗しました: ' + e.message + '</td></tr>';
@@ -1321,25 +1704,28 @@ export function chatUiHtml(): string {
       const data = await api("/admin/keys/list", {});
       tbody.innerHTML = "";
       data.keys.forEach((k) => {
-        const tr = document.createElement("tr");
         const created = new Date(k.created_at * 1000).toLocaleString();
-        tr.innerHTML = '<td>' + k.display_name + '</td><td>' + k.role + '</td><td>' +
-          (k.rag_limit != null ? (k.rag_used + '/' + k.rag_limit) : '無制限') + '</td><td></td><td>' + created + '</td><td></td>';
+        const tr = appendRow(tbody, [k.display_name, k.role, k.rag_limit != null ? (k.rag_used + '/' + k.rag_limit) : '無制限']);
+        const donutCell = document.createElement("td");
+        tr.appendChild(donutCell);
         if (k.rag_limit != null) {
-          const donutCell = tr.children[3];
           const donutCanvas = document.createElement("canvas");
           donutCell.appendChild(donutCanvas);
           drawDonut(donutCanvas, k.rag_used, k.rag_limit);
         }
+        const createdCell = document.createElement("td");
+        createdCell.textContent = created;
+        tr.appendChild(createdCell);
+        const actionsCell = document.createElement("td");
+        tr.appendChild(actionsCell);
         const delBtn = document.createElement("button");
         delBtn.className = "btn danger"; delBtn.textContent = "削除";
         delBtn.onclick = async () => {
           if (!confirm(k.display_name + " を削除しますか？")) return;
           try { await api("/admin/keys/delete", { userId: k.user_id }); loadKeys(); }
-          catch (e) { alert("削除に失敗しました: " + e.message); }
+          catch (e) { showToast("削除に失敗しました: " + e.message, "error"); }
         };
-        tr.lastElementChild.appendChild(delBtn);
-        tbody.appendChild(tr);
+        actionsCell.appendChild(delBtn);
       });
     } catch (e) {
       tbody.innerHTML = '<tr><td colspan=6>取得に失敗しました: ' + e.message + '</td></tr>';
@@ -1353,7 +1739,7 @@ export function chatUiHtml(): string {
       $("newNsId").value = "";
       loadNamespaces();
       loadNamespaceChecks();
-    } catch (e) { alert("作成に失敗しました: " + e.message); }
+    } catch (e) { showToast("作成に失敗しました: " + e.message, "error"); }
   });
 
   async function loadNamespaces() {
@@ -1363,9 +1749,11 @@ export function chatUiHtml(): string {
       const data = await api("/admin/namespaces/list", {});
       tbody.innerHTML = "";
       data.namespaces.forEach((n) => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = '<td>' + n.namespace_id + '</td><td>' + n.scope + '</td><td>' + (n.owner_user_id || "-") + '</td><td></td><td></td>';
-        const limitCell = tr.children[3];
+        const tr = appendRow(tbody, [n.namespace_id, n.scope, n.owner_user_id || "-"]);
+        const limitCell = document.createElement("td");
+        tr.appendChild(limitCell);
+        const actionsCell = document.createElement("td");
+        tr.appendChild(actionsCell);
         const limitInput = document.createElement("input");
         limitInput.type = "number";
         limitInput.min = "0";
@@ -1379,7 +1767,7 @@ export function chatUiHtml(): string {
           try {
             await api("/admin/namespaces/set-limit", { namespaceId: n.namespace_id, resultLimit: v === "" ? null : Number(v) });
             loadNamespaces();
-          } catch (e) { alert("設定に失敗しました: " + e.message); }
+          } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
         };
         limitCell.appendChild(limitInput);
         limitCell.appendChild(limitBtn);
@@ -1388,10 +1776,9 @@ export function chatUiHtml(): string {
         delBtn.onclick = async () => {
           if (!confirm(n.namespace_id + " を削除しますか？")) return;
           try { await api("/admin/namespaces/delete", { namespaceId: n.namespace_id }); loadNamespaces(); }
-          catch (e) { alert("削除に失敗しました: " + e.message); }
+          catch (e) { showToast("削除に失敗しました: " + e.message, "error"); }
         };
-        tr.lastElementChild.appendChild(delBtn);
-        tbody.appendChild(tr);
+        actionsCell.appendChild(delBtn);
       });
     } catch (e) {
       tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + e.message + '</td></tr>';
@@ -1406,35 +1793,83 @@ export function chatUiHtml(): string {
         notionDatabaseId: $("kbNotionId").value.trim() || undefined,
         driveFolderId: $("kbDriveId").value.trim() || undefined,
       });
-      alert("同期元を設定しました");
-    } catch (e) { alert("設定に失敗しました: " + e.message); }
+      showToast("同期元を設定しました", "success");
+    } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
+  });
+
+  // 直近の同期のopId/ソースを覚えておき、「失敗ファイルだけ再同期」ボタンから使う
+  // （2026-09-04追加）。
+  let lastSyncOpId = null;
+  let lastSyncSource = null;
+
+  // 「エラー時のみ通知」チェックボックスの状態はlocalStorageに覚えておき、次回開いた
+  // ときも同じ設定のままにする（2026-09-04追加）。
+  const notifyErrorOnlyEl = $("kbNotifyErrorOnly");
+  try {
+    notifyErrorOnlyEl.checked = localStorage.getItem("ragPocNotifyErrorOnly") === "1";
+  } catch { /* localStorage不可の環境では既定（オフ）のまま */ }
+  notifyErrorOnlyEl.addEventListener("change", () => {
+    try { localStorage.setItem("ragPocNotifyErrorOnly", notifyErrorOnlyEl.checked ? "1" : "0"); } catch { /* noop */ }
   });
 
   async function runSync(endpoint, batchSize) {
     const namespace = $("kbNamespace").value.trim();
-    if (!namespace) { alert("namespaceを入力してください"); return; }
+    if (!namespace) { showToast("namespaceを入力してください", "error"); return; }
+    const source = endpoint.indexOf("notion") !== -1 ? "notion" : "drive";
     const progressEl = $("kbSyncProgress");
-    let opId = null, startIndex = 0, totalDocs = 0, totalChunks = 0;
+    const retryBtn = $("kbRetryFailedBtn");
+    retryBtn.disabled = true;
+    let opId = null, startIndex = 0, totalDocs = 0, totalChunks = 0, errorCount = 0;
     progressEl.textContent = "同期中…";
     try {
       while (true) {
-        const body = { namespace, startIndex, batchSize };
+        const body = { namespace, startIndex, batchSize, notifyOnErrorOnly: notifyErrorOnlyEl.checked };
         if (opId) body.opId = opId;
         const data = await api(endpoint, body);
         opId = data.opId;
         totalDocs += data.documents;
         totalChunks += data.chunks;
+        (data.results || []).forEach((r) => { if (r.status === "error") errorCount++; });
         const total = data.totalPages ?? data.totalFiles ?? "?";
-        progressEl.textContent = "進捗: " + data.processedRange[1] + "/" + total + "（累計 " + totalDocs + "件・" + totalChunks + "チャンク）";
+        const last = data.results && data.results.length > 0 ? data.results[data.results.length - 1] : null;
+        const lastMark = last ? (last.status === "ok" ? "✅" : last.status === "skipped" ? "⏭️" : "⚠️") : "";
+        const lastLine = last ? "\\n直前: " + lastMark + " " + last.file + "（" + last.detail + "）" : "";
+        progressEl.textContent = "進捗: " + data.processedRange[1] + "/" + total + "（累計 " + totalDocs + "件・" + totalChunks + "チャンク）" + lastLine;
         if (data.nextIndex === null || data.nextIndex === undefined) break;
         startIndex = data.nextIndex;
       }
-      progressEl.textContent = "完了: " + totalDocs + "件・" + totalChunks + "チャンク登録";
+      const failNote = errorCount > 0 ? "（失敗 " + errorCount + "件）" : "";
+      progressEl.textContent = "完了: " + totalDocs + "件・" + totalChunks + "チャンク登録" + failNote;
+      lastSyncOpId = opId;
+      lastSyncSource = source;
+      retryBtn.disabled = errorCount === 0;
       loadKbHistory();
     } catch (e) {
       progressEl.textContent = "エラー: " + e.message;
+      lastSyncOpId = opId;
+      lastSyncSource = source;
+      retryBtn.disabled = !opId;
     }
   }
+
+  $("kbRetryFailedBtn").addEventListener("click", async () => {
+    if (!lastSyncOpId || !lastSyncSource) return;
+    const namespace = $("kbNamespace").value.trim();
+    const progressEl = $("kbSyncProgress");
+    const retryBtn = $("kbRetryFailedBtn");
+    retryBtn.disabled = true;
+    progressEl.textContent = "失敗ファイルを再同期中…";
+    try {
+      const data = await api("/admin/sync/" + lastSyncSource + "/retry-failed", { namespace, opId: lastSyncOpId });
+      const remainingErrors = (data.results || []).filter((r) => r.status === "error").length;
+      progressEl.textContent = "再同期完了: " + data.documents + "件・" + data.chunks + "チャンク登録" + (remainingErrors > 0 ? "（依然失敗 " + remainingErrors + "件）" : "");
+      retryBtn.disabled = remainingErrors === 0;
+      loadKbHistory();
+    } catch (e) {
+      progressEl.textContent = "エラー: " + e.message;
+      retryBtn.disabled = false;
+    }
+  });
   // 当初Notionはテキストのみで変換が軽いためbatchSize=5にしていたが、ページ内の
   // チャンク数が多いとGemini埋め込みだけで1ページ100秒近くかかることがあり
   // （2026-08-29、PER_PAGE_TIMEOUT_MS引き上げの経緯参照）、5件×100秒では
@@ -1450,10 +1885,11 @@ export function chatUiHtml(): string {
       const data = await api("/admin/kb/history", { limit: 30 });
       tbody.innerHTML = "";
       data.entries.forEach((e) => {
-        const tr = document.createElement("tr");
         const when = new Date(e.created_at * 1000).toLocaleString();
-        tr.innerHTML = '<td>' + when + '</td><td>' + e.op_id + '</td><td>' + e.source + '</td><td>' + e.namespace_id + '</td><td>' + (e.file || "-") + '</td><td>' + e.status + '</td><td>' + (e.detail || "") + '</td>';
-        tbody.appendChild(tr);
+        // file/detailはDrive/Notion側の実データ（ファイル名・エラー詳細）に由来する未検証の
+        // 文字列なので、appendRow経由でtextContent挿入する（2026-09-04、悪意あるHTMLタグを
+        // 含むファイル名が管理画面でHTMLとして実行されるstored XSSの可能性を修正）。
+        appendRow(tbody, [when, e.op_id, e.source, e.namespace_id, e.file || "-", e.status, e.detail || ""]);
       });
     } catch (e) {
       tbody.innerHTML = '<tr><td colspan=7>取得に失敗しました: ' + e.message + '</td></tr>';
@@ -1469,9 +1905,7 @@ export function chatUiHtml(): string {
       const tbody = $("ratingByUserTable").querySelector("tbody");
       tbody.innerHTML = "";
       data.byUser.forEach((u) => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = "<td>" + (u.displayName || u.userId) + "</td><td>" + u.total + "</td><td>" + u.good + "</td><td>" + u.bad + "</td>";
-        tbody.appendChild(tr);
+        appendRow(tbody, [u.displayName || u.userId, u.total, u.good, u.bad]);
       });
     } catch (e) {
       $("ratingSummary").textContent = "取得に失敗しました: " + e.message;
@@ -1516,17 +1950,27 @@ export function chatUiHtml(): string {
   });
 
   // ---------- 管理タブ：ヘルスチェック・アラート ----------
+  // エッジライト（2026-09-09追加）: 結果に応じてセクション左端に健全度バーを表示する。
+  const healthSection = $("healthCheckBtn").closest(".section");
+  function setHealthEdgeLight(state) {
+    healthSection.classList.remove("health-ok", "health-warn", "health-bad");
+    if (state) healthSection.classList.add(state);
+  }
   $("healthCheckBtn").addEventListener("click", async () => {
     $("healthCheckResult").textContent = "実行中…";
     try {
       const data = await api("/admin/health/check", {});
       if (data.issues.length === 0) {
         $("healthCheckResult").textContent = "問題は見つかりませんでした";
+        setHealthEdgeLight("health-ok");
       } else {
         $("healthCheckResult").textContent = data.issues.map((i) => "[" + i.severity + "] " + i.message).join(" / ");
+        const hasError = data.issues.some((i) => i.severity === "error");
+        setHealthEdgeLight(hasError ? "health-bad" : "health-warn");
       }
     } catch (e) {
       $("healthCheckResult").textContent = "エラー: " + e.message;
+      setHealthEdgeLight("health-bad");
     }
   });
   $("testAlertBtn").addEventListener("click", async () => {
