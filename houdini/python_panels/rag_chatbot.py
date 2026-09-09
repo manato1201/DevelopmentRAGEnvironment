@@ -59,7 +59,7 @@ try:
 except ImportError:
     _TUTORIAL_AVAILABLE = False
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QSize, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -425,6 +425,37 @@ class _ConnectionLamp(QWidget):
         )
 
 
+# ─── サイズヒント固定コンテナ ─────────────────────────────────────────────────
+# 根本原因（2026-09-07、実機での再現テストにより特定。QSizePolicy.Ignoredを
+# 個々のタブ内ウィジェットに指定するだけでは解消しなかった）:
+# QTabWidgetは内部でQStackedWidgetを使っているが、これは「現在表示中のタブ」
+# だけでなく非表示の全タブページを含めたsizeHint/minimumSizeHintの最大値を
+# 自身の値として報告する（タブ切り替え時にレイアウトが揺れないようにするため）。
+# つまりGraph/Tutorial/Historyタブが内部に持つノードグラフビューアなどが
+# （それ自体は正当な理由で）大きめのminimumSizeを持っていた場合、たとえ
+# ユーザーが「はじめに」タブしか開いていなくても、QTabWidget全体の最小サイズが
+# それに引きずられて大きくなり、Houdiniのペイン分割がそのサイズより小さく
+# 縮められなくなる（「開くと縦が固定される」の実体）。
+# 各タブページをこのコンテナで一律に包み、sizeHint()/minimumSizeHint()の
+# 両方を固定の小さい値で上書きすることで、タブ内部の実際の要求サイズが
+# QTabWidget側の集計に伝播しないようにする。実際に割り当てられる表示サイズ
+# には影響しないため、ペインが広ければ従来通りその分だけ中身が広がる。
+
+
+class _FixedHintTab(QWidget):
+    """
+    タブページ用ラッパー。sizeHint()/minimumSizeHint()を固定し、内容量や
+    子ウィジェットの要求サイズがQTabWidget全体の最小サイズを押し上げない
+    ようにする（このクラス手前のコメント参照）。
+    """
+
+    def sizeHint(self) -> QSize:  # noqa: D102 -- Qt override
+        return QSize(320, 200)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: D102 -- Qt override
+        return QSize(50, 50)
+
+
 # ─── メインパネル ─────────────────────────────────────────────────────────────
 
 class RAGChatbotPanel(QWidget):
@@ -478,12 +509,23 @@ class RAGChatbotPanel(QWidget):
         # 「はじめに」を先頭タブにする: 初めて開いたユーザーが最初に目にするのが
         # 空のチャット欄だと何をすればいいか分からない、という実機フィードバックへの
         # 対策。各タブの役割・最初にやること・つまずきやすい点をまとめた説明を置く。
-        tabs.addTab(self._build_help_tab(),     "はじめに")
-        tabs.addTab(self._build_chat_tab(),     "Chat")
-        tabs.addTab(self._build_graph_tab(),    "Graph")
-        tabs.addTab(self._build_tutorial_tab(), "Tutorial")
-        tabs.addTab(self._build_history_tab(),  "History")
-        tabs.addTab(self._build_settings_tab(), "Settings")
+        #
+        # 各タブは_wrap_tab()で包んでから追加する（_FixedHintTabのコメント参照）:
+        # Graph/Tutorial/Historyタブの中身が持つ正当な最小サイズ要求が、たとえ
+        # 別のタブを表示中でもQTabWidget全体の最小サイズに伝播し、ペインを
+        # 縮められなくする不具合の対策。
+        # Settings / Tutorial は自前のスクロール手段を持たない素のフォーム
+        # レイアウトなので scrollable=True にする（_wrap_tab()のdocstring参照。
+        # これがないと、割り当て高さ不足時にラベルや入力欄が圧縮されて重なって
+        # 見える不具合になっていた＝2026-09-07実機報告の再発分）。
+        tutorial_tab = self._build_tutorial_tab()
+        self._tutorial_tab_wrapper = self._wrap_tab(tutorial_tab, scrollable=True)
+        tabs.addTab(self._wrap_tab(self._build_help_tab()),     "はじめに")
+        tabs.addTab(self._wrap_tab(self._build_chat_tab()),     "Chat")
+        tabs.addTab(self._wrap_tab(self._build_graph_tab()),    "Graph")
+        tabs.addTab(self._tutorial_tab_wrapper,                 "Tutorial")
+        tabs.addTab(self._wrap_tab(self._build_history_tab()),  "History")
+        tabs.addTab(self._wrap_tab(self._build_settings_tab(), scrollable=True), "Settings")
         self._tabs = tabs  # /tutorial コマンドでのタブ切り替えに使う
 
         # 接続状態ランプ。以前はQTabWidget.setCornerWidget()でタブバー右端に
@@ -513,10 +555,21 @@ class RAGChatbotPanel(QWidget):
         設定や外部通信を一切行わない読み取り専用タブなので、フォールバック
         UI や例外処理は不要（QTextEdit にHTMLを流すだけ）。
         """
+        # このタブ自体のコンテナサイズ管理は呼び出し元の_wrap_tab()に委ねている
+        # （QTabWidget全体の最小サイズへの伝播対策。_FixedHintTabのコメント参照）。
         w = QWidget()
         layout = QVBoxLayout(w)
         view = QTextEdit()
         view.setReadOnly(True)
+        # QTextEditはリッチテキストの内容量に応じてsizeHint()が伸びることがあり、
+        # 縦方向のポリシーが既定のPreferredのままだと、Houdiniのペインホストが
+        # そのsizeHintに合わせてパネル全体を大きくしようとして、ペインの実際の
+        # 表示領域からはみ出した分が切れて見える（内部スクロールバーも出ない）
+        # 不具合になっていた（2026-09-07実機報告）。setSizePolicy()の縦方向を
+        # Ignoredにし、sizeHintを無視して親レイアウトの割り当て分だけを使わせる
+        # ことで、はみ出した内容はQTextEdit自身の内部スクロールに委ねる
+        # （471行目のパネル全体と同じ理由の対策）。
+        view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
         view.setStyleSheet(
             "QTextEdit{background:#0f172a;color:#e2e8f0;border:none;padding:8px;"
             "font-family:'Segoe UI','Yu Gothic UI',sans-serif;font-size:13px;}"
@@ -725,6 +778,42 @@ class RAGChatbotPanel(QWidget):
         label.setAlignment(Qt.AlignCenter)
         layout.addWidget(label)
         return w
+
+    @staticmethod
+    def _wrap_tab(content: QWidget, scrollable: bool = False) -> QWidget:
+        """
+        タブページを_FixedHintTabで包む。QTabWidget追加直前に呼ぶこと。
+        戻り値のラッパーがQTabWidgetに登録される実際のタブページになるため、
+        後から特定のタブへプログラム的に切り替えたい場合（例: /tutorial
+        コマンド）は、中身のウィジェットではなくこのラッパーの参照を使うこと。
+
+        scrollable=True の場合、contentをQScrollArea経由で追加する。
+        _FixedHintTabはminimumSizeHint()を50x50に固定して報告するため
+        （QTabWidget全体の最小サイズへの伝播対策）、Houdini側が実際に割り当てる
+        高さがcontentの本来の必要サイズより小さいことがある。Settingsのような
+        多数のラベル/入力欄を縦に並べただけの素のフォームタブは、自前のスクロール
+        手段を持たないため、割り当てが不足すると各ウィジェットが圧縮され文字が
+        重なって見える不具合になっていた（2026-09-07実機報告）。scrollable=True
+        で包めば、割り当てが足りない場合はスクロールバーで対処され、圧縮による
+        重なりは起きない。
+        Chat（自前のメッセージスクロール領域＋常に見える位置固定の入力欄を持つ
+        ため外側に更にスクロールを足すと入力欄が隠れる）、Graph/History（マウス
+        ホイールでズーム操作するキャンバス系ウィジェットのため、外側スクロールが
+        ホイールイベントを奪ってしまう）、はじめに（QTextEditが既に内部スクロール
+        を持つため二重スクロールになる）は、scrollable=Falseのままにすること。
+        """
+        wrapper = _FixedHintTab()
+        layout = QVBoxLayout(wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        if scrollable:
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QScrollArea.NoFrame)
+            scroll.setWidget(content)
+            layout.addWidget(scroll)
+        else:
+            layout.addWidget(content)
+        return wrapper
 
     def _build_settings_tab(self) -> QWidget:
         """
@@ -935,7 +1024,10 @@ class RAGChatbotPanel(QWidget):
             if not topic:
                 self._add_bubble("使い方: /tutorial <トピック>（例: /tutorial 岩の散布）", is_user=False)
                 return
-            self._tabs.setCurrentWidget(self._tutorial_panel)
+            # QTabWidgetに実際に登録されているのは_wrap_tab()が返したラッパー
+            # であって_tutorial_panelそのものではないため、切り替え先は
+            # self._tutorial_tab_wrapperを指定する。
+            self._tabs.setCurrentWidget(self._tutorial_tab_wrapper)
             self._tutorial_panel.start_with_topic(topic)
             return
 
