@@ -1,6 +1,7 @@
 import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
 import { logKb } from "./kbIngest";
+import { jsonResponse } from "./http";
 
 const DELETE_CHUNK = 20; // getByIds()の1回あたり上限（20件）に合わせた保守的な値。deleteByIds()の実際の上限は未確認のため同じ値を流用する
 
@@ -57,11 +58,4 @@ export async function handleKbRollback(req: Request, env: Env, user: AuthedUser)
   await logKb(env, opId, namespace, "manual", null, "ok", `ロールバック実行: ${deletedFiles}ファイル・${deletedChunks}チャンクを削除`);
 
   return jsonResponse(200, { status: "ok", deletedFiles, deletedChunks });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
 }

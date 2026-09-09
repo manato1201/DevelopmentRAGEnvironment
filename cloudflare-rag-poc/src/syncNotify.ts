@@ -14,6 +14,7 @@ export async function notifySyncComplete(
   opId: string,
   namespace: string,
   source: "drive" | "notion",
+  notifyOnErrorOnly = false,
 ): Promise<void> {
   if (!env.SLACK_WEBHOOK_URL) return; // Slack未設定の環境では何もしない（既存のsendSlackAlertと同じ方針）
 
@@ -27,6 +28,12 @@ export async function notifySyncComplete(
   const ok = byStatus.get("ok") ?? 0;
   const skipped = byStatus.get("skipped") ?? 0;
   const error = byStatus.get("error") ?? 0;
+
+  // 「エラー時のみ通知」が指定されている場合、全件成功（error=0）なら通知しない
+  // （2026-09-04追加）。手動トリガーの同期を日常的に何度も実行していると、成功続きでも
+  // 毎回通知が来て通知疲れになりがちだという指摘への対応。
+  if (notifyOnErrorOnly && error === 0) return;
+
   const sourceLabel = source === "drive" ? "Drive" : "Notion";
 
   const text =

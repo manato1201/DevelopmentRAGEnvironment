@@ -1,5 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
+import { jsonResponse } from "./http";
 
 // POST /admin/namespaces/create — namespaceを新規作成する（既存GAS adminCreateNamespace相当）。
 // body: { namespaceId, scope: 'shared'|'personal', ownerUserId?（scope='personal'の場合必須） }
@@ -71,12 +72,5 @@ export async function handleDeleteNamespace(req: Request, env: Env, user: Authed
   return jsonResponse(200, {
     status: "ok",
     warning: "Vectorize/FTS5に投入済みのチャンクは削除していません。必要な場合は別途削除してください。",
-  });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
   });
 }

@@ -1,4 +1,5 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
+import { jsonResponse } from "./http";
 import { requireAdmin } from "./auth";
 import { getGoogleAccessToken } from "./googleAuth";
 import { ingestDocument, logKb } from "./kbIngest";
@@ -15,8 +16,8 @@ import { notifySyncComplete } from "./syncNotify";
 // だった。サイズの小さい順に処理する設計（listDriveFiles参照）のため、バッチが進むほど
 // 後段のファイルは大きく・チャンク数も多くなり、実機のhoudini21同期で85/335件目付近から
 // 埋め込みだけで45秒を超えて連続タイムアウトするようになっていた。ingestDocument側も
-// EMBED_CONCURRENCYで並列化して短縮したうえで、ダウンロード＋変換＋埋め込みの全体を
-// 1つのタイムアウトで包み、上限自体も引き上げる。
+// batchEmbedContentsでまとめて呼び出し往復回数自体を減らしたうえで、ダウンロード＋
+// 変換＋埋め込みの全体を1つのタイムアウトで包み、上限自体も引き上げる。
 const PER_FILE_TIMEOUT_MS = 100_000;
 import { extractTextFromPdf, extractTextFromDocxSource, extractTextFromPptxSource } from "./docExtract";
 import type { ByteRangeSource } from "./docExtract";
@@ -26,6 +27,16 @@ const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingm
 const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 // Workers isolateのメモリ上限（128MB）に対する安全マージンとして、ダウンロード時点で弾く上限
 const MAX_DOWNLOAD_BYTES = 90 * 1024 * 1024;
+
+// 2026-09-04追加: このアカウントがCloudflare Workers Freeプラン（CPU時間10ms固定、
+// Paidプランと違い引き上げ不可）だったと判明し、大きいPDF/DOCX/PPTX/音声動画の変換処理が
+// Error 1102（Worker exceeded resource limits）で強制終了されることがあった（kb_logに
+// 記録が一切残らず、クライアント側には「非JSON・HTTP 503」としてしか見えない）。
+// ファイルサイズと実際のCPU消費量は完全には比例しない（例: DOCX/PPTXは埋め込み動画が
+// 容量の大半を占めていてもテキスト抽出自体は軽いことがある）が、他に安全な判定基準が
+// ないため、サイズを目安にした保守的な閾値で自動処理そのものをスキップし、
+// Cloudflare側に強制終了される前に明確な理由を返せるようにする。
+const MAX_AUTO_PROCESS_BYTES = 40 * 1024 * 1024;
 
 // Content-Lengthヘッダーに頼らず、実際に受信したバイト数をストリーミングで数えながら
 // 上限を超えた時点で読み込みを打ち切る。Drive の alt=media レスポンスがchunked転送で
@@ -139,8 +150,8 @@ async function extractDriveFileText(env: Env, token: string, file: DriveFile, si
     });
     if (!res.ok) throw new Error(`Drive download APIエラー (${res.status}): ${await res.text()}`);
     const bytes = await readBodyWithLimit(res, MAX_DOWNLOAD_BYTES);
-    if (isPdf) return extractTextFromPdf(env, bytes, file.name);
-    return transcribeAudioVideo(env, bytes, file.mimeType, file.name);
+    if (isPdf) return extractTextFromPdf(env, bytes, file.name, signal);
+    return transcribeAudioVideo(env, bytes, file.mimeType, file.name, signal);
   }
 
   return null; // 未対応mimeType（画像等）
@@ -180,34 +191,25 @@ function driveRangeSource(token: string, fileId: string, totalSize: number, sign
   };
 }
 
-// POST /admin/sync/drive — 既存GAS syncDriveToSheets相当（PDF/DOCX等の変換・音声動画の文字起こしは未対応）。
-// Notion同期と同じバッチ処理方式。
-// body: { namespace, startIndex?（省略時0）, batchSize?（省略時5）, opId?（継続呼び出し時に指定） }
-export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireAdmin(user);
-
-  const body = (await req.json()) as { namespace?: string; startIndex?: number; batchSize?: number; opId?: string };
-  const namespace = (body.namespace || "").trim();
-  if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
-
-  const source = await env.DB.prepare("SELECT drive_folder_id FROM kb_sources WHERE namespace_id = ?")
-    .bind(namespace)
-    .first<{ drive_folder_id: string | null }>();
-  if (!source?.drive_folder_id) {
-    return jsonResponse(400, { error: `namespace(${namespace})にDriveフォルダIDが設定されていません。先に /admin/kb/set-source で設定してください` });
-  }
-
-  const startIndex = body.startIndex ?? 0;
-  const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
-  const opId = body.opId || newOpId();
-
-  const token = await getGoogleAccessToken(env, DRIVE_SCOPE);
-  const files = await listDriveFiles(token, source.drive_folder_id);
-  const batch = files.slice(startIndex, startIndex + batchSize);
-
+// batch内の各ファイルをダウンロード＋変換＋埋め込み＋D1書き込みする共通処理。
+// 通常のページング同期（handleSyncDrive）と、失敗ファイルだけを狙い撃ちする
+// 再同期（handleRetryFailedDrive）の両方から呼ばれる（2026-09-04リトライ機能追加時に抽出）。
+async function processDriveBatch(
+  env: Env,
+  token: string,
+  namespace: string,
+  opId: string,
+  batch: DriveFile[],
+): Promise<{
+  documents: number;
+  chunks: number;
+  skipped: Array<{ file: string; reason: string }>;
+  results: Array<{ file: string; status: "ok" | "skipped" | "error"; detail: string }>;
+}> {
   let documents = 0;
   let chunks = 0;
   const skipped: Array<{ file: string; reason: string }> = [];
+  const results: Array<{ file: string; status: "ok" | "skipped" | "error"; detail: string }> = [];
 
   for (const file of batch) {
     try {
@@ -219,6 +221,19 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
           | { kind: "skip"; reason: string }
           | { kind: "ok"; chunks: number; skippedVectors: number }
         > => {
+          const isCpuHeavyType =
+            file.mimeType === "application/pdf" ||
+            file.mimeType === DOCX_MIME ||
+            file.mimeType === PPTX_MIME ||
+            file.mimeType.startsWith("audio/") ||
+            file.mimeType.startsWith("video/");
+          const declaredSize = Number(file.size || 0);
+          if (isCpuHeavyType && declaredSize > MAX_AUTO_PROCESS_BYTES) {
+            return {
+              kind: "skip",
+              reason: `ファイルが大きすぎるため自動処理をスキップしました（${Math.round(declaredSize / 1024 / 1024)}MB、上限${MAX_AUTO_PROCESS_BYTES / 1024 / 1024}MB。Cloudflare Workers FreeプランのCPU時間制限のため）`,
+            };
+          }
           const text = await extractDriveFileText(env, token, file, signal);
           if (text === null) return { kind: "skip", reason: `未対応のmimeType: ${file.mimeType}` };
           if (!text.trim()) return { kind: "skip", reason: "本文が空です" };
@@ -230,23 +245,67 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
       );
       if (outcome.kind === "skip") {
         skipped.push({ file: file.name, reason: outcome.reason });
+        results.push({ file: file.name, status: "skipped", detail: outcome.reason });
         await logKb(env, opId, namespace, "drive", file.name, "skipped", outcome.reason);
         continue;
       }
       chunks += outcome.chunks;
       documents += 1;
       const skipNote = outcome.skippedVectors > 0 ? `（${outcome.skippedVectors}チャンクは登録失敗のためスキップ）` : "";
-      await logKb(env, opId, namespace, "drive", file.name, "ok", `${outcome.chunks}チャンク登録${skipNote}`);
+      const detail = `${outcome.chunks}チャンク登録${skipNote}`;
+      results.push({ file: file.name, status: "ok", detail });
+      await logKb(env, opId, namespace, "drive", file.name, "ok", detail);
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       skipped.push({ file: file.name, reason: detail });
+      results.push({ file: file.name, status: "error", detail });
       await logKb(env, opId, namespace, "drive", file.name, "error", detail);
     }
   }
 
+  return { documents, chunks, skipped, results };
+}
+
+async function resolveDriveFolder(env: Env, namespace: string): Promise<string> {
+  const source = await env.DB.prepare("SELECT drive_folder_id FROM kb_sources WHERE namespace_id = ?")
+    .bind(namespace)
+    .first<{ drive_folder_id: string | null }>();
+  if (!source?.drive_folder_id) {
+    throw new Error(`namespace(${namespace})にDriveフォルダIDが設定されていません。先に /admin/kb/set-source で設定してください`);
+  }
+  return source.drive_folder_id;
+}
+
+// POST /admin/sync/drive — 既存GAS syncDriveToSheets相当（PDF/DOCX等の変換・音声動画の文字起こしは未対応）。
+// Notion同期と同じバッチ処理方式。
+// body: { namespace, startIndex?（省略時0）, batchSize?（省略時5）, opId?（継続呼び出し時に指定） }
+export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  requireAdmin(user);
+
+  const body = (await req.json()) as { namespace?: string; startIndex?: number; batchSize?: number; opId?: string; notifyOnErrorOnly?: boolean };
+  const namespace = (body.namespace || "").trim();
+  if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+
+  let folderId: string;
+  try {
+    folderId = await resolveDriveFolder(env, namespace);
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+
+  const startIndex = body.startIndex ?? 0;
+  const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
+  const opId = body.opId || newOpId();
+
+  const token = await getGoogleAccessToken(env, DRIVE_SCOPE);
+  const files = await listDriveFiles(token, folderId);
+  const batch = files.slice(startIndex, startIndex + batchSize);
+
+  const { documents, chunks, skipped, results } = await processDriveBatch(env, token, namespace, opId, batch);
+
   const nextIndex = startIndex + batchSize < files.length ? startIndex + batchSize : null;
   if (nextIndex === null) {
-    await notifySyncComplete(env, opId, namespace, "drive");
+    await notifySyncComplete(env, opId, namespace, "drive", body.notifyOnErrorOnly);
   }
 
   return jsonResponse(200, {
@@ -255,15 +314,88 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
     documents,
     chunks,
     skipped,
+    results,
     totalFiles: files.length,
     processedRange: [startIndex, startIndex + batch.length],
     nextIndex,
   } satisfies KbSyncResult & { totalFiles: number; processedRange: [number, number]; nextIndex: number | null });
 }
 
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
+// POST /admin/sync/drive/retry-failed — 直近の同期（opId）で失敗(error)したファイルだけを
+// 対象に再実行する。全件をstartIndex=0からやり直す必要をなくし、無駄な再埋め込みを避ける
+// （2026-09-04追加）。skipped（未対応mimeType・本文空）は「再試行しても結果が変わらない」
+// ため対象外にし、errorのみを対象にする。
+// body: { namespace, opId }
+export async function handleRetryFailedDrive(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  requireAdmin(user);
+
+  const body = (await req.json()) as { namespace?: string; opId?: string };
+  const namespace = (body.namespace || "").trim();
+  const sourceOpId = (body.opId || "").trim();
+  if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
+
+  let folderId: string;
+  try {
+    folderId = await resolveDriveFolder(env, namespace);
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+
+  const failedRows = await env.DB.prepare(
+    "SELECT DISTINCT file FROM kb_log WHERE op_id = ? AND namespace_id = ? AND source = 'drive' AND status = 'error'",
+  )
+    .bind(sourceOpId, namespace)
+    .all<{ file: string }>();
+  const failedNames = new Set(failedRows.results.map((r) => r.file));
+  if (failedNames.size === 0) {
+    return jsonResponse(200, {
+      status: "ok",
+      opId: sourceOpId,
+      documents: 0,
+      chunks: 0,
+      skipped: [],
+      results: [],
+      totalFiles: 0,
+      processedRange: [0, 0],
+      nextIndex: null,
+    } satisfies KbSyncResult & { totalFiles: number; processedRange: [number, number]; nextIndex: number | null });
+  }
+
+  const token = await getGoogleAccessToken(env, DRIVE_SCOPE);
+  const allFiles = await listDriveFiles(token, folderId);
+  // 既知の制約: kb_logはファイル名のみ記録しGoogle DriveのファイルID自体は持たないため、
+  // 同一フォルダに同名ファイルが複数存在する場合（Driveでは許容される）、片方だけが
+  // 失敗していても名前が一致する全ファイルを対象にしてしまう。フォルダ内の重複ファイル名を
+  // 避ける運用でカバーする（真に直すにはkb_logにDriveファイルIDを持たせる必要がある）。
+  const targets = allFiles.filter((f) => failedNames.has(f.name));
+
+  // logKbは追記のみでerror行を消さないため、先に今回対象の古いerror行を消しておく。
+  // これをしないと、成功して直ったファイルの古いerror行がいつまでも残り、次回の
+  // 「失敗ファイルだけ再同期」で既に直った同名ファイルを無駄に再処理し続けてしまう
+  // （2026-09-04、実装直後の自己レビューで発見）。
+  const placeholders = targets.map(() => "?").join(",");
+  if (targets.length > 0) {
+    await env.DB.prepare(
+      `DELETE FROM kb_log WHERE op_id = ? AND namespace_id = ? AND source = 'drive' AND status = 'error' AND file IN (${placeholders})`,
+    )
+      .bind(sourceOpId, namespace, ...targets.map((f) => f.name))
+      .run();
+  }
+
+  // 元のopIdに追記する（新しいopIdを発番すると「直前の同期」と「そのリトライ」が別の
+  // 同期履歴として分断され、kb_historyで追いづらくなるため）。
+  const { documents, chunks, skipped, results } = await processDriveBatch(env, token, namespace, sourceOpId, targets);
+
+  return jsonResponse(200, {
+    status: "ok",
+    opId: sourceOpId,
+    documents,
+    chunks,
+    skipped,
+    results,
+    totalFiles: targets.length,
+    processedRange: [0, targets.length],
+    nextIndex: null,
+  } satisfies KbSyncResult & { totalFiles: number; processedRange: [number, number]; nextIndex: number | null });
 }

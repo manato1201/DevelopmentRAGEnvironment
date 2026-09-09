@@ -1,4 +1,5 @@
 import type { AuthedUser, ChunkMetadata, Env } from "./types";
+import { jsonResponse } from "./http";
 import { embedText, sha256Hex } from "./embeddings";
 
 // VectorizeのベクトルIDは64バイト上限。日本語ファイル名をそのままIDに使うと超過しうるため
@@ -43,6 +44,13 @@ export async function handleIngest(req: Request, env: Env, user: AuthedUser): Pr
 
     if (isPersonal && c.namespace !== `personal:${user.userId}`) {
       return jsonResponse(403, { error: `他ユーザーの個人スコープ(${c.namespace})へは書き込めません` });
+    }
+    // sharedスコープも、このキーがkey_namespace_grantsで許可されたnamespaceに限定する
+    // （2026-09-04追加。従来はpersonalスコープしかチェックしておらず、member/guestキーが
+    // 未許可のshared namespaceへ任意の名前で書き込めてしまっていた＝共有知識ベースを
+    // 汚染できる欠陥だった。auth.tsのuser.allowedNamespacesが権限の正の一覧）。
+    if (!isPersonal && !user.allowedNamespaces.includes(c.namespace)) {
+      return jsonResponse(403, { error: `namespace(${c.namespace})への書き込み権限がありません` });
     }
 
     const values = await embedText(env, c.text);
@@ -113,12 +121,5 @@ export async function handleIngest(req: Request, env: Env, user: AuthedUser): Pr
   return jsonResponse(200, {
     status: "ok",
     inserted: { shared: sharedVectors.length, personal: personalVectors.length },
-  });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
   });
 }

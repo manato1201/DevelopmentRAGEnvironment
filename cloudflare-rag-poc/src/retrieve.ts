@@ -1,7 +1,8 @@
 import type { AuthedUser, Env, SourceEntry } from "./types";
 import { embedText, hydeExpand } from "./embeddings";
 import { hybridSearch, type RankedChunk } from "./hybrid";
-import { consumeBudget } from "./budget";
+import { getRemaining } from "./budget";
+import { jsonResponse } from "./http";
 
 export interface RetrieveResult {
   ranked: RankedChunk[];
@@ -60,6 +61,10 @@ export async function retrieve(
   level: string,
   limit: number,
 ): Promise<RetrieveResult> {
+  // namespaceの上限設定はnamespaces引数だけで決まり、hyde/embed/検索の結果には依存しない
+  // ため、そのチェーンと並行して先に投げておく（2026-09-04、直列awaitで検索の裏で
+  // 使える待ち時間を無駄にしていた不備を修正。実際に使うのは最後のcapPerNamespaceの手前）。
+  const capsPromise = getNamespaceCaps(env, namespaces);
   const hyde = await hydeExpand(env, query);
   const queryVector = await embedText(env, hyde.text);
   const ranked = await hybridSearch(
@@ -75,7 +80,7 @@ export async function retrieve(
         (r) => !r.metadata.difficulty || r.metadata.difficulty === level,
       )
     : ranked;
-  const caps = await getNamespaceCaps(env, namespaces);
+  const caps = await capsPromise;
   const capped = capPerNamespace(filtered, caps, limit);
   return {
     ranked: capped.slice(0, limit),
@@ -122,9 +127,17 @@ export function resolveEffectiveNamespaces(
 // 「キーが有効か」と「管理タブを出してよいか」を同時に判定するため
 // （chatUi.ts参照。管理タブの表示/非表示自体はUIの都合であり、実際の権限チェックは
 // 各/admin/*エンドポイント側のrequireAdmin()が唯一の正）。
-export async function handleMyNamespaces(_req: Request, _env: Env, user: AuthedUser): Promise<Response> {
+export async function handleMyNamespaces(
+  _req: Request,
+  _env: Env,
+  user: AuthedUser,
+): Promise<Response> {
   return new Response(
-    JSON.stringify({ namespaces: user.allowedNamespaces, role: user.role, status: "ok" }),
+    JSON.stringify({
+      namespaces: user.allowedNamespaces,
+      role: user.role,
+      status: "ok",
+    }),
     {
       status: 200,
       headers: { "content-type": "application/json; charset=utf-8" },
@@ -132,4 +145,18 @@ export async function handleMyNamespaces(_req: Request, _env: Env, user: AuthedU
   );
 }
 
-export { consumeBudget };
+// POST /me/budget — 自分のトークン予算の残量を返す（2026-09-04追加、管理者権限不要）。
+// 従来は管理者向けの使用量ダッシュボードしかなく、一般ユーザーは実際に
+// BudgetExceededError（429）に当たって初めて上限の存在を知る状態だった。
+// 予算レコードが無いキー（無制限）はlimit/used/remainingともnullを返す。
+export async function handleMyBudget(_req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const [rag, claude] = await Promise.all([
+    getRemaining(env, user.userId, "rag"),
+    getRemaining(env, user.userId, "claude"),
+  ]);
+  return jsonResponse(200, {
+    rag: rag ?? { limit: null, used: null, remaining: null },
+    claude: claude ?? { limit: null, used: null, remaining: null },
+    status: "ok",
+  });
+}

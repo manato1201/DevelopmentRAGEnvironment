@@ -2,6 +2,7 @@ import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
+import { jsonResponse } from "./http";
 
 // HTMLからscript/style要素を除去した上でテキストのみを抽出する（Workers組み込みの
 // HTMLRewriterを使用。DOMパーサ相当のライブラリを追加せずに済む）。
@@ -49,12 +50,5 @@ export async function handleImportUrl(req: Request, env: Env, user: AuthedUser):
     title,
     chunks: result.chunks,
     skipped: result.skippedVectors.length,
-  });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
   });
 }

@@ -4,6 +4,7 @@ import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { extractTextFromPdf, extractTextFromDocx, extractTextFromPptx } from "./docExtract";
 import { transcribeAudioVideo, transcribeYoutubeUrl } from "./mediaTranscribe";
+import { jsonResponse } from "./http";
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -76,11 +77,4 @@ export async function handleUploadDoc(req: Request, env: Env, user: AuthedUser):
   await logKb(env, opId, namespace, "manual", fileName, "ok", `アップロード登録: ${result.chunks}チャンク登録${skipNote}`);
 
   return jsonResponse(200, { status: "ok", opId, chunks: result.chunks, skipped: result.skippedVectors.length });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
 }

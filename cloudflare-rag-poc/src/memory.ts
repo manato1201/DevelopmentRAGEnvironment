@@ -1,4 +1,5 @@
 import type { AuthedUser, Env, SourceEntry } from "./types";
+import { jsonResponse } from "./http";
 
 export interface MemoryEntry {
   id: number;
@@ -7,6 +8,7 @@ export interface MemoryEntry {
   sources: SourceEntry[];
   namespaces: string[];
   rating: number | null;
+  pinned: boolean;
   createdAt: number;
 }
 
@@ -27,23 +29,42 @@ export async function saveMemory(
   return res.meta.last_row_id as number;
 }
 
-// 直近の会話履歴を取得する（既存GAS getUserMemory相当。Webチャット画面の履歴表示に使う）。
-export async function getUserMemory(env: Env, userId: string, limit: number): Promise<MemoryEntry[]> {
-  const res = await env.DB.prepare(
-    "SELECT id, query, answer, sources_json, namespaces, rating, created_at FROM memory WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
-  )
-    .bind(userId, limit)
-    .all<{ id: number; query: string; answer: string; sources_json: string; namespaces: string | null; rating: number | null; created_at: number }>();
+type MemoryRow = { id: number; query: string; answer: string; sources_json: string; namespaces: string | null; rating: number | null; pinned: number; created_at: number };
 
-  return (res.results ?? []).map((r) => ({
+function toMemoryEntry(r: MemoryRow): MemoryEntry {
+  return {
     id: r.id,
     query: r.query,
     answer: r.answer,
     sources: JSON.parse(r.sources_json) as SourceEntry[],
     namespaces: r.namespaces ? r.namespaces.split(",") : [],
     rating: r.rating,
+    pinned: r.pinned === 1,
     createdAt: r.created_at,
-  }));
+  };
+}
+
+// 直近の会話履歴を取得する（既存GAS getUserMemory相当。Webチャット画面の履歴表示に使う）。
+export async function getUserMemory(env: Env, userId: string, limit: number): Promise<MemoryEntry[]> {
+  const res = await env.DB.prepare(
+    "SELECT id, query, answer, sources_json, namespaces, rating, pinned, created_at FROM memory WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
+  )
+    .bind(userId, limit)
+    .all<MemoryRow>();
+
+  return (res.results ?? []).map(toMemoryEntry);
+}
+
+// お気に入り登録した過去のQ&Aを取得する（2026-09-04追加。直近履歴の表示件数制限とは無関係に、
+// ピン留めしたものは古くても一覧できるようにする）。
+export async function getPinnedMemory(env: Env, userId: string): Promise<MemoryEntry[]> {
+  const res = await env.DB.prepare(
+    "SELECT id, query, answer, sources_json, namespaces, rating, pinned, created_at FROM memory WHERE user_id = ? AND pinned = 1 ORDER BY created_at DESC"
+  )
+    .bind(userId)
+    .all<MemoryRow>();
+
+  return (res.results ?? []).map(toMemoryEntry);
 }
 
 // 過去の回答への評価（役に立った/立たなかった）を記録する（既存GAS rateMemoryEntry相当）。
@@ -51,6 +72,14 @@ export async function getUserMemory(env: Env, userId: string, limit: number): Pr
 export async function rateMemoryEntry(env: Env, userId: string, id: number, rating: number): Promise<boolean> {
   const res = await env.DB.prepare("UPDATE memory SET rating = ? WHERE id = ? AND user_id = ?")
     .bind(rating, id, userId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+// お気に入り登録／解除（2026-09-04追加）。ratingと同じく他人のmemoryは操作できない。
+export async function setMemoryPinned(env: Env, userId: string, id: number, pinned: boolean): Promise<boolean> {
+  const res = await env.DB.prepare("UPDATE memory SET pinned = ? WHERE id = ? AND user_id = ?")
+    .bind(pinned ? 1 : 0, id, userId)
     .run();
   return (res.meta.changes ?? 0) > 0;
 }
@@ -72,9 +101,17 @@ export async function handleMemoryRate(req: Request, env: Env, user: AuthedUser)
   return jsonResponse(200, { status: "ok" });
 }
 
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
+export async function handleMemoryPin(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = (await req.json()) as { id?: number; pinned?: boolean };
+  if (typeof body.id !== "number" || typeof body.pinned !== "boolean") {
+    return jsonResponse(400, { error: "id（数値）と pinned（真偽値）は必須です" });
+  }
+  const ok = await setMemoryPinned(env, user.userId, body.id, body.pinned);
+  if (!ok) return jsonResponse(404, { error: "該当する履歴が見つかりません" });
+  return jsonResponse(200, { status: "ok" });
+}
+
+export async function handlePinnedList(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const entries = await getPinnedMemory(env, user.userId);
+  return jsonResponse(200, { entries, status: "ok" });
 }
