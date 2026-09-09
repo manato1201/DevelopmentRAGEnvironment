@@ -7,9 +7,22 @@ export interface RankedChunk {
   score?: number;
 }
 
+// クエリ文字列をFTS5のMATCH構文として安全な形に変換する（2026-09-04追加）。
+// trigramトークナイザはあくまで「トークン化」の方式であり、MATCH句の構文解析
+// （フレーズの"、列指定の:、NOT/AND/ORの-や大文字キーワード、グルーピングの()）は
+// トークナイザに関係なく常に効く。ユーザーの質問文をそのまま渡すと、ハイフンや
+// コロンを含むごく普通の質問（例:「-fフラグの直し方」「比率: 3:1」）で
+// `fts5: syntax error near ...`となり検索全体が失敗していた。
+// 空白区切りの各語を個別に二重引用符で囲み（内部の"は""へエスケープ）、間は
+// スペースのままにすることで、FTS5のデフォルトの「語ごとのAND」という意味は保ったまま、
+// 各語の中身をリテラル文字列として扱わせ、構文エラーの原因になる記号を無害化する。
+function escapeFtsQuery(query: string): string {
+  const terms = query.trim().split(/\s+/).filter((t) => t.length > 0);
+  if (terms.length === 0) return '""';
+  return terms.map((t) => '"' + t.replace(/"/g, '""') + '"').join(" ");
+}
+
 // BM25キーワード検索（D1 FTS5、既存GAS _bm25SearchCandidates_相当）。
-// trigramトークナイザなので、MATCH句にはクエリ文字列をそのまま渡せば良い
-// （SQLite側で自動的に3文字の部分文字列に分解してマッチングする）。
 async function bm25Search(
   env: Env,
   query: string,
@@ -23,7 +36,7 @@ async function bm25Search(
   let sql = `SELECT chunk_id, file, namespace, scope, owner_user_id, difficulty, body
              FROM chunks_fts
              WHERE chunks_fts MATCH ? AND namespace IN (${placeholders})`;
-  const binds: unknown[] = [query, ...namespaces];
+  const binds: unknown[] = [escapeFtsQuery(query), ...namespaces];
 
   if (ownerUserId) {
     sql += " AND owner_user_id = ?";
@@ -97,39 +110,28 @@ export async function hybridSearch(
   // VECTOR_QUERY_ERROR(40025)になっていた。実際にlimit=8のクエリで発生・発覚した）。
   const topK = Math.min(limit * 3, 50);
 
-  if (shared.length > 0) {
-    const vRes = await env.VEC_SHARED.query(queryVector, {
-      topK,
-      filter: { namespace: { $in: shared } },
-      returnMetadata: "all",
-    });
-    vectorRanked.push(
-      ...vRes.matches.map((m) => ({
-        id: m.id,
-        metadata: m.metadata as unknown as ChunkMetadata,
-      })),
-    );
-    bm25Ranked.push(
-      ...(await bm25Search(env, queryText, shared, null, topK)),
-    );
-  }
+  // sharedとpersonalのベクトル検索・BM25検索は互いに独立しているため、全クエリ実行中
+  // 毎回このパスを通ることを踏まえ、Promise.allで並列実行してレイテンシを縮める
+  // （2026-09-04、逐次awaitになっていた不備を修正）。
+  const [sharedVector, sharedBm25, personalVector, personalBm25] = await Promise.all([
+    shared.length > 0
+      ? env.VEC_SHARED.query(queryVector, { topK, filter: { namespace: { $in: shared } }, returnMetadata: "all" })
+      : null,
+    shared.length > 0 ? bm25Search(env, queryText, shared, null, topK) : [],
+    personal.length > 0
+      ? env.VEC_PERSONAL.query(queryVector, { topK, filter: { namespace: { $in: personal }, owner_user_id: userId }, returnMetadata: "all" })
+      : null,
+    personal.length > 0 ? bm25Search(env, queryText, personal, userId, topK) : [],
+  ]);
 
-  if (personal.length > 0) {
-    const vRes = await env.VEC_PERSONAL.query(queryVector, {
-      topK,
-      filter: { namespace: { $in: personal }, owner_user_id: userId },
-      returnMetadata: "all",
-    });
-    vectorRanked.push(
-      ...vRes.matches.map((m) => ({
-        id: m.id,
-        metadata: m.metadata as unknown as ChunkMetadata,
-      })),
-    );
-    bm25Ranked.push(
-      ...(await bm25Search(env, queryText, personal, userId, topK)),
-    );
+  if (sharedVector) {
+    vectorRanked.push(...sharedVector.matches.map((m) => ({ id: m.id, metadata: m.metadata as unknown as ChunkMetadata })));
   }
+  bm25Ranked.push(...sharedBm25);
+  if (personalVector) {
+    vectorRanked.push(...personalVector.matches.map((m) => ({ id: m.id, metadata: m.metadata as unknown as ChunkMetadata })));
+  }
+  bm25Ranked.push(...personalBm25);
 
   return rrfMerge([vectorRanked, bm25Ranked]).slice(0, limit);
 }

@@ -13,14 +13,15 @@ export async function transcribeAudioVideo(
   bytes: ArrayBuffer,
   mimeType: string,
   displayName: string,
+  signal?: AbortSignal,
 ): Promise<string> {
-  const file = await uploadGeminiFile(env, bytes, mimeType, displayName);
+  const file = await uploadGeminiFile(env, bytes, mimeType, displayName, signal);
   try {
-    const active = file.state === "ACTIVE" ? file : await waitForGeminiFileActive(env, file.name);
+    const active = file.state === "ACTIVE" ? file : await waitForGeminiFileActive(env, file.name, undefined, signal);
     const result = await generateContentWithParts(env, [
       { fileData: { mimeType: active.mimeType, fileUri: active.uri } },
       { text: TRANSCRIBE_PROMPT },
-    ]);
+    ], signal);
     return result.text;
   } finally {
     await deleteGeminiFile(env, file.name);

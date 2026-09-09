@@ -1,6 +1,7 @@
 import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
 import { sha256Hex } from "./embeddings";
+import { jsonResponse } from "./http";
 
 const DEFAULT_RAG_CAPACITY = 100000;
 
@@ -198,11 +199,4 @@ export async function handleChargeKey(req: Request, env: Env, user: AuthedUser):
     .run();
 
   return jsonResponse(200, { status: "ok" });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
 }

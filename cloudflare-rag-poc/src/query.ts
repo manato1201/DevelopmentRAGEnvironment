@@ -1,12 +1,19 @@
 import type { AuthedUser, Env, QueryRequest, QueryResponse, SourceEntry } from "./types";
+import { jsonResponse } from "./http";
 import { generateAnswer, sha256Hex } from "./embeddings";
-import { assertBudgetAvailable } from "./budget";
+import { BudgetExceededError, reserveBudget, reconcileBudget } from "./budget";
 import { assertNotRateLimited } from "./rateLimit";
-import { buildContextTexts, consumeBudget, resolveEffectiveNamespaces, retrieve } from "./retrieve";
+import { buildContextTexts, resolveEffectiveNamespaces, retrieve } from "./retrieve";
 import { saveMemory } from "./memory";
+import { startAuditLog, finalizeAuditLog } from "./auditLog";
 
 // クエリ添付画像（VLM入力）の既定上限。既存GASのDEFAULT_MAX_QUERY_IMAGE_MBと同じ値。
 const MAX_QUERY_IMAGE_BYTES = 8 * 1024 * 1024;
+
+// budget.tsのreserveBudget用の見積もりトークン数。HyDE仮回答＋最終回答生成の実測値は
+// 通常これより十分小さいが、上振れに備えてやや多めに見積もる（実測との差分は
+// reconcileBudgetで払い戻す・追加加算する）。
+const RAG_RESERVE_ESTIMATE = 4000;
 
 // POST /query — 既存 rag_local_bridge.py の /query と同一契約。LLMを介した最終回答まで生成する
 // （/searchは検索結果のみを返す「生」のエンドポイント、/queryはチャット用の完成回答を返す）。
@@ -32,7 +39,6 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
   const effective = resolveEffectiveNamespaces(user, body.namespaces);
 
   await assertNotRateLimited(env, user.userId);
-  await assertBudgetAvailable(env, user.userId, "rag");
 
   if (effective.length === 0) {
     return jsonResponse(200, {
@@ -45,33 +51,54 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
     } satisfies QueryResponse);
   }
 
-  const { ranked, hydeTokensUsed } = await retrieve(env, user, query, effective, level, limit);
-  const { texts, sources } = buildContextTexts(ranked);
-
-  const answerResult = await generateAnswer(env, query, texts, history, image);
-  const { cited, citationCounts } = parseExtractionRate(answerResult.text, sources.length);
-  const sourcesWithCitation: SourceEntry[] = sources.map((s, i) => ({ ...s, cited: citationCounts[i] > 0, citationCount: citationCounts[i] }));
-  const extractionRate = sources.length > 0 ? Math.round((cited / sources.length) * 100) : 0;
-
-  const tokensUsed = hydeTokensUsed + answerResult.promptTokens + answerResult.candidateTokens;
-  await consumeBudget(env, user.userId, "rag", tokensUsed);
-
+  // queryHashはリクエスト開始時点で分かる情報だけから計算できるため、高価な処理
+  // （HyDE・埋め込み・検索・生成）の前に先にaudit_log行を書き込む（rateLimit.tsの
+  // 説明・auditLog.tsのコメント参照。2026-09-04、同時多発リクエストがレート制限を
+  // すり抜けられた不備を修正）。
   const queryHash = await sha256Hex(query);
-  await env.DB.prepare(
-    "INSERT INTO audit_log (user_id, namespace_id, query_hash, difficulty, result_count, latency_ms, tokens_used, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-  )
-    .bind(user.userId, effective.join(","), queryHash, level || null, sources.length, null, tokensUsed, Math.floor(Date.now() / 1000))
-    .run();
+  const auditId = await startAuditLog(env, user.userId, effective.join(","), queryHash, level || null);
 
-  const memoryId = await saveMemory(env, user.userId, query, answerResult.text, sourcesWithCitation, effective);
+  const reserved = await reserveBudget(env, user.userId, "rag", RAG_RESERVE_ESTIMATE);
+  if (!reserved) throw new BudgetExceededError("rag");
+
+  let sourcesWithCitation: SourceEntry[];
+  let extractionRate: number;
+  let cited: number;
+  let sourcesLength: number;
+  let answerText: string;
+  let tokensUsed: number;
+  try {
+    const { ranked, hydeTokensUsed } = await retrieve(env, user, query, effective, level, limit);
+    const { texts, sources } = buildContextTexts(ranked);
+
+    const answerResult = await generateAnswer(env, query, texts, history, image);
+    const parsed = parseExtractionRate(answerResult.text, sources.length);
+    cited = parsed.cited;
+    sourcesWithCitation = sources.map((s, i) => ({ ...s, cited: parsed.citationCounts[i] > 0, citationCount: parsed.citationCounts[i] }));
+    extractionRate = sources.length > 0 ? Math.round((cited / sources.length) * 100) : 0;
+    sourcesLength = sources.length;
+    answerText = answerResult.text;
+    tokensUsed = hydeTokensUsed + answerResult.promptTokens + answerResult.candidateTokens;
+  } catch (err) {
+    // 予約した見積もり分は、実際には(部分的にせよ)完走しなかった以上ここで払い戻す
+    // （厳密には検索段階までは実コストが発生しているが、失敗したリクエストにまで
+    // 課金し続けるより「失敗時は全額払い戻す」方が実利にかなうと判断）。
+    await reconcileBudget(env, user.userId, "rag", RAG_RESERVE_ESTIMATE, 0);
+    throw err;
+  }
+
+  await reconcileBudget(env, user.userId, "rag", RAG_RESERVE_ESTIMATE, tokensUsed);
+  await finalizeAuditLog(env, auditId, { resultCount: sourcesLength, latencyMs: null, tokensUsed });
+
+  const memoryId = await saveMemory(env, user.userId, query, answerText, sourcesWithCitation, effective);
 
   return jsonResponse(200, {
-    answer: answerResult.text,
+    answer: answerText,
     sources: sourcesWithCitation,
     status: "ok",
     namespaces: effective,
     extractionRate,
-    extractionDetail: `${cited}/${sources.length}`,
+    extractionDetail: `${cited}/${sourcesLength}`,
     memoryId,
   } satisfies QueryResponse);
 }
@@ -88,11 +115,4 @@ function parseExtractionRate(answer: string, total: number): { cited: number; ci
     if (idx >= 0 && idx < total) citationCounts[idx] += 1;
   }
   return { cited: citationCounts.filter((c) => c > 0).length, citationCounts };
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
 }

@@ -1,5 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
+import { jsonResponse } from "./http";
 
 // POST /admin/kb/set-source — namespaceごとの同期元（Notion DB ID / Drive フォルダID）を設定する
 // （既存GAS adminSetNotionDbId/adminSetDriveFolder相当）。
@@ -38,11 +39,4 @@ export async function handleKbHistory(req: Request, env: Env, user: AuthedUser):
 
   const res = await stmt.all();
   return jsonResponse(200, { entries: res.results ?? [], status: "ok" });
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
 }

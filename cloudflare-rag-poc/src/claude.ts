@@ -1,8 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { AuthedUser, Env } from "./types";
+import { jsonResponse } from "./http";
 import { assertNotRateLimited } from "./rateLimit";
-import { assertBudgetAvailable, consumeBudget } from "./budget";
+import { BudgetExceededError, reserveBudget, reconcileBudget } from "./budget";
 import { sha256Hex } from "./embeddings";
+import { startAuditLog, finalizeAuditLog } from "./auditLog";
 
 const DEFAULT_MODEL = "claude-sonnet-5";
 const DEFAULT_MAX_TOKENS = 4096;
@@ -18,7 +20,6 @@ export async function handleClaudeMessages(req: Request, env: Env, user: AuthedU
   }
 
   await assertNotRateLimited(env, user.userId);
-  await assertBudgetAvailable(env, user.userId, "claude");
 
   const body = (await req.json()) as {
     model?: string;
@@ -32,6 +33,22 @@ export async function handleClaudeMessages(req: Request, env: Env, user: AuthedU
     return jsonResponse(400, { error: "messages は必須です（配列）" });
   }
 
+  // 監査ログはRAG系と同じaudit_logテーブルを流用する（専用テーブルは追加しない）。
+  // query_hashはクエリ本文の代わりにmessages全体のハッシュにしている（既存RAGAuditLoggerの
+  // 「本文を残さない」方針を踏襲）。query.ts/search.tsと同じ理由で高価な呼び出しの前に
+  // 書き込む（2026-09-04）。
+  const queryHash = await sha256Hex(JSON.stringify(body.messages));
+  const auditId = await startAuditLog(env, user.userId, "claude:proxy", queryHash, null);
+
+  // 入力(system+messages+tools)の実トークン数は呼び出し前には分からないため、文字数/3で
+  // 大まかに見積もる（日本語混在を踏まえ安全側に厚めの係数）。出力側はmax_tokensが
+  // 確定した上限なのでそのまま使う。実測との差分はreconcileBudgetで清算する。
+  const maxTokens = body.max_tokens ?? DEFAULT_MAX_TOKENS;
+  const inputEstimate = Math.ceil(JSON.stringify(body.messages).length / 3);
+  const estimate = maxTokens + inputEstimate;
+  const reserved = await reserveBudget(env, user.userId, "claude", estimate);
+  if (!reserved) throw new BudgetExceededError("claude");
+
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const start = Date.now();
 
@@ -39,13 +56,14 @@ export async function handleClaudeMessages(req: Request, env: Env, user: AuthedU
   try {
     response = await client.messages.create({
       model: body.model || DEFAULT_MODEL,
-      max_tokens: body.max_tokens ?? DEFAULT_MAX_TOKENS,
+      max_tokens: maxTokens,
       system: body.system,
       tools: body.tools,
       messages: body.messages,
       ...(body.thinking ? { thinking: body.thinking } : {}),
     });
   } catch (err) {
+    await reconcileBudget(env, user.userId, "claude", estimate, 0);
     if (err instanceof Anthropic.APIError) {
       return jsonResponse(err.status ?? 500, { error: err.message });
     }
@@ -54,24 +72,8 @@ export async function handleClaudeMessages(req: Request, env: Env, user: AuthedU
 
   const latencyMs = Date.now() - start;
   const totalTokens = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0);
-  await consumeBudget(env, user.userId, "claude", totalTokens);
-
-  // 監査ログはRAG系と同じaudit_logテーブルを流用する（専用テーブルは追加しない）。
-  // query_hashはクエリ本文の代わりにmessages全体のハッシュにしている（既存RAGAuditLoggerの
-  // 「本文を残さない」方針を踏襲）。
-  const queryHash = await sha256Hex(JSON.stringify(body.messages));
-  await env.DB.prepare(
-    "INSERT INTO audit_log (user_id, namespace_id, query_hash, difficulty, result_count, latency_ms, tokens_used, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  )
-    .bind(user.userId, "claude:proxy", queryHash, null, 0, latencyMs, totalTokens, Math.floor(Date.now() / 1000))
-    .run();
+  await reconcileBudget(env, user.userId, "claude", estimate, totalTokens);
+  await finalizeAuditLog(env, auditId, { resultCount: 0, latencyMs, tokensUsed: totalTokens });
 
   return jsonResponse(200, response);
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
 }

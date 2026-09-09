@@ -3,9 +3,9 @@ import { authenticate, ForbiddenError } from "./auth";
 import { handleSearch } from "./search";
 import { handleQuery } from "./query";
 import { handleIngest } from "./ingest";
-import { handleMemoryList, handleMemoryRate } from "./memory";
-import { handleSyncNotion } from "./notionSync";
-import { handleSyncDrive } from "./driveSync";
+import { handleMemoryList, handleMemoryRate, handleMemoryPin, handlePinnedList } from "./memory";
+import { handleSyncNotion, handleRetryFailedNotion } from "./notionSync";
+import { handleSyncDrive, handleRetryFailedDrive } from "./driveSync";
 import { handleSetKbSource, handleKbHistory } from "./kbAdmin";
 import {
   handleCreateKey,
@@ -27,7 +27,7 @@ import { handleImportYoutube, handleUploadDoc } from "./mediaImport";
 import { handleHealthCheck, handleTestAlert, checkHealthAndAlert } from "./healthCheck";
 import { handleBackupExport } from "./backup";
 import { handleClaudeMessages } from "./claude";
-import { handleMyNamespaces } from "./retrieve";
+import { handleMyNamespaces, handleMyBudget } from "./retrieve";
 import { RateLimitedError } from "./rateLimit";
 import { chatUiHtml } from "./chatUi";
 import { BudgetExceededError } from "./budget";
@@ -85,12 +85,20 @@ export default {
           return await handleMemoryList(req, env, user);
         case "/memory/rate":
           return await handleMemoryRate(req, env, user);
+        case "/memory/pin":
+          return await handleMemoryPin(req, env, user);
+        case "/memory/pinned":
+          return await handlePinnedList(req, env, user);
         case "/graph":
           return await handleGraph(req, env, user);
         case "/admin/sync/notion":
           return await handleSyncNotion(req, env, user);
         case "/admin/sync/drive":
           return await handleSyncDrive(req, env, user);
+        case "/admin/sync/notion/retry-failed":
+          return await handleRetryFailedNotion(req, env, user);
+        case "/admin/sync/drive/retry-failed":
+          return await handleRetryFailedDrive(req, env, user);
         case "/admin/kb/set-source":
           return await handleSetKbSource(req, env, user);
         case "/admin/kb/history":
@@ -141,6 +149,8 @@ export default {
           return await handleClaudeMessages(req, env, user);
         case "/me/namespaces":
           return await handleMyNamespaces(req, env, user);
+        case "/me/budget":
+          return await handleMyBudget(req, env, user);
         default:
           return json(404, { error: `未定義のエンドポイントです: ${url.pathname}` });
       }
