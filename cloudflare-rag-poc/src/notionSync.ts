@@ -1,6 +1,6 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
-import { requireAdmin } from "./auth";
+import { requireKnowledgeEditor } from "./auth";
 import { listNotionPages, getPageText } from "./notion";
 import type { NotionPageSummary } from "./notion";
 import { ingestDocument, logKb } from "./kbIngest";
@@ -98,7 +98,7 @@ async function resolveNotionDatabase(env: Env, namespace: string): Promise<strin
 // body: { namespace, startIndex?（省略時0）, batchSize?（省略時5）, opId?（継続呼び出し時に指定） }
 // レスポンスの nextIndex が null なら完了、数値ならその値をstartIndexにして再度呼び出すこと。
 export async function handleSyncNotion(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireAdmin(user);
+  requireKnowledgeEditor(user);
 
   const body = (await req.json()) as { namespace?: string; startIndex?: number; batchSize?: number; opId?: string; notifyOnErrorOnly?: boolean };
   const namespace = (body.namespace || "").trim();
@@ -142,7 +142,7 @@ export async function handleSyncNotion(req: Request, env: Env, user: AuthedUser)
 // 対象に再実行する（2026-09-04追加。Drive側のhandleRetryFailedDriveと同じ設計）。
 // body: { namespace, opId }
 export async function handleRetryFailedNotion(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireAdmin(user);
+  requireKnowledgeEditor(user);
 
   const body = (await req.json()) as { namespace?: string; opId?: string };
   const namespace = (body.namespace || "").trim();

@@ -74,9 +74,17 @@ export interface QueryResponse {
   memoryId?: number;
 }
 
+// "editor"（ナレッジ登録権限者）は2026-09-10追加。ナレッジ登録・KB同期のみ許可され、
+// キー/namespace管理・バックアップ・ヘルスチェック・利用統計・ロールバック等の
+// 管理者専用操作は不可（auth.tsのrequireAdmin/requireKnowledgeEditor参照）。
+// auth.ts/keyAdmin.tsが個別に同じユニオン型を書いていたのを2026-09-10リファクタリングで
+// ここに一本化した（ロール構成を変える際にここ1箇所を直せばよくなる）。
+export type UserRole = "admin" | "editor" | "member" | "guest";
+export const VALID_ROLES: readonly UserRole[] = ["admin", "editor", "member", "guest"];
+
 export interface AuthedUser {
   userId: string;
-  role: "admin" | "member" | "guest";
+  role: UserRole;
   allowedNamespaces: string[]; // 'shared:*' 相当は個別に解決する
 }
 

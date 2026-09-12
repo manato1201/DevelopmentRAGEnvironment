@@ -199,6 +199,90 @@ export function chatUiHtml(): string {
   .budget-low { color: var(--bad); font-weight: 600; }
   .radial-progress { vertical-align: middle; margin-right: .2rem; }
 
+  /* 権限の詳細化（2026-09-10追加）: editorロールには管理者専用セクションを一切見せない。
+     実際の権限チェックは各/admin/*エンドポイント側（requireAdmin/requireKnowledgeEditor）が
+     唯一の正であり、これはあくまでUIの見た目を整えるためのもの（既存のnav.tabs button
+     [data-tab="admin"].hidden-tabと同じ方針）。 */
+  /* !important: このクラスをボタン（display:inline-flex等）とサブパネル
+     （.admin-subpanel.active { display:block }）の両方に使い回すため、要素ごとの
+     既定表示指定に必ず勝つようにしておく（2026-09-10: サブナビ導入に伴う対策）。 */
+  body[data-role="editor"] .admin-only-section { display: none !important; }
+  .role-badge { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 600; border: 1px solid var(--border); }
+  .role-badge.admin { color: var(--accent); border-color: var(--accent); }
+  .role-badge.editor { color: var(--teal); border-color: var(--teal); }
+  .role-badge.member, .role-badge.guest { color: var(--muted); }
+  .role-select { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: .2rem .4rem; font-size: .78rem; font-family: inherit; }
+
+  /* AXChat:D管理コンソールのOverview/Billingページ（添付画像）を参考にしたKPIカード
+     （2026-09-10追加）。既存のDala方針（枠線ゼロ・無シャドウ）は保ちつつ、hairlineの
+     区切りだけを使った軽量なカードにしている。 */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .8rem; margin-bottom: 1.2rem; }
+  .kpi-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: .9rem 1rem; }
+  .kpi-card .kpi-label { font-size: .74rem; color: var(--muted); margin-bottom: .3rem; }
+  .kpi-card .kpi-value { font-size: 1.4rem; font-weight: 700; letter-spacing: -.01em; }
+  .kpi-card .kpi-sub { font-size: .72rem; color: var(--muted); margin-top: .2rem; }
+
+  /* 管理タブのサブナビ（2026-09-10追加、2026-09-11に横並びピルから左サイドバーへ変更）。
+     「ユーザーによって見たいもの/見なくていいものが違う」というフィードバックを受け、
+     従来1本の長いスクロールだった管理タブをガイド/Overview/ナレッジ登録/ユーザー・権限/
+     namespace管理/利用状況・コスト/システムの7グループに分割した。グループ数が増え
+     横並びピルだと窮屈になったため、GitHub/Slack/NotionのSettings画面と同じ「深い
+     設定領域は左サイドバー」という構成に変更。トップレベルのnav.tabs（チャット/グラフ
+     等）はチャット利用が主目的で項目数も少ないため、横並びのままにしている。 */
+  /* 2026-09-13修正: .autorefresh-boxが.admin-subnavと並ぶ独立したフレックス
+     アイテムになっており（.admin-layoutの直接の子）、意図した「サイドバーの下部」
+     ではなく別カラムとして扱われ、結果としてコンテンツ側の幅を圧迫していた不具合の
+     修正（実機報告：「サブメニューを左端にし、中央の情報を広く確保してください」）。
+     サブナビと自動更新コントロールを.admin-sidebarという1つの縦積みコンテナに
+     まとめ、.admin-layoutの子は「サイドバー1個・コンテンツ1個」の2つだけにした。
+     これでサイドバーは常に左端の固定幅1カラムに収まり、コンテンツ側が残り幅を
+     すべて使えるようになる。 */
+  .admin-layout { display: flex; gap: 1.6rem; align-items: flex-start; }
+  .admin-sidebar { display: flex; flex-direction: column; flex-shrink: 0; width: 168px; }
+  .admin-subnav {
+    display: flex; flex-direction: column; gap: .1rem;
+    border-right: 1px solid var(--border); padding-right: 1rem;
+  }
+  .admin-subnav button {
+    background: none; border: none; border-left: 2px solid transparent; border-radius: 0;
+    color: var(--muted); padding: .55rem .7rem; font-size: .84rem; font-weight: 600; cursor: pointer;
+    font-family: inherit; text-align: left; white-space: normal;
+  }
+  .admin-subnav button.active { color: var(--accent); border-left-color: var(--accent); background: var(--panel); border-radius: 0 8px 8px 0; }
+  .admin-content { flex: 1; min-width: 0; }
+  .admin-subpanel { display: none; }
+  .admin-subpanel.active { display: block; }
+  .autorefresh-box { display: flex; flex-direction: column; gap: .4rem; margin-top: 1rem; padding-top: .8rem; border-top: 1px solid var(--border); border-right: 1px solid var(--border); padding-right: 1rem; font-size: .8rem; color: var(--muted2); }
+  .autorefresh-box label { display: flex; align-items: center; gap: .4rem; }
+  /* 管理タブの中でだけ、狭い画面ではサイドバーを諦めて横並びに戻す（親ページ全体を
+     レスポンシブ対応するのは大掛かりなため、この場所限定の妥協策）。 */
+  @media (max-width: 720px) {
+    .admin-layout { flex-direction: column; }
+    .admin-sidebar { width: auto; }
+    .admin-subnav { flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--border); padding-right: 0; padding-bottom: .5rem; }
+    .admin-subnav button.active { border-left-color: transparent; border-bottom: 2px solid var(--accent); border-radius: 0; background: none; }
+    .autorefresh-box { flex-direction: row; align-items: center; border-right: none; padding-right: 0; }
+  }
+  .guide-block { margin-bottom: 1.4rem; }
+  .guide-block h3 { font-size: .88rem; font-weight: 600; margin: 0 0 .4rem; color: var(--text); }
+  .guide-block p, .guide-block li { font-size: .82rem; color: var(--muted2); line-height: 1.7; }
+  .guide-block ul { margin: .3rem 0; padding-left: 1.2rem; }
+  .role-table { width: 100%; border-collapse: collapse; font-size: .8rem; margin-top: .4rem; }
+  .role-table th, .role-table td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--border); }
+  .role-table th { color: var(--muted); font-weight: 600; font-size: .72rem; }
+
+  /* Overview/Knowledgeの2カラムミニリスト（AXChat:D参考画像の"Plan Distribution"/
+     "Top Agents by Token Usage"に相当、2026-09-10追加）。 */
+  .overview-cols { display: flex; gap: 1.2rem; flex-wrap: wrap; margin-top: 1rem; }
+  .overview-col { flex: 1; min-width: 220px; }
+  .overview-col h3 { font-size: .82rem; font-weight: 600; margin: 0 0 .5rem; color: var(--text); }
+  .mini-list { list-style: none; margin: 0; padding: 0; }
+  .mini-list li { display: flex; justify-content: space-between; align-items: center; padding: .4rem 0; border-bottom: 1px solid var(--border); font-size: .82rem; }
+  .mini-list li:last-child { border-bottom: none; }
+  .mini-list .mini-label { display: flex; align-items: center; gap: .5rem; color: var(--muted2); }
+  .mini-list .mini-value { font-weight: 600; }
+  .mini-list .empty { color: var(--muted); font-size: .8rem; padding: .4rem 0; }
+
   #graphContainer { flex: 1; position: relative; overflow: hidden; background: var(--bg); }
   #graphContainer canvas { display: block; }
   .graph-toolbar { display: flex; gap: .6rem; align-items: center; padding: .6rem 1.2rem; border-bottom: 1px solid var(--border); font-size: .82rem; color: var(--muted); }
@@ -338,144 +422,382 @@ export function chatUiHtml(): string {
 <!-- 管理タブ -->
 <div class="tabpanel" id="tab-admin">
   <div class="pane-scroll">
-    <div class="section">
-      <h2>設定バックアップ</h2>
-      <p class="hint">APIキー・namespace・KB同期元設定・トークン予算のスナップショットをJSONでダウンロードします（チャット履歴本文やベクトルデータは含みません。実データはD1の自動バックアップに任せています）。</p>
-      <button class="btn" id="backupExportBtn">エクスポート</button>
-      <div id="backupExportResult" class="hint"></div>
-    </div>
+    <!-- サブナビをサイドバー化（2026-09-11）：グループ数が7まで増え、横並びピルだと
+         窮屈になってきたための変更。GitHub/Slack/NotionのSettings画面と同じく
+         「アプリ全体のトップナビは横並びのまま、深い設定領域だけ左サイドバー」という
+         構成にした（管理タブ以外・トップレベルのnav.tabsはチャット利用が主目的なので
+         横並びのまま変更していない）。JS側のセレクタ（.admin-subnav button /
+         .admin-subpanel）は変更していないため、クリック時の切り替えロジックは
+         そのまま流用できる。 -->
+    <div class="admin-layout">
+    <div class="admin-sidebar">
+    <!-- サブナビ（2026-09-10追加）: 「ユーザーによって見たいもの/見なくていいものが
+         違うので表示をもっと分割すべき」というフィードバックへの対応。ガイドと
+         ナレッジ登録グループはeditorロールでも見え、それ以外はadmin-only-section
+         （CSS側でeditorには非表示）にしている。 -->
+    <nav class="admin-subnav">
+      <button data-subtab="guide" class="active">ガイド</button>
+      <button data-subtab="overview" class="admin-only-section">Overview</button>
+      <button data-subtab="knowledge">ナレッジ登録</button>
+      <button data-subtab="users" class="admin-only-section">ユーザー・権限</button>
+      <button data-subtab="namespaces" class="admin-only-section">namespace管理</button>
+      <button data-subtab="usage" class="admin-only-section">利用状況・コスト</button>
+      <button data-subtab="system" class="admin-only-section">システム</button>
+    </nav>
 
-    <div class="section">
-      <h2>ヘルスチェック・アラート通知</h2>
-      <p class="hint">Slack（Incoming Webhook）・Gmail（サービスアカウント経由）はいずれもシークレット設定が必要です（README参照）。未設定のチャンネルは「未設定」と表示されます。</p>
-      <button class="btn" id="healthCheckBtn">ヘルスチェックを実行</button>
-      <button class="btn" id="testAlertBtn">テスト通知を送信</button>
-      <div id="healthCheckResult" class="hint"></div>
+    <!-- ダッシュボードの自動更新（2026-09-12追加）。コスト暴走をリアルタイムで
+         監視しやすくするための機能。表示中のサブタブに応じて対象を絞って再読み込みする
+         （常に全サブタブを更新すると、見ていない画面のぶんまで無駄な通信が走るため）。
+         2026-09-13: .admin-subnavと同じ.admin-sidebar内に入れ、サイドバーとして
+         1カラムにまとまるよう修正（元は.admin-layoutの直接の子で、意図せず
+         コンテンツ側の幅を圧迫する独立カラムになっていた）。 -->
+    <div class="admin-only-section autorefresh-box">
+      <label><input type="checkbox" id="autoRefreshToggle"> 自動更新</label>
+      <select id="autoRefreshInterval" class="role-select">
+        <option value="30000">30秒毎</option>
+        <option value="60000" selected>1分毎</option>
+        <option value="300000">5分毎</option>
+      </select>
     </div>
+    </div><!-- /.admin-sidebar -->
 
-    <div class="section">
-      <h2>利用状況（トークン使用量）</h2>
-      <div class="field-row">
-        <label>期間</label>
-        <select id="usageDays">
-          <option value="7">直近7日間</option>
-          <option value="14" selected>直近14日間</option>
-          <option value="30">直近30日間</option>
-        </select>
-        <button class="btn" id="refreshUsage">再読み込み</button>
+    <div class="admin-content">
+    <!-- ガイド: admin/editor共通。各グループの役割とロールごとに何ができるかをまとめた
+         静的な説明（houdini/python_panels/rag_chatbot.pyの「はじめに」タブと同じ方針）。 -->
+    <div class="admin-subpanel active" data-subtab="guide">
+      <div class="guide-block">
+        <h3>管理タブについて</h3>
+        <p>ナレッジベースの登録・システム設定・利用状況の確認をまとめて行うタブです。上のサブナビで見たいグループだけを表示できます。表示されるグループは自分のロールによって変わります（下表参照）。</p>
       </div>
-      <div class="usage-chart-wrap"><canvas id="usageChart" width="900" height="220"></canvas></div>
-      <div class="table-scroll"><table class="admin-table" id="usageByUserTable"><thead><tr><th>ユーザー</th><th>クエリ数</th><th>消費トークン</th></tr></thead><tbody></tbody></table></div>
-    </div>
-
-    <div class="section">
-      <h2>評価統計</h2>
-      <button class="btn" id="refreshRatingStats">再読み込み</button>
-      <p id="ratingSummary" class="hint">-</p>
-      <div class="table-scroll"><table class="admin-table" id="ratingByUserTable"><thead><tr><th>ユーザー</th><th>件数</th><th>役に立った</th><th>役に立たなかった</th></tr></thead><tbody></tbody></table></div>
-    </div>
-
-    <div class="section">
-      <h2>新しいAPIキーを発行</h2>
-      <div class="field-row"><label>名前</label><input type="text" id="newKeyName" placeholder="例: Unity Client, Alice"></div>
-      <div class="field-row"><label>権限</label><label><input type="checkbox" id="newKeyAdmin"> 管理者権限</label></div>
-      <div class="field-row"><label>RAGトークン上限</label><input type="number" id="newKeyCapacity" value="100000"></div>
-      <div class="field-row"><label>アクセス可能namespace</label><div class="checks" id="newKeyNamespaces"></div></div>
-      <button class="btn primary" id="createKeyBtn">APIキーを発行</button>
-      <div id="newKeyResult"></div>
-    </div>
-
-    <div class="section">
-      <h2>発行済みキー一覧</h2>
-      <button class="btn" id="refreshKeys">再読み込み</button>
-      <div class="table-scroll"><table class="admin-table" id="keysTable"><thead><tr><th>名前</th><th>ロール</th><th>RAG予算</th><th>使用率</th><th>作成日</th><th></th></tr></thead><tbody></tbody></table></div>
-    </div>
-
-    <div class="section">
-      <h2>namespace管理</h2>
-      <div class="field-row"><label>namespace ID</label><input type="text" id="newNsId" placeholder="例: shared:new_topic"></div>
-      <div class="field-row"><label>scope</label><select id="newNsScope"><option value="shared">shared</option><option value="personal">personal</option></select></div>
-      <button class="btn primary" id="createNsBtn">作成</button>
-      <button class="btn" id="refreshNs" style="margin-left:.5rem;">再読み込み</button>
-      <p class="hint">参考資料数上限：この件数を超える分は検索結果から間引かれます（空欄=上限なし）。複数DBを横断検索した際、無関係なDBのチャンクが結果を圧迫するのを防ぐのに使えます。</p>
-      <div class="table-scroll"><table class="admin-table" id="nsTable"><thead><tr><th>namespace</th><th>scope</th><th>owner</th><th>参考資料数上限</th><th></th></tr></thead><tbody></tbody></table></div>
-    </div>
-
-    <div class="section">
-      <h2>知識ベース同期</h2>
-      <div class="field-row"><label>namespace</label><input type="text" id="kbNamespace" placeholder="例: shared:houdini21"></div>
-      <div class="field-row"><label>Notion DB ID</label><input type="text" id="kbNotionId" placeholder="任意"></div>
-      <div class="field-row"><label>Drive フォルダID</label><input type="text" id="kbDriveId" placeholder="任意"></div>
-      <button class="btn" id="kbSetSourceBtn">同期元を設定</button>
-      <div class="field-row"><label><input type="checkbox" id="kbNotifyErrorOnly" style="width:auto;"> Slack通知はエラーがあった時だけ</label></div>
-      <div style="margin-top:.8rem;">
-        <button class="btn primary" id="kbSyncNotionBtn">Notion同期を実行</button>
-        <button class="btn primary" id="kbSyncDriveBtn">Drive同期を実行</button>
-        <button class="btn" id="kbRetryFailedBtn" disabled>失敗ファイルだけ再同期</button>
+      <div class="guide-block">
+        <h3>ロールごとにできること</h3>
+        <table class="role-table">
+          <thead><tr><th>ロール</th><th>できること</th><th>見えるグループ</th></tr></thead>
+          <tbody>
+            <tr><td><span class="role-badge admin">admin</span></td><td>すべての操作（ユーザー/キー管理・namespace管理・バックアップ・ヘルスチェック・利用状況/コスト閲覧・KBロールバックを含む）</td><td>全グループ</td></tr>
+            <tr><td><span class="role-badge editor">editor</span></td><td>ナレッジ登録・KB同期の実行と履歴閲覧のみ</td><td>ガイド・ナレッジ登録</td></tr>
+            <tr><td><span class="role-badge member">member</span></td><td>チャット・グラフ・履歴・お気に入りの利用のみ（管理タブ自体が非表示）</td><td>-</td></tr>
+          </tbody>
+        </table>
+        <p class="hint">実際の権限チェックは各操作のサーバー側エンドポイントが行っており、この画面の表示/非表示はあくまで見た目の都合です。</p>
       </div>
-      <div id="kbSyncProgress" class="hint"></div>
+      <div class="guide-block">
+        <h3>各グループの役割</h3>
+        <ul>
+          <li><b>Overview</b> — namespace数・発行済みキー数・今月のRAG/Claude利用状況のサマリー。</li>
+          <li><b>ナレッジ登録</b> — Drive/Notion同期・URL/YouTube/ファイル/FAQ/QA CSVの登録と、その同期履歴の確認。</li>
+          <li><b>ユーザー・権限</b> — APIキーの発行・ロール変更・削除・有効期限の設定。</li>
+          <li><b>namespace管理</b> — namespaceの作成・参考資料数上限・トークン予算しきい値の設定。</li>
+          <li><b>利用状況・コスト</b> — RAGトークン使用量、Claude/Gemini APIの推定コスト、監査ログ、回答への評価統計。</li>
+          <li><b>システム</b> — 設定バックアップ、ヘルスチェック・アラート通知、KBロールバック（元に戻せない操作）。</li>
+        </ul>
+      </div>
     </div>
 
-    <div class="section">
-      <h2>URLを手動登録</h2>
-      <div class="field-row"><label>namespace</label><input type="text" id="urlImportNamespace" placeholder="例: shared:tool_docs"></div>
-      <div class="field-row"><label>URL</label><input type="text" id="urlImportUrl" placeholder="https://..."></div>
-      <div class="field-row"><label>タイトル（任意）</label><input type="text" id="urlImportTitle" placeholder="省略時はURLをそのまま使用"></div>
-      <button class="btn primary" id="urlImportBtn">登録</button>
-      <div id="urlImportResult" class="hint"></div>
+    <!-- Overview: admin専用 -->
+    <div class="admin-subpanel admin-only-section" data-subtab="overview">
+      <div class="section">
+        <h2>Overview</h2>
+        <p class="hint">namespace・利用中キー・今月のRAG/Claude利用状況のサマリーです。</p>
+        <div class="kpi-grid" id="adminOverviewKpis"></div>
+        <div class="overview-cols">
+          <div class="overview-col">
+            <h3>ロール別キー内訳</h3>
+            <ul class="mini-list" id="adminRoleBreakdown"></ul>
+          </div>
+          <div class="overview-col">
+            <h3>ナレッジ登録量ランキング（namespace別）</h3>
+            <ul class="mini-list" id="adminTopNamespaces"></ul>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <div class="section">
-      <h2>YouTube動画を文字起こし登録</h2>
-      <div class="field-row"><label>namespace</label><input type="text" id="ytImportNamespace" placeholder="例: shared:tool_docs"></div>
-      <div class="field-row"><label>YouTube URL</label><input type="text" id="ytImportUrl" placeholder="https://www.youtube.com/watch?v=..."></div>
-      <div class="field-row"><label>タイトル（任意）</label><input type="text" id="ytImportTitle" placeholder="省略時はURLをそのまま使用"></div>
-      <button class="btn primary" id="ytImportBtn">文字起こし・登録</button>
-      <div id="ytImportResult" class="hint"></div>
+    <!-- ナレッジ登録: admin/editor共通 -->
+    <div class="admin-subpanel" data-subtab="knowledge">
+      <div class="section">
+        <h2>namespaceごとのナレッジ登録状況</h2>
+        <p class="hint">AXChat:D管理コンソールの「Knowledge by Agent」を参考に追加（2026-09-10）。ファイル数・チャンク数はchunks_ftsから、最終更新日時は同期成功ログから集計しています。</p>
+        <button class="btn" id="refreshKbOverview">再読み込み</button>
+        <div class="table-scroll"><table class="admin-table" id="kbOverviewTable"><thead><tr><th>namespace</th><th>ファイル数</th><th>チャンク数</th><th>同期元</th><th>最終更新</th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="section">
+        <h2>知識ベース同期</h2>
+        <div class="field-row"><label>namespace</label><input type="text" id="kbNamespace" placeholder="例: shared:houdini21"></div>
+        <div class="field-row"><label>Notion DB ID</label><input type="text" id="kbNotionId" placeholder="任意"></div>
+        <div class="field-row"><label>Drive フォルダID</label><input type="text" id="kbDriveId" placeholder="任意"></div>
+        <button class="btn" id="kbSetSourceBtn">同期元を設定</button>
+        <div class="field-row"><label><input type="checkbox" id="kbNotifyErrorOnly" style="width:auto;"> Slack通知はエラーがあった時だけ</label></div>
+        <div style="margin-top:.8rem;">
+          <button class="btn primary" id="kbSyncNotionBtn">Notion同期を実行</button>
+          <button class="btn primary" id="kbSyncDriveBtn">Drive同期を実行</button>
+          <button class="btn" id="kbRetryFailedBtn" disabled>失敗ファイルだけ再同期</button>
+        </div>
+        <div id="kbSyncProgress" class="hint"></div>
+      </div>
+
+      <div class="section">
+        <h2>URLを手動登録</h2>
+        <div class="field-row"><label>namespace</label><input type="text" id="urlImportNamespace" placeholder="例: shared:tool_docs"></div>
+        <div class="field-row"><label>URL</label><input type="text" id="urlImportUrl" placeholder="https://..."></div>
+        <div class="field-row"><label>タイトル（任意）</label><input type="text" id="urlImportTitle" placeholder="省略時はURLをそのまま使用"></div>
+        <button class="btn primary" id="urlImportBtn">登録</button>
+        <div id="urlImportResult" class="hint"></div>
+      </div>
+
+      <div class="section">
+        <h2>URLを再帰クロールして一括登録</h2>
+        <p class="hint">起点URLのページ内リンクをたどって、複数ページをまとめて登録します（例: ドキュメントサイトの目次ページを起点に配下ページを一括登録）。安全のため起点と同一オリジンのリンクのみ辿ります。</p>
+        <div class="field-row"><label>namespace</label><input type="text" id="crawlUrlNamespace" placeholder="例: shared:houdini_docs"></div>
+        <div class="field-row"><label>起点URL</label><input type="text" id="crawlUrlUrl" placeholder="https://.../index.html"></div>
+        <div class="field-row"><label>パス絞り込み（任意）</label><input type="text" id="crawlUrlPathPrefix" placeholder="例: /docs/houdini/（空欄なら同一オリジン全体）"></div>
+        <div class="field-row"><label>深さ</label>
+          <select id="crawlUrlDepth">
+            <option value="0">0（起点URLのみ）</option>
+            <option value="1" selected>1（起点＋直接リンク先）</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+          </select>
+        </div>
+        <div class="field-row"><label>最大ページ数</label><input type="number" id="crawlUrlMaxPages" value="20" min="1" max="50"></div>
+        <button class="btn primary" id="crawlUrlBtn">クロール開始</button>
+        <div id="crawlUrlResult" class="hint"></div>
+        <div class="table-scroll" id="crawlUrlTableWrap" style="display:none; margin-top:.6rem;">
+          <table class="admin-table" id="crawlUrlTable"><thead><tr><th>URL</th><th>タイトル</th><th>チャンク</th><th>結果</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>YouTube動画を文字起こし登録</h2>
+        <div class="field-row"><label>namespace</label><input type="text" id="ytImportNamespace" placeholder="例: shared:tool_docs"></div>
+        <div class="field-row"><label>YouTube URL</label><input type="text" id="ytImportUrl" placeholder="https://www.youtube.com/watch?v=..."></div>
+        <div class="field-row"><label>タイトル（任意）</label><input type="text" id="ytImportTitle" placeholder="省略時はURLをそのまま使用"></div>
+        <button class="btn primary" id="ytImportBtn">文字起こし・登録</button>
+        <div id="ytImportResult" class="hint"></div>
+      </div>
+
+      <div class="section">
+        <h2>ファイルをアップロードして登録</h2>
+        <p class="hint">対応形式: PDF・Word（.docx）・PowerPoint（.pptx）・音声・動画</p>
+        <div class="field-row"><label>namespace</label><input type="text" id="fileUploadNamespace" placeholder="例: shared:tool_docs"></div>
+        <div class="field-row"><label>ファイル</label><input type="file" id="fileUploadInput" accept=".pdf,.docx,.pptx,audio/*,video/*"></div>
+        <button class="btn primary" id="fileUploadBtn">アップロード・登録</button>
+        <div id="fileUploadResult" class="hint"></div>
+      </div>
+
+      <div class="section">
+        <h2>FAQ単発登録</h2>
+        <p class="hint">質問と回答を1件だけ登録します。まとめて登録したい場合は下のQA CSV一括登録を使ってください。</p>
+        <div class="field-row"><label>namespace</label><input type="text" id="faqNamespace" placeholder="例: shared:tool_docs"></div>
+        <div class="field-row"><label>質問</label><input type="text" id="faqQuestion" placeholder="例: HyDEとは何ですか？"></div>
+        <div class="field-row"><label>回答</label><input type="text" id="faqAnswer" placeholder="例: 仮の回答を先に生成してから検索する手法です"></div>
+        <label style="display:flex; align-items:center; gap:.4rem; margin:.4rem 0;"><input type="checkbox" id="faqAlsoNotion"> このnamespaceの同期先Notion DBにもページを作成する（namespaceにNotion DB設定が必要）</label>
+        <button class="btn primary" id="faqAddBtn">登録</button>
+        <div id="faqAddResult" class="hint"></div>
+      </div>
+
+      <div class="section">
+        <h2>QA CSV一括登録</h2>
+        <p class="hint">ヘッダー行に question, answer 列を含むCSVを貼り付けてください。</p>
+        <div class="field-row"><label>namespace</label><input type="text" id="qaCsvNamespace" placeholder="例: shared:tool_docs"></div>
+        <textarea id="qaCsvText" rows="6" style="width:100%; font-family:monospace; font-size:.8rem; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:.5rem;" placeholder="question,answer&#10;質問1,回答1&#10;質問2,回答2"></textarea>
+        <button class="btn primary" id="qaCsvImportBtn" style="margin-top:.5rem;">一括登録を実行</button>
+        <div id="qaCsvProgress" class="hint"></div>
+      </div>
+
+      <div class="section">
+        <h2>同期履歴</h2>
+        <button class="btn" id="refreshKbHistory">再読み込み</button>
+        <div class="table-scroll"><table class="admin-table" id="kbHistoryTable"><thead><tr><th>日時</th><th>opId</th><th>種別</th><th>namespace</th><th>ファイル</th><th>状態</th><th>詳細</th></tr></thead><tbody></tbody></table></div>
+      </div>
     </div>
 
-    <div class="section">
-      <h2>ファイルをアップロードして登録</h2>
-      <p class="hint">対応形式: PDF・Word（.docx）・PowerPoint（.pptx）・音声・動画</p>
-      <div class="field-row"><label>namespace</label><input type="text" id="fileUploadNamespace" placeholder="例: shared:tool_docs"></div>
-      <div class="field-row"><label>ファイル</label><input type="file" id="fileUploadInput" accept=".pdf,.docx,.pptx,audio/*,video/*"></div>
-      <button class="btn primary" id="fileUploadBtn">アップロード・登録</button>
-      <div id="fileUploadResult" class="hint"></div>
+    <!-- ユーザー・権限: admin専用 -->
+    <div class="admin-subpanel admin-only-section" data-subtab="users">
+      <div class="section">
+        <h2>ユーザー概要</h2>
+        <p class="hint">AXChat:D管理コンソールのUsersページを参考に追加（2026-09-10）。</p>
+        <div class="kpi-grid" id="usersOverviewKpis"></div>
+      </div>
+
+      <div class="section">
+        <h2>新しいAPIキーを発行</h2>
+        <div class="field-row"><label>名前</label><input type="text" id="newKeyName" placeholder="例: Unity Client, Alice"></div>
+        <div class="field-row"><label>権限</label>
+          <select id="newKeyRole" class="role-select">
+            <option value="admin">管理者（全権限）</option>
+            <option value="editor">ナレッジ登録権限者（ナレッジ登録・KB同期のみ）</option>
+            <option value="member" selected>一般ユーザー（チャットのみ）</option>
+          </select>
+        </div>
+        <div class="field-row"><label>RAGトークン上限</label><input type="number" id="newKeyCapacity" value="100000"></div>
+        <div class="field-row"><label>有効期限</label>
+          <select id="newKeyExpiry" class="role-select">
+            <option value="0" selected>無期限</option>
+            <option value="30">30日</option>
+            <option value="90">90日</option>
+            <option value="180">180日</option>
+            <option value="365">1年</option>
+          </select>
+        </div>
+        <div class="field-row"><label>アクセス可能namespace</label><div class="checks" id="newKeyNamespaces"></div></div>
+        <button class="btn primary" id="createKeyBtn">APIキーを発行</button>
+        <div id="newKeyResult"></div>
+      </div>
+
+      <div class="section">
+        <h2>発行済みキー一覧</h2>
+        <div class="field-row">
+          <label>検索</label>
+          <input type="text" id="keysSearch" placeholder="名前で絞り込み">
+          <select id="keysRoleFilter" class="role-select">
+            <option value="">すべてのロール</option>
+            <option value="admin">管理者</option>
+            <option value="editor">編集者</option>
+            <option value="member">一般ユーザー</option>
+          </select>
+          <button class="btn" id="refreshKeys">再読み込み</button>
+        </div>
+        <div class="table-scroll"><table class="admin-table" id="keysTable"><thead><tr><th>名前</th><th>ロール</th><th>RAG予算</th><th>使用率</th><th>最終利用</th><th>有効期限</th><th>作成日</th><th></th></tr></thead><tbody></tbody></table></div>
+      </div>
     </div>
 
-    <div class="section">
-      <h2>FAQ単発登録</h2>
-      <p class="hint">質問と回答を1件だけ登録します。まとめて登録したい場合は下のQA CSV一括登録を使ってください。</p>
-      <div class="field-row"><label>namespace</label><input type="text" id="faqNamespace" placeholder="例: shared:tool_docs"></div>
-      <div class="field-row"><label>質問</label><input type="text" id="faqQuestion" placeholder="例: HyDEとは何ですか？"></div>
-      <div class="field-row"><label>回答</label><input type="text" id="faqAnswer" placeholder="例: 仮の回答を先に生成してから検索する手法です"></div>
-      <label style="display:flex; align-items:center; gap:.4rem; margin:.4rem 0;"><input type="checkbox" id="faqAlsoNotion"> このnamespaceの同期先Notion DBにもページを作成する（namespaceにNotion DB設定が必要）</label>
-      <button class="btn primary" id="faqAddBtn">登録</button>
-      <div id="faqAddResult" class="hint"></div>
+    <!-- namespace管理: admin専用 -->
+    <div class="admin-subpanel admin-only-section" data-subtab="namespaces">
+      <div class="section">
+        <h2>namespace管理</h2>
+        <div class="field-row"><label>namespace ID</label><input type="text" id="newNsId" placeholder="例: shared:new_topic"></div>
+        <div class="field-row"><label>scope</label><select id="newNsScope"><option value="shared">shared</option><option value="personal">personal</option></select></div>
+        <button class="btn primary" id="createNsBtn">作成</button>
+        <button class="btn" id="refreshNs" style="margin-left:.5rem;">再読み込み</button>
+        <p class="hint">参考資料数上限：この件数を超える分は検索結果から間引かれます（空欄=上限なし）。複数DBを横断検索した際、無関係なDBのチャンクが結果を圧迫するのを防ぐのに使えます。個人namespaceの名前欄には発行時に付けた表示名が出ます。</p>
+        <div class="table-scroll"><table class="admin-table" id="nsTable"><thead><tr><th>namespace</th><th>scope</th><th>owner</th><th>参考資料数上限</th><th></th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="section">
+        <h2>namespace別トークン予算・使用量</h2>
+        <p class="hint">監視・アラート用のしきい値です（2026-09-12追加）。1クエリが複数namespaceを横断検索した場合、そのトークン数は関与した全namespaceに計上される概算のため、正確な予算「強制」ではありません。超過時はヘルスチェック（30分毎）でSlack/Gmailに通知されます。</p>
+        <div class="field-row">
+          <label>期間</label>
+          <select id="nsUsageDays">
+            <option value="7">直近7日間</option>
+            <option value="30" selected>直近30日間</option>
+            <option value="90">直近90日間</option>
+          </select>
+          <button class="btn" id="refreshNsUsage">再読み込み</button>
+          <button class="btn" id="exportNsUsageCsv">CSVエクスポート</button>
+        </div>
+        <div class="table-scroll"><table class="admin-table" id="nsUsageTable"><thead><tr><th>namespace</th><th>使用量（概算）</th><th>予算</th><th>状態</th><th>予算を設定</th></tr></thead><tbody></tbody></table></div>
+      </div>
     </div>
 
-    <div class="section">
-      <h2>QA CSV一括登録</h2>
-      <p class="hint">ヘッダー行に question, answer 列を含むCSVを貼り付けてください。</p>
-      <div class="field-row"><label>namespace</label><input type="text" id="qaCsvNamespace" placeholder="例: shared:tool_docs"></div>
-      <textarea id="qaCsvText" rows="6" style="width:100%; font-family:monospace; font-size:.8rem; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:.5rem;" placeholder="question,answer&#10;質問1,回答1&#10;質問2,回答2"></textarea>
-      <button class="btn primary" id="qaCsvImportBtn" style="margin-top:.5rem;">一括登録を実行</button>
-      <div id="qaCsvProgress" class="hint"></div>
+    <!-- 利用状況・コスト: admin専用 -->
+    <div class="admin-subpanel admin-only-section" data-subtab="usage">
+      <div class="section">
+        <h2>利用状況（トークン使用量）</h2>
+        <div class="field-row">
+          <label>期間</label>
+          <select id="usageDays">
+            <option value="7">直近7日間</option>
+            <option value="14" selected>直近14日間</option>
+            <option value="30">直近30日間</option>
+          </select>
+          <button class="btn" id="refreshUsage">再読み込み</button>
+        </div>
+        <div class="usage-chart-wrap"><canvas id="usageChart" width="900" height="220"></canvas></div>
+        <div class="table-scroll"><table class="admin-table" id="usageByUserTable"><thead><tr><th>ユーザー</th><th>クエリ数</th><th>消費トークン</th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="section">
+        <h2>Claude API使用量・コスト</h2>
+        <p class="hint">Houdiniチュートリアル生成等が呼ぶ/claude/messagesプロキシの使用量です（RAGチャット自体の生成はGeminiのため含みません）。金額はAnthropic公表単価に基づく推定です。</p>
+        <div class="field-row">
+          <label>期間</label>
+          <select id="claudeCostDays">
+            <option value="7">直近7日間</option>
+            <option value="30" selected>直近30日間</option>
+            <option value="90">直近90日間</option>
+          </select>
+          <button class="btn" id="refreshClaudeCost">再読み込み</button>
+          <button class="btn" id="exportClaudeCostCsv">CSVエクスポート</button>
+        </div>
+        <div class="kpi-grid" id="claudeCostKpis"></div>
+        <div class="table-scroll"><table class="admin-table" id="claudeCostByModelTable"><thead><tr><th>モデル</th><th>呼び出し回数</th><th>入力トークン</th><th>出力トークン</th><th>推定コスト</th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="section">
+        <h2>Gemini API使用量・コスト</h2>
+        <p class="hint">RAGチャット自体の回答生成（query.ts/search.ts）の使用量です。金額はGoogle公表単価に基づく推定で、ナレッジ登録時の埋め込み（ベクトル化）コストは含みません（Gemini埋め込みAPIのレスポンスにトークン数が含まれないため未計測、2026-09-10追加）。</p>
+        <div class="field-row">
+          <label>期間</label>
+          <select id="geminiCostDays">
+            <option value="7">直近7日間</option>
+            <option value="30" selected>直近30日間</option>
+            <option value="90">直近90日間</option>
+          </select>
+          <button class="btn" id="refreshGeminiCost">再読み込み</button>
+          <button class="btn" id="exportGeminiCostCsv">CSVエクスポート</button>
+        </div>
+        <div class="kpi-grid" id="geminiCostKpis"></div>
+        <div class="table-scroll"><table class="admin-table" id="geminiCostByModelTable"><thead><tr><th>モデル</th><th>呼び出し回数</th><th>入力トークン</th><th>出力トークン</th><th>推定コスト</th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="section">
+        <h2>監査ログ</h2>
+        <p class="hint">クエリ本文は保存していません（SHA-256ハッシュのみ）。コスト暴走や不審なアクセスパターンに気づくための一覧です（2026-09-12追加）。</p>
+        <div class="field-row">
+          <label>件数</label>
+          <select id="auditLogLimit">
+            <option value="50" selected>50件</option>
+            <option value="100">100件</option>
+            <option value="200">200件</option>
+          </select>
+          <label>ユーザー名</label>
+          <input type="text" id="auditLogUserId" placeholder="任意（発行済みキー一覧の名前で部分一致）">
+          <label>namespace</label>
+          <input type="text" id="auditLogNamespace" placeholder="任意（部分一致）">
+          <button class="btn" id="refreshAuditLog">再読み込み</button>
+          <button class="btn" id="exportAuditLogCsv">CSVエクスポート</button>
+        </div>
+        <div class="table-scroll"><table class="admin-table" id="auditLogTable"><thead><tr><th>日時</th><th>ユーザー</th><th>namespace</th><th>レベル</th><th>参考件数</th><th>レイテンシ</th><th>トークン</th><th>モデル</th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="section">
+        <h2>評価統計</h2>
+        <button class="btn" id="refreshRatingStats">再読み込み</button>
+        <p id="ratingSummary" class="hint">-</p>
+        <div class="table-scroll"><table class="admin-table" id="ratingByUserTable"><thead><tr><th>ユーザー</th><th>件数</th><th>役に立った</th><th>役に立たなかった</th></tr></thead><tbody></tbody></table></div>
+      </div>
     </div>
 
-    <div class="section">
-      <h2>同期履歴</h2>
-      <button class="btn" id="refreshKbHistory">再読み込み</button>
-      <div class="table-scroll"><table class="admin-table" id="kbHistoryTable"><thead><tr><th>日時</th><th>opId</th><th>種別</th><th>namespace</th><th>ファイル</th><th>状態</th><th>詳細</th></tr></thead><tbody></tbody></table></div>
-    </div>
+    <!-- システム: admin専用 -->
+    <div class="admin-subpanel admin-only-section" data-subtab="system">
+      <div class="section">
+        <h2>設定バックアップ</h2>
+        <p class="hint">APIキー・namespace・KB同期元設定・トークン予算のスナップショットをJSONでダウンロードします（チャット履歴本文やベクトルデータは含みません。実データはD1の自動バックアップに任せています）。</p>
+        <button class="btn" id="backupExportBtn">エクスポート</button>
+        <div id="backupExportResult" class="hint"></div>
+      </div>
 
-    <div class="section">
-      <h2>KBロールバック</h2>
-      <p class="hint">同期履歴の「opId」を指定すると、そのopIdで登録された全ファイルをnamespaceから削除できます（元に戻せません）。</p>
-      <div class="field-row"><label>opId</label><input type="text" id="rollbackOpId" placeholder="例: op_1234567890_ab12cd"></div>
-      <button class="btn danger" id="rollbackBtn">ロールバック実行</button>
-      <div id="rollbackResult" class="hint"></div>
+      <div class="section">
+        <h2>ヘルスチェック・アラート通知</h2>
+        <p class="hint">Slack（Incoming Webhook）・Gmail（サービスアカウント経由）はいずれもシークレット設定が必要です（README参照）。未設定のチャンネルは「未設定」と表示されます。</p>
+        <button class="btn" id="healthCheckBtn">ヘルスチェックを実行</button>
+        <button class="btn" id="testAlertBtn">テスト通知を送信</button>
+        <div id="healthCheckResult" class="hint"></div>
+      </div>
+
+      <div class="section">
+        <h2>KBロールバック</h2>
+        <p class="hint">同期履歴の「opId」を指定すると、そのopIdで登録された全ファイルをnamespaceから削除できます（元に戻せません）。</p>
+        <div class="field-row"><label>opId</label><input type="text" id="rollbackOpId" placeholder="例: op_1234567890_ab12cd"></div>
+        <button class="btn danger" id="rollbackBtn">ロールバック実行</button>
+        <div id="rollbackResult" class="hint"></div>
+      </div>
     </div>
+    </div><!-- /.admin-content -->
+    </div><!-- /.admin-layout -->
   </div>
 </div>
 
@@ -484,6 +806,7 @@ export function chatUiHtml(): string {
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
+  let currentUserRole = null; // "admin"|"editor"|"member"|"guest"|null（未認証）。setAuthGate()が更新する。
 
   // トースト通知（2026-09-09追加）: alert()はUIをブロックし既存のダークテーマとも
   // 視覚的に統一感がなかったため、この1関数に集約してalert()呼び出しを置き換える。
@@ -506,6 +829,37 @@ export function chatUiHtml(): string {
       toast.addEventListener("transitionend", () => toast.remove(), { once: true });
     }, 3200);
   }
+
+  // 監査ログ・コスト集計等をCSVでダウンロードする共通ヘルパー（2026-09-12追加、
+  // 月次の請求根拠資料や社内共有向け）。BOM付きUTF-8にしているのはExcelで開いたときに
+  // 日本語が文字化けしないようにするため。値は既にAPIから取得済みのものをそのまま
+  // 書き出すだけで、再取得はしない（表示中の内容とエクスポート内容を一致させるため）。
+  function downloadCsv(filename, headers, rows) {
+    const escapeCell = (v) => {
+      const s = v === null || v === undefined ? "" : String(v);
+      // 改行文字にマッチさせたい箇所はバックスラッシュを2個重ねている。この関数は
+      // chatUiHtml()の巨大な外側テンプレートリテラル内にあるため、単一バックスラッシュの
+      // エスケープはここ（外側のTypeScriptコンパイラ）で実際の制御文字に解決されてしまい、
+      // 正規表現リテラルの構文が壊れる（このファイルの歴史的なバグと同じ原因。この説明
+      // コメント自体にも単一バックスラッシュの具体的な文字を書かないよう注意すること
+      // ——過去に一度、まさにこの説明コメントの中に書いた1個のバックスラッシュ表記が
+      // 同じ理由で壊れた前例がある）。二重にすることで、ブラウザ側の正規表現エンジンに
+      // 渡る時点までエスケープシーケンスの文字列のまま残る。
+      return /[",\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const lines = [headers.map(escapeCell).join(",")];
+    rows.forEach((row) => lines.push(row.map(escapeCell).join(",")));
+    const blob = new Blob(["﻿" + lines.join("\\r\\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   const apiKeyEl = $("apiKey");
   const levelEl = $("level");
   const namespaceFocusEl = $("namespaceFocus");
@@ -539,15 +893,23 @@ export function chatUiHtml(): string {
   // 状態ごとに違う文言を出すことで、少なくとも何が起きているかは分かるようにする。
   function setAuthGate(unlocked, role, message) {
     document.body.classList.toggle("locked", !unlocked);
+    // 権限の詳細化（2026-09-10追加）: セクション単位の表示/非表示はCSS側
+    // （body[data-role="editor"] .admin-only-section）で行うため、ここでroleを
+    // data属性として持たせておく。実際の権限チェックはサーバー側の各エンドポイントが
+    // 唯一の正で、これもタブ表示同様あくまでUIの都合。
+    document.body.dataset.role = role || "";
+    currentUserRole = role || null;
     if (message !== undefined) {
       const gate = document.getElementById("authGate");
       if (gate) gate.textContent = message;
     }
     const adminBtn = document.querySelector('nav.tabs button[data-tab="admin"]');
     if (!adminBtn) return;
-    const isAdmin = role === "admin";
-    adminBtn.classList.toggle("hidden-tab", !isAdmin);
-    if (!isAdmin && adminBtn.classList.contains("active")) {
+    // editor（ナレッジ登録権限者）も管理タブ自体は開けるが、admin-only-sectionは
+    // 上記CSSで非表示になる（ナレッジ登録系のセクションだけが見える）。
+    const canSeeAdminTab = role === "admin" || role === "editor";
+    adminBtn.classList.toggle("hidden-tab", !canSeeAdminTab);
+    if (!canSeeAdminTab && adminBtn.classList.contains("active")) {
       // 管理タブを開いたまま非管理者キーに切り替えられた場合はチャットタブへ退避する
       adminBtn.classList.remove("active");
       document.querySelectorAll(".tabpanel").forEach((p) => p.classList.remove("active"));
@@ -726,9 +1088,95 @@ export function chatUiHtml(): string {
       if (btn.dataset.tab === "history") loadHistory();
       if (btn.dataset.tab === "pinned") loadPinned();
       if (btn.dataset.tab === "graph") loadGraph();
-      if (btn.dataset.tab === "admin") { loadNamespaceChecks(); loadKeys(); loadNamespaces(); loadKbHistory(); loadUsageStats(); loadRatingStats(); }
+      if (btn.dataset.tab === "admin") {
+        // ナレッジ登録系（同期履歴）はeditorロールでも見えるセクションなので常に読み込む。
+        // それ以外は管理者専用セクション（CSS側でeditorには非表示）のため、editorキーで
+        // 呼んでも403になるだけの無駄なリクエストを避ける（権限の詳細化、2026-09-10）。
+        loadKbHistory(); loadKbOverview();
+        if (currentUserRole === "admin") {
+          loadAdminOverview();
+          loadNamespaceChecks();
+          loadKeys();
+          loadNamespaces();
+          loadNamespaceUsage();
+          loadUsageStats();
+          loadClaudeCostStats();
+          loadGeminiCostStats();
+          loadAuditLog();
+          loadRatingStats();
+        }
+      }
       else clearNewKey(); // 管理タブを離れたら、発行直後のAPIキー表示が残らないようにする
     });
+  });
+
+  // 管理タブのサブナビ（2026-09-10追加）。トップレベルのnav.tabsと全く同じ操作感
+  // （クリックでactiveクラスを付け替えるだけ）にしている。表示/非表示の権限判定は
+  // 各ボタン・パネルに付いたadmin-only-sectionクラス（CSS側）に任せているため、
+  // ここではクリックされたものを表示するだけでよい。
+  const adminSubButtons = document.querySelectorAll(".admin-subnav button");
+  const adminSubPanels = document.querySelectorAll(".admin-subpanel");
+  adminSubButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      adminSubButtons.forEach((b) => b.classList.remove("active"));
+      adminSubPanels.forEach((p) => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.querySelector('.admin-subpanel[data-subtab="' + btn.dataset.subtab + '"]').classList.add("active");
+    });
+  });
+
+  // ダッシュボードの自動更新（2026-09-12追加）。「今開いているサブタブ」だけを対象に
+  // 再読み込みする（他のサブタブぶんまで無駄な通信を発生させないため）。設定は
+  // localStorageに覚えておき、次回管理タブを開いたときも同じ設定のままにする。
+  let autoRefreshTimer = null;
+  function currentAdminSubtab() {
+    const active = document.querySelector(".admin-subnav button.active");
+    return active ? active.dataset.subtab : null;
+  }
+  function runAutoRefresh() {
+    const subtab = currentAdminSubtab();
+    if (subtab === "overview") loadAdminOverview();
+    else if (subtab === "usage") { loadUsageStats(); loadClaudeCostStats(); loadGeminiCostStats(); loadAuditLog(); loadRatingStats(); }
+    else if (subtab === "namespaces") { loadNamespaces(); loadNamespaceUsage(); }
+    else if (subtab === "users") loadKeys();
+    else if (subtab === "knowledge") { loadKbOverview(); loadKbHistory(); }
+  }
+  function stopAutoRefresh() {
+    if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  }
+  function startAutoRefresh() {
+    stopAutoRefresh();
+    const intervalMs = Number($("autoRefreshInterval").value) || 60000;
+    autoRefreshTimer = setInterval(runAutoRefresh, intervalMs);
+  }
+  const autoRefreshToggleEl = $("autoRefreshToggle");
+  const autoRefreshIntervalEl = $("autoRefreshInterval");
+  try {
+    autoRefreshToggleEl.checked = localStorage.getItem("ragPocAutoRefresh") === "1";
+    const savedInterval = localStorage.getItem("ragPocAutoRefreshInterval");
+    if (savedInterval) autoRefreshIntervalEl.value = savedInterval;
+  } catch { /* localStorage不可の環境では既定（オフ・1分毎）のまま */ }
+  // ページ読み込み直後は常にチャットタブが表示されている（管理タブがアクティブな
+  // 状態でロードされることは無い）ため、ここではトグルの状態を復元するだけにして
+  // タイマーは起動しない。実際の起動は下の「管理タブをクリックしたら」のリスナーに
+  // 任せる（そうしないと、チャットを使っているだけの間もバックグラウンドで
+  // 無駄なポーリングが走り続けてしまう、2026-09-12レビューで発見）。
+  autoRefreshToggleEl.addEventListener("change", () => {
+    try { localStorage.setItem("ragPocAutoRefresh", autoRefreshToggleEl.checked ? "1" : "0"); } catch { /* noop */ }
+    if (autoRefreshToggleEl.checked) startAutoRefresh(); else stopAutoRefresh();
+  });
+  autoRefreshIntervalEl.addEventListener("change", () => {
+    try { localStorage.setItem("ragPocAutoRefreshInterval", autoRefreshIntervalEl.value); } catch { /* noop */ }
+    if (autoRefreshToggleEl.checked) startAutoRefresh();
+  });
+  // 管理タブを離れたら止める（他のタブを見ている間もバックグラウンドで通信し続ける
+  // 意味が無いため）。管理タブへ戻ったときはトグルがオンならstartAutoRefresh()で
+  // 再開させる。
+  document.querySelector('nav.tabs button[data-tab="admin"]').addEventListener("click", () => {
+    if (autoRefreshToggleEl.checked) startAutoRefresh();
+  });
+  tabButtons.forEach((btn) => {
+    if (btn.dataset.tab !== "admin") btn.addEventListener("click", stopAutoRefresh);
   });
 
   // ---------- チャット ----------
@@ -1600,6 +2048,213 @@ export function chatUiHtml(): string {
   $("refreshUsage").addEventListener("click", loadUsageStats);
   $("usageDays").addEventListener("change", loadUsageStats);
 
+  // Claude API使用量・コスト（2026-09-10追加）。RAGチャット自体はGeminiで生成するため、
+  // このセクションはHoudiniチュートリアル生成が使う/claude/messagesプロキシ分のみを扱う。
+  function kpiCard(label, value, sub) {
+    const card = document.createElement("div");
+    card.className = "kpi-card";
+    const l = document.createElement("div"); l.className = "kpi-label"; l.textContent = label;
+    const v = document.createElement("div"); v.className = "kpi-value"; v.textContent = value;
+    card.appendChild(l); card.appendChild(v);
+    if (sub) {
+      const s = document.createElement("div"); s.className = "kpi-sub"; s.textContent = sub;
+      card.appendChild(s);
+    }
+    return card;
+  }
+
+  // Claude/Gemini共通のコスト統計ロード処理（2026-09-10リファクタリング：Gemini分
+  // 追加にあたって、endpoint/要素ID差分だけをパラメータ化した汎用版に統合した）。
+  // csvBtnId（2026-09-12追加）: 渡すと「CSVエクスポート」ボタンを配線する。表示中の
+  // byModel内訳をそのまま書き出すだけで、エクスポート専用の再取得はしない。
+  function makeCostStatsLoader(endpoint, daysSelectId, kpiBoxId, tableId, csvBtnId) {
+    let lastData = null;
+    if (csvBtnId) {
+      $(csvBtnId).addEventListener("click", () => {
+        if (!lastData || lastData.byModel.length === 0) { showToast("エクスポートするデータがありません", "error"); return; }
+        downloadCsv(
+          tableId + "-" + new Date().toISOString().slice(0, 10) + ".csv",
+          ["モデル", "呼び出し回数", "入力トークン", "出力トークン", "推定コスト(USD)"],
+          lastData.byModel.map((m) => [m.model, m.calls, m.inputTokens, m.outputTokens, m.costUsd.toFixed(4)]),
+        );
+      });
+    }
+    return async function loadCostStats() {
+      if (!apiKeyEl.value.trim()) return;
+      const days = Number($(daysSelectId).value) || 30;
+      const kpiBox = $(kpiBoxId);
+      const tbody = $(tableId).querySelector("tbody");
+      try {
+        const data = await api(endpoint, { days });
+        lastData = data;
+        kpiBox.innerHTML = "";
+        kpiBox.appendChild(kpiCard("推定コスト合計", "$" + data.totalCostUsd.toFixed(2), "直近" + data.days + "日間"));
+        kpiBox.appendChild(kpiCard("合計トークン数", data.totalTokens.toLocaleString()));
+        kpiBox.appendChild(kpiCard("呼び出し回数", data.totalCalls.toLocaleString()));
+        tbody.innerHTML = "";
+        if (data.byModel.length === 0) {
+          tbody.innerHTML = '<tr><td colspan=5>この期間の利用はありません</td></tr>';
+        } else {
+          data.byModel.forEach((m) => {
+            appendRow(tbody, [m.model, m.calls, m.inputTokens.toLocaleString(), m.outputTokens.toLocaleString(), "$" + m.costUsd.toFixed(3)]);
+          });
+        }
+      } catch (e) {
+        kpiBox.innerHTML = "";
+        tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + e.message + '</td></tr>';
+      }
+    };
+  }
+  const loadClaudeCostStats = makeCostStatsLoader("/admin/usage/claude-cost", "claudeCostDays", "claudeCostKpis", "claudeCostByModelTable", "exportClaudeCostCsv");
+  $("refreshClaudeCost").addEventListener("click", loadClaudeCostStats);
+  $("claudeCostDays").addEventListener("change", loadClaudeCostStats);
+
+  const loadGeminiCostStats = makeCostStatsLoader("/admin/usage/gemini-cost", "geminiCostDays", "geminiCostKpis", "geminiCostByModelTable", "exportGeminiCostCsv");
+  $("refreshGeminiCost").addEventListener("click", loadGeminiCostStats);
+  $("geminiCostDays").addEventListener("change", loadGeminiCostStats);
+
+  // 監査ログ（2026-09-12追加）。CSVエクスポート用に直近の取得結果をキャッシュしておく
+  // （エクスポート時に再取得せず、画面に表示中の内容とファイルの内容を一致させるため）。
+  let lastAuditLogEntries = [];
+  async function loadAuditLog() {
+    const tbody = $("auditLogTable").querySelector("tbody");
+    tbody.innerHTML = "<tr><td colspan=8>読み込み中…</td></tr>";
+    try {
+      const data = await api("/admin/audit-log", {
+        limit: Number($("auditLogLimit").value) || 50,
+        user: $("auditLogUserId").value.trim() || undefined,
+        namespace: $("auditLogNamespace").value.trim() || undefined,
+      });
+      lastAuditLogEntries = data.entries;
+      tbody.innerHTML = "";
+      if (data.entries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan=8>該当するログがありません</td></tr>';
+        return;
+      }
+      data.entries.forEach((e) => {
+        const when = new Date(e.created_at * 1000).toLocaleString();
+        // namespace列: 横断検索したクエリはnamespace_idがカンマ区切りで複数入り、
+        // 生の文字列をそのままセルに入れると（空白が無いため）word-break:break-allで
+        // 1文字ずつ折り返され表が壊れる不具合があった（2026-09-13、実機報告）。
+        // 最初の1件＋残り件数だけを表示し、全件はtitle属性のホバーで確認できるようにする。
+        const nsList = (e.namespace_id || "").split(",").filter(Boolean);
+        const nsLabel = nsList.length === 0 ? "-"
+          : nsList.length === 1 ? nsList[0]
+          : nsList[0] + " +" + (nsList.length - 1) + "件";
+        const tr = appendRow(tbody, [when, e.displayName || e.user_id]);
+        const nsCell = document.createElement("td");
+        nsCell.textContent = nsLabel;
+        if (nsList.length > 1) nsCell.title = nsList.join(", ");
+        tr.appendChild(nsCell);
+        const restCells = [
+          e.difficulty || "-",
+          e.result_count,
+          e.latency_ms != null ? e.latency_ms + "ms" : "-",
+          e.tokens_used,
+          e.model || "-",
+        ];
+        restCells.forEach((v) => {
+          const td = document.createElement("td");
+          td.textContent = v;
+          tr.appendChild(td);
+        });
+      });
+    } catch (err) {
+      tbody.innerHTML = '<tr><td colspan=8>取得に失敗しました: ' + err.message + '</td></tr>';
+    }
+  }
+  $("refreshAuditLog").addEventListener("click", loadAuditLog);
+  $("exportAuditLogCsv").addEventListener("click", () => {
+    if (lastAuditLogEntries.length === 0) { showToast("エクスポートするログがありません", "error"); return; }
+    downloadCsv(
+      "audit-log-" + new Date().toISOString().slice(0, 10) + ".csv",
+      ["日時", "ユーザー", "namespace", "レベル", "参考件数", "レイテンシ(ms)", "トークン", "モデル"],
+      lastAuditLogEntries.map((e) => [
+        new Date(e.created_at * 1000).toLocaleString(),
+        e.displayName || e.user_id,
+        e.namespace_id || "",
+        e.difficulty || "",
+        e.result_count,
+        e.latency_ms ?? "",
+        e.tokens_used,
+        e.model || "",
+      ]),
+    );
+  });
+
+  // Overview KPIサマリー（AXChat:D管理コンソールの添付参考画像を元にしたレイアウト、
+  // 2026-09-10追加）。既存の各エンドポイントを束ねて叩くだけで、専用の集計APIは
+  // 追加していない（呼び出し回数は増えるが、管理タブを開いた時の1回だけなので許容範囲）。
+  // ミニリストの1行を組み立てる共通ヘルパー（ロール内訳・namespaceランキングで共用、
+  // 2026-09-10追加）。labelContentはDOM要素かテキストのどちらでも渡せる。
+  function miniListItem(labelContent, value) {
+    const li = document.createElement("li");
+    const label = document.createElement("span");
+    label.className = "mini-label";
+    if (typeof labelContent === "string") label.textContent = labelContent;
+    else label.appendChild(labelContent);
+    const val = document.createElement("span");
+    val.className = "mini-value";
+    val.textContent = value;
+    li.appendChild(label);
+    li.appendChild(val);
+    return li;
+  }
+
+  const ROLE_LABELS = { admin: "管理者", editor: "編集者", member: "一般ユーザー", guest: "ゲスト" };
+
+  async function loadAdminOverview() {
+    const box = $("adminOverviewKpis");
+    const roleBox = $("adminRoleBreakdown");
+    const topNsBox = $("adminTopNamespaces");
+    box.innerHTML = "";
+    roleBox.innerHTML = "";
+    topNsBox.innerHTML = "";
+    try {
+      const [nsData, keysData, ragUsage, claudeCost, geminiCost, kbOverview] = await Promise.all([
+        api("/admin/namespaces/list", {}),
+        api("/admin/keys/list", {}),
+        api("/admin/usage/stats", { days: 30 }),
+        api("/admin/usage/claude-cost", { days: 30 }),
+        api("/admin/usage/gemini-cost", { days: 30 }),
+        api("/admin/kb/overview", {}),
+      ]);
+      const tokensThisMonth = ragUsage.daily.reduce((sum, d) => sum + (d.tokens || 0), 0);
+      const totalCost = claudeCost.totalCostUsd + geminiCost.totalCostUsd;
+      box.appendChild(kpiCard("namespace数", nsData.namespaces.length));
+      box.appendChild(kpiCard("発行済みキー数", keysData.keys.length));
+      box.appendChild(kpiCard("RAGトークン使用量", tokensThisMonth.toLocaleString(), "直近30日間"));
+      box.appendChild(kpiCard("推定コスト合計（Gemini+Claude）", "$" + totalCost.toFixed(2), "直近30日間"));
+
+      // ロール別キー内訳（AXChat:Dの"Plan Distribution"に相当）
+      const roleCounts = {};
+      keysData.keys.forEach((k) => { roleCounts[k.role] = (roleCounts[k.role] || 0) + 1; });
+      const roleKeys = Object.keys(roleCounts);
+      if (roleKeys.length === 0) {
+        roleBox.innerHTML = '<li class="empty">発行済みキーがありません</li>';
+      } else {
+        roleKeys.forEach((role) => {
+          const badge = document.createElement("span");
+          badge.className = "role-badge " + role;
+          badge.textContent = ROLE_LABELS[role] || role;
+          roleBox.appendChild(miniListItem(badge, roleCounts[role] + "件"));
+        });
+      }
+
+      // namespace別ナレッジ登録量ランキング（AXChat:Dの"Top Agents by Token Usage"に相当）
+      const topNamespaces = kbOverview.namespaces.slice(0, 5);
+      if (topNamespaces.length === 0) {
+        topNsBox.innerHTML = '<li class="empty">登録されたナレッジがありません</li>';
+      } else {
+        topNamespaces.forEach((n) => {
+          topNsBox.appendChild(miniListItem(n.namespace, n.chunkCount.toLocaleString() + "チャンク"));
+        });
+      }
+    } catch (e) {
+      box.innerHTML = '<p class="hint error">Overviewの取得に失敗しました: ' + e.message + '</p>';
+    }
+  }
+
   // ---------- 管理タブ：namespaceチェックボックス ----------
   async function loadNamespaceChecks() {
     const box = $("newKeyNamespaces");
@@ -1685,9 +2340,10 @@ export function chatUiHtml(): string {
     try {
       const data = await api("/admin/keys/create", {
         displayName: $("newKeyName").value.trim(),
-        role: $("newKeyAdmin").checked ? "admin" : "member",
+        role: $("newKeyRole").value,
         namespaces,
         ragCapacity: Number($("newKeyCapacity").value) || 100000,
+        expiresInDays: Number($("newKeyExpiry").value) || 0,
       });
       showNewKey(data.apiKey);
       loadKeys();
@@ -1697,38 +2353,171 @@ export function chatUiHtml(): string {
     }
   });
 
+  // 検索・ロール絞り込み（2026-09-10追加）はサーバーへ都度問い合わせず、直近の
+  // /admin/keys/list結果をクライアント側でフィルタするだけにしている（キー数が
+  // 数百件規模になるまでは十分軽量で、絞り込みのたびに通信が走らない方が快適）。
+  let allKeysCache = [];
+
+  function renderKeysTable(keys) {
+    const tbody = $("keysTable").querySelector("tbody");
+    tbody.innerHTML = "";
+    if (keys.length === 0) {
+      tbody.innerHTML = '<tr><td colspan=8>該当するキーがありません</td></tr>';
+      return;
+    }
+    keys.forEach((k) => {
+      const created = new Date(k.created_at * 1000).toLocaleString();
+      const tr = appendRow(tbody, [k.display_name]);
+
+      // ロール列: バッジ表示＋インライン変更用select（権限の詳細化、2026-09-10追加）。
+      // 従来は作成時にしかロールを指定できなかった（/admin/keys/update-role新設）。
+      const roleCell = document.createElement("td");
+      const badge = document.createElement("span");
+      badge.className = "role-badge " + k.role;
+      badge.textContent = k.role;
+      roleCell.appendChild(badge);
+      const roleSelect = document.createElement("select");
+      roleSelect.className = "role-select";
+      roleSelect.style.marginLeft = ".4rem";
+      // 2026-09-10: guestは選択肢から外した（管理者・編集者・メンバーの3つで十分、
+      // というフィードバックへの対応）。既存にguestロールの行が残っていた場合でも
+      // バッジ表示自体は引き続きできるよう、role-badge.member,.guestのCSSは残している。
+      ["admin", "editor", "member"].forEach((r) => {
+        const opt = document.createElement("option");
+        opt.value = r; opt.textContent = r;
+        if (r === k.role) opt.selected = true;
+        roleSelect.appendChild(opt);
+      });
+      roleSelect.addEventListener("change", async () => {
+        const newRole = roleSelect.value;
+        try {
+          await api("/admin/keys/update-role", { userId: k.user_id, role: newRole });
+          showToast(k.display_name + " のロールを " + newRole + " に変更しました", "success");
+          loadKeys();
+        } catch (e) {
+          showToast("ロール変更に失敗しました: " + e.message, "error");
+          roleSelect.value = k.role;
+        }
+      });
+      roleCell.appendChild(roleSelect);
+      tr.appendChild(roleCell);
+
+      const budgetCell = document.createElement("td");
+      budgetCell.textContent = k.rag_limit != null ? (k.rag_used + '/' + k.rag_limit) : '無制限';
+      tr.appendChild(budgetCell);
+
+      const donutCell = document.createElement("td");
+      tr.appendChild(donutCell);
+      if (k.rag_limit != null) {
+        const donutCanvas = document.createElement("canvas");
+        donutCell.appendChild(donutCanvas);
+        drawDonut(donutCanvas, k.rag_used, k.rag_limit);
+      }
+
+      // 最終利用日時（2026-09-10追加、AXChat:D Usersページの"Last Login"に相当）。
+      // audit_log全体のMAX(created_at)なのでClaudeプロキシ利用も含む（keyAdmin.ts参照）。
+      const lastActiveCell = document.createElement("td");
+      lastActiveCell.textContent = k.last_active ? new Date(k.last_active * 1000).toLocaleString() : "利用履歴なし";
+      tr.appendChild(lastActiveCell);
+
+      // 有効期限列: 表示＋インライン変更用select（2026-09-12追加）。期限切れ・
+      // 期限間近（7日以内）は警告バッジで目立たせる（healthCheck.tsの日次アラートと
+      // 同じ判定基準に揃えている）。
+      const expiryCell = document.createElement("td");
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (k.expires_at) {
+        const badge = document.createElement("span");
+        const daysLeft = Math.ceil((k.expires_at - nowSec) / 86400);
+        if (daysLeft < 0) {
+          badge.className = "role-badge"; badge.style.color = "var(--bad)"; badge.style.borderColor = "var(--bad)";
+          badge.textContent = "期限切れ";
+        } else if (daysLeft <= 7) {
+          badge.className = "role-badge"; badge.style.color = "var(--highlight)"; badge.style.borderColor = "var(--highlight)";
+          badge.textContent = "あと" + daysLeft + "日";
+        } else {
+          badge.className = "role-badge";
+          badge.textContent = new Date(k.expires_at * 1000).toLocaleDateString();
+        }
+        expiryCell.appendChild(badge);
+      } else {
+        const span = document.createElement("span");
+        span.className = "hint";
+        span.textContent = "無期限";
+        expiryCell.appendChild(span);
+      }
+      const expirySelect = document.createElement("select");
+      expirySelect.className = "role-select";
+      expirySelect.style.marginLeft = ".4rem";
+      [["0", "無期限"], ["30", "30日"], ["90", "90日"], ["180", "180日"], ["365", "1年"]].forEach(([v, label]) => {
+        const opt = document.createElement("option");
+        opt.value = v; opt.textContent = label;
+        expirySelect.appendChild(opt);
+      });
+      expirySelect.addEventListener("change", async () => {
+        const days = Number(expirySelect.value);
+        try {
+          await api("/admin/keys/set-expiry", { userId: k.user_id, expiresInDays: days || null });
+          showToast(k.display_name + " の有効期限を更新しました", "success");
+          loadKeys();
+        } catch (e) {
+          showToast("有効期限の変更に失敗しました: " + e.message, "error");
+        }
+      });
+      expiryCell.appendChild(expirySelect);
+      tr.appendChild(expiryCell);
+
+      const createdCell = document.createElement("td");
+      createdCell.textContent = created;
+      tr.appendChild(createdCell);
+      const actionsCell = document.createElement("td");
+      tr.appendChild(actionsCell);
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn danger"; delBtn.textContent = "削除";
+      delBtn.onclick = async () => {
+        if (!confirm(k.display_name + " を削除しますか？")) return;
+        try { await api("/admin/keys/delete", { userId: k.user_id }); loadKeys(); }
+        catch (e) { showToast("削除に失敗しました: " + e.message, "error"); }
+      };
+      actionsCell.appendChild(delBtn);
+    });
+  }
+
+  function applyKeysFilter() {
+    const q = $("keysSearch").value.trim().toLowerCase();
+    const roleFilter = $("keysRoleFilter").value;
+    const filtered = allKeysCache.filter((k) => {
+      if (roleFilter && k.role !== roleFilter) return false;
+      if (q && !k.display_name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+    renderKeysTable(filtered);
+  }
+  $("keysSearch").addEventListener("input", applyKeysFilter);
+  $("keysRoleFilter").addEventListener("change", applyKeysFilter);
+
+  // ユーザー概要KPI（AXChat:D Usersページの「総ユーザー数/管理者数/編集者数/
+  // ナレッジ登録者数」に相当、2026-09-10追加）。
+  function renderUsersOverviewKpis(keys) {
+    const box = $("usersOverviewKpis");
+    box.innerHTML = "";
+    const counts = { admin: 0, editor: 0, member: 0, guest: 0 };
+    keys.forEach((k) => { counts[k.role] = (counts[k.role] || 0) + 1; });
+    box.appendChild(kpiCard("総キー数", keys.length));
+    box.appendChild(kpiCard("管理者", counts.admin));
+    box.appendChild(kpiCard("編集者", counts.editor));
+    box.appendChild(kpiCard("一般ユーザー", counts.member + counts.guest));
+  }
+
   async function loadKeys() {
     const tbody = $("keysTable").querySelector("tbody");
-    tbody.innerHTML = "<tr><td colspan=6>読み込み中…</td></tr>";
+    tbody.innerHTML = "<tr><td colspan=8>読み込み中…</td></tr>";
     try {
       const data = await api("/admin/keys/list", {});
-      tbody.innerHTML = "";
-      data.keys.forEach((k) => {
-        const created = new Date(k.created_at * 1000).toLocaleString();
-        const tr = appendRow(tbody, [k.display_name, k.role, k.rag_limit != null ? (k.rag_used + '/' + k.rag_limit) : '無制限']);
-        const donutCell = document.createElement("td");
-        tr.appendChild(donutCell);
-        if (k.rag_limit != null) {
-          const donutCanvas = document.createElement("canvas");
-          donutCell.appendChild(donutCanvas);
-          drawDonut(donutCanvas, k.rag_used, k.rag_limit);
-        }
-        const createdCell = document.createElement("td");
-        createdCell.textContent = created;
-        tr.appendChild(createdCell);
-        const actionsCell = document.createElement("td");
-        tr.appendChild(actionsCell);
-        const delBtn = document.createElement("button");
-        delBtn.className = "btn danger"; delBtn.textContent = "削除";
-        delBtn.onclick = async () => {
-          if (!confirm(k.display_name + " を削除しますか？")) return;
-          try { await api("/admin/keys/delete", { userId: k.user_id }); loadKeys(); }
-          catch (e) { showToast("削除に失敗しました: " + e.message, "error"); }
-        };
-        actionsCell.appendChild(delBtn);
-      });
+      allKeysCache = data.keys;
+      renderUsersOverviewKpis(data.keys);
+      applyKeysFilter();
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan=6>取得に失敗しました: ' + e.message + '</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=8>取得に失敗しました: ' + e.message + '</td></tr>';
     }
   }
   $("refreshKeys").addEventListener("click", loadKeys);
@@ -1749,7 +2538,10 @@ export function chatUiHtml(): string {
       const data = await api("/admin/namespaces/list", {});
       tbody.innerHTML = "";
       data.namespaces.forEach((n) => {
-        const tr = appendRow(tbody, [n.namespace_id, n.scope, n.owner_user_id || "-"]);
+        // 個人namespaceはID（APIキーのハッシュ値）だけでは誰のものか判別できないため、
+        // 発行時の表示名があれば併記する（2026-09-10フィードバック）。
+        const label = n.display_name ? n.display_name + "（" + n.namespace_id + "）" : n.namespace_id;
+        const tr = appendRow(tbody, [label, n.scope, n.owner_user_id || "-"]);
         const limitCell = document.createElement("td");
         tr.appendChild(limitCell);
         const actionsCell = document.createElement("td");
@@ -1785,6 +2577,81 @@ export function chatUiHtml(): string {
     }
   }
   $("refreshNs").addEventListener("click", loadNamespaces);
+
+  // ---------- 管理タブ：namespace別トークン予算・使用量（2026-09-12追加） ----------
+  let lastNsUsage = [];
+  async function loadNamespaceUsage() {
+    const tbody = $("nsUsageTable").querySelector("tbody");
+    tbody.innerHTML = "<tr><td colspan=5>読み込み中…</td></tr>";
+    const days = Number($("nsUsageDays").value) || 30;
+    try {
+      const data = await api("/admin/namespaces/usage", { days });
+      lastNsUsage = data.namespaces;
+      tbody.innerHTML = "";
+      if (data.namespaces.length === 0) {
+        tbody.innerHTML = '<tr><td colspan=5>この期間の利用はありません</td></tr>';
+        return;
+      }
+      data.namespaces.forEach((n) => {
+        const tr = appendRow(tbody, [n.namespace, n.used.toLocaleString()]);
+
+        const budgetCell = document.createElement("td");
+        budgetCell.textContent = n.tokenBudget != null ? n.tokenBudget.toLocaleString() : "未設定";
+        tr.appendChild(budgetCell);
+
+        const statusCell = document.createElement("td");
+        if (n.tokenBudget == null) {
+          statusCell.textContent = "-";
+        } else if (n.overBudget) {
+          const badge = document.createElement("span");
+          badge.className = "role-badge";
+          badge.style.color = "var(--bad)";
+          badge.style.borderColor = "var(--bad)";
+          badge.textContent = "超過";
+          statusCell.appendChild(badge);
+        } else {
+          const badge = document.createElement("span");
+          badge.className = "role-badge editor";
+          badge.textContent = "OK";
+          statusCell.appendChild(badge);
+        }
+        tr.appendChild(statusCell);
+
+        const setCell = document.createElement("td");
+        tr.appendChild(setCell);
+        const budgetInput = document.createElement("input");
+        budgetInput.type = "number";
+        budgetInput.min = "0";
+        budgetInput.style.width = "90px";
+        if (n.tokenBudget != null) budgetInput.value = n.tokenBudget;
+        const setBtn = document.createElement("button");
+        setBtn.className = "btn"; setBtn.textContent = "設定";
+        setBtn.style.marginLeft = ".3rem";
+        setBtn.onclick = async () => {
+          const v = budgetInput.value.trim();
+          try {
+            await api("/admin/namespaces/set-budget", { namespaceId: n.namespace, tokenBudget: v === "" ? null : Number(v) });
+            showToast(n.namespace + " の予算を更新しました", "success");
+            loadNamespaceUsage();
+          } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
+        };
+        setCell.appendChild(budgetInput);
+        setCell.appendChild(setBtn);
+      });
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + e.message + '</td></tr>';
+    }
+  }
+  $("refreshNsUsage").addEventListener("click", loadNamespaceUsage);
+  $("nsUsageDays").addEventListener("change", loadNamespaceUsage);
+  $("exportNsUsageCsv").addEventListener("click", () => {
+    if (lastNsUsage.length === 0) { showToast("エクスポートするデータがありません", "error"); return; }
+    downloadCsv(
+      "namespace-usage-" + new Date().toISOString().slice(0, 10) + ".csv",
+      ["namespace", "使用量（概算）", "予算", "超過"],
+      lastNsUsage.map((n) => [n.namespace, n.used, n.tokenBudget ?? "", n.overBudget ? "超過" : "OK"]),
+    );
+  });
 
   $("kbSetSourceBtn").addEventListener("click", async () => {
     try {
@@ -1843,7 +2710,7 @@ export function chatUiHtml(): string {
       lastSyncOpId = opId;
       lastSyncSource = source;
       retryBtn.disabled = errorCount === 0;
-      loadKbHistory();
+      loadKbHistory(); loadKbOverview();
     } catch (e) {
       progressEl.textContent = "エラー: " + e.message;
       lastSyncOpId = opId;
@@ -1864,7 +2731,7 @@ export function chatUiHtml(): string {
       const remainingErrors = (data.results || []).filter((r) => r.status === "error").length;
       progressEl.textContent = "再同期完了: " + data.documents + "件・" + data.chunks + "チャンク登録" + (remainingErrors > 0 ? "（依然失敗 " + remainingErrors + "件）" : "");
       retryBtn.disabled = remainingErrors === 0;
-      loadKbHistory();
+      loadKbHistory(); loadKbOverview();
     } catch (e) {
       progressEl.textContent = "エラー: " + e.message;
       retryBtn.disabled = false;
@@ -1897,6 +2764,31 @@ export function chatUiHtml(): string {
   }
   $("refreshKbHistory").addEventListener("click", loadKbHistory);
 
+  // ---------- 管理タブ：namespaceごとのナレッジ登録状況（2026-09-10追加） ----------
+  async function loadKbOverview() {
+    const tbody = $("kbOverviewTable").querySelector("tbody");
+    tbody.innerHTML = "<tr><td colspan=5>読み込み中…</td></tr>";
+    try {
+      const data = await api("/admin/kb/overview", {});
+      tbody.innerHTML = "";
+      if (data.namespaces.length === 0) {
+        tbody.innerHTML = '<tr><td colspan=5>登録されたナレッジがありません</td></tr>';
+        return;
+      }
+      data.namespaces.forEach((n) => {
+        const sources = [];
+        if (n.hasNotionSource) sources.push("Notion");
+        if (n.hasDriveSource) sources.push("Drive");
+        const sourceLabel = sources.length > 0 ? sources.join("・") : "手動登録のみ";
+        const lastUpdated = n.lastUpdated ? new Date(n.lastUpdated * 1000).toLocaleString() : "-";
+        appendRow(tbody, [n.namespace, n.fileCount, n.chunkCount, sourceLabel, lastUpdated]);
+      });
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + e.message + '</td></tr>';
+    }
+  }
+  $("refreshKbOverview").addEventListener("click", loadKbOverview);
+
   // ---------- 管理タブ：評価統計 ----------
   async function loadRatingStats() {
     try {
@@ -1923,9 +2815,38 @@ export function chatUiHtml(): string {
     try {
       const data = await api("/admin/kb/import-url", { namespace, url, title: title || undefined });
       $("urlImportResult").textContent = "完了: " + data.chunks + "チャンク登録" + (data.skipped > 0 ? "（" + data.skipped + "件スキップ）" : "");
-      loadKbHistory();
+      loadKbHistory(); loadKbOverview();
     } catch (e) {
       $("urlImportResult").textContent = "エラー: " + e.message;
+    }
+  });
+
+  // ---------- 管理タブ：URL再帰クロール一括登録（2026-09-13追加） ----------
+  $("crawlUrlBtn").addEventListener("click", async () => {
+    const namespace = $("crawlUrlNamespace").value.trim();
+    const url = $("crawlUrlUrl").value.trim();
+    const pathPrefix = $("crawlUrlPathPrefix").value.trim();
+    const depth = parseInt($("crawlUrlDepth").value, 10);
+    const maxPages = parseInt($("crawlUrlMaxPages").value, 10);
+    if (!namespace || !url) { $("crawlUrlResult").textContent = "namespaceと起点URLを入力してください"; return; }
+    $("crawlUrlResult").textContent = "クロール中…（ページ数が多いと時間がかかります）";
+    $("crawlUrlTableWrap").style.display = "none";
+    try {
+      const data = await api("/admin/kb/crawl-url", {
+        namespace, url, depth, maxPages,
+        pathPrefix: pathPrefix || undefined,
+      });
+      $("crawlUrlResult").textContent = "完了: " + data.totalPages + "ページ処理・" + data.totalChunks + "チャンク登録" +
+        (data.errorCount > 0 ? "（" + data.errorCount + "件エラー）" : "");
+      const tbody = $("crawlUrlTable").querySelector("tbody");
+      tbody.innerHTML = "";
+      data.results.forEach((r) => {
+        appendRow(tbody, [r.url, r.title, r.chunks, r.error || "OK"]);
+      });
+      $("crawlUrlTableWrap").style.display = "";
+      loadKbHistory(); loadKbOverview();
+    } catch (e) {
+      $("crawlUrlResult").textContent = "エラー: " + e.message;
     }
   });
 
@@ -1993,7 +2914,7 @@ export function chatUiHtml(): string {
     try {
       const data = await api("/admin/kb/import-youtube", { namespace, youtubeUrl, title: title || undefined });
       $("ytImportResult").textContent = "完了: " + data.chunks + "チャンク登録" + (data.skipped > 0 ? "（" + data.skipped + "件スキップ）" : "");
-      loadKbHistory();
+      loadKbHistory(); loadKbOverview();
     } catch (e) {
       $("ytImportResult").textContent = "エラー: " + e.message;
     }
@@ -2023,7 +2944,7 @@ export function chatUiHtml(): string {
         fileName: file.name,
       });
       $("fileUploadResult").textContent = "完了: " + data.chunks + "チャンク登録" + (data.skipped > 0 ? "（" + data.skipped + "件スキップ）" : "");
-      loadKbHistory();
+      loadKbHistory(); loadKbOverview();
     } catch (e) {
       $("fileUploadResult").textContent = "エラー: " + e.message;
     }
@@ -2043,7 +2964,7 @@ export function chatUiHtml(): string {
       resultEl.textContent = "完了: " + data.chunks + "チャンク登録" + (data.notionPageId ? "（Notionページも作成: " + data.notionPageId + "）" : "");
       $("faqQuestion").value = "";
       $("faqAnswer").value = "";
-      loadKbHistory();
+      loadKbHistory(); loadKbOverview();
     } catch (e) {
       resultEl.textContent = "エラー: " + e.message;
     }
@@ -2070,7 +2991,7 @@ export function chatUiHtml(): string {
         startIndex = data.nextIndex;
       }
       progressEl.textContent = "完了: " + totalDocs + "件・" + totalChunks + "チャンク登録（opId: " + opId + "）";
-      loadKbHistory();
+      loadKbHistory(); loadKbOverview();
     } catch (e) {
       progressEl.textContent = "エラー: " + e.message;
     }
@@ -2085,7 +3006,7 @@ export function chatUiHtml(): string {
     try {
       const data = await api("/admin/kb/rollback", { opId });
       $("rollbackResult").textContent = "完了: " + data.deletedFiles + "ファイル・" + data.deletedChunks + "チャンクを削除しました";
-      loadKbHistory();
+      loadKbHistory(); loadKbOverview();
     } catch (e) {
       $("rollbackResult").textContent = "エラー: " + e.message;
     }

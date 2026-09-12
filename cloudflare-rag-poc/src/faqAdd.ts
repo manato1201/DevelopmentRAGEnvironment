@@ -1,5 +1,5 @@
 import type { AuthedUser, Env } from "./types";
-import { requireAdmin } from "./auth";
+import { requireKnowledgeEditor } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { createNotionPage } from "./notion";
@@ -13,7 +13,7 @@ import { jsonResponse } from "./http";
 // POC側はD1が直接の正とする設計のため、Notionへの複製は任意のオプトインにした）。
 // body: { namespace, question, answer, alsoWriteToNotion? }
 export async function handleAddFaq(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireAdmin(user);
+  requireKnowledgeEditor(user);
   const body = (await req.json()) as {
     namespace?: string;
     question?: string;
