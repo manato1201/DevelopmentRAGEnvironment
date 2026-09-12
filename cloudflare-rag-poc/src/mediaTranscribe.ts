@@ -30,9 +30,14 @@ export async function transcribeAudioVideo(
 
 // YouTube動画の文字起こし（既存GAS adminKbImportYoutube相当）。GeminiはYouTube URLを
 // 直接fileDataとして受け付けられるため、ダウンロード・アップロードは不要。
+// mimeType（2026-09-13追加、実機でINVALID_ARGUMENT(400)エラーを確認して修正）:
+// 上のtranscribeAudioVideo()はfileDataに常にmimeTypeを渡しているのに対し、
+// こちらだけfileUriのみでmimeTypeを渡していなかった。GeminiのfileDataパートは
+// mimeTypeを要求するため、YouTube URLのように実際のコンテナ形式が呼び出し側から
+// 分からない場合でも汎用的な"video/*"を渡す。
 export async function transcribeYoutubeUrl(env: Env, youtubeUrl: string): Promise<string> {
   const result = await generateContentWithParts(env, [
-    { fileData: { fileUri: youtubeUrl } },
+    { fileData: { mimeType: "video/*", fileUri: youtubeUrl } },
     { text: TRANSCRIBE_PROMPT },
   ]);
   return result.text;

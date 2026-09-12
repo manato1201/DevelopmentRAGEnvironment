@@ -2,6 +2,7 @@ import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
 import { sendSlackAlert, sendGmailAlert } from "./alerts";
 import { jsonResponse } from "./http";
+import { computeNamespaceUsage } from "./namespaceAdmin";
 
 export interface HealthIssue {
   severity: "warning" | "error";
@@ -10,6 +11,8 @@ export interface HealthIssue {
 
 const RECENT_ERROR_WINDOW_SEC = 3600;
 const BUDGET_WARNING_RATIO = 0.9;
+const NAMESPACE_USAGE_WINDOW_DAYS = 30;
+const KEY_EXPIRY_WARNING_DAYS = 7;
 
 // 異常検知チェック本体（既存GAS checkHealthAndAlert_相当）。D1接続・直近のKB同期エラー・
 // トークン予算の枯渇間近を確認する。ダウンタイム検知というより「気づかないと困る」種類の
@@ -54,6 +57,38 @@ export async function runHealthCheck(env: Env): Promise<HealthIssue[]> {
       severity: "warning",
       message: `${r.displayName}のRAGトークン予算が残りわずかです（${r.used}/${r.limitTokens}）`,
     });
+  }
+
+  // namespace単位のトークン予算超過（2026-09-12追加、2026-09-12レビューでcomputeNamespaceUsage()
+  // 共通化にリファクタリング。以前はnamespaceAdmin.tsのhandleNamespaceUsage()と
+  // ほぼ同一の集計コードがここに重複していた）。正確な予算「強制」ではなく監視・
+  // アラート用の目安である点はcomputeNamespaceUsage()のコメント参照。
+  const nsUsage = await computeNamespaceUsage(env, NAMESPACE_USAGE_WINDOW_DAYS);
+  for (const n of nsUsage) {
+    if (n.overBudget) {
+      issues.push({
+        severity: "warning",
+        message: `namespace「${n.namespace}」が直近${NAMESPACE_USAGE_WINDOW_DAYS}日間の予算を超過しています（${n.used}/${n.tokenBudget}、概算）`,
+      });
+    }
+  }
+
+  // 有効期限が近い/切れているAPIキー（2026-09-12追加）。期限切れ後は自動的に
+  // 認証エラーになるだけで管理者には何も通知が届かないため、事前に気づけるようにする。
+  const now = Math.floor(Date.now() / 1000);
+  const expiryWarnUntil = now + KEY_EXPIRY_WARNING_DAYS * 86400;
+  const expiringRes = await env.DB.prepare(
+    "SELECT display_name AS displayName, expires_at AS expiresAt FROM users WHERE expires_at IS NOT NULL AND expires_at <= ?",
+  )
+    .bind(expiryWarnUntil)
+    .all<{ displayName: string; expiresAt: number }>();
+  for (const k of expiringRes.results ?? []) {
+    if (k.expiresAt < now) {
+      issues.push({ severity: "warning", message: `APIキー「${k.displayName}」は既に有効期限が切れています` });
+    } else {
+      const daysLeft = Math.ceil((k.expiresAt - now) / 86400);
+      issues.push({ severity: "warning", message: `APIキー「${k.displayName}」はあと${daysLeft}日で有効期限が切れます` });
+    }
   }
 
   return issues;

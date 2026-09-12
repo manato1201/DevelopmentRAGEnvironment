@@ -67,6 +67,8 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
   let sourcesLength: number;
   let answerText: string;
   let tokensUsed: number;
+  let inputTokens: number;
+  let outputTokens: number;
   try {
     const { ranked, hydeTokensUsed } = await retrieve(env, user, query, effective, level, limit);
     const { texts, sources } = buildContextTexts(ranked);
@@ -78,7 +80,13 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
     extractionRate = sources.length > 0 ? Math.round((cited / sources.length) * 100) : 0;
     sourcesLength = sources.length;
     answerText = answerResult.text;
-    tokensUsed = hydeTokensUsed + answerResult.promptTokens + answerResult.candidateTokens;
+    // Gemini API使用量・コスト可視化（2026-09-10追加、Claude側と同じ仕組みをRAG側にも
+    // 適用）。HyDE呼び出し自体のinput/output内訳は取得していないため、安全側で
+    // 全量をinput側に寄せている（HyDEは短い仮回答を生成するだけで出力トークンの
+    // 比率が小さく、見積もり誤差への影響は限定的と判断）。
+    inputTokens = hydeTokensUsed + answerResult.promptTokens;
+    outputTokens = answerResult.candidateTokens;
+    tokensUsed = inputTokens + outputTokens;
   } catch (err) {
     // 予約した見積もり分は、実際には(部分的にせよ)完走しなかった以上ここで払い戻す
     // （厳密には検索段階までは実コストが発生しているが、失敗したリクエストにまで
@@ -88,7 +96,14 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
   }
 
   await reconcileBudget(env, user.userId, "rag", RAG_RESERVE_ESTIMATE, tokensUsed);
-  await finalizeAuditLog(env, auditId, { resultCount: sourcesLength, latencyMs: null, tokensUsed });
+  await finalizeAuditLog(env, auditId, {
+    resultCount: sourcesLength,
+    latencyMs: null,
+    tokensUsed,
+    inputTokens,
+    outputTokens,
+    model: env.GENERATION_MODEL || "gemini-flash-latest",
+  });
 
   const memoryId = await saveMemory(env, user.userId, query, answerText, sourcesWithCitation, effective);
 

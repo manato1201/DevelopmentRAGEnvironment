@@ -71,9 +71,18 @@ export async function handleClaudeMessages(req: Request, env: Env, user: AuthedU
   }
 
   const latencyMs = Date.now() - start;
-  const totalTokens = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0);
+  const inputTokens = response.usage?.input_tokens ?? 0;
+  const outputTokens = response.usage?.output_tokens ?? 0;
+  const totalTokens = inputTokens + outputTokens;
   await reconcileBudget(env, user.userId, "claude", estimate, totalTokens);
-  await finalizeAuditLog(env, auditId, { resultCount: 0, latencyMs, tokensUsed: totalTokens });
+  await finalizeAuditLog(env, auditId, {
+    resultCount: 0,
+    latencyMs,
+    tokensUsed: totalTokens,
+    inputTokens,
+    outputTokens,
+    model: body.model || DEFAULT_MODEL,
+  });
 
   return jsonResponse(200, response);
 }

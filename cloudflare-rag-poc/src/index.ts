@@ -6,21 +6,23 @@ import { handleIngest } from "./ingest";
 import { handleMemoryList, handleMemoryRate, handleMemoryPin, handlePinnedList } from "./memory";
 import { handleSyncNotion, handleRetryFailedNotion } from "./notionSync";
 import { handleSyncDrive, handleRetryFailedDrive } from "./driveSync";
-import { handleSetKbSource, handleKbHistory } from "./kbAdmin";
+import { handleSetKbSource, handleKbHistory, handleKbOverview } from "./kbAdmin";
 import {
   handleCreateKey,
   handleListKeys,
   handleDeleteKey,
   handleUpdateKeyNamespaces,
+  handleUpdateKeyRole,
+  handleUpdateKeyExpiry,
   handleSetKeyCapacity,
   handleChargeKey,
   handleBootstrapAdmin,
 } from "./keyAdmin";
 import { handleAddFaq } from "./faqAdd";
-import { handleCreateNamespace, handleListNamespaces, handleDeleteNamespace, handleSetNamespaceLimit } from "./namespaceAdmin";
+import { handleCreateNamespace, handleListNamespaces, handleDeleteNamespace, handleSetNamespaceLimit, handleSetNamespaceBudget, handleNamespaceUsage } from "./namespaceAdmin";
 import { handleGraph } from "./graph";
-import { handleUsageStats, handleRatingStats } from "./usageStats";
-import { handleImportUrl } from "./urlImport";
+import { handleUsageStats, handleRatingStats, handleClaudeCostStats, handleGeminiCostStats, handleAuditLogList } from "./usageStats";
+import { handleImportUrl, handleCrawlUrl } from "./urlImport";
 import { handleImportQaCsv } from "./qaImport";
 import { handleKbRollback } from "./kbRollback";
 import { handleImportYoutube, handleUploadDoc } from "./mediaImport";
@@ -103,6 +105,8 @@ export default {
           return await handleSetKbSource(req, env, user);
         case "/admin/kb/history":
           return await handleKbHistory(req, env, user);
+        case "/admin/kb/overview":
+          return await handleKbOverview(req, env, user);
         case "/admin/keys/create":
           return await handleCreateKey(req, env, user);
         case "/admin/keys/list":
@@ -111,6 +115,10 @@ export default {
           return await handleDeleteKey(req, env, user);
         case "/admin/keys/update-namespaces":
           return await handleUpdateKeyNamespaces(req, env, user);
+        case "/admin/keys/update-role":
+          return await handleUpdateKeyRole(req, env, user);
+        case "/admin/keys/set-expiry":
+          return await handleUpdateKeyExpiry(req, env, user);
         case "/admin/keys/set-capacity":
           return await handleSetKeyCapacity(req, env, user);
         case "/admin/keys/charge":
@@ -123,12 +131,24 @@ export default {
           return await handleDeleteNamespace(req, env, user);
         case "/admin/namespaces/set-limit":
           return await handleSetNamespaceLimit(req, env, user);
+        case "/admin/namespaces/set-budget":
+          return await handleSetNamespaceBudget(req, env, user);
+        case "/admin/namespaces/usage":
+          return await handleNamespaceUsage(req, env, user);
         case "/admin/usage/stats":
           return await handleUsageStats(req, env, user);
         case "/admin/rating-stats":
           return await handleRatingStats(req, env, user);
+        case "/admin/usage/claude-cost":
+          return await handleClaudeCostStats(req, env, user);
+        case "/admin/usage/gemini-cost":
+          return await handleGeminiCostStats(req, env, user);
+        case "/admin/audit-log":
+          return await handleAuditLogList(req, env, user);
         case "/admin/kb/import-url":
           return await handleImportUrl(req, env, user);
+        case "/admin/kb/crawl-url":
+          return await handleCrawlUrl(req, env, user);
         case "/admin/kb/import-qa-csv":
           return await handleImportQaCsv(req, env, user);
         case "/admin/kb/add-faq":

@@ -1,4 +1,4 @@
-import type { AuthedUser, Env } from "./types";
+import type { AuthedUser, Env, UserRole } from "./types";
 import { sha256Hex } from "./embeddings";
 
 // リクエストの Authorization: Bearer <APIキー> を検証し、D1のusersテーブルと突き合わせる。
@@ -17,12 +17,18 @@ export async function authenticate(
   const userId = await sha256Hex(apiKey);
 
   const userRow = await env.DB.prepare(
-    "SELECT user_id, role FROM users WHERE user_id = ?",
+    "SELECT user_id, role, expires_at FROM users WHERE user_id = ?",
   )
     .bind(userId)
-    .first<{ user_id: string; role: "admin" | "member" | "guest" }>();
+    .first<{ user_id: string; role: UserRole; expires_at: number | null }>();
 
   if (!userRow) return null;
+  // キーの有効期限（2026-09-12追加、migrations/0012）。期限切れは「キーが存在しない」
+  // のと同じ扱いにする（別のエラーメッセージを出すと、有効なキーが実在することを
+  // 攻撃者に教えてしまうため。既存の未登録キー時の挙動と揃える）。
+  if (userRow.expires_at != null && userRow.expires_at < Math.floor(Date.now() / 1000)) {
+    return null;
+  }
 
   // このユーザーがアクセスできるnamespace：
   // - adminロールは全shared namespace + 自分の個人namespaceを無条件に閲覧できる
@@ -59,6 +65,17 @@ export class ForbiddenError extends Error {
 export function requireAdmin(user: AuthedUser): void {
   if (user.role !== "admin") {
     throw new ForbiddenError();
+  }
+}
+
+// ナレッジ登録・KB同期のみを扱うoperation用のゲート（2026-09-10追加、権限の詳細化）。
+// admin/editorどちらも通す。editor（ナレッジ登録権限者）はFAQ/QA/URL/YouTube/文書登録と
+// Drive/Notion同期の実行・履歴閲覧のみ許可し、キー/namespace管理・バックアップ・
+// ヘルスチェック・利用統計・KBロールバックのような、より広い影響範囲を持つ操作は
+// 従来通りrequireAdmin（admin専用）のままにする。
+export function requireKnowledgeEditor(user: AuthedUser): void {
+  if (user.role !== "admin" && user.role !== "editor") {
+    throw new ForbiddenError("ナレッジ登録権限が必要です");
   }
 }
 
