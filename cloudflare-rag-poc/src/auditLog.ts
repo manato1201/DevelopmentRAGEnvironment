@@ -33,11 +33,29 @@ export async function startAuditLog(
 export async function finalizeAuditLog(
   env: Env,
   id: number,
-  fields: { resultCount: number; latencyMs: number | null; tokensUsed: number },
+  fields: {
+    resultCount: number;
+    latencyMs: number | null;
+    tokensUsed: number;
+    // Claude API使用量・コスト可視化（2026-09-10追加）用。claude.tsのhandleClaudeMessages
+    // だけが渡す。他の呼び出し元（query.ts/search.ts）は省略してよく、その場合は
+    // migrations/0010の新カラムにNULLが入ったままになる。
+    inputTokens?: number;
+    outputTokens?: number;
+    model?: string;
+  },
 ): Promise<void> {
   await env.DB.prepare(
-    "UPDATE audit_log SET result_count = ?, latency_ms = ?, tokens_used = ? WHERE id = ?",
+    "UPDATE audit_log SET result_count = ?, latency_ms = ?, tokens_used = ?, input_tokens = ?, output_tokens = ?, model = ? WHERE id = ?",
   )
-    .bind(fields.resultCount, fields.latencyMs, fields.tokensUsed, id)
+    .bind(
+      fields.resultCount,
+      fields.latencyMs,
+      fields.tokensUsed,
+      fields.inputTokens ?? null,
+      fields.outputTokens ?? null,
+      fields.model ?? null,
+      id,
+    )
     .run();
 }

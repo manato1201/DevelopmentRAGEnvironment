@@ -55,6 +55,7 @@ except ImportError:
 try:
     from tutorial_view import TutorialGeneratePanel as _TutorialGeneratePanel
     from tutorial_view import TutorialHistoryPanel as _TutorialHistoryPanel
+    from tutorial_view import VideoLibraryPanel as _VideoLibraryPanel
     _TUTORIAL_AVAILABLE = True
 except ImportError:
     _TUTORIAL_AVAILABLE = False
@@ -520,11 +521,17 @@ class RAGChatbotPanel(QWidget):
         # 見える不具合になっていた＝2026-09-07実機報告の再発分）。
         tutorial_tab = self._build_tutorial_tab()
         self._tutorial_tab_wrapper = self._wrap_tab(tutorial_tab, scrollable=True)
+        # 「動画」タブ（2026-09-12追加）は_tutorial_tab_wrapperと同じ理由でself._tabsより
+        # 先に参照を確保しておく必要がある。TutorialGeneratePanel/TutorialHistoryPanelの
+        # コールバック（_on_video_ready/_on_open_video）がこのタブへの切り替えに使う。
+        video_tab = self._build_video_tab()
+        self._video_tab_wrapper = self._wrap_tab(video_tab)
         tabs.addTab(self._wrap_tab(self._build_help_tab()),     "はじめに")
         tabs.addTab(self._wrap_tab(self._build_chat_tab()),     "Chat")
         tabs.addTab(self._wrap_tab(self._build_graph_tab()),    "Graph")
         tabs.addTab(self._tutorial_tab_wrapper,                 "Tutorial")
         tabs.addTab(self._wrap_tab(self._build_history_tab()),  "History")
+        tabs.addTab(self._video_tab_wrapper,                    "動画")
         tabs.addTab(self._wrap_tab(self._build_settings_tab(), scrollable=True), "Settings")
         self._tabs = tabs  # /tutorial コマンドでのタブ切り替えに使う
 
@@ -753,8 +760,12 @@ class RAGChatbotPanel(QWidget):
             # cfg_getter で常に最新の設定（ポート・プロジェクトパス）を参照させる。
             # on_connection_event: 生成失敗直後に接続ランプへ即時再確認を促すコールバック
             # （ランプ自体はこのタブの外＝タブバー右端にあるため、通知だけ受け取る）。
+            # on_video_ready: 動画生成完了を「動画」タブへ即時反映するコールバック
+            # （2026-09-12追加、_on_video_ready参照）。
             self._tutorial_panel = _TutorialGeneratePanel(
-                lambda: self._cfg, on_connection_event=self._check_connection_async
+                lambda: self._cfg,
+                on_connection_event=self._check_connection_async,
+                on_video_ready=self._on_video_ready,
             )
             return self._tutorial_panel
         self._tutorial_panel = None
@@ -763,9 +774,38 @@ class RAGChatbotPanel(QWidget):
     def _build_history_tab(self) -> QWidget:
         """History タブ: 保存済みチュートリアルの一覧とノードグラフ表示。"""
         if _TUTORIAL_AVAILABLE:
-            self._history_panel = _TutorialHistoryPanel(lambda: self._cfg)
+            # on_open_video: 「▶ 動画を再生」ボタンから「動画」タブへ切り替えるコールバック
+            # （2026-09-12追加、_on_open_video参照）。
+            self._history_panel = _TutorialHistoryPanel(lambda: self._cfg, on_open_video=self._on_open_video)
             return self._history_panel
         return self._missing_module_widget("tutorial_view.py")
+
+    def _build_video_tab(self) -> QWidget:
+        """
+        動画タブ（2026-09-12追加）: 保存済みチュートリアルの動画を一覧・再生する。
+        従来は生成直後のプレビュー再生ボタン（別ウィンドウのポップアップ）でしか見られず、
+        かつ動画パスがどこにも永続化されていなかったため、タブを離れる/Houdiniを再起動
+        すると二度と見つけられなかった（実機フィードバック）。
+        """
+        if _TUTORIAL_AVAILABLE:
+            self._video_library_panel = _VideoLibraryPanel(lambda: self._cfg)
+            return self._video_library_panel
+        self._video_library_panel = None
+        return self._missing_module_widget("tutorial_view.py")
+
+    def _on_video_ready(self, name: str, video_path) -> None:
+        """TutorialGeneratePanelから、動画生成が完了するたびに呼ばれる。"""
+        if self._video_library_panel is not None:
+            self._video_library_panel.show_video(name, video_path)
+
+    def _on_open_video(self, name: str, video_path) -> None:
+        """
+        TutorialHistoryPanelの「▶ 動画を再生」ボタンから呼ばれる。動画タブへ切り替えて
+        該当動画を選択状態にする。
+        """
+        if self._video_library_panel is not None:
+            self._video_library_panel.show_video(name, video_path)
+        self._tabs.setCurrentWidget(self._video_tab_wrapper)
 
     @staticmethod
     def _missing_module_widget(module_name: str) -> QWidget:

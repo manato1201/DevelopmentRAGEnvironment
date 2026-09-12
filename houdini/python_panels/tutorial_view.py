@@ -23,9 +23,10 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QThread, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QBrush, QColor, QDesktopServices, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QWheelEvent
+from PySide6.QtCore import QThread, Qt, QSize, QTimer, QUrl, Signal
+from PySide6.QtGui import QBrush, QColor, QDesktopServices, QFont, QGuiApplication, QIcon, QPainter, QPainterPath, QPen, QWheelEvent
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -201,6 +202,7 @@ class TutorialGeneratePanel(QWidget):
         cfg_getter: Callable[[], dict],
         parent: Optional[QWidget] = None,
         on_connection_event: Callable[[], None] | None = None,
+        on_video_ready: Callable[[str, Path], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._cfg_getter = cfg_getter
@@ -208,6 +210,12 @@ class TutorialGeneratePanel(QWidget):
         # 即時再確認を促すためのコールバック。ランプ自体はこのウィジェットの
         # 責務ではなくなったため、通知だけ行う。
         self._on_connection_event = on_connection_event or (lambda: None)
+        # 動画生成完了を「動画」タブ（VideoLibraryPanel）へ即時反映するためのコールバック
+        # （2026-09-12追加）。従来は生成直後のプレビュー再生ボタン＝別ウィンドウの
+        # QDialogでしか見られず、動画パスも保存済みJSONに記録していなかったため、
+        # タブを離れる/Houdiniを再起動すると二度と見つけられなかった
+        # （実機フィードバック：「はじめから動画タブのようなものを作った方がいい」）。
+        self._on_video_ready = on_video_ready or (lambda title, path: None)
         self._worker: TutorialWorker | TutorialChainWorker | None = None
         self._agent = None            # 生成後もサンドボックス削除用に保持（単発生成モード）
         self._result = None           # TutorialResult（保存待ち。単発生成モードのみ）
@@ -544,7 +552,7 @@ class TutorialGeneratePanel(QWidget):
                 exe_path=exe_path,
             )
             if log_path is not None:
-                self._start_video_progress_poll(log_path, Path(exe_path).parent)
+                self._start_video_progress_poll(log_path, Path(exe_path).parent, md_path)
             return status
         except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
             return f"動画生成の起動に失敗: {exc}"
@@ -554,7 +562,7 @@ class TutorialGeneratePanel(QWidget):
     _VIDEO_PROGRESS_POLL_MS = 2000
     _VIDEO_PROGRESS_MAX_POLLS = 900  # 2秒間隔で最大30分。それ以上は諦めてポーリングだけ止める
 
-    def _start_video_progress_poll(self, log_path: Path, output_dir: Path) -> None:
+    def _start_video_progress_poll(self, log_path: Path, output_dir: Path, md_path: Path) -> None:
         """
         video_factory_cloudrag_poc.exe が書く<slug>_video_factory.logを定期的に
         読み、"Rendered frame N / M" 行から進捗を、"Wrote "/"ERROR"行から完了・
@@ -564,6 +572,14 @@ class TutorialGeneratePanel(QWidget):
         結合してプレビューボタンを有効化する（2026-08-31）。
         プロセスの終了自体は追跡しない（設計方針は video_factory_bridge.py の
         モジュールdocstring参照）ため、あくまでログの中身だけを見るベストエフォート。
+
+        md_path（2026-09-12追加）: 動画パスを<md_path.stem>.video.txtというサイドカー
+        ファイルへ書き出すために使う。チュートリアル本体の.json（result.graph専用の
+        構造）に混ぜず別ファイルにしているのは、既存のTutorialHistoryPanel._on_selectが
+        .jsonの中身をNodeGraphAssetそのものとして直接パースしており、キーを1つ追加する
+        だけでも構造が変わって過去に保存済みの全チュートリアルとの互換性が崩れるため。
+        別ファイルなら既存コードには一切影響しない。合わせてon_video_readyコールバックで
+        「動画」タブ（VideoLibraryPanel）へ即時反映する。
         """
         state = {"polls": 0}
 
@@ -581,6 +597,12 @@ class TutorialGeneratePanel(QWidget):
                 if video_path.exists():
                     self._last_video_path = video_path
                     self._preview_btn.setEnabled(True)
+                    sidecar_path = md_path.with_name(md_path.stem + ".video.txt")
+                    try:
+                        sidecar_path.write_text(str(video_path), encoding="utf-8")
+                    except OSError:
+                        pass  # サイドカー書き出し失敗は致命的ではない（プレビュー再生自体は動く）
+                    self._on_video_ready(md_path.stem, video_path)
                 return
             if "ERROR" in text or "エラー" in text:
                 last_line = text.strip().splitlines()[-1] if text.strip() else ""
@@ -739,6 +761,274 @@ class TutorialGeneratePanel(QWidget):
         self._status.setText(f"サンドボックス削除失敗: {msg}")
 
 
+# ─── 動画ライブラリ（保存済みチュートリアルの動画一覧・再生） ───────────────────────
+#
+# 2026-09-12追加。従来、生成した動画を見る手段はTutorialGeneratePanelの
+# 「▶ プレビュー再生」ボタン（別ウィンドウのQDialog）だけで、かつ動画パスは
+# インスタンス変数（_last_video_path）にしか残らなかったため、タブを離れたり
+# Houdiniを再起動すると同一セッションで生成した動画すら二度と見つけられなかった
+# （実機フィードバック：「新しくタブで動画タブのようなものを追加してみては」）。
+# このタブはTutorialGeneratePanelが動画完成時に書き出すサイドカーファイル
+# （<名前>.video.txt、_start_video_progress_poll参照）を走査するので、Houdiniを
+# 再起動した後でも過去に生成した動画を一覧・再生できる。
+
+
+class VideoLibraryPanel(QWidget):
+    """
+    保存済みチュートリアルの動画を一覧表示し、選択したものをパネル内で再生するタブ。
+    QtWebEngineが使える環境ではパネル内に埋め込んだプレイヤーで直接再生し、
+    使えない環境ではOS標準の動画プレイヤーで開く（TutorialGeneratePanel._on_preview_video
+    と同じフォールバック方針）。
+    """
+
+    _THUMBNAIL_SIZE = QSize(96, 54)  # 16:9相当。QListWidgetのiconSizeと合わせて使う
+
+    def __init__(self, cfg_getter: Callable[[], dict], parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._cfg_getter = cfg_getter
+        self._web_view = None  # QtWebEngineが使えない環境ではNoneのまま
+        self._build_ui()
+        self.refresh()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setSpacing(4)
+
+        toolbar = QHBoxLayout()
+        refresh_btn = QPushButton("更新")
+        refresh_btn.setFixedWidth(60)
+        refresh_btn.clicked.connect(self.refresh)
+        toolbar.addWidget(refresh_btn)
+        # 選択した動画（複数選択可、Ctrl/Shiftクリック）だけを削除する（2026-09-12追加）。
+        # 削除対象は動画ファイルとサイドカー（<名前>.video.txt）のみで、チュートリアル
+        # 本体（.md/.json）やスクリーンショットマニフェストは対象外にしている
+        # （「動画の一括削除」という要望のスコープを動画ファイル自体に絞るため）。
+        self._delete_btn = QPushButton("選択した動画を削除")
+        self._delete_btn.setEnabled(False)
+        self._delete_btn.clicked.connect(self._on_delete_selected)
+        toolbar.addWidget(self._delete_btn)
+        self._status = QLabel("")
+        self._status.setStyleSheet("color:#94a3b8;font-size:11px;")
+        toolbar.addWidget(self._status)
+        toolbar.addStretch()
+        layout.addLayout(toolbar)
+
+        splitter = QSplitter(Qt.Horizontal)
+        self._list = QListWidget()
+        self._list.setIconSize(self._THUMBNAIL_SIZE)
+        self._list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self._list.currentItemChanged.connect(self._on_select)
+        self._list.itemSelectionChanged.connect(
+            lambda: self._delete_btn.setEnabled(len(self._list.selectedItems()) > 0)
+        )
+        splitter.addWidget(self._list)
+
+        self._player_container = QWidget()
+        player_layout = QVBoxLayout(self._player_container)
+        player_layout.setContentsMargins(0, 0, 0, 0)
+        self._placeholder = QLabel("左の一覧から動画を選んでください")
+        self._placeholder.setAlignment(Qt.AlignCenter)
+        self._placeholder.setStyleSheet("color:#94a3b8;")
+        player_layout.addWidget(self._placeholder)
+        try:
+            from PySide6.QtWebEngineWidgets import QWebEngineView
+
+            self._web_view = QWebEngineView()
+            self._web_view.hide()
+            player_layout.addWidget(self._web_view)
+        except ImportError:
+            pass  # OS標準プレイヤーへのフォールバックのみになる（_on_select参照）
+        splitter.addWidget(self._player_container)
+        splitter.setSizes([220, 640])
+        layout.addWidget(splitter, stretch=1)
+
+    def _tutorials_dir(self) -> Path | None:
+        bridge_dir = self._cfg_getter().get("local_bridge_dir", "")
+        if not bridge_dir:
+            return None
+        return Path(bridge_dir) / "localRAG" / "tutorials"
+
+    def _find_thumbnail(self, tutorials_dir: Path, name: str) -> QIcon | None:
+        """
+        <名前>_screenshots.json（video_factory_bridge.pyがvideo factory exeへ渡す
+        スクリーンショットマニフェスト。houdini_tools.pyのexport_step_screenshots()が
+        {"step","tool","viewport","network"}形式で書く）から、最初に見つかる
+        viewport画像（無ければnetwork画像）をサムネイルとして読み込む（2026-09-12追加）。
+        マニフェストが無い・壊れている・画像が見つからない場合はNoneを返し、
+        呼び出し側はテキストのみの行として扱う。
+        """
+        manifest_path = tutorials_dir / f"{name}_screenshots.json"
+        try:
+            shots = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        for shot in shots:
+            for key in ("viewport", "network"):
+                img_path = shot.get(key)
+                if img_path and Path(img_path).exists():
+                    icon = QIcon(img_path)
+                    if not icon.isNull():
+                        return icon
+        return None
+
+    @staticmethod
+    def _format_size(total_bytes: int) -> str:
+        size = float(total_bytes)
+        for unit in ("B", "KB", "MB", "GB"):
+            if size < 1024 or unit == "GB":
+                return f"{size:.1f}{unit}" if unit != "B" else f"{int(size)}{unit}"
+            size /= 1024
+        return f"{size:.1f}GB"
+
+    def refresh(self) -> None:
+        """<名前>.video.txtサイドカーを走査して一覧を作り直す。"""
+        current_path = None
+        if self._list.currentItem() is not None:
+            current_path = self._list.currentItem().data(Qt.UserRole)
+        self._list.clear()
+
+        tutorials_dir = self._tutorials_dir()
+        if tutorials_dir is None:
+            self._status.setText("Settings タブで Bridge Directory を設定してください")
+            return
+        if not tutorials_dir.exists():
+            self._status.setText("まだ保存されたチュートリアルがありません")
+            return
+
+        sidecars = sorted(
+            tutorials_dir.glob("*.video.txt"), key=lambda p: p.stat().st_mtime, reverse=True
+        )
+        restored_item = None
+        total_bytes = 0
+        for sidecar in sidecars:
+            try:
+                video_path_str = sidecar.read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+            if not video_path_str:
+                continue
+            video_path = Path(video_path_str)
+            if not video_path.exists():
+                continue  # 動画ファイル自体が後から移動・削除された場合は一覧から除く
+            name = sidecar.name[: -len(".video.txt")]
+            file_size = video_path.stat().st_size
+            total_bytes += file_size
+            item = QListWidgetItem(f"{name}\n{self._format_size(file_size)}")
+            item.setData(Qt.UserRole, str(video_path))
+            item.setData(Qt.UserRole + 1, str(sidecar))  # 削除時にサイドカーも一緒に消すため
+            thumbnail = self._find_thumbnail(tutorials_dir, name)
+            if thumbnail is not None:
+                item.setIcon(thumbnail)
+            self._list.addItem(item)
+            if current_path == str(video_path):
+                restored_item = item
+
+        self._status.setText(f"{self._list.count()} 件 / 合計 {self._format_size(total_bytes)}")
+        if restored_item is not None:
+            self._list.setCurrentItem(restored_item)
+        self._delete_btn.setEnabled(len(self._list.selectedItems()) > 0)
+
+    def _on_delete_selected(self) -> None:
+        """
+        選択中の動画ファイル＋サイドカーを削除する（2026-09-12追加）。チュートリアル
+        本体（.md/.json）は残す＝あくまで「動画」だけの容量削減が目的のため、
+        再生成すればいつでも動画だけ作り直せる（video_factory_exe_pathが設定済みなら）。
+        """
+        items = self._list.selectedItems()
+        if not items:
+            return
+        names = "\n".join(item.text().split("\n")[0] for item in items)
+        answer = QMessageBox.question(
+            self, "動画を削除",
+            f"以下の動画ファイルを削除します（チュートリアル本体は残ります）。元に戻せません。\n\n{names}",
+        )
+        if answer != QMessageBox.Yes:
+            return
+        failed = []
+        for item in items:
+            video_path = Path(item.data(Qt.UserRole))
+            sidecar_path = Path(item.data(Qt.UserRole + 1))
+            for path in (video_path, sidecar_path):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as exc:
+                    failed.append(f"{path.name}: {exc}")
+        self.refresh()
+        if failed:
+            self._status.setText(self._status.text() + "（一部削除失敗: " + "; ".join(failed) + "）")
+
+    def show_video(self, name: str, video_path: Path) -> None:
+        """
+        指定した動画を選択状態にする（無ければ一覧の先頭に追加してから選択する）。
+        TutorialGeneratePanelの生成完了コールバックとTutorialHistoryPanelの
+        「▶ 動画を再生」ボタン、両方の入口として使う（2026-09-12追加）。同じ動画を
+        複数回開いても一覧に重複行が増えないよう、追加前に既存行を探す。
+        """
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            if item.data(Qt.UserRole) == str(video_path):
+                self._list.setCurrentItem(item)
+                return
+        self.add_video(name, video_path)
+
+    def add_video(self, name: str, video_path: Path) -> None:
+        """
+        生成完了直後、ディスク再走査を待たずに一覧の先頭へ即時反映する
+        （TutorialGeneratePanelのon_video_readyコールバックから呼ばれる）。
+        サイドカーファイル自体は呼び出し元が既に書き出し済みなので、ここではリスト
+        ウィジェットの更新のみを行う。サイドカーパス（Qt.UserRole+1）とサムネイルも
+        refresh()と同じ形式で埋めておく（2026-09-12追加：これが無いと、refresh()を
+        挟まずに追加された行を後から削除しようとした際にクラッシュする不具合があった）。
+
+        注意: video_pathの親ディレクトリはvideo factory exe自身の出力先
+        （video_factory_bridge.pyがPopenのcwdに固定した場所）であり、サイドカー・
+        スクリーンショットマニフェストが置かれているtutorials_dir（.md/.json保存先）
+        とは別の場所になりうる。tutorials_dirは必ずself._tutorials_dir()から取得する
+        こと（video_path.parentを使う実装ミスを一度やって気づいた）。
+        """
+        tutorials_dir = self._tutorials_dir() or video_path.parent
+        sidecar_path = tutorials_dir / f"{name}.video.txt"
+        file_size = video_path.stat().st_size if video_path.exists() else 0
+        item = QListWidgetItem(f"{name}\n{self._format_size(file_size)}")
+        item.setData(Qt.UserRole, str(video_path))
+        item.setData(Qt.UserRole + 1, str(sidecar_path))
+        thumbnail = self._find_thumbnail(tutorials_dir, name)
+        if thumbnail is not None:
+            item.setIcon(thumbnail)
+        self._list.insertItem(0, item)
+        self._list.setCurrentItem(item)
+
+        total_bytes = sum(
+            Path(self._list.item(i).data(Qt.UserRole)).stat().st_size
+            for i in range(self._list.count())
+            if Path(self._list.item(i).data(Qt.UserRole)).exists()
+        )
+        self._status.setText(f"{self._list.count()} 件 / 合計 {self._format_size(total_bytes)}")
+
+    def _on_select(self, current: QListWidgetItem | None, _previous=None) -> None:
+        if current is None:
+            return
+        path = Path(current.data(Qt.UserRole))
+        if not path.exists():
+            self._placeholder.setText(f"ファイルが見つかりません: {path}")
+            self._placeholder.show()
+            if self._web_view is not None:
+                self._web_view.hide()
+            return
+
+        if self._web_view is not None:
+            self._placeholder.hide()
+            self._web_view.show()
+            # チュートリアル生成タブのプレビューと同じ理由で、setHtml()経由の合成HTMLでは
+            # なく動画ファイルへ直接navigateする（file://リソースのオリジン制限を避けるため）。
+            self._web_view.load(QUrl.fromLocalFile(str(path)))
+        else:
+            self._placeholder.setText(
+                f"{path.name}\n（この環境にはQtWebEngineが無いため、外部プレイヤーで開きます）"
+            )
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+
 # ─── ノードグラフビューア（NodeGraphAsset JSON） ─────────────────────────────────
 
 _NODE_W, _NODE_H = 130.0, 34.0
@@ -892,11 +1182,20 @@ class TutorialHistoryPanel(QWidget):
     選択すると Markdown プレビューとノードグラフ（同名 .json）を表示する。
     """
 
-    def __init__(self, cfg_getter: Callable[[], dict], parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        cfg_getter: Callable[[], dict],
+        parent: Optional[QWidget] = None,
+        on_open_video: Callable[[str, Path], None] | None = None,
+    ) -> None:
         super().__init__(parent)
         self._cfg_getter = cfg_getter
         self._current_graph: dict | None = None
         self._simple_mode: bool = True
+        # 選択中チュートリアルに動画（<名前>.video.txtサイドカー）があれば「動画」タブへ
+        # 切り替えて再生させるためのコールバック（2026-09-12追加、VideoLibraryPanel参照）。
+        self._on_open_video = on_open_video or (lambda name, path: None)
+        self._selected_video_path: Path | None = None
         self._build_ui()
         self.refresh()
 
@@ -948,6 +1247,13 @@ class TutorialHistoryPanel(QWidget):
         self._copy_mermaid_btn = QPushButton("Mermaidとしてコピー")
         self._copy_mermaid_btn.clicked.connect(self._on_copy_mermaid)
         toolbar.addWidget(self._copy_mermaid_btn)
+
+        # 選択中のチュートリアルに動画（<名前>.video.txtサイドカー）が見つかった場合のみ
+        # 有効化する（2026-09-12追加）。押すと「動画」タブへ切り替えて再生する。
+        self._open_video_btn = QPushButton("▶ 動画を再生")
+        self._open_video_btn.setEnabled(False)
+        self._open_video_btn.clicked.connect(self._on_open_video_clicked)
+        toolbar.addWidget(self._open_video_btn)
 
         self._status = QLabel("")
         self._status.setStyleSheet("color:#94a3b8;font-size:11px;")
@@ -1080,6 +1386,19 @@ class TutorialHistoryPanel(QWidget):
         except OSError as exc:
             self._md_view.setPlainText(f"読み込みエラー: {exc}")
 
+        # 動画（<名前>.video.txtサイドカー）の有無を確認する（2026-09-12追加）。
+        # VideoLibraryPanel.refresh()と同じ命名規則。
+        self._selected_video_path = None
+        video_sidecar = md_path.with_name(md_path.stem + ".video.txt")
+        if video_sidecar.exists():
+            try:
+                video_path = Path(video_sidecar.read_text(encoding="utf-8").strip())
+                if video_path.exists():
+                    self._selected_video_path = video_path
+            except OSError:
+                pass
+        self._open_video_btn.setEnabled(self._selected_video_path is not None)
+
         json_path = md_path.with_suffix(".json")
         if json_path.exists():
             try:
@@ -1100,6 +1419,15 @@ class TutorialHistoryPanel(QWidget):
             self._current_graph = None
             self._graph_scene.clear()
             self._detail.setText("ノードグラフ JSON がありません")
+
+    def _on_open_video_clicked(self) -> None:
+        """「▶ 動画を再生」ボタン。「動画」タブへの切り替え＋該当動画の選択はコールバック
+        （rag_chatbot.pyがVideoLibraryPanelへ橋渡しする）に委ねる（2026-09-12追加）。"""
+        if self._selected_video_path is None:
+            return
+        current = self._list.currentItem()
+        name = current.text() if current is not None else self._selected_video_path.stem
+        self._on_open_video(name, self._selected_video_path)
 
     def _on_view_mode_changed(self, _button) -> None:
         self._simple_mode = self._simple_btn.isChecked()

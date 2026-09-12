@@ -1,5 +1,5 @@
 import type { AuthedUser, Env } from "./types";
-import { requireAdmin } from "./auth";
+import { requireKnowledgeEditor } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { extractTextFromPdf, extractTextFromDocx, extractTextFromPptx } from "./docExtract";
@@ -19,7 +19,7 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 // POST /admin/kb/import-youtube — YouTube動画を文字起こしして登録する
 // （既存GAS adminKbImportYoutube相当）。body: { namespace, youtubeUrl, title? }
 export async function handleImportYoutube(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireAdmin(user);
+  requireKnowledgeEditor(user);
   const body = (await req.json()) as { namespace?: string; youtubeUrl?: string; title?: string };
   const namespace = (body.namespace || "").trim();
   const youtubeUrl = (body.youtubeUrl || "").trim();
@@ -41,7 +41,7 @@ export async function handleImportYoutube(req: Request, env: Env, user: AuthedUs
 // （既存GAS adminKbUploadDoc相当）。Drive経由ではなく手元のファイルを登録したい場合に使う。
 // body: { namespace, fileBase64, mimeType, fileName }
 export async function handleUploadDoc(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireAdmin(user);
+  requireKnowledgeEditor(user);
   const body = (await req.json()) as { namespace?: string; fileBase64?: string; mimeType?: string; fileName?: string };
   const namespace = (body.namespace || "").trim();
   const fileBase64 = body.fileBase64 || "";

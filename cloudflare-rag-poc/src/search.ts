@@ -47,7 +47,17 @@ export async function handleSearch(req: Request, env: Env, user: AuthedUser): Pr
   }
 
   await reconcileBudget(env, user.userId, "rag", SEARCH_RESERVE_ESTIMATE, hydeTokensUsed);
-  await finalizeAuditLog(env, auditId, { resultCount: sources.length, latencyMs: null, tokensUsed: hydeTokensUsed });
+  // Gemini API使用量・コスト可視化（2026-09-10追加）。/searchはHyDE呼び出しのみで
+  // 最終回答生成は行わないため、hydeTokensUsedを丸ごとinput側に計上する
+  // （query.tsのコメント参照。厳密なinput/output分離はしていない）。
+  await finalizeAuditLog(env, auditId, {
+    resultCount: sources.length,
+    latencyMs: null,
+    tokensUsed: hydeTokensUsed,
+    inputTokens: hydeTokensUsed,
+    outputTokens: 0,
+    model: env.GENERATION_MODEL || "gemini-flash-latest",
+  });
 
   return jsonResponse(200, { texts, sources, status: "ok" } satisfies SearchResponse);
 }

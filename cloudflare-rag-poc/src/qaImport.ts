@@ -1,5 +1,5 @@
 import type { AuthedUser, Env } from "./types";
-import { requireAdmin } from "./auth";
+import { requireKnowledgeEditor } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { jsonResponse } from "./http";
@@ -53,7 +53,7 @@ const DEFAULT_BATCH_SIZE = 5;
 // Notion/Drive同期と同じ理由（Cloudflareのサブリクエスト数上限対策）でバッチ処理にしている。
 // body: { namespace, csvText, startIndex?（省略時0）, batchSize?（省略時5）, opId?（継続呼び出し時に指定） }
 export async function handleImportQaCsv(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireAdmin(user);
+  requireKnowledgeEditor(user);
   const body = (await req.json()) as {
     namespace?: string;
     csvText?: string;
