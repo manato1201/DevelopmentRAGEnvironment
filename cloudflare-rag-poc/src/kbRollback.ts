@@ -2,14 +2,7 @@ import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
 import { logKb } from "./kbIngest";
 import { jsonResponse } from "./http";
-
-const DELETE_CHUNK = 20; // getByIds()の1回あたり上限（20件）に合わせた保守的な値。deleteByIds()の実際の上限は未確認のため同じ値を流用する
-
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
+import { deleteDocumentChunks } from "./kbDocuments";
 
 // POST /admin/kb/rollback — 指定したopId（同期・一括登録操作のID）で登録されたファイルを
 // namespaceから取り消す（既存GAS adminKbRollback相当）。kb_logに記録された「成功」エントリの
@@ -36,23 +29,10 @@ export async function handleKbRollback(req: Request, env: Env, user: AuthedUser)
   const namespace = entries[0].namespace_id;
 
   for (const e of entries) {
-    const chunkRes = await env.DB.prepare(
-      "SELECT chunk_id FROM chunks_fts WHERE namespace = ? AND file = ?",
-    )
-      .bind(e.namespace_id, e.file)
-      .all<{ chunk_id: string }>();
-    const ids = (chunkRes.results ?? []).map((r) => r.chunk_id);
-    if (ids.length === 0) continue;
-
-    for (const idsChunk of chunk(ids, DELETE_CHUNK)) {
-      await env.VEC_SHARED.deleteByIds(idsChunk);
-    }
-    await env.DB.prepare("DELETE FROM chunks_fts WHERE namespace = ? AND file = ?")
-      .bind(e.namespace_id, e.file)
-      .run();
-
+    const deleted = await deleteDocumentChunks(env, e.namespace_id, e.file);
+    if (deleted === 0) continue;
     deletedFiles += 1;
-    deletedChunks += ids.length;
+    deletedChunks += deleted;
   }
 
   await logKb(env, opId, namespace, "manual", null, "ok", `ロールバック実行: ${deletedFiles}ファイル・${deletedChunks}チャンクを削除`);

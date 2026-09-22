@@ -61,7 +61,13 @@ export async function ingestDocument(
   namespaceId: string,
   file: string,
   rawText: string,
-  source: "notion" | "drive" | "manual" = "manual",
+  source:
+    | "notion"
+    | "drive"
+    | "manual"
+    | "jira"
+    | "backlog"
+    | "google_calendar" = "manual",
   signal?: AbortSignal,
 ): Promise<IngestResult> {
   const fullText = sanitizeText(rawText);
@@ -85,7 +91,11 @@ export async function ingestDocument(
   }> = new Array(chunks.length);
 
   const processBatch = async (start: number, end: number) => {
-    const batchValues = await embedTextBatch(env, chunks.slice(start, end), signal);
+    const batchValues = await embedTextBatch(
+      env,
+      chunks.slice(start, end),
+      signal,
+    );
     await Promise.all(
       batchValues.map(async (values, offset) => {
         const i = start + offset;
@@ -128,7 +138,10 @@ export async function ingestDocument(
 
   const batchRanges: Array<{ start: number; end: number }> = [];
   for (let start = 0; start < chunks.length; start += EMBED_BATCH_SIZE) {
-    batchRanges.push({ start, end: Math.min(start + EMBED_BATCH_SIZE, chunks.length) });
+    batchRanges.push({
+      start,
+      end: Math.min(start + EMBED_BATCH_SIZE, chunks.length),
+    });
   }
   for (let g = 0; g < batchRanges.length; g += EMBED_BATCH_CONCURRENCY) {
     const group = batchRanges.slice(g, g + EMBED_BATCH_CONCURRENCY);
@@ -180,7 +193,8 @@ export async function logKb(
   env: Env,
   opId: string,
   namespaceId: string,
-  source: "notion" | "drive" | "manual",
+  source:
+    "notion" | "drive" | "manual" | "jira" | "backlog" | "google_calendar",
   file: string | null,
   status: "ok" | "error" | "skipped",
   detail: string,

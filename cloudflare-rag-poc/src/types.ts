@@ -21,6 +21,15 @@ export interface Env {
   GMAIL_OAUTH_CLIENT_SECRET?: string;
   GMAIL_OAUTH_REFRESH_TOKEN?: string;
   GMAIL_ALERT_TO?: string; // アラートの送信先メールアドレス
+  // 管理タブ「連携」サブタブ用（2026-09-17追加）。ナレッジ登録元としてのJira/Backlog、
+  // 一括登録用のGoogleマップ。いずれも未設定ならその連携だけ「未設定」として扱う
+  // （既存のSlack/Gmailと同じ、全体を止めない方針）。
+  JIRA_BASE_URL?: string; // 例: https://yourteam.atlassian.net
+  JIRA_EMAIL?: string;
+  JIRA_API_TOKEN?: string;
+  BACKLOG_SPACE_URL?: string; // 例: https://yourspace.backlog.com
+  BACKLOG_API_KEY?: string;
+  GOOGLE_MAPS_API_KEY?: string;
 }
 
 // POST /search リクエスト（既存契約と同一形式）
@@ -97,8 +106,9 @@ export interface ChunkMetadata {
   difficulty?: string;
   chunk_index: number;
   text: string;
-  // グラフ表示のノード詳細パネル用（2026-08-25追加。それ以前に投入済みのベクトルには無い）
-  source?: "notion" | "drive" | "manual";
+  // グラフ表示のノード詳細パネル用（2026-08-25追加。それ以前に投入済みのベクトルには無い）。
+  // jira/backlog/google_calendarは2026-09-17追加（連携サブタブ）。
+  source?: "notion" | "drive" | "manual" | "jira" | "backlog" | "google_calendar";
   size?: number; // ドキュメント全体の文字数
   ingested_at?: number; // 登録時のUnixタイムスタンプ（秒）
 }

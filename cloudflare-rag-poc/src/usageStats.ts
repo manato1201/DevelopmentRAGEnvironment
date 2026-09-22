@@ -1,6 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
-import { jsonResponse } from "./http";
+import { jsonResponse, clampInt } from "./http";
 
 // プロバイダ横断のモデル別単価（USD / 1M tokens）。
 // - Claude: houdini/python_panels/tutorial_agent.py の _MODEL_PRICES と同一の値を保つこと
@@ -92,7 +92,7 @@ export async function handleUsageStats(
 ): Promise<Response> {
   requireAdmin(user);
   const body = (await req.json().catch(() => ({}))) as { days?: number };
-  const days = Math.min(Math.max(body.days ?? 14, 1), 90);
+  const days = clampInt(body.days, 14, 1, 90);
   const sinceTs = Math.floor(Date.now() / 1000) - days * 86400;
 
   const dailyRes = await env.DB.prepare(
@@ -188,7 +188,7 @@ export async function handleClaudeCostStats(
 ): Promise<Response> {
   requireAdmin(user);
   const body = (await req.json().catch(() => ({}))) as { days?: number };
-  const days = Math.min(Math.max(body.days ?? 30, 1), 90);
+  const days = clampInt(body.days, 30, 1, 90);
   const sinceTs = Math.floor(Date.now() / 1000) - days * 86400;
 
   const rowsRes = await env.DB.prepare(
@@ -224,7 +224,7 @@ export async function handleGeminiCostStats(
 ): Promise<Response> {
   requireAdmin(user);
   const body = (await req.json().catch(() => ({}))) as { days?: number };
-  const days = Math.min(Math.max(body.days ?? 30, 1), 90);
+  const days = clampInt(body.days, 30, 1, 90);
   const sinceTs = Math.floor(Date.now() / 1000) - days * 86400;
 
   const rowsRes = await env.DB.prepare(
@@ -257,7 +257,7 @@ export async function handleAuditLogList(
 ): Promise<Response> {
   requireAdmin(user);
   const body = (await req.json().catch(() => ({}))) as { limit?: number; user?: string; namespace?: string };
-  const limit = Math.min(Math.max(body.limit ?? 50, 1), 500);
+  const limit = clampInt(body.limit, 50, 1, 500);
 
   const conditions: string[] = [];
   const params: (string | number)[] = [];

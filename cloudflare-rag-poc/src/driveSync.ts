@@ -1,7 +1,7 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
 import { requireKnowledgeEditor } from "./auth";
-import { getGoogleAccessToken } from "./googleAuth";
+import { getGoogleAccessToken, requireGoogleServiceAccountConfig } from "./googleAuth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
@@ -286,6 +286,12 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
 
+  try {
+    requireGoogleServiceAccountConfig(env);
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+
   let folderId: string;
   try {
     folderId = await resolveDriveFolder(env, namespace);
@@ -334,6 +340,12 @@ export async function handleRetryFailedDrive(req: Request, env: Env, user: Authe
   const sourceOpId = (body.opId || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
   if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
+
+  try {
+    requireGoogleServiceAccountConfig(env);
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
 
   let folderId: string;
   try {

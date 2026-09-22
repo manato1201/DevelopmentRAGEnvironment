@@ -86,10 +86,14 @@ export async function handleCreateKey(req: Request, env: Env, user: AuthedUser):
   };
   const displayName = (body.displayName || "").trim();
   if (!displayName) return jsonResponse(400, { error: "displayName は必須です" });
+  const role = body.role ?? "member";
+  if (!VALID_ROLES.includes(role)) {
+    return jsonResponse(400, { error: `roleは${VALID_ROLES.join(", ")}のいずれかである必要があります` });
+  }
 
   const result = await createKeyRecord(env, {
     displayName,
-    role: body.role ?? "member",
+    role,
     namespaces: body.namespaces,
     ragCapacity: body.ragCapacity,
     expiresInDays: body.expiresInDays,
@@ -248,17 +252,21 @@ export async function handleSetKeyCapacity(req: Request, env: Env, user: AuthedU
     return jsonResponse(400, { error: "userId と limitTokens（数値）は必須です" });
   }
 
-  const resetAt = body.resetIntervalHours ? Math.floor(Date.now() / 1000) + body.resetIntervalHours * 3600 : null;
+  // resetIntervalHoursが省略された場合、既存のリセットスケジュールを消さずに保持する
+  // （以前は常にexcluded値で上書きしていたため、limitTokensだけ更新するつもりの
+  // 呼び出しで既存のreset_at/reset_interval_hoursが無条件でnullにリセットされていた）。
+  const hasResetInterval = typeof body.resetIntervalHours === "number";
+  const resetAt = hasResetInterval ? Math.floor(Date.now() / 1000) + body.resetIntervalHours! * 3600 : null;
 
   await env.DB.prepare(
     `INSERT INTO token_budgets (user_id, budget_type, limit_tokens, used_tokens, reset_at, reset_interval_hours)
      VALUES (?, ?, ?, 0, ?, ?)
      ON CONFLICT(user_id, budget_type) DO UPDATE SET
        limit_tokens = excluded.limit_tokens,
-       reset_at = excluded.reset_at,
-       reset_interval_hours = excluded.reset_interval_hours`
+       reset_at = CASE WHEN ? THEN excluded.reset_at ELSE token_budgets.reset_at END,
+       reset_interval_hours = CASE WHEN ? THEN excluded.reset_interval_hours ELSE token_budgets.reset_interval_hours END`
   )
-    .bind(userId, budgetType, body.limitTokens, resetAt, body.resetIntervalHours ?? null)
+    .bind(userId, budgetType, body.limitTokens, resetAt, hasResetInterval ? body.resetIntervalHours : null, hasResetInterval ? 1 : 0, hasResetInterval ? 1 : 0)
     .run();
 
   return jsonResponse(200, { status: "ok" });
