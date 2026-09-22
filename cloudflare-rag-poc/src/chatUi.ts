@@ -2871,7 +2871,7 @@ export function chatUiHtml(): string {
         const total = data.totalPages ?? data.totalFiles ?? data.totalIssues ?? data.totalEvents ?? "?";
         const last = data.results && data.results.length > 0 ? data.results[data.results.length - 1] : null;
         const lastMark = last ? (last.status === "ok" ? "✅" : last.status === "skipped" ? "⏭️" : "⚠️") : "";
-        const lastLine = last ? "\n直前: " + lastMark + " " + last.file + "（" + last.detail + "）" : "";
+        const lastLine = last ? "\\n直前: " + lastMark + " " + last.file + "（" + last.detail + "）" : "";
         progressEl.textContent = "進捗: " + data.processedRange[1] + "/" + total + "（累計 " + totalDocs + "件・" + totalChunks + "チャンク）" + lastLine;
         if (data.nextIndex === null || data.nextIndex === undefined) break;
         startIndex = data.nextIndex;
