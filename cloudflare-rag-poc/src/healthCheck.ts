@@ -3,6 +3,7 @@ import { requireAdmin } from "./auth";
 import { sendSlackAlert, sendGmailAlert } from "./alerts";
 import { jsonResponse } from "./http";
 import { computeNamespaceUsage } from "./namespaceAdmin";
+import { resolveSlackWebhookUrl } from "./slackOAuth";
 
 export interface HealthIssue {
   severity: "warning" | "error";
@@ -119,7 +120,8 @@ export async function handleTestAlert(req: Request, env: Env, user: AuthedUser):
   requireAdmin(user);
   const results: Record<string, string> = {};
 
-  if (env.SLACK_WEBHOOK_URL) {
+  const slackConfigured = (await resolveSlackWebhookUrl(env)) !== null || !!env.SLACK_WEBHOOK_URL;
+  if (slackConfigured) {
     try {
       await sendSlackAlert(env, "🔔 RAG POCからのテスト通知です。これが届いていればSlack連携は正常です。");
       results.slack = "ok";
@@ -127,7 +129,7 @@ export async function handleTestAlert(req: Request, env: Env, user: AuthedUser):
       results.slack = `error: ${err instanceof Error ? err.message : String(err)}`;
     }
   } else {
-    results.slack = "未設定（SLACK_WEBHOOK_URLをシークレット登録してください）";
+    results.slack = "未設定（管理タブの「連携」からOAuthで接続するか、SLACK_WEBHOOK_URLをシークレット登録してください）";
   }
 
   if (env.GMAIL_OAUTH_REFRESH_TOKEN && env.GMAIL_ALERT_TO) {

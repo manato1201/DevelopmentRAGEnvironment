@@ -24,12 +24,24 @@ export interface Env {
   // 管理タブ「連携」サブタブ用（2026-09-17追加）。ナレッジ登録元としてのJira/Backlog、
   // 一括登録用のGoogleマップ。いずれも未設定ならその連携だけ「未設定」として扱う
   // （既存のSlack/Gmailと同じ、全体を止めない方針）。
-  JIRA_BASE_URL?: string; // 例: https://yourteam.atlassian.net
+  JIRA_BASE_URL?: string; // 例: https://yourteam.atlassian.net（OAuth接続時は未設定でもよい。jiraOAuth.ts参照）
   JIRA_EMAIL?: string;
   JIRA_API_TOKEN?: string;
-  BACKLOG_SPACE_URL?: string; // 例: https://yourspace.backlog.com
+  BACKLOG_SPACE_URL?: string; // 例: https://yourspace.backlog.com（OAuth接続時も入力欄として使う。backlogOAuth.ts参照）
   BACKLOG_API_KEY?: string;
   GOOGLE_MAPS_API_KEY?: string;
+  // OAuthクリック接続化（2026-09-22追加）: 各サービス提供元へのOAuthアプリ登録で得る
+  // Client ID/Secret。ここは技術者が一度だけ設定するもので、以後の実際の「接続」操作は
+  // 管理画面のボタンから完結する（oauthConnections.ts参照）。GoogleカレンダーはGmail用に
+  // 既に登録済みのOAuthクライアント（GMAIL_OAUTH_CLIENT_ID/SECRET）をスコープ違いで
+  // そのまま流用できる（GCPのOAuthクライアントはリソースであってスコープに縛られない
+  // ため、新規登録は不要）。
+  JIRA_OAUTH_CLIENT_ID?: string;
+  JIRA_OAUTH_CLIENT_SECRET?: string;
+  BACKLOG_OAUTH_CLIENT_ID?: string;
+  BACKLOG_OAUTH_CLIENT_SECRET?: string;
+  SLACK_OAUTH_CLIENT_ID?: string;
+  SLACK_OAUTH_CLIENT_SECRET?: string;
 }
 
 // POST /search リクエスト（既存契約と同一形式）

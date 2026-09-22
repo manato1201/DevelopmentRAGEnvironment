@@ -20,3 +20,25 @@ export function clampInt(raw: unknown, def: number, min: number, max: number): n
   const n = Number(raw);
   return Math.min(Math.max(Number.isFinite(n) ? Math.trunc(n) : def, min), max);
 }
+
+// OAuthコールバック（jiraOAuth.ts/backlogOAuth.ts/calendarOAuth.ts/slackOAuth.ts）が
+// 結果を表示する簡易HTMLページ用（2026-09-22追加）。コールバックは外部サービスからの
+// リダイレクトで、管理画面のAPIキーもJS実行コンテキストも持たないため、JSON応答ではなく
+// 人間がそのまま読めるページを返す。数秒後に管理画面（"/"）へ自動遷移する。
+export function oauthResultPage(ok: boolean, message: string): Response {
+  const title = ok ? "接続完了" : "接続エラー";
+  const color = ok ? "#15846e" : "#e07a5f";
+  return new Response(
+    `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">` +
+      `<title>${title}</title>` +
+      `<style>body{background:#0c0c0e;color:#e6e8ee;font-family:sans-serif;` +
+      `display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}` +
+      `.box{text-align:center;max-width:480px;padding:2rem;}` +
+      `h1{color:${color};}</style></head><body><div class="box">` +
+      `<h1>${title}</h1><p>${message}</p>` +
+      `<p style="color:#888;font-size:.9rem;">このタブは自動的に管理画面へ戻ります…</p>` +
+      `</div><script>setTimeout(function(){location.href="/";},2500);</script>` +
+      `</body></html>`,
+    { status: ok ? 200 : 400, headers: { "content-type": "text/html; charset=utf-8" } },
+  );
+}

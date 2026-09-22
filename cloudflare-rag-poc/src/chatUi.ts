@@ -648,7 +648,11 @@ export function chatUiHtml(): string {
     <div class="admin-subpanel" data-subtab="integrations">
       <div class="section">
         <h2>Jira</h2>
-        <p class="hint">プロジェクトの課題（要約・説明・種別・ステータス）をnamespaceへ一括登録します。事前にJIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKENのsecret設定が必要です（README参照）。設定済みのプロジェクトは毎日自動で差分同期されます（更新された課題だけを追加登録。初回の全件取り込みは下の「Jira同期を実行」で行ってください）。</p>
+        <p class="hint">プロジェクトの課題（要約・説明・種別・ステータス）をnamespaceへ一括登録します。設定済みのプロジェクトは毎日自動で差分同期されます（更新された課題だけを追加登録。初回の全件取り込みは下の「Jira同期を実行」で行ってください）。</p>
+        <div id="jiraOAuthStatus" class="hint">確認中…</div>
+        <button class="btn primary" id="jiraConnectBtn">🔗 Jiraと接続する</button>
+        <button class="btn danger" id="jiraDisconnectBtn" style="display:none;">接続を解除</button>
+        <p class="hint" style="margin-top:.4rem;">上のボタンでブラウザ認証するだけで接続できます（推奨）。技術者向けに、APIトークンをJIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKENとしてsecret登録する方式も引き続き使えます（README参照）。</p>
         <div class="field-row"><label>namespace</label><input type="text" id="jiraNamespace" placeholder="例: shared:project_x"></div>
         <div class="field-row"><label>プロジェクトキー</label><input type="text" id="jiraProjectKey" placeholder="例: PROJ"> <button class="btn danger" id="jiraClearBtn" title="連携を解除">解除</button></div>
         <div class="field-row"><label>絞り込み条件（任意）</label><input type="text" id="jiraExtraJql" placeholder='例: status = "Done"（JQL形式）'></div>
@@ -663,7 +667,12 @@ export function chatUiHtml(): string {
 
       <div class="section">
         <h2>Backlog</h2>
-        <p class="hint">プロジェクトの課題（要約・説明・種別・ステータス）をnamespaceへ一括登録します。事前にBACKLOG_SPACE_URL/BACKLOG_API_KEYのsecret設定が必要です（README参照）。設定済みのプロジェクトは毎日自動で差分同期されます（Jiraと同様、初回の全件取り込みは手動で行ってください）。</p>
+        <p class="hint">プロジェクトの課題（要約・説明・種別・ステータス）をnamespaceへ一括登録します。設定済みのプロジェクトは毎日自動で差分同期されます（Jiraと同様、初回の全件取り込みは手動で行ってください）。</p>
+        <div id="backlogOAuthStatus" class="hint">確認中…</div>
+        <div class="field-row"><label>スペースURL</label><input type="text" id="backlogSpaceInput" placeholder="例: yourspace.backlog.com"></div>
+        <button class="btn primary" id="backlogConnectBtn">🔗 Backlogと接続する</button>
+        <button class="btn danger" id="backlogDisconnectBtn" style="display:none;">接続を解除</button>
+        <p class="hint" style="margin-top:.4rem;">上のスペースURLを入力してボタンを押すだけで接続できます（推奨）。技術者向けに、APIキーをBACKLOG_SPACE_URL/BACKLOG_API_KEYとしてsecret登録する方式も引き続き使えます（README参照）。</p>
         <div class="field-row"><label>namespace</label><input type="text" id="backlogNamespace" placeholder="例: shared:project_x"></div>
         <div class="field-row"><label>プロジェクトキー/ID</label><input type="text" id="backlogProjectId" placeholder="例: PROJ"> <button class="btn danger" id="backlogClearBtn" title="連携を解除">解除</button></div>
         <div class="field-row"><label>絞り込みキーワード（任意）</label><input type="text" id="backlogKeywordFilter" placeholder="要約・説明の部分一致"></div>
@@ -678,7 +687,11 @@ export function chatUiHtml(): string {
 
       <div class="section">
         <h2>Googleカレンダー</h2>
-        <p class="hint">対象カレンダーをサービスアカウント（GOOGLE_SERVICE_ACCOUNT_JSONのclient_email）に「閲覧者」として共有しておいてください。予定（タイトル・日時・場所・説明）を過去7日〜未来90日分登録します。設定済みのカレンダーは毎日自動で同期されます。</p>
+        <p class="hint">予定（タイトル・日時・場所・説明）を過去7日〜未来90日分登録します。設定済みのカレンダーは毎日自動で同期されます。</p>
+        <div id="calendarOAuthStatus" class="hint">確認中…</div>
+        <button class="btn primary" id="calendarConnectBtn">🔗 Googleと接続する</button>
+        <button class="btn danger" id="calendarDisconnectBtn" style="display:none;">接続を解除</button>
+        <p class="hint" style="margin-top:.4rem;">上のボタンでご自身のGoogleアカウントを認証するだけで、そのアカウントが見えるカレンダーを連携できます（推奨）。技術者向けに、対象カレンダーをサービスアカウント（GOOGLE_SERVICE_ACCOUNT_JSONのclient_email）へ「閲覧者」共有する従来方式も引き続き使えます（README参照）。</p>
         <div class="field-row"><label>namespace</label><input type="text" id="calendarNamespace" placeholder="例: shared:team_schedule"></div>
         <div class="field-row"><label>カレンダーID</label><input type="text" id="calendarId" placeholder="例: xxxx@group.calendar.google.com"> <button class="btn danger" id="calendarClearBtn" title="連携を解除">解除</button></div>
         <button class="btn" id="calendarSetSourceBtn">同期元を設定</button>
@@ -709,8 +722,12 @@ export function chatUiHtml(): string {
 
       <div class="section admin-only-section">
         <h2>通知連携（Slack / Gmail）</h2>
-        <p class="hint">管理者向けの通知・アラート先です。Slack（Incoming Webhook）・Gmail（サービスアカウント経由）はいずれもシークレット設定が必要です（README参照。設定自体は「システム」タブのヘルスチェックと共通です）。</p>
-        <button class="btn" id="integrationsTestAlertBtn">テスト通知を送信</button>
+        <p class="hint">管理者向けの通知・アラート先です。</p>
+        <div id="slackOAuthStatus" class="hint">確認中…</div>
+        <button class="btn primary" id="slackConnectBtn">🔗 Slackワークスペースに追加</button>
+        <button class="btn danger" id="slackDisconnectBtn" style="display:none;">接続を解除</button>
+        <p class="hint" style="margin-top:.4rem;">上のボタンで通知先チャンネルを選ぶだけで接続できます（推奨）。技術者向けに、Incoming Webhook URLをSLACK_WEBHOOK_URLとしてsecret登録する従来方式も引き続き使えます。Gmail（サービスアカウント経由）は引き続きシークレット設定が必要です（README参照）。</p>
+        <button class="btn" id="integrationsTestAlertBtn" style="margin-top:.6rem;">テスト通知を送信</button>
         <div id="integrationsTestAlertResult" class="hint"></div>
       </div>
     </div>
@@ -1224,6 +1241,9 @@ export function chatUiHtml(): string {
       adminSubPanels.forEach((p) => p.classList.remove("active"));
       btn.classList.add("active");
       document.querySelector('.admin-subpanel[data-subtab="' + btn.dataset.subtab + '"]').classList.add("active");
+      // 「連携」タブを開くたびに接続状況を再確認する（OAuth接続直後の戻り先でもあるため、
+      // 2026-09-22追加）。
+      if (btn.dataset.subtab === "integrations") loadOAuthStatus();
     });
   });
 
@@ -3038,6 +3058,85 @@ export function chatUiHtml(): string {
     } catch (e) {
       $("integrationsTestAlertResult").textContent = "エラー: " + e.message;
     }
+  });
+
+  // ---------- OAuthクリック接続化（Jira/Backlog/Googleカレンダー/Slack、2026-09-22追加） ----------
+  // OAuth開始エンドポイントはブラウザの直接ナビゲーション（別タブ扱いにはせず、そのまま
+  // 遷移してコールバック後に自動で戻ってくる）で叩く必要があり、fetch()のような
+  // Authorizationヘッダー付き呼び出しができない。そのため、既にlocalStorageに保存済みの
+  // APIキーをこの一回だけクエリパラメータとして渡す（oauthConnections.ts参照）。
+  function startOAuthConnect(service, extraParams) {
+    const key = (apiKeyEl.value || localStorage.getItem("ragPocApiKey") || "").trim();
+    if (!key) { showToast("先にAPIキーを入力してください", "error"); return; }
+    let url = "/admin/oauth/" + service + "/start?key=" + encodeURIComponent(key);
+    if (extraParams) {
+      for (const k in extraParams) url += "&" + k + "=" + encodeURIComponent(extraParams[k]);
+    }
+    window.location.href = url;
+  }
+
+  async function loadOAuthStatus() {
+    const services = [
+      { key: "jira", statusId: "jiraOAuthStatus", connectId: "jiraConnectBtn", disconnectId: "jiraDisconnectBtn" },
+      { key: "backlog", statusId: "backlogOAuthStatus", connectId: "backlogConnectBtn", disconnectId: "backlogDisconnectBtn" },
+      { key: "google_calendar", statusId: "calendarOAuthStatus", connectId: "calendarConnectBtn", disconnectId: "calendarDisconnectBtn" },
+      { key: "slack", statusId: "slackOAuthStatus", connectId: "slackConnectBtn", disconnectId: "slackDisconnectBtn" },
+    ];
+    try {
+      const data = await api("/admin/oauth/status", {});
+      services.forEach((s) => {
+        const info = data[s.key];
+        const statusEl = $(s.statusId);
+        const connectBtn = $(s.connectId);
+        const disconnectBtn = $(s.disconnectId);
+        if (!statusEl) return; // 念のためのnullガード（通常はどのロールでもDOM自体は常に存在する）
+        if (info && info.connected) {
+          statusEl.textContent = "✅ 接続済み" + (info.label ? "（" + info.label + "）" : "");
+          statusEl.style.color = "#15846e";
+          if (connectBtn) connectBtn.style.display = "none";
+          if (disconnectBtn) disconnectBtn.style.display = "";
+        } else {
+          statusEl.textContent = "未接続";
+          statusEl.style.color = "";
+          if (connectBtn) connectBtn.style.display = "";
+          if (disconnectBtn) disconnectBtn.style.display = "none";
+        }
+      });
+    } catch (e) {
+      services.forEach((s) => { if ($(s.statusId)) $(s.statusId).textContent = "確認に失敗しました: " + e.message; });
+    }
+  }
+
+  $("jiraConnectBtn").addEventListener("click", () => startOAuthConnect("jira"));
+  $("jiraDisconnectBtn").addEventListener("click", async () => {
+    if (!confirm("Jiraとの接続を解除しますか？")) return;
+    try { await api("/admin/oauth/jira/disconnect", {}); showToast("解除しました", "success"); loadOAuthStatus(); }
+    catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
+  });
+
+  $("backlogConnectBtn").addEventListener("click", () => {
+    const space = $("backlogSpaceInput").value.trim();
+    if (!space) { showToast("スペースURLを入力してください", "error"); return; }
+    startOAuthConnect("backlog", { space });
+  });
+  $("backlogDisconnectBtn").addEventListener("click", async () => {
+    if (!confirm("Backlogとの接続を解除しますか？")) return;
+    try { await api("/admin/oauth/backlog/disconnect", {}); showToast("解除しました", "success"); loadOAuthStatus(); }
+    catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
+  });
+
+  $("calendarConnectBtn").addEventListener("click", () => startOAuthConnect("google_calendar"));
+  $("calendarDisconnectBtn").addEventListener("click", async () => {
+    if (!confirm("Googleカレンダーとの接続を解除しますか？")) return;
+    try { await api("/admin/oauth/google_calendar/disconnect", {}); showToast("解除しました", "success"); loadOAuthStatus(); }
+    catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
+  });
+
+  $("slackConnectBtn").addEventListener("click", () => startOAuthConnect("slack"));
+  $("slackDisconnectBtn").addEventListener("click", async () => {
+    if (!confirm("Slackとの接続を解除しますか？")) return;
+    try { await api("/admin/oauth/slack/disconnect", {}); showToast("解除しました", "success"); loadOAuthStatus(); }
+    catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
   });
 
   async function loadKbHistory() {

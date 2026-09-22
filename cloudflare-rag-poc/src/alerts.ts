@@ -1,11 +1,15 @@
 import type { Env } from "./types";
 import { getGmailAccessToken } from "./gmailOAuth";
+import { resolveSlackWebhookUrl } from "./slackOAuth";
 
 // Slack Incoming Webhook（既存GAS sendHealthAlert_のSlack部分に相当）。
-// SLACK_WEBHOOK_URL未設定の場合は何もしない（Slack連携を使わない構成でもエラーにしない）。
+// 管理タブの「連携」でOAuth接続済みならそのWebhook URLを、無ければ従来の
+// SLACK_WEBHOOK_URL secretを使う（2026-09-22追加、slackOAuth.ts参照）。どちらも
+// 未設定の場合は何もしない（Slack連携を使わない構成でもエラーにしない）。
 export async function sendSlackAlert(env: Env, text: string): Promise<void> {
-  if (!env.SLACK_WEBHOOK_URL) return;
-  const res = await fetch(env.SLACK_WEBHOOK_URL, {
+  const webhookUrl = (await resolveSlackWebhookUrl(env)) ?? env.SLACK_WEBHOOK_URL;
+  if (!webhookUrl) return;
+  const res = await fetch(webhookUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ text }),
