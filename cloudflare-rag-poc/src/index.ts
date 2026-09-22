@@ -1,5 +1,5 @@
 import type { Env } from "./types";
-import { authenticate, ForbiddenError } from "./auth";
+import { authenticate, ForbiddenError, requireKnowledgeEditor } from "./auth";
 import { handleSearch } from "./search";
 import { handleQuery } from "./query";
 import { handleIngest } from "./ingest";
@@ -10,6 +10,12 @@ import { handleSyncJira, handleRetryFailedJira, handleTestJiraConnection, runSch
 import { handleSyncBacklog, handleRetryFailedBacklog, handleTestBacklogConnection, runScheduledBacklogSync } from "./backlogSync";
 import { handleSyncCalendar, handleRetryFailedCalendar, handleTestCalendarConnection, runScheduledCalendarSync } from "./calendarSync";
 import { handleImportPlace, handleImportPlacesCsv, handleTestMapsConnection } from "./mapsImport";
+import { handleJiraOAuthStart, handleJiraOAuthCallback, handleJiraOAuthDisconnect } from "./jiraOAuth";
+import { handleBacklogOAuthStart, handleBacklogOAuthCallback, handleBacklogOAuthDisconnect } from "./backlogOAuth";
+import { handleCalendarOAuthStart, handleCalendarOAuthCallback, handleCalendarOAuthDisconnect } from "./calendarOAuth";
+import { handleSlackOAuthStart, handleSlackOAuthCallback, handleSlackOAuthDisconnect } from "./slackOAuth";
+import { getConnection } from "./oauthConnections";
+import { oauthResultPage } from "./http";
 import { handleSetKbSource, handleKbHistory, handleKbOverview } from "./kbAdmin";
 import {
   handleCreateKey,
@@ -60,6 +66,39 @@ export default {
     // クライアント側からfetchする各APIコール時に行う。
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/chat")) {
       return new Response(chatUiHtml(), { headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+
+    // OAuthクリック接続化（2026-09-22追加、oauthConnections.ts参照）。start/callbackは
+    // 外部サービスへのブラウザ直接ナビゲーション（リダイレクト）で叩かれるため、
+    // 他の全エンドポイントと違いGETかつAuthorizationヘッダー無しで届く。そのためこの
+    // ルーティングは下のauthenticate()より前・POST限定ゲートより前に置く必要がある
+    // （startはクエリの?keyで、callbackはstate自体の検証で認可を確認する）。
+    if (req.method === "GET" && url.pathname.startsWith("/admin/oauth/")) {
+      const [, , , service, action] = url.pathname.split("/");
+      try {
+        switch (`${service}/${action}`) {
+          case "jira/start":
+            return await handleJiraOAuthStart(req, env);
+          case "jira/callback":
+            return await handleJiraOAuthCallback(req, env);
+          case "backlog/start":
+            return await handleBacklogOAuthStart(req, env);
+          case "backlog/callback":
+            return await handleBacklogOAuthCallback(req, env);
+          case "google_calendar/start":
+            return await handleCalendarOAuthStart(req, env);
+          case "google_calendar/callback":
+            return await handleCalendarOAuthCallback(req, env);
+          case "slack/start":
+            return await handleSlackOAuthStart(req, env);
+          case "slack/callback":
+            return await handleSlackOAuthCallback(req, env);
+          default:
+            return json(404, { error: "未定義のOAuthエンドポイントです" });
+        }
+      } catch (err) {
+        return oauthResultPage(false, `予期しないエラーが発生しました: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     if (req.method !== "POST") {
@@ -133,6 +172,37 @@ export default {
           return await handleTestCalendarConnection(req, env, user);
         case "/admin/kb/test-connection/maps":
           return await handleTestMapsConnection(req, env, user);
+        case "/admin/oauth/jira/disconnect":
+          return await handleJiraOAuthDisconnect(req, env, user);
+        case "/admin/oauth/backlog/disconnect":
+          return await handleBacklogOAuthDisconnect(req, env, user);
+        case "/admin/oauth/google_calendar/disconnect":
+          return await handleCalendarOAuthDisconnect(req, env, user);
+        case "/admin/oauth/slack/disconnect":
+          return await handleSlackOAuthDisconnect(req, env, user);
+        case "/admin/oauth/status": {
+          requireKnowledgeEditor(user);
+          const [jira, backlog, googleCalendar, slack] = await Promise.all([
+            getConnection(env, "jira"),
+            getConnection(env, "backlog"),
+            getConnection(env, "google_calendar"),
+            getConnection(env, "slack"),
+          ]);
+          return json(200, {
+            status: "ok",
+            jira: jira ? { connected: true, label: jira.extra.siteName ?? "Jira" } : { connected: false },
+            backlog: backlog ? { connected: true, label: backlog.extra.spaceUrl ?? "Backlog" } : { connected: false },
+            google_calendar: googleCalendar ? { connected: true, label: "Google" } : { connected: false },
+            slack: slack
+              ? {
+                  connected: true,
+                  label: [slack.extra.teamName, slack.extra.channel ? `#${slack.extra.channel}` : ""]
+                    .filter(Boolean)
+                    .join(" / ") || "Slack",
+                }
+              : { connected: false },
+          });
+        }
         case "/admin/kb/set-source":
           return await handleSetKbSource(req, env, user);
         case "/admin/kb/history":
