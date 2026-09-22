@@ -10,6 +10,18 @@ interface ServiceAccountKey {
   private_key: string;
 }
 
+// GOOGLE_SERVICE_ACCOUNT_JSON未設定のまま getGoogleAccessToken() を呼ぶと、
+// JSON.parse(undefined) が "Unexpected token u in JSON at position 0" という
+// 原因の分かりにくいエラーになる（2026-09-19、calendarSync.ts追加時のリファクタリングで
+// 発見。driveSync.tsも同じ経路で同じ問題を抱えていたため合わせて修正した）。
+// 呼び出し側（driveSync.ts/calendarSync.ts）で先にこれを呼んでおけば、Jira/Backlog連携の
+// 未設定時と同じ分かりやすいエラーメッセージにできる。
+export function requireGoogleServiceAccountConfig(env: Env): void {
+  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    throw new Error("Google連携が未設定です（GOOGLE_SERVICE_ACCOUNT_JSONをsecretで設定してください）");
+  }
+}
+
 function base64UrlEncode(data: ArrayBuffer | string): string {
   const bytes =
     typeof data === "string"

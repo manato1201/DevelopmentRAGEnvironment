@@ -2,23 +2,11 @@ import type { AuthedUser, Env } from "./types";
 import { requireKnowledgeEditor } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
-import { jsonResponse } from "./http";
+import { jsonResponse, clampInt } from "./http";
 
-// HTMLからscript/style要素を除去した上でテキストのみを抽出する（Workers組み込みの
-// HTMLRewriterを使用。DOMパーサ相当のライブラリを追加せずに済む）。
-async function extractTextFromHtml(html: string): Promise<string> {
-  const chunks: string[] = [];
-  const rewriter = new HTMLRewriter()
-    .on("script", { element: (el) => { el.remove(); } })
-    .on("style", { element: (el) => { el.remove(); } })
-    .on("*", { text: (t) => { chunks.push(t.text); } });
-  await rewriter.transform(new Response(html)).text();
-  return chunks.join(" ").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-// 本文抽出に加え、ページ内のリンク（絶対URLに正規化済み）とtitleタグの内容も収集する
-// （再帰クロール用。extractTextFromHtmlとほぼ同じ処理だが、単発URL登録の挙動を変えない
-// よう別関数として分離）。
+// HTMLから本文テキストを抽出する（Workers組み込みのHTMLRewriterを使用。DOMパーサ相当の
+// ライブラリを追加せずに済む）。本文抽出に加え、ページ内のリンク（絶対URLに正規化済み）と
+// titleタグの内容も収集できる（再帰クロール用。単発URL登録はtext以外を読み捨てる）。
 async function extractTextLinksAndTitle(
   html: string,
   baseUrl: string,
@@ -67,7 +55,7 @@ export async function handleImportUrl(req: Request, env: Env, user: AuthedUser):
   if (!res.ok) return jsonResponse(400, { error: `URLの取得に失敗しました (HTTP ${res.status})` });
 
   const html = await res.text();
-  const text = await extractTextFromHtml(html);
+  const { text } = await extractTextLinksAndTitle(html, res.url || url);
   if (!text) return jsonResponse(400, { error: "本文を抽出できませんでした（対応していないページ形式の可能性があります）" });
 
   const title = (body.title || url).trim();
@@ -90,19 +78,134 @@ const CRAWL_DEFAULT_MAX_PAGES = 20;
 const CRAWL_HARD_MAX_PAGES = 50;
 const CRAWL_DEFAULT_DEPTH = 1;
 const CRAWL_HARD_MAX_DEPTH = 3;
+// Drive/Notion同期と同じ理由（Cloudflare Workers Freeプランはこのアカウントでは
+// limits.cpu_msを引き上げられず、1リクエストで大量のfetch＋Gemini埋め込みを処理すると
+// Error 1102で強制終了する）でバッチ処理にする。1バッチのデフォルトを1ページにしている
+// のも driveSync.ts/notionSync.ts と同じ理由（実機の連続タイムアウト経験に基づく）。
+const CRAWL_DEFAULT_BATCH_SIZE = 1;
+const CRAWL_MAX_BATCH_SIZE = 5;
+
+type CrawlResultStatus = "ok" | "error" | "skipped_existing";
 
 interface CrawlPageResult {
   url: string;
   title: string;
   chunks: number;
   skipped: number;
+  status: CrawlResultStatus;
   error?: string;
+}
+
+interface CrawlJobState {
+  namespace: string;
+  originForLinkFilter: string;
+  pathPrefix: string;
+  excludePatterns: string[];
+  skipExisting: boolean;
+  maxPages: number;
+  maxDepth: number;
+  queue: Array<{ url: string; depth: number }>;
+  visited: string[];
+  processedCount: number;
+}
+
+interface CrawlJobRow {
+  namespace_id: string;
+  origin_for_link_filter: string;
+  path_prefix: string | null;
+  exclude_patterns: string | null;
+  skip_existing: number;
+  max_pages: number;
+  max_depth: number;
+  queue_json: string;
+  visited_json: string;
+  processed_count: number;
+}
+
+async function loadCrawlJob(env: Env, opId: string): Promise<CrawlJobState | null> {
+  const row = await env.DB.prepare("SELECT * FROM crawl_jobs WHERE op_id = ?").bind(opId).first<CrawlJobRow>();
+  if (!row) return null;
+  return {
+    namespace: row.namespace_id,
+    originForLinkFilter: row.origin_for_link_filter,
+    pathPrefix: row.path_prefix || "",
+    excludePatterns: row.exclude_patterns ? (JSON.parse(row.exclude_patterns) as string[]) : [],
+    skipExisting: row.skip_existing === 1,
+    maxPages: row.max_pages,
+    maxDepth: row.max_depth,
+    queue: JSON.parse(row.queue_json) as Array<{ url: string; depth: number }>,
+    visited: JSON.parse(row.visited_json) as string[],
+    processedCount: row.processed_count,
+  };
+}
+
+async function insertCrawlJob(env: Env, opId: string, job: CrawlJobState): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(
+    `INSERT INTO crawl_jobs
+       (op_id, namespace_id, origin_for_link_filter, path_prefix, exclude_patterns, skip_existing,
+        max_pages, max_depth, queue_json, visited_json, processed_count, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      opId,
+      job.namespace,
+      job.originForLinkFilter,
+      job.pathPrefix || null,
+      JSON.stringify(job.excludePatterns),
+      job.skipExisting ? 1 : 0,
+      job.maxPages,
+      job.maxDepth,
+      JSON.stringify(job.queue),
+      JSON.stringify(job.visited),
+      job.processedCount,
+      now,
+      now,
+    )
+    .run();
+}
+
+async function updateCrawlJobProgress(env: Env, opId: string, job: CrawlJobState): Promise<void> {
+  await env.DB.prepare(
+    "UPDATE crawl_jobs SET queue_json = ?, visited_json = ?, processed_count = ?, updated_at = ? WHERE op_id = ?",
+  )
+    .bind(JSON.stringify(job.queue), JSON.stringify(job.visited), job.processedCount, Math.floor(Date.now() / 1000), opId)
+    .run();
+}
+
+async function deleteCrawlJob(env: Env, opId: string): Promise<void> {
+  await env.DB.prepare("DELETE FROM crawl_jobs WHERE op_id = ?").bind(opId).run();
+}
+
+// カンマまたは改行区切りの除外パターン文字列を配列にする。パターンはURL全体に対する
+// 単純な部分一致（大文字小文字を無視）で判定する——正規表現にすると管理者が入力した
+// 任意パターンでReDoSを起こすリスクがあるため、意図的に単純な文字列一致に留めている。
+function parseExcludePatterns(raw: string | undefined): string[] {
+  return (raw || "")
+    .split(/[\n,]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+// 既にnamespace内に同名file（タイトル）で登録済みかどうかを確認する（重複URLスキップ用）。
+// タイトルはページを実際に取得しないと分からないため「事前にfetchをスキップ」はできない
+// が、HTMLRewriterでのfetch＋パース自体は軽く、コストが大きいのはGemini埋め込み呼び出し
+// （ingestDocument内）なので、そこだけ避けられれば実用上の効果は十分ある。
+async function documentAlreadyExists(env: Env, namespace: string, file: string): Promise<boolean> {
+  const row = await env.DB.prepare("SELECT 1 FROM chunks_fts WHERE namespace = ? AND file = ? LIMIT 1")
+    .bind(namespace, file)
+    .first();
+  return row !== null;
 }
 
 // POST /admin/kb/crawl-url — 起点URLからリンクをたどって複数ページをまとめてnamespaceへ
 // 登録する（例: ドキュメントサイトの目次ページを起点に配下ページを一括登録）。
 // SSRF対策としてhttp/https以外のスキームは拒否し、起点と同一オリジンのリンクのみ辿る。
-// body: { namespace, url, depth?, maxPages?, pathPrefix? }
+// Cloudflare Workers FreeプランのCPU時間制限のため、Drive/Notion同期と同じバッチ方式
+// （1リクエストにつきbatchSize件だけ処理し、続きはopIdを指定して呼び直す）にしている。
+// body: 初回 { namespace, url, depth?, maxPages?, pathPrefix?, excludePatterns?,
+//              skipExisting?, batchSize? }
+//       継続呼び出し { opId, batchSize? }（namespace等は初回作成時の値がジョブに保存済み）
 export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireKnowledgeEditor(user);
   const body = (await req.json()) as {
@@ -111,63 +214,118 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
     depth?: number;
     maxPages?: number;
     pathPrefix?: string;
+    excludePatterns?: string;
+    skipExisting?: boolean;
+    batchSize?: number;
+    opId?: string;
   };
-  const namespace = (body.namespace || "").trim();
-  const seedUrl = (body.url || "").trim();
-  if (!namespace || !seedUrl) return jsonResponse(400, { error: "namespace と url は必須です" });
 
-  let seedOrigin: string;
-  try {
-    const parsed = new URL(seedUrl);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return jsonResponse(400, { error: "http/https以外のURLは指定できません" });
+  const batchSize = clampInt(body.batchSize, CRAWL_DEFAULT_BATCH_SIZE, 1, CRAWL_MAX_BATCH_SIZE);
+  const requestedOpId = (body.opId || "").trim();
+
+  let opId: string;
+  let job: CrawlJobState;
+  let isNewJob: boolean;
+
+  if (requestedOpId) {
+    const loaded = await loadCrawlJob(env, requestedOpId);
+    if (!loaded) {
+      return jsonResponse(404, { error: `opId(${requestedOpId})のクロールジョブが見つかりません（完了済みまたは期限切れの可能性があります）` });
     }
-    seedOrigin = parsed.origin;
-  } catch {
-    return jsonResponse(400, { error: "urlの形式が不正です" });
+    opId = requestedOpId;
+    job = loaded;
+    isNewJob = false;
+  } else {
+    const namespace = (body.namespace || "").trim();
+    const seedUrl = (body.url || "").trim();
+    if (!namespace || !seedUrl) return jsonResponse(400, { error: "namespace と url は必須です" });
+
+    let seedOrigin: string;
+    try {
+      const parsed = new URL(seedUrl);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return jsonResponse(400, { error: "http/https以外のURLは指定できません" });
+      }
+      seedOrigin = parsed.origin;
+    } catch {
+      return jsonResponse(400, { error: "urlの形式が不正です" });
+    }
+
+    opId = newOpId();
+    job = {
+      namespace,
+      originForLinkFilter: seedOrigin,
+      pathPrefix: (body.pathPrefix || "").trim(),
+      excludePatterns: parseExcludePatterns(body.excludePatterns),
+      skipExisting: body.skipExisting === true,
+      maxPages: clampInt(body.maxPages, CRAWL_DEFAULT_MAX_PAGES, 1, CRAWL_HARD_MAX_PAGES),
+      maxDepth: clampInt(body.depth, CRAWL_DEFAULT_DEPTH, 0, CRAWL_HARD_MAX_DEPTH),
+      queue: [{ url: seedUrl, depth: 0 }],
+      visited: [],
+      processedCount: 0,
+    };
+    isNewJob = true;
   }
 
-  const maxPages = Math.min(Math.max(1, Math.trunc(body.maxPages ?? CRAWL_DEFAULT_MAX_PAGES)), CRAWL_HARD_MAX_PAGES);
-  const maxDepth = Math.min(Math.max(0, Math.trunc(body.depth ?? CRAWL_DEFAULT_DEPTH)), CRAWL_HARD_MAX_DEPTH);
-  const pathPrefix = (body.pathPrefix || "").trim();
-
-  const opId = newOpId();
-  const visited = new Set<string>();
-  const queue: Array<{ url: string; depth: number }> = [{ url: seedUrl, depth: 0 }];
+  const visited = new Set<string>(job.visited);
   const results: CrawlPageResult[] = [];
+  let processedThisBatch = 0;
 
-  while (queue.length > 0 && results.length < maxPages) {
-    const current = queue.shift()!;
+  while (job.queue.length > 0 && job.processedCount < job.maxPages && processedThisBatch < batchSize) {
+    const current = job.queue.shift()!;
     if (visited.has(current.url)) continue;
     visited.add(current.url);
+    processedThisBatch++;
+    job.processedCount++;
 
     let html: string;
+    let finalUrl = current.url;
     try {
       const res = await fetch(current.url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; RAGImportBot/1.0)" } });
       if (!res.ok) {
-        results.push({ url: current.url, title: current.url, chunks: 0, skipped: 0, error: `HTTP ${res.status}` });
+        results.push({ url: current.url, title: current.url, chunks: 0, skipped: 0, status: "error", error: `HTTP ${res.status}` });
         continue;
       }
+      finalUrl = res.url || current.url;
       html = await res.text();
     } catch (err) {
-      results.push({ url: current.url, title: current.url, chunks: 0, skipped: 0, error: err instanceof Error ? err.message : String(err) });
+      results.push({ url: current.url, title: current.url, chunks: 0, skipped: 0, status: "error", error: err instanceof Error ? err.message : String(err) });
       continue;
     }
 
-    const { text, links, title: pageTitle } = await extractTextLinksAndTitle(html, current.url);
-    const title = pageTitle || current.url;
-    if (!text) {
-      results.push({ url: current.url, title, chunks: 0, skipped: 0, error: "本文を抽出できませんでした" });
-    } else {
-      const result = await ingestDocument(env, namespace, title, text, "manual");
-      const skipNote = result.skippedVectors.length > 0 ? `（${result.skippedVectors.length}チャンクは登録失敗のためスキップ）` : "";
-      await logKb(env, opId, namespace, "manual", title, "ok", `クロール登録: ${result.chunks}チャンク登録${skipNote}（${current.url}）`);
-      results.push({ url: current.url, title, chunks: result.chunks, skipped: result.skippedVectors.length });
+    // 起点URLがリダイレクトする場合（http→https、bare domain→www等）に備え、リンクの
+    // オリジン判定は起点の最終到達先で更新する（そうしないとリダイレクト後のページの
+    // リンクが全て「起点と別オリジン」と誤判定され、一切辿れなくなる）。
+    if (current.depth === 0) {
+      try {
+        job.originForLinkFilter = new URL(finalUrl).origin;
+      } catch {
+        // 解析できない場合は初回に求めたoriginForLinkFilterのまま
+      }
     }
 
-    if (current.depth < maxDepth) {
+    // リンクは元URLではなく、リダイレクト後の実際のページURL（finalUrl）を基準に
+    // 相対解決する（そうしないと起点がリダイレクトするサイトで相対リンクが壊れる）。
+    const { text, links, title: pageTitle } = await extractTextLinksAndTitle(html, finalUrl);
+    const title = pageTitle || current.url;
+
+    if (!text) {
+      results.push({ url: current.url, title, chunks: 0, skipped: 0, status: "error", error: "本文を抽出できませんでした" });
+    } else if (job.skipExisting && (await documentAlreadyExists(env, job.namespace, title))) {
+      results.push({ url: current.url, title, chunks: 0, skipped: 0, status: "skipped_existing" });
+    } else {
+      const result = await ingestDocument(env, job.namespace, title, text, "manual");
+      const skipNote = result.skippedVectors.length > 0 ? `（${result.skippedVectors.length}チャンクは登録失敗のためスキップ）` : "";
+      await logKb(env, opId, job.namespace, "manual", title, "ok", `クロール登録: ${result.chunks}チャンク登録${skipNote}（${current.url}）`);
+      results.push({ url: current.url, title, chunks: result.chunks, skipped: result.skippedVectors.length, status: "ok" });
+    }
+
+    if (current.depth < job.maxDepth) {
       for (const link of links) {
         if (visited.has(link)) continue;
+        // ファンアウトの大きいページ（リンクが数百〜数千件）でキューが際限なく
+        // 肥大化しないよう、実際に処理され得る件数（maxPages）の数倍で頭打ちにする。
+        if (job.queue.length >= job.maxPages * 4) break;
         let linkUrl: URL;
         try {
           linkUrl = new URL(link);
@@ -175,22 +333,32 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
           continue;
         }
         if (linkUrl.protocol !== "http:" && linkUrl.protocol !== "https:") continue;
-        if (linkUrl.origin !== seedOrigin) continue;
-        if (pathPrefix && !linkUrl.pathname.startsWith(pathPrefix)) continue;
-        queue.push({ url: link, depth: current.depth + 1 });
+        if (linkUrl.origin !== job.originForLinkFilter) continue;
+        if (job.pathPrefix && !linkUrl.pathname.startsWith(job.pathPrefix)) continue;
+        const linkLower = link.toLowerCase();
+        if (job.excludePatterns.some((p) => linkLower.includes(p))) continue;
+        job.queue.push({ url: link, depth: current.depth + 1 });
       }
     }
   }
 
-  const totalChunks = results.reduce((sum, r) => sum + r.chunks, 0);
-  const errorCount = results.filter((r) => r.error).length;
+  job.visited = Array.from(visited);
+  const done = job.queue.length === 0 || job.processedCount >= job.maxPages;
+
+  if (done) {
+    if (!isNewJob) await deleteCrawlJob(env, opId);
+  } else if (isNewJob) {
+    await insertCrawlJob(env, opId, job);
+  } else {
+    await updateCrawlJobProgress(env, opId, job);
+  }
 
   return jsonResponse(200, {
     status: "ok",
     opId,
-    totalPages: results.length,
-    totalChunks,
-    errorCount,
     results,
+    processedCount: job.processedCount,
+    maxPages: job.maxPages,
+    done,
   });
 }
