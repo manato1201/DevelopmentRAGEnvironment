@@ -2,6 +2,7 @@ import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
 import { requireKnowledgeEditor } from "./auth";
 import { getGoogleAccessToken, requireGoogleServiceAccountConfig } from "./googleAuth";
+import { resolveCalendarOAuthAccessToken } from "./calendarOAuth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
@@ -20,6 +21,17 @@ const DEFAULT_BATCH_SIZE = 10;
 const PER_EVENT_TIMEOUT_MS = 60_000;
 const DEFAULT_TIME_MIN_DAYS = 7;
 const DEFAULT_TIME_MAX_DAYS = 90;
+
+// 実際にCalendar APIを呼ぶ前に、アクセストークンを解決する（2026-09-22追加、
+// calendarOAuth.ts参照）。OAuth接続（管理画面の「接続する」ボタン）があればそれを
+// 優先し、無ければ従来のサービスアカウント方式（GOOGLE_SERVICE_ACCOUNT_JSON、
+// カレンダーをサービスアカウントのメールアドレスへ共有する必要がある）にフォールバックする。
+async function resolveCalendarAccessToken(env: Env): Promise<string> {
+  const oauthToken = await resolveCalendarOAuthAccessToken(env);
+  if (oauthToken) return oauthToken;
+  requireGoogleServiceAccountConfig(env);
+  return getGoogleAccessToken(env, CALENDAR_SCOPE);
+}
 
 interface CalendarEventSummary {
   id: string;
@@ -169,12 +181,6 @@ export async function handleSyncCalendar(req: Request, env: Env, user: AuthedUse
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
 
-  try {
-    requireGoogleServiceAccountConfig(env);
-  } catch (err) {
-    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
-  }
-
   let calendarId: string;
   try {
     calendarId = await resolveCalendarId(env, namespace);
@@ -190,7 +196,7 @@ export async function handleSyncCalendar(req: Request, env: Env, user: AuthedUse
 
   let events: CalendarEventSummary[];
   try {
-    const token = await getGoogleAccessToken(env, CALENDAR_SCOPE);
+    const token = await resolveCalendarAccessToken(env);
     events = await listCalendarEvents(token, calendarId, timeMinDays, timeMaxDays);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
@@ -232,12 +238,6 @@ export async function handleRetryFailedCalendar(req: Request, env: Env, user: Au
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
   if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
 
-  try {
-    requireGoogleServiceAccountConfig(env);
-  } catch (err) {
-    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
-  }
-
   let calendarId: string;
   try {
     calendarId = await resolveCalendarId(env, namespace);
@@ -267,7 +267,7 @@ export async function handleRetryFailedCalendar(req: Request, env: Env, user: Au
 
   let allEvents: CalendarEventSummary[];
   try {
-    const token = await getGoogleAccessToken(env, CALENDAR_SCOPE);
+    const token = await resolveCalendarAccessToken(env);
     allEvents = await listCalendarEvents(
       token,
       calendarId,
@@ -311,9 +311,9 @@ export async function handleRetryFailedCalendar(req: Request, env: Env, user: Au
 // 上書きするだけなので実害はない。
 export async function runScheduledCalendarSync(env: Env): Promise<void> {
   try {
-    requireGoogleServiceAccountConfig(env);
+    await resolveCalendarAccessToken(env);
   } catch {
-    return; // 未設定の環境では何もしない
+    return; // OAuth未接続かつサービスアカウントも未設定の環境では何もしない
   }
 
   const rows = await env.DB.prepare("SELECT namespace_id, calendar_id FROM kb_sources WHERE calendar_id IS NOT NULL").all<{
@@ -323,7 +323,8 @@ export async function runScheduledCalendarSync(env: Env): Promise<void> {
 
   for (const row of rows.results ?? []) {
     try {
-      const token = await getGoogleAccessToken(env, CALENDAR_SCOPE);
+      // namespaceごとに解決し直す（Jira/Backlog側と同じ理由。トークンの途中失効を避ける）。
+      const token = await resolveCalendarAccessToken(env);
       const events = await listCalendarEvents(token, row.calendar_id, DEFAULT_TIME_MIN_DAYS, DEFAULT_TIME_MAX_DAYS);
       if (events.length === 0) continue;
       const opId = newOpId();
@@ -343,11 +344,6 @@ export async function handleTestCalendarConnection(req: Request, env: Env, user:
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
 
-  try {
-    requireGoogleServiceAccountConfig(env);
-  } catch (err) {
-    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
-  }
   let calendarId: string;
   try {
     calendarId = await resolveCalendarId(env, namespace);
@@ -355,7 +351,7 @@ export async function handleTestCalendarConnection(req: Request, env: Env, user:
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
   try {
-    const token = await getGoogleAccessToken(env, CALENDAR_SCOPE);
+    const token = await resolveCalendarAccessToken(env);
     const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}`, {
       headers: { Authorization: `Bearer ${token}` },
     });

@@ -4,6 +4,7 @@ import { requireKnowledgeEditor } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
+import { resolveBacklogOAuthContext } from "./backlogOAuth";
 
 // Backlog（Nulab）のプロジェクトをナレッジ登録元にする（2026-09-17追加、管理タブ「連携」
 // サブタブ）。Notion/Drive/Jira同期と同じバッチ処理＋opId継続方式。
@@ -15,18 +16,29 @@ const BACKLOG_PAGE_SIZE = 100; // Backlog API の count 上限
 
 function requireBacklogConfig(env: Env): void {
   if (!env.BACKLOG_SPACE_URL || !env.BACKLOG_API_KEY) {
-    throw new Error("Backlog連携が未設定です（BACKLOG_SPACE_URL/BACKLOG_API_KEYをsecretで設定してください）");
+    throw new Error("Backlog連携が未設定です（管理タブの「連携」からOAuthで接続するか、BACKLOG_SPACE_URL/BACKLOG_API_KEYをsecretで設定してください）");
   }
 }
 
-// 呼び出し元（handleSyncBacklog/handleRetryFailedBacklog）は必ず先にrequireBacklogConfig()を
-// 呼んでから使うが、それに依存した非null断言（env.BACKLOG_API_KEY!）は将来別の呼び出し元が
-// 増えた際に検証漏れのまま実行時エラーになりかねないため、ここでも自衛的に検証する
-// （2026-09-19、リファクタリング時に発見・修正）。
-function backlogUrl(env: Env, path: string): URL {
+interface BacklogAuth {
+  spaceUrl: string;
+  headers: Record<string, string>;
+  apiKey: string | null; // legacy方式のみ設定。URLへ?apiKey=として付与する（OAuth方式ではnull）
+}
+
+// 実際にBacklog APIを呼ぶ前に、認証方式を解決する（2026-09-22追加、backlogOAuth.ts参照）。
+// OAuth接続（管理画面の「接続する」ボタン）があればそれを優先し、無ければ従来の
+// BACKLOG_SPACE_URL + ?apiKey=方式にフォールバックする。
+async function resolveBacklogAuth(env: Env): Promise<BacklogAuth> {
+  const oauth = await resolveBacklogOAuthContext(env);
+  if (oauth) return { spaceUrl: oauth.spaceUrl, headers: oauth.headers, apiKey: null };
   requireBacklogConfig(env);
-  const url = new URL(`${env.BACKLOG_SPACE_URL}/api/v2${path}`);
-  url.searchParams.set("apiKey", env.BACKLOG_API_KEY as string);
+  return { spaceUrl: env.BACKLOG_SPACE_URL as string, headers: {}, apiKey: env.BACKLOG_API_KEY as string };
+}
+
+function backlogUrl(auth: BacklogAuth, path: string): URL {
+  const url = new URL(`${auth.spaceUrl}/api/v2${path}`);
+  if (auth.apiKey) url.searchParams.set("apiKey", auth.apiKey);
   return url;
 }
 
@@ -39,8 +51,10 @@ interface BacklogIssueSummary {
 // kb_sourcesにはプロジェクトキー（人間が読める識別子、例: "MFP"）を保存させるが、
 // Backlogのissues一覧APIはprojectId[]に数値の内部IDを要求するため、同期のたびに
 // 一度だけ解決する（プロジェクト自体のGETはキー・ID両方を受け付ける）。
-async function resolveBacklogProjectId(env: Env, projectIdOrKey: string): Promise<number> {
-  const res = await fetch(backlogUrl(env, `/projects/${encodeURIComponent(projectIdOrKey)}`).toString());
+async function resolveBacklogProjectId(auth: BacklogAuth, projectIdOrKey: string): Promise<number> {
+  const res = await fetch(backlogUrl(auth, `/projects/${encodeURIComponent(projectIdOrKey)}`).toString(), {
+    headers: auth.headers,
+  });
   if (!res.ok) throw new Error(`Backlogプロジェクト取得エラー (${res.status}): ${await res.text()}`);
   const data = (await res.json()) as { id: number };
   return data.id;
@@ -56,13 +70,13 @@ interface ListBacklogIssuesOptions {
   sinceUpdatedAtMs?: number;
 }
 
-async function listBacklogIssues(env: Env, projectId: number, opts: ListBacklogIssuesOptions = {}): Promise<BacklogIssueSummary[]> {
+async function listBacklogIssues(auth: BacklogAuth, projectId: number, opts: ListBacklogIssuesOptions = {}): Promise<BacklogIssueSummary[]> {
   const issues: BacklogIssueSummary[] = [];
   let offset = 0;
   const incremental = opts.sinceUpdatedAtMs !== undefined;
 
   while (true) {
-    const url = backlogUrl(env, "/issues");
+    const url = backlogUrl(auth, "/issues");
     url.searchParams.set("projectId[]", String(projectId));
     url.searchParams.set("count", String(BACKLOG_PAGE_SIZE));
     url.searchParams.set("offset", String(offset));
@@ -72,7 +86,7 @@ async function listBacklogIssues(env: Env, projectId: number, opts: ListBacklogI
     url.searchParams.set("order", incremental ? "desc" : "asc");
     if (opts.keyword?.trim()) url.searchParams.set("keyword", opts.keyword.trim());
 
-    const res = await fetch(url.toString());
+    const res = await fetch(url.toString(), { headers: auth.headers });
     if (!res.ok) throw new Error(`Backlog issues APIエラー (${res.status}): ${await res.text()}`);
     const data = (await res.json()) as Array<{
       issueKey: string;
@@ -178,8 +192,9 @@ export async function handleSyncBacklog(req: Request, env: Env, user: AuthedUser
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
 
+  let auth: BacklogAuth;
   try {
-    requireBacklogConfig(env);
+    auth = await resolveBacklogAuth(env);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -197,8 +212,8 @@ export async function handleSyncBacklog(req: Request, env: Env, user: AuthedUser
 
   let issues: BacklogIssueSummary[];
   try {
-    const projectId = await resolveBacklogProjectId(env, backlogConfig.projectIdOrKey);
-    issues = await listBacklogIssues(env, projectId, { keyword: backlogConfig.keyword });
+    const projectId = await resolveBacklogProjectId(auth, backlogConfig.projectIdOrKey);
+    issues = await listBacklogIssues(auth, projectId, { keyword: backlogConfig.keyword });
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -235,8 +250,9 @@ export async function handleRetryFailedBacklog(req: Request, env: Env, user: Aut
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
   if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
 
+  let auth: BacklogAuth;
   try {
-    requireBacklogConfig(env);
+    auth = await resolveBacklogAuth(env);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -270,8 +286,8 @@ export async function handleRetryFailedBacklog(req: Request, env: Env, user: Aut
 
   let allIssues: BacklogIssueSummary[];
   try {
-    const projectId = await resolveBacklogProjectId(env, backlogConfig.projectIdOrKey);
-    allIssues = await listBacklogIssues(env, projectId, { keyword: backlogConfig.keyword });
+    const projectId = await resolveBacklogProjectId(auth, backlogConfig.projectIdOrKey);
+    allIssues = await listBacklogIssues(auth, projectId, { keyword: backlogConfig.keyword });
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -304,7 +320,11 @@ export async function handleRetryFailedBacklog(req: Request, env: Env, user: Aut
 // Cron Trigger（index.tsのscheduled()）から呼ばれる、Backlog連携済み全namespaceの差分同期。
 // Jira側のrunScheduledJiraSyncと同じ設計・同じ理由（2026-09-19追加）。
 export async function runScheduledBacklogSync(env: Env): Promise<void> {
-  if (!env.BACKLOG_SPACE_URL || !env.BACKLOG_API_KEY) return; // 未設定の環境では何もしない
+  try {
+    await resolveBacklogAuth(env); // OAuth未接続かつ従来のsecretも未設定なら、ここで例外になる
+  } catch {
+    return; // 何も設定されていない環境では何もしない
+  }
 
   const rows = await env.DB.prepare(
     "SELECT namespace_id, backlog_project_id, backlog_keyword_filter, backlog_last_synced_at FROM kb_sources WHERE backlog_project_id IS NOT NULL",
@@ -313,11 +333,14 @@ export async function runScheduledBacklogSync(env: Env): Promise<void> {
   for (const row of rows.results ?? []) {
     const runStartedAtMs = Date.now();
     try {
+      // namespaceごとに解決し直す（Jira側のrunScheduledJiraSyncと同じ理由。トークンの
+      // 途中失効を避ける、2026-09-22）。
+      const auth = await resolveBacklogAuth(env);
       // 初回（backlog_last_synced_atが未設定）は「過去24時間分」だけを対象にする
       // （jiraSync.tsのrunScheduledJiraSyncと同じ方針。全件の初回取り込みは手動同期で行う）。
       const sinceUpdatedAtMs = row.backlog_last_synced_at ? row.backlog_last_synced_at * 1000 : runStartedAtMs - 86400_000;
-      const projectId = await resolveBacklogProjectId(env, row.backlog_project_id);
-      const issues = await listBacklogIssues(env, projectId, { keyword: row.backlog_keyword_filter, sinceUpdatedAtMs });
+      const projectId = await resolveBacklogProjectId(auth, row.backlog_project_id);
+      const issues = await listBacklogIssues(auth, projectId, { keyword: row.backlog_keyword_filter, sinceUpdatedAtMs });
       if (issues.length === 0) {
         await env.DB.prepare("UPDATE kb_sources SET backlog_last_synced_at = ? WHERE namespace_id = ?")
           .bind(Math.floor(runStartedAtMs / 1000), row.namespace_id)
@@ -342,13 +365,14 @@ export async function runScheduledBacklogSync(env: Env): Promise<void> {
 // （2026-09-19追加）。
 export async function handleTestBacklogConnection(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireKnowledgeEditor(user);
+  let auth: BacklogAuth;
   try {
-    requireBacklogConfig(env);
+    auth = await resolveBacklogAuth(env);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
   try {
-    const res = await fetch(backlogUrl(env, "/space").toString());
+    const res = await fetch(backlogUrl(auth, "/space").toString(), { headers: auth.headers });
     if (!res.ok) return jsonResponse(400, { error: `Backlog接続エラー (${res.status}): ${await res.text()}` });
     const space = (await res.json()) as { name?: string };
     return jsonResponse(200, { status: "ok", message: `接続成功（スペース「${space.name ?? "?"}」に認証済み）` });

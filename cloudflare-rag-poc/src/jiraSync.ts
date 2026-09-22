@@ -4,6 +4,7 @@ import { requireKnowledgeEditor } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
+import { resolveJiraOAuthContext } from "./jiraOAuth";
 
 // Jira Cloud（Jira Software/Work Management）のプロジェクトをナレッジ登録元にする
 // （2026-09-17追加、管理タブ「連携」サブタブ）。Notion/Drive同期と同じ
@@ -24,8 +25,24 @@ function jiraHeaders(env: Env): Record<string, string> {
 
 function requireJiraConfig(env: Env): void {
   if (!env.JIRA_BASE_URL || !env.JIRA_EMAIL || !env.JIRA_API_TOKEN) {
-    throw new Error("Jira連携が未設定です（JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKENをsecretで設定してください）");
+    throw new Error("Jira連携が未設定です（管理タブの「連携」からOAuthで接続するか、JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKENをsecretで設定してください）");
   }
+}
+
+interface JiraAuth {
+  baseUrl: string;
+  headers: Record<string, string>;
+}
+
+// 実際にJira APIを呼ぶ前に、認証方式を解決する（2026-09-22追加、jiraOAuth.ts参照）。
+// OAuth接続（管理画面の「接続する」ボタン）があればそれを優先し、無ければ従来の
+// JIRA_BASE_URL + Basic認証（メール+APIトークン）にフォールバックする。どちらも
+// 無ければ、OAuth接続を促すメッセージ付きでエラーにする。
+async function resolveJiraAuth(env: Env): Promise<JiraAuth> {
+  const oauth = await resolveJiraOAuthContext(env);
+  if (oauth) return oauth;
+  requireJiraConfig(env);
+  return { baseUrl: env.JIRA_BASE_URL as string, headers: jiraHeaders(env) };
 }
 
 interface JiraIssueSummary {
@@ -71,7 +88,7 @@ interface ListJiraIssuesOptions {
 }
 
 // プロジェクト内の課題を取得する（JQLのstartAt/maxResultsによるページング）。
-async function listJiraIssues(env: Env, projectKey: string, opts: ListJiraIssuesOptions = {}): Promise<JiraIssueSummary[]> {
+async function listJiraIssues(auth: JiraAuth, projectKey: string, opts: ListJiraIssuesOptions = {}): Promise<JiraIssueSummary[]> {
   const issues: JiraIssueSummary[] = [];
   const pageSize = 100;
   let startAt = 0;
@@ -83,13 +100,13 @@ async function listJiraIssues(env: Env, projectKey: string, opts: ListJiraIssues
   const jql = `${clauses.join(" AND ")} ORDER BY created ASC`;
 
   while (true) {
-    const url = new URL(`${env.JIRA_BASE_URL}/rest/api/3/search`);
+    const url = new URL(`${auth.baseUrl}/rest/api/3/search`);
     url.searchParams.set("jql", jql);
     url.searchParams.set("startAt", String(startAt));
     url.searchParams.set("maxResults", String(pageSize));
     url.searchParams.set("fields", "summary,description,status,issuetype,updated");
 
-    const res = await fetch(url.toString(), { headers: jiraHeaders(env) });
+    const res = await fetch(url.toString(), { headers: auth.headers });
     if (!res.ok) throw new Error(`Jira search APIエラー (${res.status}): ${await res.text()}`);
     const data = (await res.json()) as {
       issues: Array<{
@@ -197,8 +214,9 @@ export async function handleSyncJira(req: Request, env: Env, user: AuthedUser): 
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
 
+  let auth: JiraAuth;
   try {
-    requireJiraConfig(env);
+    auth = await resolveJiraAuth(env);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -214,7 +232,7 @@ export async function handleSyncJira(req: Request, env: Env, user: AuthedUser): 
   const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
   const opId = body.opId || newOpId();
 
-  const issues = await listJiraIssues(env, jiraConfig.projectKey, { extraJql: jiraConfig.extraJql });
+  const issues = await listJiraIssues(auth, jiraConfig.projectKey, { extraJql: jiraConfig.extraJql });
   const batch = issues.slice(startIndex, startIndex + batchSize);
 
   const { documents, chunks, skipped, results } = await processJiraBatch(env, namespace, opId, batch);
@@ -249,8 +267,9 @@ export async function handleRetryFailedJira(req: Request, env: Env, user: Authed
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
   if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
 
+  let auth: JiraAuth;
   try {
-    requireJiraConfig(env);
+    auth = await resolveJiraAuth(env);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -282,7 +301,7 @@ export async function handleRetryFailedJira(req: Request, env: Env, user: Authed
     } satisfies KbSyncResult & { totalIssues: number; processedRange: [number, number]; nextIndex: number | null });
   }
 
-  const allIssues = await listJiraIssues(env, jiraConfig.projectKey, { extraJql: jiraConfig.extraJql });
+  const allIssues = await listJiraIssues(auth, jiraConfig.projectKey, { extraJql: jiraConfig.extraJql });
   const targets = allIssues.filter((i) => failedTitles.has(i.title));
 
   const placeholders = targets.map(() => "?").join(",");
@@ -319,7 +338,11 @@ const CRON_SAFETY_MARGIN_MS = 24 * 3600_000;
 // 1 namespaceの失敗（Jira側の一時的なエラー等）が他のnamespaceの同期を止めないよう、
 // namespaceごとにcatchして続行する（2026-09-19追加）。
 export async function runScheduledJiraSync(env: Env): Promise<void> {
-  if (!env.JIRA_BASE_URL || !env.JIRA_EMAIL || !env.JIRA_API_TOKEN) return; // 未設定の環境では何もしない
+  try {
+    await resolveJiraAuth(env); // OAuth未接続かつ従来のsecretも未設定なら、ここで例外になる
+  } catch {
+    return; // 何も設定されていない環境では何もしない
+  }
 
   const rows = await env.DB.prepare(
     "SELECT namespace_id, jira_project_key, jira_extra_jql, jira_last_synced_at FROM kb_sources WHERE jira_project_key IS NOT NULL",
@@ -328,13 +351,18 @@ export async function runScheduledJiraSync(env: Env): Promise<void> {
   for (const row of rows.results ?? []) {
     const runStartedAt = Math.floor(Date.now() / 1000);
     try {
+      // namespaceごとに毎回解決し直す（OAuthアクセストークンが途中で期限切れに近づいた
+      // 場合、resolveJiraAuth()内で自動更新させるため。cron 1回の実行でnamespace数が
+      // 多いと処理時間が延び、最初に解決したトークンが後半で失効する恐れがあるため
+      // 使い回さない、2026-09-22）。
+      const auth = await resolveJiraAuth(env);
       // 初回（jira_last_synced_atが未設定）は「過去24時間分」だけを対象にする。
       // プロジェクト全件の初回取り込みは、管理タブの手動同期ボタン（handleSyncJira）で
       // 行う想定（Cronは日々の差分キャッチアップ専用、README参照）。
       const sinceMs = row.jira_last_synced_at
         ? row.jira_last_synced_at * 1000 - CRON_SAFETY_MARGIN_MS
         : Date.now() - 86400_000;
-      const issues = await listJiraIssues(env, row.jira_project_key, {
+      const issues = await listJiraIssues(auth, row.jira_project_key, {
         extraJql: row.jira_extra_jql,
         sinceIso: new Date(sinceMs).toISOString(),
       });
@@ -364,13 +392,14 @@ export async function runScheduledJiraSync(env: Env): Promise<void> {
 // 行わない）。「連携」タブで設定ミスに同期実行前に気づけるようにするため（2026-09-19追加）。
 export async function handleTestJiraConnection(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireKnowledgeEditor(user);
+  let auth: JiraAuth;
   try {
-    requireJiraConfig(env);
+    auth = await resolveJiraAuth(env);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
   try {
-    const res = await fetch(`${env.JIRA_BASE_URL}/rest/api/3/myself`, { headers: jiraHeaders(env) });
+    const res = await fetch(`${auth.baseUrl}/rest/api/3/myself`, { headers: auth.headers });
     if (!res.ok) return jsonResponse(400, { error: `Jira接続エラー (${res.status}): ${await res.text()}` });
     const me = (await res.json()) as { displayName?: string };
     return jsonResponse(200, { status: "ok", message: `接続成功（${me.displayName ?? "認証済みユーザー"}として認証）` });

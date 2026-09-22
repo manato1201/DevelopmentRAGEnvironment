@@ -317,13 +317,37 @@ while True:
 
 ## 知識ベース同期のセットアップ（Jira / Backlog / Googleカレンダー / Googleマップ）
 
-管理タブの「連携」サブタブから利用する（2026-09-17追加）。Notion/Drive同期と同じく`namespace`ごとに同期元を1つ紐付け、バッチ処理で全件を登録する。認証情報（APIトークン等）はnamespace単位ではなくデプロイ単位のsecretとして登録する。
+管理タブの「連携」サブタブから利用する（2026-09-17追加）。Notion/Drive同期と同じく`namespace`ごとに同期元を1つ紐付け、バッチ処理で全件を登録する。
 
-**連携を解除するには**、「連携」タブの各項目にある「解除」ボタンを使う（`/admin/kb/set-source`に`clearJira`/`clearBacklog`/`clearCalendar`等を`true`で送る）。入力欄を空にして「同期元を設定」を押しても解除にはならない（「変更しない」として扱われる）。
+**認証方式は2通りある（2026-09-22追加、Jira/Backlog/Googleカレンダー対応）**:
+- **OAuthクリック接続（推奨）**: 技術者が各サービスにOAuthアプリを一度だけ登録しておけば（下記の各サービスの手順参照）、以後は非技術者でも管理タブの「接続する」ボタン→ブラウザ認証だけで接続できる。APIトークンを発行・コピペする必要が無い。
+- **従来方式（APIトークン等をsecret登録）**: OAuthアプリを登録しない場合の代替手段。技術者がCLIで`wrangler secret put`する必要がある。
+
+どちらの方式で認証していても、「どのプロジェクト/カレンダーをどのnamespaceに登録するか」という紐付け設定（プロジェクトキー・カレンダーID等）は共通で、管理タブの「連携」タブに直接入力する。OAuth接続がある場合は自動的にそちらが優先される。
+
+**連携を解除するには**、認証方式ごとに解除の対象が異なる：
+- OAuth接続を解除するには「接続を解除」ボタンを使う
+- namespaceとプロジェクト/カレンダーの紐付けだけを解除するには「解除」ボタンを使う（`/admin/kb/set-source`に`clearJira`/`clearBacklog`/`clearCalendar`等を`true`で送る）。入力欄を空にして「同期元を設定」を押しても解除にはならない（「変更しない」として扱われる）
 
 **設定ミスへの対処**: 各連携に「接続テスト」ボタンがあり、実際の登録は行わずsecret・IDの妥当性だけを確認できる。同期を実行する前にまずこれで確認するとよい。
 
 ### Jira
+
+**OAuthクリック接続（推奨、2026-09-22追加）**: 一度だけ技術者がOAuthアプリを登録すれば、以後は管理タブの「連携」タブの「Jiraと接続する」ボタンを押すだけで、非技術者でもブラウザ認証だけで接続できる（APIトークンの発行・貼り付け不要）。
+
+1. （技術者が一度だけ）https://developer.atlassian.com/console/myapps/ で「Create」→「OAuth 2.0 integration」を作成する
+2. 「Permissions」で「Jira API」を追加し、スコープに `read:jira-work` と `offline_access` を追加する
+3. 「Authorization」→「OAuth 2.0 (3LO)」の「Callback URL」に `https://<デプロイ先ドメイン>/admin/oauth/jira/callback` を設定する（例: `https://rag-poc.<アカウント名>.workers.dev/admin/oauth/jira/callback`）
+4. 「Settings」に表示される「Client ID」「Client Secret」を控え、シークレットとして登録する：
+
+```bash
+npx wrangler secret put JIRA_OAUTH_CLIENT_ID
+npx wrangler secret put JIRA_OAUTH_CLIENT_SECRET
+```
+
+5. 以後は管理タブの「連携」タブから「Jiraと接続する」→ ブラウザでAtlassianアカウントにログイン・許可、で接続完了
+
+**従来方式（APIトークンを手動発行、技術者向け）**: OAuthアプリを登録せずに使う場合はこちら。OAuth接続がある場合はそちらが優先される。
 
 1. Atlassianアカウントの「アカウント設定」→「セキュリティ」→「APIトークンを作成して管理」からAPIトークンを発行する
 2. シークレットとして登録する：
@@ -336,12 +360,29 @@ npx wrangler secret put JIRA_EMAIL
 npx wrangler secret put JIRA_API_TOKEN
 ```
 
-3. 同期したいプロジェクトのプロジェクトキー（課題番号の接頭辞、例: `PROJ-123`の`PROJ`）を管理タブの「連携」サブタブでnamespaceに設定する
-4. 必要なら「絞り込み条件」にJQL条件（例: `status = "Done"`）を追加できる。`project = "<キー>" AND (<絞り込み条件>)`として実行される
+**namespaceへの紐付け（OAuth・従来方式共通）**
+
+1. 同期したいプロジェクトのプロジェクトキー（課題番号の接頭辞、例: `PROJ-123`の`PROJ`）を管理タブの「連携」サブタブでnamespaceに設定する
+2. 必要なら「絞り込み条件」にJQL条件（例: `status = "Done"`）を追加できる。`project = "<キー>" AND (<絞り込み条件>)`として実行される
 
 **自動差分同期（Cron）**: 一度でも同期元を設定したプロジェクトは、毎日UTC 4時に自動で差分同期される（前回の自動同期以降に更新された課題だけを追加登録）。プロジェクト全件の初回取り込みは、管理タブの「Jira同期を実行」を手動で1回実行すること（Cronは日々のキャッチアップ専用で、初回は「過去24時間分」しか見ない）。
 
 ### Backlog
+
+**OAuthクリック接続（推奨、2026-09-22追加）**: 一度だけ技術者がOAuthアプリを登録すれば、以後は管理タブの「連携」タブでスペースURLを入力して「Backlogと接続する」ボタンを押すだけで、非技術者でもブラウザ認証だけで接続できる。
+
+1. （技術者が一度だけ）Backlogの「個人設定」→「アプリケーション」→「新規アプリケーション登録」でOAuth2アプリを作成する
+2. 「コールバックURL」に `https://<デプロイ先ドメイン>/admin/oauth/backlog/callback` を設定する（例: `https://rag-poc.<アカウント名>.workers.dev/admin/oauth/backlog/callback`）
+3. 発行される「Client ID」「Client Secret」を控え、シークレットとして登録する：
+
+```bash
+npx wrangler secret put BACKLOG_OAUTH_CLIENT_ID
+npx wrangler secret put BACKLOG_OAUTH_CLIENT_SECRET
+```
+
+4. 以後は管理タブの「連携」タブでスペースURL（例: `yourspace.backlog.com`）を入力し「Backlogと接続する」→ ブラウザでBacklogアカウントにログイン・許可、で接続完了
+
+**従来方式（APIキーを手動発行、技術者向け）**: OAuthアプリを登録せずに使う場合はこちら。OAuth接続がある場合はそちらが優先される。
 
 1. Backlogの「個人設定」→「API」からAPIキーを発行する
 2. シークレットとして登録する：
@@ -352,18 +393,32 @@ npx wrangler secret put BACKLOG_SPACE_URL
 npx wrangler secret put BACKLOG_API_KEY
 ```
 
-3. 同期したいプロジェクトのプロジェクトキー（またはID）を管理タブの「連携」サブタブでnamespaceに設定する
-4. 必要なら「絞り込みキーワード」にBacklog issues APIの`keyword`パラメータ（要約・説明の部分一致）を設定できる
+**namespaceへの紐付け（OAuth・従来方式共通）**
+
+1. 同期したいプロジェクトのプロジェクトキー（またはID）を管理タブの「連携」サブタブでnamespaceに設定する
+2. 必要なら「絞り込みキーワード」にBacklog issues APIの`keyword`パラメータ（要約・説明の部分一致）を設定できる
 
 **自動差分同期（Cron）**: Jiraと同じく、毎日UTC 4時に自動で差分同期される（初回は「過去24時間分」のみ。全件の初回取り込みは手動同期で行う）。
 
 ### Googleカレンダー
 
-Drive同期と同じサービスアカウント（`GOOGLE_SERVICE_ACCOUNT_JSON`）を流用するため、新規シークレットは不要。既に設定済みでない場合はDrive同期のセットアップ手順を先に行うこと。
+**OAuthクリック接続（推奨、2026-09-22追加）**: 管理タブの「連携」タブの「Googleと接続する」ボタンを押し、自分のGoogleアカウントでログイン・許可するだけで、そのアカウントが見えるカレンダーを連携できる（対象カレンダーをサービスアカウントへ共有する手順は不要）。
+
+Gmail連携（下記「ヘルスチェック・アラート通知のセットアップ」参照）で既にOAuthアプリ（`GMAIL_OAUTH_CLIENT_ID`/`GMAIL_OAUTH_CLIENT_SECRET`）を登録済みなら、それをそのまま流用でき新規登録は不要。まだの場合：
+
+1. （技術者が一度だけ）Gmail連携のセットアップ手順の1〜3（GCPコンソールでGmail APIを有効化し、OAuthクライアントIDを作成）を行う
+2. GCPコンソールの当該OAuthクライアントの「承認済みのリダイレクトURI」に `https://<デプロイ先ドメイン>/admin/oauth/google_calendar/callback` を追加する
+3. `GMAIL_OAUTH_CLIENT_ID`/`GMAIL_OAUTH_CLIENT_SECRET`をシークレット登録済みであること
+4. 以後は管理タブの「連携」タブから「Googleと接続する」→ ブラウザでGoogleアカウントにログイン・許可、で接続完了
+
+**従来方式（サービスアカウント、技術者向け）**: Drive同期と同じサービスアカウント（`GOOGLE_SERVICE_ACCOUNT_JSON`）を流用する方式もOAuth未接続時のフォールバックとして引き続き使える。
 
 1. 対象のGoogleカレンダーの共有設定から、サービスアカウントのメールアドレス（`xxx@yyy.iam.gserviceaccount.com`）を**閲覧者権限で追加**する
-2. カレンダーのID（カレンダー設定の「カレンダーの統合」欄にある。自分のメインカレンダーならそのメールアドレス自身、共有カレンダーなら`xxxx@group.calendar.google.com`形式）を管理タブの「連携」サブタブでnamespaceに設定する
-3. デフォルトでは過去7日〜未来90日分の予定（タイトル・日時・場所・説明）を登録する
+
+**namespaceへの紐付け（OAuth・従来方式共通）**
+
+1. カレンダーのID（カレンダー設定の「カレンダーの統合」欄にある。自分のメインカレンダーならそのメールアドレス自身、共有カレンダーなら`xxxx@group.calendar.google.com`形式）を管理タブの「連携」サブタブでnamespaceに設定する
+2. デフォルトでは過去7日〜未来90日分の予定（タイトル・日時・場所・説明）を登録する
 
 **自動同期（Cron）**: 設定済みのカレンダーは毎日UTC 4時に自動で同期される。Jira/Backlogと違い差分検知はせず、毎回同じ時間窓を丸ごと再取得する（予定の件数は通常少なく、既存予定の編集も取りこぼさないようにするための単純な設計）。
 
@@ -385,7 +440,23 @@ npx wrangler secret put GOOGLE_MAPS_API_KEY
 
 30分ごとのCron Triggerで、D1接続・直近1時間のKB同期エラー・トークン予算枯渇間近を自動チェックする。問題があれば設定済みのチャンネルへ通知する。**どちらも未設定のままでもエラーにはならない**（該当チャンネルへの送信をスキップするだけ）。
 
-### Slack（推奨・数分で設定できる）
+### Slack
+
+**OAuthクリック接続（推奨、2026-09-22追加）**: 一度だけ技術者がSlackアプリを登録すれば、以後は管理タブの「連携」タブの「Slackワークスペースに追加」ボタンを押すだけで、非技術者でも通知先チャンネルを選んで接続できる。
+
+1. （技術者が一度だけ）https://api.slack.com/apps で「Create New App」→「From scratch」でアプリを作成する
+2. 左メニュー「OAuth & Permissions」→「Redirect URLs」に `https://<デプロイ先ドメイン>/admin/oauth/slack/callback` を追加する（例: `https://rag-poc.<アカウント名>.workers.dev/admin/oauth/slack/callback`）
+3. 同じ画面の「Bot Token Scopes」に `incoming-webhook` を追加する
+4. 「Basic Information」に表示される「Client ID」「Client Secret」を控え、シークレットとして登録する：
+
+```bash
+npx wrangler secret put SLACK_OAUTH_CLIENT_ID
+npx wrangler secret put SLACK_OAUTH_CLIENT_SECRET
+```
+
+5. 以後は管理タブの「連携」タブから「Slackワークスペースに追加」→ 通知先チャンネルを選んで許可、で接続完了
+
+**従来方式（Incoming Webhook URLを手動発行、技術者向け）**: OAuthアプリを登録せずに使う場合はこちら。
 
 1. Slackで対象チャンネルの「連携アプリを追加」→「Incoming Webhook」を有効化し、Webhook URLを発行する
 2. シークレットとして登録する：
