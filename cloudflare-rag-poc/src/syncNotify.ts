@@ -13,7 +13,7 @@ export async function notifySyncComplete(
   env: Env,
   opId: string,
   namespace: string,
-  source: "drive" | "notion",
+  source: "drive" | "notion" | "jira" | "backlog" | "google_calendar",
   notifyOnErrorOnly = false,
 ): Promise<void> {
   if (!env.SLACK_WEBHOOK_URL) return; // Slack未設定の環境では何もしない（既存のsendSlackAlertと同じ方針）
@@ -34,7 +34,14 @@ export async function notifySyncComplete(
   // 毎回通知が来て通知疲れになりがちだという指摘への対応。
   if (notifyOnErrorOnly && error === 0) return;
 
-  const sourceLabel = source === "drive" ? "Drive" : "Notion";
+  const sourceLabels: Record<typeof source, string> = {
+    drive: "Drive",
+    notion: "Notion",
+    jira: "Jira",
+    backlog: "Backlog",
+    google_calendar: "Googleカレンダー",
+  };
+  const sourceLabel = sourceLabels[source];
 
   const text =
     `📚 知識ベース同期が完了しました（${sourceLabel} / namespace: ${namespace}）\n` +

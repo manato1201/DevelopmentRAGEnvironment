@@ -1,6 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { requireAdmin } from "./auth";
-import { jsonResponse } from "./http";
+import { jsonResponse, clampInt } from "./http";
 
 // POST /admin/namespaces/create — namespaceを新規作成する（既存GAS adminCreateNamespace相当）。
 // body: { namespaceId, scope: 'shared'|'personal', ownerUserId?（scope='personal'の場合必須） }
@@ -138,7 +138,7 @@ export async function computeNamespaceUsage(env: Env, days: number): Promise<Nam
 export async function handleNamespaceUsage(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireAdmin(user);
   const body = (await req.json().catch(() => ({}))) as { days?: number };
-  const days = Math.min(Math.max(body.days ?? 30, 1), 90);
+  const days = clampInt(body.days, 30, 1, 90);
 
   const all = await computeNamespaceUsage(env, days);
   const namespaces = all.filter((n) => n.used > 0 || n.tokenBudget != null);

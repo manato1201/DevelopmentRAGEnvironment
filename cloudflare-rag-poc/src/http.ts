@@ -10,3 +10,13 @@ export function jsonResponse(status: number, body: unknown): Response {
     headers: { "content-type": "application/json; charset=utf-8" },
   });
 }
+
+// リクエストbodyの数値パラメータ（days/limit等）を安全にクランプする（2026-09-13追加。
+// 各ハンドラが個別にMath.min(Math.max(body.x ?? 既定値, min), max)を書いており、直接API
+// を叩かれてbody.xに文字列やbooleanが渡ると`??`はnullish判定しか行わないためすり抜け、
+// NaNが混入して比較が常にfalseになる（例: `count < NaN`は常にfalse）事故が起きていた
+// ——実際にurlImport.tsの再帰クロールでこの不具合が見つかり修正した際に切り出した）。
+export function clampInt(raw: unknown, def: number, min: number, max: number): number {
+  const n = Number(raw);
+  return Math.min(Math.max(Number.isFinite(n) ? Math.trunc(n) : def, min), max);
+}

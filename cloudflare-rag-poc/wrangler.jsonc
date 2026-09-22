@@ -39,8 +39,9 @@
 	// Cron Trigger。src/index.tsのscheduled()がevent.cronの値で処理を振り分ける：
 	// "0 3 * * *" = 期限切れチャット履歴の自動削除（毎日UTC 3時）
 	// "*/30 * * * *" = ヘルスチェック・異常検知アラート（30分ごと）
+	// "0 4 * * *" = Jira/Backlog/カレンダー連携の自動差分同期（毎日UTC 4時、2026-09-19追加）
 	"triggers": {
-		"crons": ["0 3 * * *", "*/30 * * * *"]
+		"crons": ["0 3 * * *", "*/30 * * * *", "0 4 * * *"]
 	}
 	// 2026-09-04調査メモ: Drive/Notion同期の「非JSON・HTTP 503」エラーはCloudflare側の
 	// CPU時間制限（Error 1102 "Worker exceeded resource limits"）が原因と判明したが、

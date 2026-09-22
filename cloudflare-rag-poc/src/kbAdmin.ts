@@ -2,25 +2,88 @@ import type { AuthedUser, Env } from "./types";
 import { requireKnowledgeEditor } from "./auth";
 import { jsonResponse } from "./http";
 
-// POST /admin/kb/set-source — namespaceごとの同期元（Notion DB ID / Drive フォルダID）を設定する
-// （既存GAS adminSetNotionDbId/adminSetDriveFolder相当）。
+interface KbSourceRow {
+  notion_database_id: string | null;
+  drive_folder_id: string | null;
+  jira_project_key: string | null;
+  backlog_project_id: string | null;
+  calendar_id: string | null;
+  jira_extra_jql: string | null;
+  backlog_keyword_filter: string | null;
+}
+
+// フィールド1つ分の「今回の値」を決定する: clear指定があればNULL（解除）、値が送られてきて
+// いればその値、どちらでもなければ既存値のまま（2026-09-19追加。以前はSQLのCOALESCEで
+// 「送られてこなければ既存値を維持」だけを表現していたが、それだと一度設定した値を
+// 後から解除する手段が無かった＝実機フィードバックで「Jiraの連携を外したい」に対応できない
+// 不備だったため、解除を明示的に扱えるよう書き直した）。
+function resolveSourceField(clear: boolean | undefined, incoming: string | undefined, existing: string | null | undefined): string | null {
+  if (clear) return null;
+  const trimmed = incoming?.trim();
+  if (trimmed) return trimmed;
+  return existing ?? null;
+}
+
+// POST /admin/kb/set-source — namespaceごとの同期元（Notion DB ID / Drive フォルダID /
+// Jiraプロジェクトキー / Backlogプロジェクト / GoogleカレンダーID）と、Jira/Backlogの
+// 絞り込み条件を設定する（既存GAS adminSetNotionDbId/adminSetDriveFolder相当。
+// Jira/Backlog/カレンダーは2026-09-17追加、絞り込み条件とclearXxxによる解除は2026-09-19追加）。
+// 各フィールドは「省略＝変更しない」「値を送る＝更新」「clearXxx: true＝解除（NULLに戻す）」
+// の3パターンを取れる。
 export async function handleSetKbSource(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireKnowledgeEditor(user);
 
-  const body = (await req.json()) as { namespace?: string; notionDatabaseId?: string; driveFolderId?: string };
+  const body = (await req.json()) as {
+    namespace?: string;
+    notionDatabaseId?: string;
+    driveFolderId?: string;
+    jiraProjectKey?: string;
+    backlogProjectId?: string;
+    calendarId?: string;
+    jiraExtraJql?: string;
+    backlogKeywordFilter?: string;
+    clearNotion?: boolean;
+    clearDrive?: boolean;
+    clearJira?: boolean;
+    clearBacklog?: boolean;
+    clearCalendar?: boolean;
+    clearJiraExtraJql?: boolean;
+    clearBacklogKeywordFilter?: boolean;
+  };
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
 
   const ns = await env.DB.prepare("SELECT namespace_id FROM namespaces WHERE namespace_id = ?").bind(namespace).first();
   if (!ns) return jsonResponse(400, { error: `namespace(${namespace})が存在しません。先にnamespacesテーブルへ登録してください` });
 
-  await env.DB.prepare(
-    `INSERT INTO kb_sources (namespace_id, notion_database_id, drive_folder_id) VALUES (?, ?, ?)
-     ON CONFLICT(namespace_id) DO UPDATE SET
-       notion_database_id = COALESCE(excluded.notion_database_id, kb_sources.notion_database_id),
-       drive_folder_id = COALESCE(excluded.drive_folder_id, kb_sources.drive_folder_id)`
+  const existing = await env.DB.prepare(
+    "SELECT notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, jira_extra_jql, backlog_keyword_filter FROM kb_sources WHERE namespace_id = ?",
   )
-    .bind(namespace, body.notionDatabaseId ?? null, body.driveFolderId ?? null)
+    .bind(namespace)
+    .first<KbSourceRow>();
+
+  const notionDatabaseId = resolveSourceField(body.clearNotion, body.notionDatabaseId, existing?.notion_database_id);
+  const driveFolderId = resolveSourceField(body.clearDrive, body.driveFolderId, existing?.drive_folder_id);
+  const jiraProjectKey = resolveSourceField(body.clearJira, body.jiraProjectKey, existing?.jira_project_key);
+  const backlogProjectId = resolveSourceField(body.clearBacklog, body.backlogProjectId, existing?.backlog_project_id);
+  const calendarId = resolveSourceField(body.clearCalendar, body.calendarId, existing?.calendar_id);
+  const jiraExtraJql = resolveSourceField(body.clearJiraExtraJql, body.jiraExtraJql, existing?.jira_extra_jql);
+  const backlogKeywordFilter = resolveSourceField(body.clearBacklogKeywordFilter, body.backlogKeywordFilter, existing?.backlog_keyword_filter);
+
+  await env.DB.prepare(
+    `INSERT INTO kb_sources
+       (namespace_id, notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, jira_extra_jql, backlog_keyword_filter)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(namespace_id) DO UPDATE SET
+       notion_database_id = excluded.notion_database_id,
+       drive_folder_id = excluded.drive_folder_id,
+       jira_project_key = excluded.jira_project_key,
+       backlog_project_id = excluded.backlog_project_id,
+       calendar_id = excluded.calendar_id,
+       jira_extra_jql = excluded.jira_extra_jql,
+       backlog_keyword_filter = excluded.backlog_keyword_filter`
+  )
+    .bind(namespace, notionDatabaseId, driveFolderId, jiraProjectKey, backlogProjectId, calendarId, jiraExtraJql, backlogKeywordFilter)
     .run();
 
   return jsonResponse(200, { status: "ok" });
@@ -48,6 +111,9 @@ export async function handleKbHistory(req: Request, env: Env, user: AuthedUser):
 // ファイル数・チャンク数を、kb_log（status='ok'の最新行）から最終更新日時を、
 // kb_sourcesから同期元設定の有無を、それぞれnamespace単位でJS側で結合する
 // （3つとも別々のテーブルで、SQL1本のJOINだと集計とNULL処理が煩雑になるため）。
+// Jira/Backlog/カレンダー（2026-09-17追加）もここに含めないと、「連携」タブで
+// 同期元を設定した直後でもこの一覧では「手動登録のみ」のまま表示されてしまう不整合が
+// あったため、追加時に合わせて反映する（2026-09-19、リファクタリング時に発見・修正）。
 export async function handleKbOverview(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireKnowledgeEditor(user);
 
@@ -59,8 +125,15 @@ export async function handleKbOverview(req: Request, env: Env, user: AuthedUser)
       "SELECT namespace_id, MAX(created_at) AS lastUpdated FROM kb_log WHERE status = 'ok' GROUP BY namespace_id",
     ).all<{ namespace_id: string; lastUpdated: number }>(),
     env.DB.prepare(
-      "SELECT namespace_id, notion_database_id, drive_folder_id FROM kb_sources",
-    ).all<{ namespace_id: string; notion_database_id: string | null; drive_folder_id: string | null }>(),
+      "SELECT namespace_id, notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id FROM kb_sources",
+    ).all<{
+      namespace_id: string;
+      notion_database_id: string | null;
+      drive_folder_id: string | null;
+      jira_project_key: string | null;
+      backlog_project_id: string | null;
+      calendar_id: string | null;
+    }>(),
   ]);
 
   const lastUpdateMap = new Map((lastUpdateRes.results ?? []).map((r) => [r.namespace_id, r.lastUpdated]));
@@ -75,6 +148,9 @@ export async function handleKbOverview(req: Request, env: Env, user: AuthedUser)
       lastUpdated: lastUpdateMap.get(c.namespace) ?? null,
       hasNotionSource: !!source?.notion_database_id,
       hasDriveSource: !!source?.drive_folder_id,
+      hasJiraSource: !!source?.jira_project_key,
+      hasBacklogSource: !!source?.backlog_project_id,
+      hasCalendarSource: !!source?.calendar_id,
     };
   });
   namespaces.sort((a, b) => b.chunkCount - a.chunkCount);

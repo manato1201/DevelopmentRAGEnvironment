@@ -174,6 +174,13 @@ export function chatUiHtml(): string {
   .error { color: var(--bad); }
 
   .pane-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 1.2rem; max-width: 960px; margin: 0 auto; width: 100%; }
+  /* 管理タブだけ.pane-scrollの960px中央寄せを解除する（2026-09-13追加）。
+     履歴/お気に入り/チャットは読みやすさ重視の文章コンテンツなので960px幅の
+     中央寄せが適切だが、管理タブはサイドバー+表という横に広いレイアウトのため、
+     同じ制限をかけるとサイドバーが画面中央付近まで押し出され、表の表示領域も
+     狭くなってしまう（実機報告：「中央の幅もっと広げてほしい」「サイドバーは
+     左端くらいまで移動させて確保したい」）。 */
+  .admin-pane-scroll { max-width: 1800px; margin: 0; }
   .section { border-bottom: 1px solid var(--border); padding: 0 0 1.6rem; margin-bottom: 1.6rem; max-width: 100%; }
   .section:last-child { border-bottom: none; }
   .section h2 { font-size: 1rem; font-weight: 600; margin: 0 0 .9rem; letter-spacing: -.01em; }
@@ -421,7 +428,7 @@ export function chatUiHtml(): string {
 
 <!-- 管理タブ -->
 <div class="tabpanel" id="tab-admin">
-  <div class="pane-scroll">
+  <div class="pane-scroll admin-pane-scroll">
     <!-- サブナビをサイドバー化（2026-09-11）：グループ数が7まで増え、横並びピルだと
          窮屈になってきたための変更。GitHub/Slack/NotionのSettings画面と同じく
          「アプリ全体のトップナビは横並びのまま、深い設定領域だけ左サイドバー」という
@@ -439,6 +446,7 @@ export function chatUiHtml(): string {
       <button data-subtab="guide" class="active">ガイド</button>
       <button data-subtab="overview" class="admin-only-section">Overview</button>
       <button data-subtab="knowledge">ナレッジ登録</button>
+      <button data-subtab="integrations">連携</button>
       <button data-subtab="users" class="admin-only-section">ユーザー・権限</button>
       <button data-subtab="namespaces" class="admin-only-section">namespace管理</button>
       <button data-subtab="usage" class="admin-only-section">利用状況・コスト</button>
@@ -523,6 +531,26 @@ export function chatUiHtml(): string {
       </div>
 
       <div class="section">
+        <h2>登録済みファイル一覧・個別削除</h2>
+        <p class="hint">opId単位で一括取り消す「KBロールバック」（システムタブ）と違い、まとめて登録した中の1件だけを取り消したい場合に使います。</p>
+        <div class="field-row"><label>namespace</label><input type="text" id="docListNamespace" placeholder="例: shared:houdini_docs"></div>
+        <button class="btn" id="docListLoadBtn">一覧を読み込み</button>
+        <div id="docListResult" class="hint"></div>
+        <div class="table-scroll" id="docListTableWrap" style="display:none; margin-top:.6rem;">
+          <table class="admin-table" id="docListTable"><thead><tr><th>ファイル名</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>重複コンテンツの確認・削除</h2>
+        <p class="hint">同じ内容がfile名違いで複数回登録されていないか確認します（URL登録とクロールの重複登録、Notion/Driveとの二重同期など）。先頭チャンクの本文＋文字数が完全一致するものだけを「重複」として検出します（近似一致は誤削除を避けるため対象外）。</p>
+        <div class="field-row"><label>namespace</label><input type="text" id="dupCheckNamespace" placeholder="例: shared:houdini_docs"></div>
+        <button class="btn" id="dupCheckBtn">重複チェック</button>
+        <div id="dupCheckResult" class="hint"></div>
+        <div id="dupCheckGroups"></div>
+      </div>
+
+      <div class="section">
         <h2>知識ベース同期</h2>
         <div class="field-row"><label>namespace</label><input type="text" id="kbNamespace" placeholder="例: shared:houdini21"></div>
         <div class="field-row"><label>Notion DB ID</label><input type="text" id="kbNotionId" placeholder="任意"></div>
@@ -561,7 +589,10 @@ export function chatUiHtml(): string {
           </select>
         </div>
         <div class="field-row"><label>最大ページ数</label><input type="number" id="crawlUrlMaxPages" value="20" min="1" max="50"></div>
+        <div class="field-row"><label>除外パターン（任意）</label><input type="text" id="crawlUrlExcludePatterns" placeholder="例: /download/, .pdf（カンマまたは改行区切り、部分一致）"></div>
+        <label style="display:flex; align-items:center; gap:.4rem; margin:.4rem 0;"><input type="checkbox" id="crawlUrlSkipExisting"> 同じnamespaceに同名で登録済みのページはスキップする（再クロール時のAPIコスト削減）</label>
         <button class="btn primary" id="crawlUrlBtn">クロール開始</button>
+        <button class="btn" id="crawlUrlResumeBtn" disabled>途中から再開</button>
         <div id="crawlUrlResult" class="hint"></div>
         <div class="table-scroll" id="crawlUrlTableWrap" style="display:none; margin-top:.6rem;">
           <table class="admin-table" id="crawlUrlTable"><thead><tr><th>URL</th><th>タイトル</th><th>チャンク</th><th>結果</th></tr></thead><tbody></tbody></table>
@@ -610,6 +641,77 @@ export function chatUiHtml(): string {
         <h2>同期履歴</h2>
         <button class="btn" id="refreshKbHistory">再読み込み</button>
         <div class="table-scroll"><table class="admin-table" id="kbHistoryTable"><thead><tr><th>日時</th><th>opId</th><th>種別</th><th>namespace</th><th>ファイル</th><th>状態</th><th>詳細</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- 連携: editor/admin共通（Slack/Gmailの通知テストのみadmin専用。2026-09-17追加） -->
+    <div class="admin-subpanel" data-subtab="integrations">
+      <div class="section">
+        <h2>Jira</h2>
+        <p class="hint">プロジェクトの課題（要約・説明・種別・ステータス）をnamespaceへ一括登録します。事前にJIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKENのsecret設定が必要です（README参照）。設定済みのプロジェクトは毎日自動で差分同期されます（更新された課題だけを追加登録。初回の全件取り込みは下の「Jira同期を実行」で行ってください）。</p>
+        <div class="field-row"><label>namespace</label><input type="text" id="jiraNamespace" placeholder="例: shared:project_x"></div>
+        <div class="field-row"><label>プロジェクトキー</label><input type="text" id="jiraProjectKey" placeholder="例: PROJ"> <button class="btn danger" id="jiraClearBtn" title="連携を解除">解除</button></div>
+        <div class="field-row"><label>絞り込み条件（任意）</label><input type="text" id="jiraExtraJql" placeholder='例: status = "Done"（JQL形式）'></div>
+        <button class="btn" id="jiraSetSourceBtn">同期元を設定</button>
+        <button class="btn" id="jiraTestConnectionBtn">接続テスト</button>
+        <div style="margin-top:.6rem;">
+          <button class="btn primary" id="jiraSyncBtn">Jira同期を実行</button>
+          <button class="btn" id="jiraRetryFailedBtn" disabled>失敗課題だけ再同期</button>
+        </div>
+        <div id="jiraSyncProgress" class="hint" style="white-space:pre-line;"></div>
+      </div>
+
+      <div class="section">
+        <h2>Backlog</h2>
+        <p class="hint">プロジェクトの課題（要約・説明・種別・ステータス）をnamespaceへ一括登録します。事前にBACKLOG_SPACE_URL/BACKLOG_API_KEYのsecret設定が必要です（README参照）。設定済みのプロジェクトは毎日自動で差分同期されます（Jiraと同様、初回の全件取り込みは手動で行ってください）。</p>
+        <div class="field-row"><label>namespace</label><input type="text" id="backlogNamespace" placeholder="例: shared:project_x"></div>
+        <div class="field-row"><label>プロジェクトキー/ID</label><input type="text" id="backlogProjectId" placeholder="例: PROJ"> <button class="btn danger" id="backlogClearBtn" title="連携を解除">解除</button></div>
+        <div class="field-row"><label>絞り込みキーワード（任意）</label><input type="text" id="backlogKeywordFilter" placeholder="要約・説明の部分一致"></div>
+        <button class="btn" id="backlogSetSourceBtn">同期元を設定</button>
+        <button class="btn" id="backlogTestConnectionBtn">接続テスト</button>
+        <div style="margin-top:.6rem;">
+          <button class="btn primary" id="backlogSyncBtn">Backlog同期を実行</button>
+          <button class="btn" id="backlogRetryFailedBtn" disabled>失敗課題だけ再同期</button>
+        </div>
+        <div id="backlogSyncProgress" class="hint" style="white-space:pre-line;"></div>
+      </div>
+
+      <div class="section">
+        <h2>Googleカレンダー</h2>
+        <p class="hint">対象カレンダーをサービスアカウント（GOOGLE_SERVICE_ACCOUNT_JSONのclient_email）に「閲覧者」として共有しておいてください。予定（タイトル・日時・場所・説明）を過去7日〜未来90日分登録します。設定済みのカレンダーは毎日自動で同期されます。</p>
+        <div class="field-row"><label>namespace</label><input type="text" id="calendarNamespace" placeholder="例: shared:team_schedule"></div>
+        <div class="field-row"><label>カレンダーID</label><input type="text" id="calendarId" placeholder="例: xxxx@group.calendar.google.com"> <button class="btn danger" id="calendarClearBtn" title="連携を解除">解除</button></div>
+        <button class="btn" id="calendarSetSourceBtn">同期元を設定</button>
+        <button class="btn" id="calendarTestConnectionBtn">接続テスト</button>
+        <div style="margin-top:.6rem;">
+          <button class="btn primary" id="calendarSyncBtn">カレンダー同期を実行</button>
+          <button class="btn" id="calendarRetryFailedBtn" disabled>失敗予定だけ再同期</button>
+        </div>
+        <div id="calendarSyncProgress" class="hint" style="white-space:pre-line;"></div>
+      </div>
+
+      <div class="section">
+        <h2>Googleマップ</h2>
+        <p class="hint">場所名・住所で検索し、住所・電話番号・営業時間などをnamespaceへ登録します（継続同期ではなく単発登録）。事前にGOOGLE_MAPS_API_KEYのsecret設定が必要です。</p>
+        <button class="btn" id="mapsTestConnectionBtn">接続テスト</button>
+        <div id="mapsTestConnectionResult" class="hint"></div>
+        <div class="field-row" style="margin-top:.6rem;"><label>namespace</label><input type="text" id="mapsNamespace" placeholder="例: shared:store_info"></div>
+        <div class="field-row"><label>場所名・住所</label><input type="text" id="mapsQuery" placeholder="例: 東京都渋谷区〇〇店"></div>
+        <button class="btn primary" id="mapsImportBtn">登録</button>
+        <div id="mapsImportResult" class="hint"></div>
+
+        <p class="hint" style="margin-top:1rem;">複数件まとめて登録する場合は、1行に1件（場所名・住所）ずつ入力してください。</p>
+        <div class="field-row"><label>namespace</label><input type="text" id="mapsCsvNamespace" placeholder="例: shared:store_info"></div>
+        <textarea id="mapsCsvText" rows="6" style="width:100%; font-family:monospace; font-size:.8rem; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:.5rem;" placeholder="東京都渋谷区〇〇店&#10;大阪府大阪市△△支店"></textarea>
+        <button class="btn primary" id="mapsCsvImportBtn" style="margin-top:.5rem;">一括登録を実行</button>
+        <div id="mapsCsvProgress" class="hint" style="white-space:pre-line;"></div>
+      </div>
+
+      <div class="section admin-only-section">
+        <h2>通知連携（Slack / Gmail）</h2>
+        <p class="hint">管理者向けの通知・アラート先です。Slack（Incoming Webhook）・Gmail（サービスアカウント経由）はいずれもシークレット設定が必要です（README参照。設定自体は「システム」タブのヘルスチェックと共通です）。</p>
+        <button class="btn" id="integrationsTestAlertBtn">テスト通知を送信</button>
+        <div id="integrationsTestAlertResult" class="hint"></div>
       </div>
     </div>
 
@@ -2745,6 +2847,199 @@ export function chatUiHtml(): string {
   $("kbSyncNotionBtn").addEventListener("click", () => runSync("/admin/sync/notion", 1));
   $("kbSyncDriveBtn").addEventListener("click", () => runSync("/admin/sync/drive", 1));
 
+  // ---------- 管理タブ：連携（Jira/Backlog/Googleカレンダー/Googleマップ、2026-09-17追加） ----------
+  // Notion/Drive同期のrunSync()と同じバッチポーリングだが、対象IDやレスポンスの
+  // 件数フィールド名（totalPages/totalFiles/totalIssues/totalEvents）が呼び出し先ごとに
+  // 違うため、専用の汎用版を用意する（既存のrunSync自体は変更しない）。
+  async function runIntegrationSync(opts) {
+    const namespace = $(opts.namespaceId).value.trim();
+    if (!namespace) { showToast("namespaceを入力してください", "error"); return; }
+    const progressEl = $(opts.progressId);
+    const retryBtn = opts.retryBtnId ? $(opts.retryBtnId) : null;
+    if (retryBtn) retryBtn.disabled = true;
+    let opId = null, startIndex = 0, totalDocs = 0, totalChunks = 0, errorCount = 0;
+    progressEl.textContent = "同期中…";
+    try {
+      while (true) {
+        const body = { namespace, startIndex, batchSize: opts.batchSize };
+        if (opId) body.opId = opId;
+        const data = await api(opts.endpoint, body);
+        opId = data.opId;
+        totalDocs += data.documents;
+        totalChunks += data.chunks;
+        (data.results || []).forEach((r) => { if (r.status === "error") errorCount++; });
+        const total = data.totalPages ?? data.totalFiles ?? data.totalIssues ?? data.totalEvents ?? "?";
+        const last = data.results && data.results.length > 0 ? data.results[data.results.length - 1] : null;
+        const lastMark = last ? (last.status === "ok" ? "✅" : last.status === "skipped" ? "⏭️" : "⚠️") : "";
+        const lastLine = last ? "\n直前: " + lastMark + " " + last.file + "（" + last.detail + "）" : "";
+        progressEl.textContent = "進捗: " + data.processedRange[1] + "/" + total + "（累計 " + totalDocs + "件・" + totalChunks + "チャンク）" + lastLine;
+        if (data.nextIndex === null || data.nextIndex === undefined) break;
+        startIndex = data.nextIndex;
+      }
+      const failNote = errorCount > 0 ? "（失敗 " + errorCount + "件）" : "";
+      progressEl.textContent = "完了: " + totalDocs + "件・" + totalChunks + "チャンク登録" + failNote;
+      if (retryBtn) retryBtn.disabled = errorCount === 0;
+      loadKbOverview();
+      return opId;
+    } catch (e) {
+      progressEl.textContent = "エラー: " + e.message;
+      if (retryBtn) retryBtn.disabled = !opId;
+      return opId;
+    }
+  }
+
+  async function runIntegrationRetry(opts, opId) {
+    if (!opId) return;
+    const namespace = $(opts.namespaceId).value.trim();
+    const progressEl = $(opts.progressId);
+    const retryBtn = $(opts.retryBtnId);
+    retryBtn.disabled = true;
+    progressEl.textContent = "失敗課題を再同期中…";
+    try {
+      const data = await api(opts.retryEndpoint, { namespace, opId });
+      const remainingErrors = (data.results || []).filter((r) => r.status === "error").length;
+      progressEl.textContent = "再同期完了: " + data.documents + "件・" + data.chunks + "チャンク登録" + (remainingErrors > 0 ? "（依然失敗 " + remainingErrors + "件）" : "");
+      retryBtn.disabled = remainingErrors === 0;
+      loadKbOverview();
+    } catch (e) {
+      progressEl.textContent = "エラー: " + e.message;
+      retryBtn.disabled = false;
+    }
+  }
+
+  // 接続テストボタン共通処理（2026-09-19追加）: 「連携」タブで設定ミスに同期実行前に
+  // 気づけるようにするための軽量な疎通確認（実際の登録は行わない）。
+  function wireTestConnectionBtn(btnId, resultId, endpoint, buildBody) {
+    $(btnId).addEventListener("click", async () => {
+      $(resultId).textContent = "確認中…";
+      try {
+        const data = await api(endpoint, buildBody ? buildBody() : {});
+        $(resultId).textContent = data.message || "接続成功";
+      } catch (e) {
+        $(resultId).textContent = "エラー: " + e.message;
+      }
+    });
+  }
+
+  // 「解除」ボタン共通処理: 連携を外す（設定値をクリアする）。誤操作対策で確認ダイアログを挟む。
+  function wireClearSourceBtn(btnId, namespaceId, fieldInputId, clearFieldName) {
+    $(btnId).addEventListener("click", async () => {
+      const namespace = $(namespaceId).value.trim();
+      if (!namespace) { showToast("namespaceを入力してください", "error"); return; }
+      if (!confirm("この連携を解除しますか？（登録済みのドキュメントは削除されません）")) return;
+      try {
+        await api("/admin/kb/set-source", { namespace, [clearFieldName]: true });
+        $(fieldInputId).value = "";
+        showToast("連携を解除しました", "success");
+      } catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
+    });
+  }
+
+  $("jiraSetSourceBtn").addEventListener("click", async () => {
+    try {
+      await api("/admin/kb/set-source", {
+        namespace: $("jiraNamespace").value.trim(),
+        jiraProjectKey: $("jiraProjectKey").value.trim() || undefined,
+        jiraExtraJql: $("jiraExtraJql").value.trim() || undefined,
+      });
+      showToast("同期元を設定しました", "success");
+    } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
+  });
+  wireClearSourceBtn("jiraClearBtn", "jiraNamespace", "jiraProjectKey", "clearJira");
+  wireTestConnectionBtn("jiraTestConnectionBtn", "jiraSyncProgress", "/admin/kb/test-connection/jira");
+  let lastJiraOpId = null;
+  const jiraOpts = { namespaceId: "jiraNamespace", progressId: "jiraSyncProgress", retryBtnId: "jiraRetryFailedBtn", endpoint: "/admin/sync/jira", retryEndpoint: "/admin/sync/jira/retry-failed", batchSize: 10 };
+  $("jiraSyncBtn").addEventListener("click", async () => { lastJiraOpId = await runIntegrationSync(jiraOpts); });
+  $("jiraRetryFailedBtn").addEventListener("click", () => runIntegrationRetry(jiraOpts, lastJiraOpId));
+
+  $("backlogSetSourceBtn").addEventListener("click", async () => {
+    try {
+      await api("/admin/kb/set-source", {
+        namespace: $("backlogNamespace").value.trim(),
+        backlogProjectId: $("backlogProjectId").value.trim() || undefined,
+        backlogKeywordFilter: $("backlogKeywordFilter").value.trim() || undefined,
+      });
+      showToast("同期元を設定しました", "success");
+    } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
+  });
+  wireClearSourceBtn("backlogClearBtn", "backlogNamespace", "backlogProjectId", "clearBacklog");
+  wireTestConnectionBtn("backlogTestConnectionBtn", "backlogSyncProgress", "/admin/kb/test-connection/backlog");
+  let lastBacklogOpId = null;
+  const backlogOpts = { namespaceId: "backlogNamespace", progressId: "backlogSyncProgress", retryBtnId: "backlogRetryFailedBtn", endpoint: "/admin/sync/backlog", retryEndpoint: "/admin/sync/backlog/retry-failed", batchSize: 10 };
+  $("backlogSyncBtn").addEventListener("click", async () => { lastBacklogOpId = await runIntegrationSync(backlogOpts); });
+  $("backlogRetryFailedBtn").addEventListener("click", () => runIntegrationRetry(backlogOpts, lastBacklogOpId));
+
+  $("calendarSetSourceBtn").addEventListener("click", async () => {
+    try {
+      await api("/admin/kb/set-source", {
+        namespace: $("calendarNamespace").value.trim(),
+        calendarId: $("calendarId").value.trim() || undefined,
+      });
+      showToast("同期元を設定しました", "success");
+    } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
+  });
+  wireClearSourceBtn("calendarClearBtn", "calendarNamespace", "calendarId", "clearCalendar");
+  wireTestConnectionBtn("calendarTestConnectionBtn", "calendarSyncProgress", "/admin/kb/test-connection/calendar", () => ({ namespace: $("calendarNamespace").value.trim() }));
+  let lastCalendarOpId = null;
+  const calendarOpts = { namespaceId: "calendarNamespace", progressId: "calendarSyncProgress", retryBtnId: "calendarRetryFailedBtn", endpoint: "/admin/sync/calendar", retryEndpoint: "/admin/sync/calendar/retry-failed", batchSize: 10 };
+  $("calendarSyncBtn").addEventListener("click", async () => { lastCalendarOpId = await runIntegrationSync(calendarOpts); });
+  $("calendarRetryFailedBtn").addEventListener("click", () => runIntegrationRetry(calendarOpts, lastCalendarOpId));
+
+  wireTestConnectionBtn("mapsTestConnectionBtn", "mapsTestConnectionResult", "/admin/kb/test-connection/maps");
+
+  $("mapsImportBtn").addEventListener("click", async () => {
+    const namespace = $("mapsNamespace").value.trim();
+    const query = $("mapsQuery").value.trim();
+    if (!namespace || !query) { $("mapsImportResult").textContent = "namespaceと場所名・住所を入力してください"; return; }
+    $("mapsImportResult").textContent = "検索中…";
+    try {
+      const data = await api("/admin/kb/import-place", { namespace, query });
+      $("mapsImportResult").textContent = "登録しました: " + data.title + "（" + data.chunks + "チャンク）";
+      loadKbOverview();
+    } catch (e) {
+      $("mapsImportResult").textContent = "エラー: " + e.message;
+    }
+  });
+
+  // ---------- Googleマップ 複数件一括登録（2026-09-19追加、qaCsvImportBtnと同じ方式） ----------
+  $("mapsCsvImportBtn").addEventListener("click", async () => {
+    const namespace = $("mapsCsvNamespace").value.trim();
+    const queriesText = $("mapsCsvText").value;
+    if (!namespace || !queriesText.trim()) { $("mapsCsvProgress").textContent = "namespaceと場所のリストを入力してください"; return; }
+    const progressEl = $("mapsCsvProgress");
+    let opId = null, startIndex = 0, totalDocs = 0, totalChunks = 0, errorCount = 0;
+    progressEl.textContent = "登録中…";
+    try {
+      while (true) {
+        const body = { namespace, queriesText, startIndex, batchSize: 5 };
+        if (opId) body.opId = opId;
+        const data = await api("/admin/kb/import-places-csv", body);
+        opId = data.opId;
+        totalDocs += data.documents;
+        totalChunks += data.chunks;
+        (data.results || []).forEach((r) => { if (r.status === "error") errorCount++; });
+        progressEl.textContent = "進捗: " + data.processedRange[1] + "/" + data.totalQueries + "（累計 " + totalDocs + "件・" + totalChunks + "チャンク）";
+        if (data.nextIndex === null || data.nextIndex === undefined) break;
+        startIndex = data.nextIndex;
+      }
+      const failNote = errorCount > 0 ? "（失敗 " + errorCount + "件）" : "";
+      progressEl.textContent = "完了: " + totalDocs + "件・" + totalChunks + "チャンク登録" + failNote;
+      loadKbHistory(); loadKbOverview();
+    } catch (e) {
+      progressEl.textContent = "エラー: " + e.message;
+    }
+  });
+
+  $("integrationsTestAlertBtn").addEventListener("click", async () => {
+    $("integrationsTestAlertResult").textContent = "送信中…";
+    try {
+      const data = await api("/admin/health/test-alert", {});
+      $("integrationsTestAlertResult").textContent = "Slack: " + data.results.slack + " / Gmail: " + data.results.gmail;
+    } catch (e) {
+      $("integrationsTestAlertResult").textContent = "エラー: " + e.message;
+    }
+  });
+
   async function loadKbHistory() {
     const tbody = $("kbHistoryTable").querySelector("tbody");
     tbody.innerHTML = "<tr><td colspan=7>読み込み中…</td></tr>";
@@ -2779,6 +3074,9 @@ export function chatUiHtml(): string {
         const sources = [];
         if (n.hasNotionSource) sources.push("Notion");
         if (n.hasDriveSource) sources.push("Drive");
+        if (n.hasJiraSource) sources.push("Jira");
+        if (n.hasBacklogSource) sources.push("Backlog");
+        if (n.hasCalendarSource) sources.push("カレンダー");
         const sourceLabel = sources.length > 0 ? sources.join("・") : "手動登録のみ";
         const lastUpdated = n.lastUpdated ? new Date(n.lastUpdated * 1000).toLocaleString() : "-";
         appendRow(tbody, [n.namespace, n.fileCount, n.chunkCount, sourceLabel, lastUpdated]);
@@ -2788,6 +3086,107 @@ export function chatUiHtml(): string {
     }
   }
   $("refreshKbOverview").addEventListener("click", loadKbOverview);
+
+  // ---------- 管理タブ：登録済みファイル一覧・個別削除（2026-09-13追加） ----------
+  async function loadDocList() {
+    const namespace = $("docListNamespace").value.trim();
+    if (!namespace) { $("docListResult").textContent = "namespaceを入力してください"; return; }
+    $("docListResult").textContent = "読み込み中…";
+    $("docListTableWrap").style.display = "none";
+    try {
+      const data = await api("/admin/kb/list-documents", { namespace });
+      const tbody = $("docListTable").querySelector("tbody");
+      tbody.innerHTML = "";
+      if (data.files.length === 0) {
+        $("docListResult").textContent = "このnamespaceに登録済みファイルはありません";
+        return;
+      }
+      data.files.forEach((file) => {
+        const tr = document.createElement("tr");
+        const nameTd = document.createElement("td");
+        nameTd.textContent = file;
+        tr.appendChild(nameTd);
+        const actionTd = document.createElement("td");
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn danger";
+        delBtn.textContent = "削除";
+        delBtn.addEventListener("click", async () => {
+          if (!confirm(file + " を削除しますか？（元に戻せません）")) return;
+          delBtn.disabled = true;
+          try {
+            const delData = await api("/admin/kb/delete-document", { namespace, file });
+            showToast(file + " を削除しました（" + delData.deletedChunks + "チャンク）", "success");
+            tr.remove();
+            loadKbOverview();
+          } catch (e) {
+            showToast("削除に失敗しました: " + e.message, "error");
+            delBtn.disabled = false;
+          }
+        });
+        actionTd.appendChild(delBtn);
+        tr.appendChild(actionTd);
+        tbody.appendChild(tr);
+      });
+      $("docListResult").textContent = data.files.length + "件のファイルが見つかりました";
+      $("docListTableWrap").style.display = "";
+    } catch (e) {
+      $("docListResult").textContent = "取得に失敗しました: " + e.message;
+    }
+  }
+  $("docListLoadBtn").addEventListener("click", loadDocList);
+
+  // ---------- 管理タブ：重複コンテンツの確認・削除（2026-09-15追加） ----------
+  async function checkDuplicateDocs() {
+    const namespace = $("dupCheckNamespace").value.trim();
+    if (!namespace) { $("dupCheckResult").textContent = "namespaceを入力してください"; return; }
+    $("dupCheckResult").textContent = "確認中…";
+    $("dupCheckGroups").innerHTML = "";
+    try {
+      const data = await api("/admin/kb/find-duplicates", { namespace });
+      if (data.groups.length === 0) {
+        $("dupCheckResult").textContent = "重複しているドキュメントは見つかりませんでした";
+        return;
+      }
+      $("dupCheckResult").textContent = data.groups.length + "組の重複が見つかりました。残すファイル以外を削除してください。";
+      data.groups.forEach((group) => {
+        const wrap = document.createElement("div");
+        wrap.className = "table-scroll";
+        wrap.style.marginTop = ".6rem";
+        const table = document.createElement("table");
+        table.className = "admin-table";
+        table.innerHTML = "<thead><tr><th>ファイル名（重複組）</th><th></th></tr></thead>";
+        const tbody = document.createElement("tbody");
+        // group.filesはfile名（未検証の外部由来文字列）なので、docListTableと同様
+        // appendRow経由でtextContent挿入する（stored XSS対策）。
+        group.files.forEach((file) => {
+          const tr = appendRow(tbody, [file, ""]);
+          const delBtn = document.createElement("button");
+          delBtn.className = "btn danger";
+          delBtn.textContent = "削除";
+          delBtn.addEventListener("click", async () => {
+            if (!confirm(file + " を削除しますか？（元に戻せません）")) return;
+            delBtn.disabled = true;
+            try {
+              const delData = await api("/admin/kb/delete-document", { namespace, file });
+              showToast(file + " を削除しました（" + delData.deletedChunks + "チャンク）", "success");
+              tr.remove();
+              loadKbOverview();
+            } catch (e) {
+              showToast("削除に失敗しました: " + e.message, "error");
+              delBtn.disabled = false;
+            }
+          });
+          tr.lastElementChild.appendChild(delBtn);
+        });
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        $("dupCheckGroups").appendChild(wrap);
+      });
+    } catch (e) {
+      $("dupCheckResult").textContent = "取得に失敗しました: " + e.message;
+    }
+  }
+  $("dupCheckBtn").addEventListener("click", checkDuplicateDocs);
 
   // ---------- 管理タブ：評価統計 ----------
   async function loadRatingStats() {
@@ -2821,34 +3220,78 @@ export function chatUiHtml(): string {
     }
   });
 
-  // ---------- 管理タブ：URL再帰クロール一括登録（2026-09-13追加） ----------
-  $("crawlUrlBtn").addEventListener("click", async () => {
+  // ---------- 管理タブ：URL再帰クロール一括登録（2026-09-13追加、同日にバッチ処理化） ----------
+  // Cloudflare Workers FreeプランのCPU時間制限のため、Drive/Notion同期（runSync）と同じ
+  // 「1リクエストにつき少数ページだけ処理し、サーバーから返るopIdを使って続きを呼び直す」
+  // 方式に変更した。1回で全ページ処理する実装だとページ数が多い時にError 1102
+  // （Worker exceeded resource limits）で落ちるリスクがあったため。
+  function crawlResultStatusLabel(r) {
+    if (r.status === "skipped_existing") return "スキップ（既存）";
+    if (r.status === "error") return "エラー: " + (r.error || "");
+    return "OK";
+  }
+  let lastCrawlOpId = null;
+  async function runCrawl(startOpId) {
     const namespace = $("crawlUrlNamespace").value.trim();
     const url = $("crawlUrlUrl").value.trim();
     const pathPrefix = $("crawlUrlPathPrefix").value.trim();
+    const excludePatterns = $("crawlUrlExcludePatterns").value.trim();
+    const skipExisting = $("crawlUrlSkipExisting").checked;
     const depth = parseInt($("crawlUrlDepth").value, 10);
     const maxPages = parseInt($("crawlUrlMaxPages").value, 10);
-    if (!namespace || !url) { $("crawlUrlResult").textContent = "namespaceと起点URLを入力してください"; return; }
-    $("crawlUrlResult").textContent = "クロール中…（ページ数が多いと時間がかかります）";
-    $("crawlUrlTableWrap").style.display = "none";
+    if (!startOpId && (!namespace || !url)) { $("crawlUrlResult").textContent = "namespaceと起点URLを入力してください"; return; }
+
+    const startBtn = $("crawlUrlBtn");
+    const resumeBtn = $("crawlUrlResumeBtn");
+    startBtn.disabled = true;
+    resumeBtn.disabled = true;
+    const tbody = $("crawlUrlTable").querySelector("tbody");
+    if (!startOpId) tbody.innerHTML = "";
+    $("crawlUrlTableWrap").style.display = "";
+    $("crawlUrlResult").textContent = "クロール中…";
+
+    let opId = startOpId || null;
+    let totalChunks = 0;
+    let errorCount = 0;
+    let skippedCount = 0;
+    let processedCount = 0;
+    let maxPagesActual = maxPages;
     try {
-      const data = await api("/admin/kb/crawl-url", {
-        namespace, url, depth, maxPages,
-        pathPrefix: pathPrefix || undefined,
-      });
-      $("crawlUrlResult").textContent = "完了: " + data.totalPages + "ページ処理・" + data.totalChunks + "チャンク登録" +
-        (data.errorCount > 0 ? "（" + data.errorCount + "件エラー）" : "");
-      const tbody = $("crawlUrlTable").querySelector("tbody");
-      tbody.innerHTML = "";
-      data.results.forEach((r) => {
-        appendRow(tbody, [r.url, r.title, r.chunks, r.error || "OK"]);
-      });
-      $("crawlUrlTableWrap").style.display = "";
+      while (true) {
+        const body = opId
+          ? { opId }
+          : { namespace, url, depth, maxPages, pathPrefix: pathPrefix || undefined, excludePatterns: excludePatterns || undefined, skipExisting };
+        const data = await api("/admin/kb/crawl-url", body);
+        opId = data.opId;
+        processedCount = data.processedCount;
+        maxPagesActual = data.maxPages;
+        data.results.forEach((r) => {
+          appendRow(tbody, [r.url, r.title, r.chunks, crawlResultStatusLabel(r)]);
+          totalChunks += r.chunks;
+          if (r.status === "error") errorCount++;
+          if (r.status === "skipped_existing") skippedCount++;
+        });
+        $("crawlUrlResult").textContent = "進捗: " + processedCount + "/" + maxPagesActual + "ページ（累計 " + totalChunks + "チャンク登録" +
+          (skippedCount > 0 ? "・" + skippedCount + "件スキップ" : "") +
+          (errorCount > 0 ? "・" + errorCount + "件エラー" : "") + "）";
+        if (data.done) break;
+      }
+      $("crawlUrlResult").textContent = "完了: " + processedCount + "ページ処理・" + totalChunks + "チャンク登録" +
+        (skippedCount > 0 ? "（" + skippedCount + "件スキップ）" : "") +
+        (errorCount > 0 ? "（" + errorCount + "件エラー）" : "") +
+        "　opId: " + opId + "（内容に問題があれば「システム」タブのKBロールバックでこのopIdを指定して一括取り消せます）";
+      lastCrawlOpId = null;
       loadKbHistory(); loadKbOverview();
     } catch (e) {
-      $("crawlUrlResult").textContent = "エラー: " + e.message;
+      lastCrawlOpId = opId;
+      resumeBtn.disabled = !opId;
+      $("crawlUrlResult").textContent = "エラー: " + e.message + (opId ? "（途中まで進行済み。「途中から再開」で続きを処理できます）" : "");
+    } finally {
+      startBtn.disabled = false;
     }
-  });
+  }
+  $("crawlUrlBtn").addEventListener("click", () => runCrawl(null));
+  $("crawlUrlResumeBtn").addEventListener("click", () => runCrawl(lastCrawlOpId));
 
   // ---------- 管理タブ：設定バックアップ ----------
   $("backupExportBtn").addEventListener("click", async () => {

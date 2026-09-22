@@ -6,6 +6,10 @@ import { handleIngest } from "./ingest";
 import { handleMemoryList, handleMemoryRate, handleMemoryPin, handlePinnedList } from "./memory";
 import { handleSyncNotion, handleRetryFailedNotion } from "./notionSync";
 import { handleSyncDrive, handleRetryFailedDrive } from "./driveSync";
+import { handleSyncJira, handleRetryFailedJira, handleTestJiraConnection, runScheduledJiraSync } from "./jiraSync";
+import { handleSyncBacklog, handleRetryFailedBacklog, handleTestBacklogConnection, runScheduledBacklogSync } from "./backlogSync";
+import { handleSyncCalendar, handleRetryFailedCalendar, handleTestCalendarConnection, runScheduledCalendarSync } from "./calendarSync";
+import { handleImportPlace, handleImportPlacesCsv, handleTestMapsConnection } from "./mapsImport";
 import { handleSetKbSource, handleKbHistory, handleKbOverview } from "./kbAdmin";
 import {
   handleCreateKey,
@@ -23,6 +27,7 @@ import { handleCreateNamespace, handleListNamespaces, handleDeleteNamespace, han
 import { handleGraph } from "./graph";
 import { handleUsageStats, handleRatingStats, handleClaudeCostStats, handleGeminiCostStats, handleAuditLogList } from "./usageStats";
 import { handleImportUrl, handleCrawlUrl } from "./urlImport";
+import { handleListDocuments, handleDeleteDocument, handleFindDuplicateDocuments } from "./kbDocuments";
 import { handleImportQaCsv } from "./qaImport";
 import { handleKbRollback } from "./kbRollback";
 import { handleImportYoutube, handleUploadDoc } from "./mediaImport";
@@ -39,6 +44,9 @@ const MEMORY_RETENTION_DAYS = 90;
 // 行数上限を避けるための対策だったが、D1にはその制約は無いため、監査目的も踏まえて
 // memoryより長めの180日にしている（2026-08-27追加。以前はaudit_logが無期限に蓄積していた）。
 const AUDIT_LOG_RETENTION_DAYS = 180;
+// 再帰クロールのバッチ進行状態（crawl_jobs）は、ブラウザを閉じた等で完走せずに
+// 放置されたジョブがテーブルに残り続けないよう、一定期間で掃除する（2026-09-13追加）。
+const CRAWL_JOB_ABANDONED_DAYS = 1;
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -101,6 +109,30 @@ export default {
           return await handleRetryFailedNotion(req, env, user);
         case "/admin/sync/drive/retry-failed":
           return await handleRetryFailedDrive(req, env, user);
+        case "/admin/sync/jira":
+          return await handleSyncJira(req, env, user);
+        case "/admin/sync/jira/retry-failed":
+          return await handleRetryFailedJira(req, env, user);
+        case "/admin/sync/backlog":
+          return await handleSyncBacklog(req, env, user);
+        case "/admin/sync/backlog/retry-failed":
+          return await handleRetryFailedBacklog(req, env, user);
+        case "/admin/sync/calendar":
+          return await handleSyncCalendar(req, env, user);
+        case "/admin/sync/calendar/retry-failed":
+          return await handleRetryFailedCalendar(req, env, user);
+        case "/admin/kb/import-place":
+          return await handleImportPlace(req, env, user);
+        case "/admin/kb/import-places-csv":
+          return await handleImportPlacesCsv(req, env, user);
+        case "/admin/kb/test-connection/jira":
+          return await handleTestJiraConnection(req, env, user);
+        case "/admin/kb/test-connection/backlog":
+          return await handleTestBacklogConnection(req, env, user);
+        case "/admin/kb/test-connection/calendar":
+          return await handleTestCalendarConnection(req, env, user);
+        case "/admin/kb/test-connection/maps":
+          return await handleTestMapsConnection(req, env, user);
         case "/admin/kb/set-source":
           return await handleSetKbSource(req, env, user);
         case "/admin/kb/history":
@@ -149,6 +181,12 @@ export default {
           return await handleImportUrl(req, env, user);
         case "/admin/kb/crawl-url":
           return await handleCrawlUrl(req, env, user);
+        case "/admin/kb/list-documents":
+          return await handleListDocuments(req, env, user);
+        case "/admin/kb/delete-document":
+          return await handleDeleteDocument(req, env, user);
+        case "/admin/kb/find-duplicates":
+          return await handleFindDuplicateDocuments(req, env, user);
         case "/admin/kb/import-qa-csv":
           return await handleImportQaCsv(req, env, user);
         case "/admin/kb/add-faq":
@@ -188,16 +226,28 @@ export default {
     }
   },
 
-  // Cron Trigger本体。wrangler.jsonc の triggers.crons に登録した2つのスケジュールを
+  // Cron Trigger本体。wrangler.jsonc の triggers.crons に登録した3つのスケジュールを
   // event.cron の値で判別する：
   //   "0 3 * * *"  … 期限切れチャット履歴の自動削除（既存GAS purgeExpiredMemory_相当）
   //   "*/30 * * * *" … ヘルスチェック（既存GAS checkHealthAndAlert_相当）
+  //   "0 4 * * *"  … Jira/Backlog/カレンダー連携の自動差分同期（2026-09-19追加、
+  //                  jiraSync.ts/backlogSync.ts/calendarSync.tsのrunScheduledXxxSync参照）
   async scheduled(event: ScheduledController, env: Env): Promise<void> {
     if (event.cron === "0 3 * * *") {
       const memoryCutoff = Math.floor(Date.now() / 1000) - MEMORY_RETENTION_DAYS * 86400;
       await env.DB.prepare("DELETE FROM memory WHERE created_at < ?").bind(memoryCutoff).run();
       const auditCutoff = Math.floor(Date.now() / 1000) - AUDIT_LOG_RETENTION_DAYS * 86400;
       await env.DB.prepare("DELETE FROM audit_log WHERE created_at < ?").bind(auditCutoff).run();
+      const crawlJobCutoff = Math.floor(Date.now() / 1000) - CRAWL_JOB_ABANDONED_DAYS * 86400;
+      await env.DB.prepare("DELETE FROM crawl_jobs WHERE updated_at < ?").bind(crawlJobCutoff).run();
+      return;
+    }
+    if (event.cron === "0 4 * * *") {
+      // 1つのnamespace/連携の失敗が他を止めないよう、各関数内部でnamespaceごとにcatch
+      // している（runScheduledJiraSync等の実装参照）ため、ここでは単純に3つとも実行する。
+      await runScheduledJiraSync(env);
+      await runScheduledBacklogSync(env);
+      await runScheduledCalendarSync(env);
       return;
     }
     await checkHealthAndAlert(env);
