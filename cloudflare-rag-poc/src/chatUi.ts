@@ -655,6 +655,7 @@ export function chatUiHtml(): string {
         <p class="hint" style="margin-top:.4rem;">上のボタンでブラウザ認証するだけで接続できます（推奨）。技術者向けに、APIトークンをJIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKENとしてsecret登録する方式も引き続き使えます（README参照）。</p>
         <div class="field-row"><label>namespace</label><input type="text" id="jiraNamespace" placeholder="例: shared:project_x"></div>
         <div class="field-row"><label>プロジェクトキー</label><input type="text" id="jiraProjectKey" placeholder="例: PROJ"> <button class="btn danger" id="jiraClearBtn" title="連携を解除">解除</button></div>
+        <div class="field-row"><label>候補から選ぶ</label><select id="jiraProjectPicker"><option value="">（「候補を取得」を押してください）</option></select> <button class="btn" id="jiraLoadProjectsBtn">候補を取得</button></div>
         <div class="field-row"><label>絞り込み条件（任意）</label><input type="text" id="jiraExtraJql" placeholder='例: status = "Done"（JQL形式）'></div>
         <button class="btn" id="jiraSetSourceBtn">同期元を設定</button>
         <button class="btn" id="jiraTestConnectionBtn">接続テスト</button>
@@ -675,6 +676,7 @@ export function chatUiHtml(): string {
         <p class="hint" style="margin-top:.4rem;">上のスペースURLを入力してボタンを押すだけで接続できます（推奨）。技術者向けに、APIキーをBACKLOG_SPACE_URL/BACKLOG_API_KEYとしてsecret登録する方式も引き続き使えます（README参照）。</p>
         <div class="field-row"><label>namespace</label><input type="text" id="backlogNamespace" placeholder="例: shared:project_x"></div>
         <div class="field-row"><label>プロジェクトキー/ID</label><input type="text" id="backlogProjectId" placeholder="例: PROJ"> <button class="btn danger" id="backlogClearBtn" title="連携を解除">解除</button></div>
+        <div class="field-row"><label>候補から選ぶ</label><select id="backlogProjectPicker"><option value="">（「候補を取得」を押してください）</option></select> <button class="btn" id="backlogLoadProjectsBtn">候補を取得</button></div>
         <div class="field-row"><label>絞り込みキーワード（任意）</label><input type="text" id="backlogKeywordFilter" placeholder="要約・説明の部分一致"></div>
         <button class="btn" id="backlogSetSourceBtn">同期元を設定</button>
         <button class="btn" id="backlogTestConnectionBtn">接続テスト</button>
@@ -694,6 +696,8 @@ export function chatUiHtml(): string {
         <p class="hint" style="margin-top:.4rem;">上のボタンでご自身のGoogleアカウントを認証するだけで、そのアカウントが見えるカレンダーを連携できます（推奨）。技術者向けに、対象カレンダーをサービスアカウント（GOOGLE_SERVICE_ACCOUNT_JSONのclient_email）へ「閲覧者」共有する従来方式も引き続き使えます（README参照）。</p>
         <div class="field-row"><label>namespace</label><input type="text" id="calendarNamespace" placeholder="例: shared:team_schedule"></div>
         <div class="field-row"><label>カレンダーID</label><input type="text" id="calendarId" placeholder="例: xxxx@group.calendar.google.com"> <button class="btn danger" id="calendarClearBtn" title="連携を解除">解除</button></div>
+        <div class="field-row"><label>候補から選ぶ</label><select id="calendarPicker"><option value="">（「候補を取得」を押してください）</option></select> <button class="btn" id="calendarLoadListBtn">候補を取得</button></div>
+        <p class="hint">従来方式（サービスアカウント共有）の場合、共有した覚えのあるカレンダーでも候補に出てこないことがあります。その場合はIDを直接入力してください。</p>
         <button class="btn" id="calendarSetSourceBtn">同期元を設定</button>
         <button class="btn" id="calendarTestConnectionBtn">接続テスト</button>
         <div style="margin-top:.6rem;">
@@ -2990,6 +2994,50 @@ export function chatUiHtml(): string {
       } catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
     });
   }
+
+  // 「候補を取得」ボタン共通処理（2026-09-23追加）: OAuth・従来方式どちらの認証でも、接続済みの
+  // 認証情報でプロバイダのAPIを叩き、見えるプロジェクト/カレンダー一覧をドロップダウンに表示する。
+  // プロジェクトキーやカレンダーIDの手入力を無くし、Claudeのコネクタのような「接続したら選ぶだけ」
+  // に近づけるための機能。手入力欄自体は削除せず残す（一覧取得に失敗した場合の後方互換フォールバック。
+  // 特にGoogleカレンダーのサービスアカウント方式は、共有されたカレンダーが必ずしも一覧APIに
+  // 出てこないことがあるため）。extraParamsは/admin/kb/test-connection/calendar同様、
+  // namespace等を追加送信したい場合に使う。
+  function wireResourcePicker(loadBtnId, selectId, targetInputId, endpoint, mapItem, extraParams) {
+    $(loadBtnId).addEventListener("click", async () => {
+      const select = $(selectId);
+      select.innerHTML = '<option value="">読み込み中…</option>';
+      try {
+        const data = await api(endpoint, extraParams ? extraParams() : {});
+        const items = mapItem(data);
+        select.innerHTML = "";
+        if (items.length === 0) {
+          select.innerHTML = '<option value="">候補が見つかりませんでした（手入力してください）</option>';
+          return;
+        }
+        const placeholder = document.createElement("option");
+        placeholder.value = ""; placeholder.textContent = "候補を選択（" + items.length + "件）";
+        select.appendChild(placeholder);
+        items.forEach((it) => {
+          const opt = document.createElement("option");
+          opt.value = it.value; opt.textContent = it.label;
+          select.appendChild(opt);
+        });
+      } catch (e) {
+        select.innerHTML = '<option value="">取得に失敗しました（手入力してください）</option>';
+        showToast("候補の取得に失敗しました: " + e.message, "error");
+      }
+    });
+    $(selectId).addEventListener("change", () => {
+      const v = $(selectId).value;
+      if (v) $(targetInputId).value = v;
+    });
+  }
+  wireResourcePicker("jiraLoadProjectsBtn", "jiraProjectPicker", "jiraProjectKey", "/admin/jira/list-projects",
+    (data) => data.projects.map((p) => ({ value: p.key, label: p.key + " - " + p.name })));
+  wireResourcePicker("backlogLoadProjectsBtn", "backlogProjectPicker", "backlogProjectId", "/admin/backlog/list-projects",
+    (data) => data.projects.map((p) => ({ value: p.key, label: p.key + " - " + p.name })));
+  wireResourcePicker("calendarLoadListBtn", "calendarPicker", "calendarId", "/admin/calendar/list-calendars",
+    (data) => data.calendars.map((c) => ({ value: c.id, label: c.summary + " (" + c.id + ")" })));
 
   $("jiraSetSourceBtn").addEventListener("click", async () => {
     try {
