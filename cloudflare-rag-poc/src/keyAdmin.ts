@@ -27,7 +27,14 @@ interface CreateKeyResult {
 // その日数後に自動失効するキーを発行できる（auth.tsのauthenticate()が期限切れを拒否する）。
 async function createKeyRecord(
   env: Env,
-  opts: { displayName: string; role: UserRole; namespaces?: string[]; ragCapacity?: number; expiresInDays?: number | null },
+  opts: {
+    displayName: string;
+    role: UserRole;
+    namespaces?: string[];
+    ragCapacity?: number;
+    claudeCapacity?: number | null;
+    expiresInDays?: number | null;
+  },
 ): Promise<CreateKeyResult> {
   const role = opts.role;
   const apiKey = generateApiKey();
@@ -68,12 +75,27 @@ async function createKeyRecord(
     .bind(newUserId, opts.ragCapacity ?? DEFAULT_RAG_CAPACITY)
     .run();
 
+  // Claude予算（houdiniチュートリアル生成等が/claude/messagesを叩く際のサーバー側強制上限、
+  // budget.tsのreserveBudget参照）は、RAGと違いデフォルト値を強制しない。未指定なら
+  // 行自体を作らず「無制限」のままにする（既存キーの挙動を変えないための後方互換）。
+  // 2026-09-23追加：それまで管理UIから設定する手段が無く、事実上サーバー側で上限を
+  // 掛けられていなかった（クライアント側のtutorial_agent.pyのCOST_LIMIT_USDのみ）。
+  if (opts.claudeCapacity != null) {
+    await env.DB.prepare(
+      "INSERT INTO token_budgets (user_id, budget_type, limit_tokens, used_tokens) VALUES (?, 'claude', ?, 0)"
+    )
+      .bind(newUserId, opts.claudeCapacity)
+      .run();
+  }
+
   return { apiKey, userId: newUserId, displayName: opts.displayName, role, personalNamespace: personalNs };
 }
 
 // POST /admin/keys/create — 新規APIキーを発行する（既存GAS adminCreateKey相当）。
 // 生のAPIキーはこの応答でしか手に入らない（ハッシュ値しか保存しないため、後から再表示できない）。
-// body: { displayName, namespaces?: string[]（許可する共有namespace）, role?: 'admin'|'editor'|'member'|'guest', ragCapacity?: number, expiresInDays?: number（省略/0=無期限） }
+// body: { displayName, namespaces?: string[]（許可する共有namespace）, role?: 'admin'|'editor'|'member'|'guest',
+//         ragCapacity?: number, claudeCapacity?: number（houdiniチュートリアル生成等の/claude/messages利用上限。
+//         省略時は無制限）, expiresInDays?: number（省略/0=無期限） }
 export async function handleCreateKey(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireAdmin(user);
 
@@ -82,6 +104,7 @@ export async function handleCreateKey(req: Request, env: Env, user: AuthedUser):
     namespaces?: string[];
     role?: UserRole;
     ragCapacity?: number;
+    claudeCapacity?: number;
     expiresInDays?: number;
   };
   const displayName = (body.displayName || "").trim();
@@ -96,6 +119,7 @@ export async function handleCreateKey(req: Request, env: Env, user: AuthedUser):
     role,
     namespaces: body.namespaces,
     ragCapacity: body.ragCapacity,
+    claudeCapacity: body.claudeCapacity,
     expiresInDays: body.expiresInDays,
   });
   return jsonResponse(200, { status: "ok", ...result });
@@ -132,9 +156,11 @@ export async function handleListKeys(req: Request, env: Env, user: AuthedUser): 
   const res = await env.DB.prepare(
     `SELECT u.user_id, u.display_name, u.role, u.created_at, u.expires_at,
             tb.limit_tokens AS rag_limit, tb.used_tokens AS rag_used,
+            cb.limit_tokens AS claude_limit, cb.used_tokens AS claude_used,
             (SELECT MAX(a.created_at) FROM audit_log a WHERE a.user_id = u.user_id) AS last_active
      FROM users u
      LEFT JOIN token_budgets tb ON tb.user_id = u.user_id AND tb.budget_type = 'rag'
+     LEFT JOIN token_budgets cb ON cb.user_id = u.user_id AND cb.budget_type = 'claude'
      ORDER BY u.created_at DESC`
   ).all();
 
@@ -237,19 +263,29 @@ export async function handleUpdateKeyExpiry(req: Request, env: Env, user: Authed
 }
 
 // POST /admin/keys/set-capacity — トークン予算の上限・自動リセット間隔を設定する
-// （既存GAS adminSetKeyCapacity相当）。
+// （既存GAS adminSetKeyCapacity相当）。limitTokens に null を渡すと、その budget_type の
+// 予算レコード自体を削除し「無制限」に戻す（2026-09-23追加：houdiniチュートリアル生成用の
+// Claude予算を管理UIから外せるようにするため。budget.tsのreserveBudgetは予算レコードが
+// 無ければ無制限として扱う設計に合わせている）。
 export async function handleSetKeyCapacity(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireAdmin(user);
   const body = (await req.json()) as {
     userId?: string;
     budgetType?: "rag" | "claude";
-    limitTokens?: number;
+    limitTokens?: number | null;
     resetIntervalHours?: number;
   };
   const userId = (body.userId || "").trim();
   const budgetType = body.budgetType ?? "rag";
-  if (!userId || typeof body.limitTokens !== "number") {
-    return jsonResponse(400, { error: "userId と limitTokens（数値）は必須です" });
+  if (!userId || (body.limitTokens !== null && typeof body.limitTokens !== "number")) {
+    return jsonResponse(400, { error: "userId は必須です。limitTokens は数値または null（無制限に戻す）を指定してください" });
+  }
+
+  if (body.limitTokens === null) {
+    await env.DB.prepare("DELETE FROM token_budgets WHERE user_id = ? AND budget_type = ?")
+      .bind(userId, budgetType)
+      .run();
+    return jsonResponse(200, { status: "ok" });
   }
 
   // resetIntervalHoursが省略された場合、既存のリセットスケジュールを消さずに保持する

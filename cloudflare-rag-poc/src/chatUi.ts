@@ -751,6 +751,7 @@ export function chatUiHtml(): string {
           </select>
         </div>
         <div class="field-row"><label>RAGトークン上限</label><input type="number" id="newKeyCapacity" value="100000"></div>
+        <div class="field-row"><label>Claude予算（チュートリアル生成等）</label><input type="number" id="newKeyClaudeCapacity" placeholder="空欄=無制限"></div>
         <div class="field-row"><label>有効期限</label>
           <select id="newKeyExpiry" class="role-select">
             <option value="0" selected>無期限</option>
@@ -778,7 +779,7 @@ export function chatUiHtml(): string {
           </select>
           <button class="btn" id="refreshKeys">再読み込み</button>
         </div>
-        <div class="table-scroll"><table class="admin-table" id="keysTable"><thead><tr><th>名前</th><th>ロール</th><th>RAG予算</th><th>使用率</th><th>最終利用</th><th>有効期限</th><th>作成日</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table" id="keysTable"><thead><tr><th>名前</th><th>ロール</th><th>RAG予算</th><th>使用率</th><th>Claude予算（チュートリアル生成等）</th><th>最終利用</th><th>有効期限</th><th>作成日</th><th></th></tr></thead><tbody></tbody></table></div>
       </div>
     </div>
 
@@ -2460,11 +2461,13 @@ export function chatUiHtml(): string {
   $("createKeyBtn").addEventListener("click", async () => {
     const namespaces = Array.from($("newKeyNamespaces").querySelectorAll("input:checked")).map((c) => c.value);
     try {
+      const claudeCapacityRaw = $("newKeyClaudeCapacity").value.trim();
       const data = await api("/admin/keys/create", {
         displayName: $("newKeyName").value.trim(),
         role: $("newKeyRole").value,
         namespaces,
         ragCapacity: Number($("newKeyCapacity").value) || 100000,
+        claudeCapacity: claudeCapacityRaw === "" ? undefined : Number(claudeCapacityRaw),
         expiresInDays: Number($("newKeyExpiry").value) || 0,
       });
       showNewKey(data.apiKey);
@@ -2484,7 +2487,7 @@ export function chatUiHtml(): string {
     const tbody = $("keysTable").querySelector("tbody");
     tbody.innerHTML = "";
     if (keys.length === 0) {
-      tbody.innerHTML = '<tr><td colspan=8>該当するキーがありません</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=9>該当するキーがありません</td></tr>';
       return;
     }
     keys.forEach((k) => {
@@ -2535,6 +2538,39 @@ export function chatUiHtml(): string {
         donutCell.appendChild(donutCanvas);
         drawDonut(donutCanvas, k.rag_used, k.rag_limit);
       }
+
+      // Claude予算（houdiniチュートリアル生成等が/claude/messagesを叩く際のサーバー側強制上限、
+      // budget.tsのreserveBudget参照。2026-09-23追加）。RAGと違い未設定＝無制限がデフォルトの
+      // ため、入力欄を空にして「設定」を押すと limitTokens: null を送って無制限に戻す。
+      const claudeCell = document.createElement("td");
+      tr.appendChild(claudeCell);
+      const claudeText = document.createElement("span");
+      claudeText.textContent = k.claude_limit != null ? (k.claude_used + '/' + k.claude_limit) : '無制限';
+      claudeCell.appendChild(claudeText);
+      const claudeInput = document.createElement("input");
+      claudeInput.type = "number";
+      claudeInput.min = "0";
+      claudeInput.style.width = "90px";
+      claudeInput.style.marginLeft = ".4rem";
+      claudeInput.placeholder = "空欄=無制限";
+      if (k.claude_limit != null) claudeInput.value = k.claude_limit;
+      const claudeSetBtn = document.createElement("button");
+      claudeSetBtn.className = "btn"; claudeSetBtn.textContent = "設定";
+      claudeSetBtn.style.marginLeft = ".3rem";
+      claudeSetBtn.onclick = async () => {
+        const v = claudeInput.value.trim();
+        try {
+          await api("/admin/keys/set-capacity", {
+            userId: k.user_id,
+            budgetType: "claude",
+            limitTokens: v === "" ? null : Number(v),
+          });
+          showToast(k.display_name + " のClaude予算を更新しました", "success");
+          loadKeys();
+        } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
+      };
+      claudeCell.appendChild(claudeInput);
+      claudeCell.appendChild(claudeSetBtn);
 
       // 最終利用日時（2026-09-10追加、AXChat:D Usersページの"Last Login"に相当）。
       // audit_log全体のMAX(created_at)なのでClaudeプロキシ利用も含む（keyAdmin.ts参照）。
@@ -2632,7 +2668,7 @@ export function chatUiHtml(): string {
 
   async function loadKeys() {
     const tbody = $("keysTable").querySelector("tbody");
-    tbody.innerHTML = "<tr><td colspan=8>読み込み中…</td></tr>";
+    tbody.innerHTML = "<tr><td colspan=9>読み込み中…</td></tr>";
     try {
       const data = await api("/admin/keys/list", {});
       allKeysCache = data.keys;

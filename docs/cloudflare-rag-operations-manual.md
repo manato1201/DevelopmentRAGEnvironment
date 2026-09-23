@@ -1,6 +1,6 @@
 # Cloudflare RAG POC 運用手順書
 
-**作成日:** 2026-08-26
+**作成日:** 2026-08-26（2.4〜2.7節は2026-09-22追加：Jira/Backlog/Googleカレンダー/Googleマップ連携、OAuthクリック接続化、再帰クローラー、重複検出）
 **対象:** [cloudflare-rag-poc/](../cloudflare-rag-poc/)
 **位置づけ:** 初期セットアップと日常運用の手順を、実際にこの検証環境を構築・運用した手順に沿ってまとめたもの。設計・アーキテクチャの説明は[技術解説書](cloudflare-rag-technical-report.md)を参照。
 
@@ -10,6 +10,7 @@
 
 1. [初期セットアップ](#1-初期セットアップ)
 2. [知識ベースの追加・同期](#2-知識ベースの追加同期)
+   - 2.4 [再帰URLクローラー](#24-再帰urlクローラー) / 2.5 [Jira・Backlog・Googleカレンダー・Googleマップ連携](#25-jira--backlog--googleカレンダー--googleマップ連携) / 2.6 [OAuth接続の管理](#26-oauth接続の管理) / 2.7 [重複コンテンツの確認・削除](#27-重複コンテンツの確認削除)
 3. [APIキー・namespaceの管理](#3-apiキーnamespaceの管理)
 4. [検索精度のチューニング](#4-検索精度のチューニング)
 5. [ヘルスチェック・アラートの運用](#5-ヘルスチェックアラートの運用)
@@ -90,6 +91,31 @@ batchSizeが大きすぎると、1リクエストが100秒を超えてブラウ�
 
 PDF・音声・動画ファイルはGeminiに実データを渡す必要があるため、Drive同期でもダウンロード自体は避けられず、Workersのメモリ上限（128MB）に対する安全マージンとして約90MBの上限がある（超えると同期結果の`skipped`欄に理由が出る）。DOCX/PPTXはこの制約を受けない（上表参照）。
 
+### 2.4 再帰URLクローラー
+
+`POST /admin/kb/crawl-url`（管理タブ「連携」→「URL」）で、起点URLから同一オリジン配下のリンクを辿って複数ページをまとめて登録できる。`depth`（辿る階層数）・`maxPages`・`pathPrefix`（パス接頭辞での絞り込み）・`excludePatterns`（除外パターン、単純な部分一致）・`skipExisting`（同名ファイルが既にあればスキップ）を指定できる。§2.2と同じバッチ処理パターンのため、`batchSize`を大きくしすぎるとタイムアウトしやすい点は同様（既定1）。クロールの継続状態は`crawl_jobs`テーブルに保存され、完了時に自動削除される。
+
+### 2.5 Jira / Backlog / Googleカレンダー / Googleマップ連携
+
+管理タブの「連携」サブタブから利用する。認証方式は2通りある：
+
+- **OAuthクリック接続（推奨）**：管理タブの「接続する」ボタン→ブラウザで認証するだけで完了する。技術者が事前に各サービスのOAuthアプリを一度だけ登録しておく必要がある（登録手順は[cloudflare-rag-poc/README.md](../cloudflare-rag-poc/README.md)の各サービス節を参照）
+- **従来方式（APIトークン等をシークレット登録）**：OAuthアプリを登録しない場合の代替。OAuth接続がある場合はそちらが自動的に優先される
+
+どちらの方式でも、namespaceとプロジェクト/カレンダーの紐付け（プロジェクトキー・カレンダーID・絞り込み条件等）は管理タブで直接入力する。Jira/Backlogは毎日UTC 4時のCron Triggerで自動差分同期される（前回同期以降に更新された分だけ追加登録）。初回の全件取り込みは、管理タブの「Jira同期を実行」/「Backlog同期を実行」を手動で1回実行する必要がある（Cronは差分キャッチアップ専用で、未接続状態からの初回実行では「過去24時間分」しか見ない）。Googleカレンダーは差分検知をせず、毎回固定の時間窓（既定：過去7日〜未来90日）を自動で丸ごと再取得する。
+
+各連携には「接続テスト」ボタンがあり、実際の登録は行わずsecret・IDの妥当性だけを確認できる。同期を実行する前にまずこれで確認するとよい。
+
+### 2.6 OAuth接続の管理
+
+- **接続状況の確認**：管理タブの「連携」タブを開くと自動的に`POST /admin/oauth/status`が呼ばれ、各サービスの接続状況が表示される
+- **接続の解除**：各サービスの「接続を解除」ボタン、または`POST /admin/oauth/<service>/disconnect`（`jira`/`backlog`/`google_calendar`/`slack`）。解除してもnamespaceとの紐付け設定（プロジェクトキー等）は残るため、再接続すれば同じ設定のまま同期を再開できる
+- **トラブル時の直接確認**：`wrangler d1 execute rag-poc-db --remote --command "SELECT service, expires_at, connected_at FROM oauth_connections;"`で、どのサービスがいつ接続され、アクセストークンがいつ失効するかを確認できる（[§6.3](#63-d1データを直接確認する)参照）
+
+### 2.7 重複コンテンツの確認・削除
+
+管理タブ「重複コンテンツの確認・削除」で、namespace内の登録済みドキュメントのうち、先頭チャンク本文と全体の文字数が完全一致するもの（＝ソースやfile名が違うだけで内容が重複しているもの）を検出できる。同じページをURL登録とクロールの両方で登録した、Notion/Drive/Jira間で内容が重複した、といったケースを想定している。検出結果は組ごとに一覧表示され、管理者が個別に「削除」ボタンで不要な方を選んで削除する（自動一括削除はしない）。ソースをまたいだ重複も自動的に検出対象になる（`kb_documents`テーブルがnamespace単位で全ソースを横断しているため、追加設定は不要）。
+
 ## 3. APIキー・namespaceの管理
 
 - **APIキー発行**：管理タブ「新しいAPIキーを発行」、または`POST /admin/keys/create`。**生キーはこの応答でしか取得できない**ため、発行時に必ず控える。画面上の表示は「コピー」ボタンでの取得を想定しており、60秒後の自動非表示・「隠す」ボタン・管理タブを離れた時点でのクリアのいずれかで画面から消える（ページを再読み込みしない限り表示され続けていた不具合の対策、2026-08-27）
@@ -128,11 +154,12 @@ flowchart LR
 
 ## 5. ヘルスチェック・アラートの運用
 
-30分ごとのCron Triggerで、D1接続・直近1時間のKB同期エラー・トークン予算の枯渇間近を自動チェックし、設定済みのSlack/Gmailへ通知する。
+30分ごとのCron Triggerで、D1接続・直近1時間のKB同期エラー・トークン予算の枯渇間近を自動チェックし、設定済みのSlack/Gmailへ通知する。このほか、毎日UTC 4時のCron TriggerでJira/Backlog/Googleカレンダーの自動差分同期（[§2.5](#25-jira--backlog--googleカレンダー--googleマップ連携)）が走る。
 
 - **手動実行**：管理タブ「ヘルスチェックを実行」、または`POST /admin/health/check`
-- **通知先の疎通確認**：管理タブ「テスト通知を送信」、または`POST /admin/health/test-alert`
-- **セットアップ**：[README.mdのセットアップ手順](../cloudflare-rag-poc/README.md#ヘルスチェックアラート通知のセットアップslack--gmail)を参照。GmailはGoogle Workspace限定のDomain-Wide Delegationではなく、個人アカウントのOAuthリフレッシュトークン方式を採用している
+- **通知先の疎通確認**：管理タブ「テスト通知を送信」、または`POST /admin/health/test-alert`（Slackは`SLACK_WEBHOOK_URL`かOAuth接続のどちらか一方があれば`ok`になる）
+- **セットアップ**：[README.mdのセットアップ手順](../cloudflare-rag-poc/README.md#ヘルスチェックアラート通知のセットアップslack--gmail)を参照。GmailはGoogle Workspace限定のDomain-Wide Delegationではなく、個人アカウントのOAuthリフレッシュトークン方式を採用している。SlackはIncoming Webhook URLの手動発行に加えて、OAuthクリック接続（[§2.5](#25-jira--backlog--googleカレンダー--googleマップ連携)と同じ仕組み）にも対応する
+- **日次差分同期が動いているかの確認**：Jira/Backlog/カレンダーの同期履歴（`POST /admin/kb/history`、`source`列が`jira`/`backlog`/`google_calendar`）にUTC 4時台のエントリが日々増えているかで確認できる。増えていない場合はOAuth接続の有効期限切れ（[§2.6](#26-oauth接続の管理)）を疑う
 
 ## 6. バックアップとロールバック
 
@@ -176,6 +203,9 @@ npx wrangler d1 execute rag-poc-db --command "SELECT * FROM namespaces;"
 | トークン予算の消費状況 | `SELECT user_id, budget_type, used_tokens, limit_tokens FROM token_budgets;` |
 | 監査ログ（誰がいつ何を検索したか） | `SELECT user_id, namespace_id, tokens_used, latency_ms FROM audit_log ORDER BY id DESC LIMIT 20;` |
 | namespaceごとのDriveフォルダ/Notion DB設定 | `SELECT * FROM kb_sources;` |
+| OAuth接続の状況（有効期限等） | `SELECT service, expires_at, connected_at FROM oauth_connections;` |
+| ドキュメント単位の一覧（重複検出の元データ） | `SELECT file, namespace FROM kb_documents WHERE namespace = '<namespace>';` |
+| 進行中の再帰クロールジョブ | `SELECT op_id, namespace_id, processed_count FROM crawl_jobs;` |
 
 JSON形式で結果が欲しい場合は`--json`オプションを付ける（スクリプトから加工したい場合に便利）。テーブル定義そのものを確認したい場合は`migrations/`配下の各SQLファイル、または[技術解説書§4データモデル](cloudflare-rag-technical-report.md#4-データモデル)のER図を参照。
 
@@ -193,7 +223,7 @@ Cloudflareダッシュボード（[dash.cloudflare.com](https://dash.cloudflare.
    - Cloudflare RAG APIキー → 発行済みのAPIキー
 3. 設定を保存し、通常通りチュートリアル生成を実行する
 
-**既定値は変更していないため、これらの設定を触らなければ従来通りGAS経由で動作する。** 切り替えた場合、Claude呼び出しのトークン消費は`token_budgets`の`budget_type='claude'`で管理される（`POST /admin/keys/set-capacity`で上限設定可能）。
+**既定値は変更していないため、これらの設定を触らなければ従来通りGAS経由で動作する。** 切り替えた場合、Claude呼び出しのトークン消費は`token_budgets`の`budget_type='claude'`で管理される。上限は未設定だと無制限になる点に注意（RAGのnamespace予算のような警告のみの仕組みとは異なり、`src/claude.ts`の`reserveBudget()`が超過時に実際にリクエストを拒否するサーバー側の強制）。設定・変更は管理タブの「APIキー管理」の「Claude予算（チュートリアル生成等）」列から行える（2026-09-23追加。入力欄を空にして「設定」を押すと無制限に戻る）。CLIからは`POST /admin/keys/set-capacity`（`limitTokens: null`で無制限に戻す）でも同じことができる。
 
 ## 8. 障害対応の基本フロー
 

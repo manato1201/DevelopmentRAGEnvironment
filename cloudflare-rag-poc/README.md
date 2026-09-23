@@ -499,10 +499,16 @@ curl.exe -X POST http://localhost:8787/admin/health/test-alert -H "Authorization
 npx wrangler secret put ANTHROPIC_API_KEY
 ```
 
-ユーザーごとにClaude専用のトークン予算を設定したい場合（任意。未設定なら無制限）：
+ユーザーごとにClaude専用のトークン予算を設定したい場合（任意。未設定なら無制限）。これはRAGのnamespace予算のような「警告のみ」ではなく、`src/claude.ts`の`reserveBudget()`が上限到達時に実際にリクエストを拒否する**サーバー側の強制**（`houdini_tools.py`/`tutorial_agent.py`側のローカルなコスト上限＝`COST_LIMIT_USD`はネットワーク断時のフェイルセーフに過ぎず、これとは別物）:
+
+**管理タブから設定する場合（2026-09-23追加、推奨）**: 管理タブの「APIキー管理」で、キー発行時に「Claude予算（チュートリアル生成等）」欄に上限トークン数を入力するか、発行済みキーの一覧テーブルの同列から後から設定・変更できる。入力欄を空にして「設定」を押すと無制限に戻せる。
+
+**CLIから設定する場合**:
 
 ```bash
 curl.exe -X POST http://localhost:8787/admin/keys/set-capacity -H "Authorization: Bearer <adminのAPIキー>" -H "Content-Type: application/json" -d '{\"userId\":\"<対象のuserId>\",\"budgetType\":\"claude\",\"limitTokens\":500000}'
+# limitTokensにnullを渡すと予算レコードごと削除し無制限に戻す
+curl.exe -X POST http://localhost:8787/admin/keys/set-capacity -H "Authorization: Bearer <adminのAPIキー>" -H "Content-Type: application/json" -d '{\"userId\":\"<対象のuserId>\",\"budgetType\":\"claude\",\"limitTokens\":null}'
 ```
 
 呼び出し例（`tutorial_agent.py`が送るのとほぼ同じ形。`model`省略時は`claude-sonnet-5`）：
@@ -516,8 +522,9 @@ curl.exe -X POST http://localhost:8787/claude/messages -H "Authorization: Bearer
 すべて管理者ロールのAPIキーが必要（`verify-test-key`のような動作確認用テストユーザーは`role='admin'`で作成している）。
 
 ```powershell
-# 新しいAPIキーを発行（namespacesを指定しないと、そのキーはどのshared namespaceも見えない）
-curl.exe -X POST http://localhost:8787/admin/keys/create -H "Authorization: Bearer <adminのAPIキー>" -H "Content-Type: application/json" -d '{\"displayName\":\"チームメンバーA\",\"role\":\"member\",\"namespaces\":[\"shared:houdini21\"],\"ragCapacity\":100000}'
+# 新しいAPIキーを発行（namespacesを指定しないと、そのキーはどのshared namespaceも見えない）。
+# claudeCapacityは省略可（省略時はClaude予算は無制限のまま作成される）
+curl.exe -X POST http://localhost:8787/admin/keys/create -H "Authorization: Bearer <adminのAPIキー>" -H "Content-Type: application/json" -d '{\"displayName\":\"チームメンバーA\",\"role\":\"member\",\"namespaces\":[\"shared:houdini21\"],\"ragCapacity\":100000,\"claudeCapacity\":500000}'
 # レスポンスの apiKey は生成時にしか表示されない。渡す相手に控えてもらうこと
 
 # 発行済みキーの一覧（生のキーは表示されない、userIdで識別する）
