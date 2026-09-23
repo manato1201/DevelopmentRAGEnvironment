@@ -6,9 +6,9 @@ import { handleIngest } from "./ingest";
 import { handleMemoryList, handleMemoryRate, handleMemoryPin, handlePinnedList } from "./memory";
 import { handleSyncNotion, handleRetryFailedNotion } from "./notionSync";
 import { handleSyncDrive, handleRetryFailedDrive } from "./driveSync";
-import { handleSyncJira, handleRetryFailedJira, handleTestJiraConnection, runScheduledJiraSync } from "./jiraSync";
-import { handleSyncBacklog, handleRetryFailedBacklog, handleTestBacklogConnection, runScheduledBacklogSync } from "./backlogSync";
-import { handleSyncCalendar, handleRetryFailedCalendar, handleTestCalendarConnection, runScheduledCalendarSync } from "./calendarSync";
+import { handleSyncJira, handleRetryFailedJira, handleTestJiraConnection, handleListJiraProjects, runScheduledJiraSync } from "./jiraSync";
+import { handleSyncBacklog, handleRetryFailedBacklog, handleTestBacklogConnection, handleListBacklogProjects, runScheduledBacklogSync } from "./backlogSync";
+import { handleSyncCalendar, handleRetryFailedCalendar, handleTestCalendarConnection, handleListCalendars, runScheduledCalendarSync } from "./calendarSync";
 import { handleImportPlace, handleImportPlacesCsv, handleTestMapsConnection } from "./mapsImport";
 import { handleJiraOAuthStart, handleJiraOAuthCallback, handleJiraOAuthDisconnect } from "./jiraOAuth";
 import { handleBacklogOAuthStart, handleBacklogOAuthCallback, handleBacklogOAuthDisconnect } from "./backlogOAuth";
@@ -160,6 +160,12 @@ export default {
           return await handleSyncCalendar(req, env, user);
         case "/admin/sync/calendar/retry-failed":
           return await handleRetryFailedCalendar(req, env, user);
+        case "/admin/jira/list-projects":
+          return await handleListJiraProjects(req, env, user);
+        case "/admin/backlog/list-projects":
+          return await handleListBacklogProjects(req, env, user);
+        case "/admin/calendar/list-calendars":
+          return await handleListCalendars(req, env, user);
         case "/admin/kb/import-place":
           return await handleImportPlace(req, env, user);
         case "/admin/kb/import-places-csv":

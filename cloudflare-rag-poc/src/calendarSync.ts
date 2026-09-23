@@ -336,6 +336,35 @@ export async function runScheduledCalendarSync(env: Env): Promise<void> {
   }
 }
 
+// POST /admin/calendar/list-calendars — 接続済みの認証（OAuth・従来方式いずれか）で見える
+// カレンダー一覧を取得する（2026-09-23追加、jiraSync.tsのhandleListJiraProjectsと同じ狙い）。
+// 注意: OAuth接続（本人のGoogleアカウント）なら本人が見えるカレンダーが確実に返るが、
+// 従来方式（サービスアカウント）は、直接共有されただけのカレンダーがcalendarList APIの
+// 一覧に現れないことがある（Googleの仕様上、calendarListは「自分の一覧に追加した」
+// カレンダーの一覧であり、共有＝自動追加ではないため）。その場合は空配列になりうるので、
+// 呼び出し元（chatUi.ts）はIDの手入力フォールバックを必ず残すこと。
+export async function handleListCalendars(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  requireKnowledgeEditor(user);
+  try {
+    const token = await resolveCalendarAccessToken(env);
+    const calendars: Array<{ id: string; summary: string }> = [];
+    let pageToken: string | undefined;
+    do {
+      const url = new URL("https://www.googleapis.com/calendar/v3/users/me/calendarList");
+      url.searchParams.set("maxResults", "250");
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+      const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return jsonResponse(400, { error: `カレンダー一覧取得エラー (${res.status}): ${await res.text()}` });
+      const data = (await res.json()) as { items: Array<{ id: string; summary?: string }>; nextPageToken?: string };
+      for (const c of data.items) calendars.push({ id: c.id, summary: c.summary ?? c.id });
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    return jsonResponse(200, { status: "ok", calendars });
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 // POST /admin/kb/test-connection/calendar — secretと設定値だけで接続確認する
 // （実際の登録は行わない、2026-09-19追加）。
 export async function handleTestCalendarConnection(req: Request, env: Env, user: AuthedUser): Promise<Response> {
