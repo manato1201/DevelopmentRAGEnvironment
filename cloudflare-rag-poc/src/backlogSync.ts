@@ -360,6 +360,26 @@ export async function runScheduledBacklogSync(env: Env): Promise<void> {
   }
 }
 
+// POST /admin/backlog/list-projects — 接続済みの認証（OAuth・従来方式いずれか）で見える
+// プロジェクト一覧を取得する（2026-09-23追加、jiraSync.tsのhandleListJiraProjectsと同じ狙い）。
+export async function handleListBacklogProjects(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  requireKnowledgeEditor(user);
+  let auth: BacklogAuth;
+  try {
+    auth = await resolveBacklogAuth(env);
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+  try {
+    const res = await fetch(backlogUrl(auth, "/projects").toString(), { headers: auth.headers });
+    if (!res.ok) return jsonResponse(400, { error: `Backlogプロジェクト一覧取得エラー (${res.status}): ${await res.text()}` });
+    const data = (await res.json()) as Array<{ projectKey: string; name: string }>;
+    return jsonResponse(200, { status: "ok", projects: data.map((p) => ({ key: p.projectKey, name: p.name })) });
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 // POST /admin/kb/test-connection/backlog — secretと設定値だけで接続確認する
 // （実際の登録は行わない）。「連携」タブで設定ミスに同期実行前に気づけるようにするため
 // （2026-09-19追加）。

@@ -388,6 +388,41 @@ export async function runScheduledJiraSync(env: Env): Promise<void> {
   }
 }
 
+// POST /admin/jira/list-projects — 接続済みの認証（OAuth・従来方式いずれか）で見える
+// プロジェクト一覧を取得する。管理タブの「連携」でプロジェクトキーを手入力する代わりに、
+// ドロップダウンから選べるようにするため（2026-09-23追加）。
+export async function handleListJiraProjects(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  requireKnowledgeEditor(user);
+  let auth: JiraAuth;
+  try {
+    auth = await resolveJiraAuth(env);
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+
+  try {
+    const projects: Array<{ key: string; name: string }> = [];
+    let startAt = 0;
+    while (true) {
+      const url = new URL(`${auth.baseUrl}/rest/api/3/project/search`);
+      url.searchParams.set("startAt", String(startAt));
+      url.searchParams.set("maxResults", "50");
+      const res = await fetch(url.toString(), { headers: auth.headers });
+      if (!res.ok) return jsonResponse(400, { error: `Jiraプロジェクト一覧取得エラー (${res.status}): ${await res.text()}` });
+      const data = (await res.json()) as {
+        values: Array<{ key: string; name: string }>;
+        isLast: boolean;
+      };
+      for (const p of data.values) projects.push({ key: p.key, name: p.name });
+      if (data.isLast || data.values.length === 0) break;
+      startAt += data.values.length;
+    }
+    return jsonResponse(200, { status: "ok", projects });
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 // POST /admin/kb/test-connection/jira — secretと設定値だけで接続確認する（実際の登録は
 // 行わない）。「連携」タブで設定ミスに同期実行前に気づけるようにするため（2026-09-19追加）。
 export async function handleTestJiraConnection(req: Request, env: Env, user: AuthedUser): Promise<Response> {
