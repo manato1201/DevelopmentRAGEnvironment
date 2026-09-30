@@ -40,6 +40,7 @@ from __future__ import annotations
 import datetime
 import json
 import re
+import time
 import unicodedata
 import urllib.error
 import urllib.request
@@ -66,6 +67,17 @@ CLOUD_RAG_DB_KEY = "houdini21"  # Cloud RAG（GAS）に問い合わせる際の 
 CLOUDFLARE_RAG_NAMESPACES = ["shared:houdini21"]  # Cloudflare RAG（cloudflare-rag-poc）側のnamespace名
                                     # （2026-08-26追加。GASのCloud RAGの後継として、GAS/Cloudflare
                                     # どちらも選べるようにした。RAG_NAMESPACESとは別名になっている点に注意）
+# 2026-09-13追加: /claude/messages呼び出しでWorkerに一度も届かないままCloudflare
+# エッジ（workers.dev共有ドメインのBot Fight Mode等）に弾かれる事象を実機で確認した
+# （Workers Observabilityのイベントログに一切記録が残らないことから、Worker到達前の
+# ブロックだと確定）。urllib標準のUser-Agent（"Python-urllib/3.x"）が弾かれやすい
+# 一因と考えられるため、一般的なHTTPクライアントらしいUser-Agentを付与し、かつ
+# このブロック特有のパターン（401/403だがWorker自身のJSON応答ではない）を検知した
+# 場合に限り、短い間隔で自動リトライする（Workerに届いていないためトークン予算の
+# 二重消費にはならない）。
+_HTTP_USER_AGENT = "HoudiniTutorialAgent/1.0 (+cloudflare-rag-poc)"
+_CF_EDGE_BLOCK_RETRIES = 2
+_CF_EDGE_BLOCK_BACKOFF_SEC = (2.0, 5.0)
 
 # モデル別単価（USD / 1M tokens）。コスト上限判定の実測計算に使う。
 # token消費対策（コスト面で継続利用しやすくする）として、既定のclaude-sonnet-5に加えて
@@ -91,21 +103,24 @@ _MODEL_PRICES: dict[str, dict[str, float]] = {
 # UI（Settingsタブ）のモデル選択プルダウンに出す順序・選択肢
 AVAILABLE_MODELS: tuple[str, ...] = tuple(_MODEL_PRICES.keys())
 
-# よく使うSopノードタイプの一覧。list_available_node_types の呼び出しを毎回
+# よく使うSopノードタイプの一覧（2026-09-26: Houdini 21.0.700/22.0.429の実機（hython）で全て存在を確認済み。
+# 以前は noise::2.0/attribrandomize::2.0/volumetrim/popnet/pythonscript など、どちらの版にも
+# 存在しない名前が混ざっており、モデルが存在しないタイプを探し続ける一因になっていた）。
+# list_available_node_types の呼び出しを毎回
 # しなくても済むように、頻出タイプ名をシステムプロンプトに直接埋め込んでおく
 # （過去の実機検証で、序盤のノードタイプ検索だけで反復予算の3割超を消費した
 # ことが分かっているため。ここに無い/不確かなタイプは引き続き
 # list_available_node_types で確認すること）。
 _COMMON_NODE_TYPES_BLOCK = """- 基本形状: box, sphere, grid, tube, torus
-- 変形・ノイズ: mountain::2.0, noise::2.0, attribwrangle, attribrandomize::2.0
+- 変形・ノイズ: mountain::2.0, attribnoise::2.0, attribwrangle, attribrandomize
 - 散布・複製: scatter::2.0, copytopoints::2.0
 - 結合・切り出し: merge, blast, boolean::2.0
-- 属性操作: attribwrangle, attribcreate::2.0, attribdelete::2.0, attribpromote::2.0
-- 曲線: curve::2.0, resample::2.0, sweep::2.0, polyframe::2.0
-- ボリューム/VDB: vdbfrompolygons, cloudnoise::2.0, volumetrim, convertvdb
-- パーティクル(SOP内 popnet): popnet, popsource, popforce, popdrag, popwrangle, popkill, popcollisiondetect, popadvectbyvolume, popattractforce, popreplicate, popsolver
-- シミュレーション(DOP): pyrosolver::2.0, dopnet, sourcevolume::2.0, vellumsolver, rbdpackedobject, staticobject
-- スクリプト: pythonscript"""
+- 属性操作: attribwrangle, attribcreate::2.0, attribdelete, attribpromote
+- 曲線: curve::2.0, resample, sweep::2.0, polyframe
+- ボリューム/VDB: vdbfrompolygons, cloudnoise, volumewrangle, volumevop, convertvdb
+- パーティクル: POP系はDOPノードなので SOP 直下には作れない。geo の中に dopnet を作り、その中に popobject, popsolver::2.0, popsource::2.0, popforce, popdrag, popwrangle, popkill, popcollisiondetect, popadvectbyvolumes, popattract, popreplicate を作る（簡易に見せるだけなら scatter::2.0 + copytopoints::2.0 の方が確実）
+- シミュレーション(DOP): pyrosolver::2.0, dopnet, vellumsolver, rbdpackedobject, staticobject
+- スクリプト: python（Python SOP）"""
 
 # ノードタイプ検索(list_available_node_types)が続いた際に一度だけ差し込むテキスト。
 # 「よく使うノードタイプ」に無いタイプ名(例: 電子パーティクル等のPOP系)を探し続けて
@@ -140,6 +155,46 @@ _EMPTY_HANDED_NUDGE_TEXT_2 = (
 )
 _EMPTY_HANDED_MAX_RESCUES = 2  # この回数までは「まだ何も作られていない」を救済する
 
+# 2026-09-13追加: finish_tutorialは呼んだがconfirm_tutorialを呼ばないままテキストのみで
+# 終了しようとするケースを実機で確認した（ノードは正しく作成・cookできているのに、
+# 視覚的自己検証の最後の一歩だけ忘れる）。ノードが1つも無い場合の救済
+# （_EMPTY_HANDED_NUDGE_TEXT）とは別枠で、下書きが残っているのに終了しようとした場合に
+# 一度だけ再開を促す。
+_UNCONFIRMED_FINISH_NUDGE_TEXT = (
+    "[システム通知] finish_tutorial は呼びましたが、まだ confirm_tutorial を呼んでいません。"
+    "直前に見せられたビューポート画像を確認し、意図した見た目になっていれば"
+    "confirm_tutorial(looks_correct=true) を呼んでください。問題があれば修正してから"
+    "finish_tutorial を呼び直し、その後 confirm_tutorial を呼んでください。"
+    "confirm_tutorial を呼ぶまで生成は完了しません。"
+)
+# 2026-09-26: 1→2回に増やし、2回目は「もう修正は不要、今すぐconfirmだけ呼ぶ」と明示する。
+# 実機ログで、1回目の救済の後にモデルが修正を再開してfinish_tutorialを呼び直し（下書きが
+# 未確定に戻る）、再びテキストのみで終えて救済回数切れ→打ち切り、という流れを確認した。
+_UNCONFIRMED_FINISH_NUDGE_TEXT_2 = (
+    "[システム通知] confirm_tutorial がまだ呼ばれていません。これ以上のノード修正や"
+    "finish_tutorial の呼び直しは不要です。画像が完璧でなくても構いません。今すぐ "
+    "confirm_tutorial だけを呼んでください（意図どおりなら looks_correct=true。"
+    "明らかな問題が残っているなら looks_correct=false とし、note に理由を書く）。"
+)
+_UNCONFIRMED_FINISH_MAX_RESCUES = 2
+
+# 2026-09-20追加: リファクタリング時に発見したギャップへの対策。上の2つの救済
+# （「何も作らず終了」「finish_tutorial下書きが未確定のまま終了」）は、それぞれ
+# 「ノードが1つも無い」「finish_tutorialは呼んだ」を前提にしており、その中間
+# ケース——ノードは作成済み（cook成功済みかもしれない）だがfinish_tutorial自体を
+# 一度も呼ばずにテキストのみで終了しようとした場合——はどちらにも該当せず
+# 無条件でハード打ち切りになっていた。この場合best_unconfirmed_draft()も
+# （finish_tutorialが一度も呼ばれていないため）下書きが1件も無く空を返すため、
+# 実際にはノードが組み上がっているのにタイトル・概要・手順が汎用フォールバックの
+# ままになってしまう。
+_UNFINISHED_WORK_NUDGE_TEXT = (
+    "[システム通知] ノードは作成済みですが、finish_tutorial をまだ呼んでいません。"
+    "cook_node でエラーが無いことを確認したら、finish_tutorial を呼んでチュートリアル"
+    "内容（title/slug/overview/steps等）を提出してください。テキストだけで終了せず、"
+    "必ず finish_tutorial を呼んでください。"
+)
+_UNFINISHED_WORK_MAX_RESCUES = 1
+
 # 打ち切り時のグレースフル終了（§2.6）: 反復/コスト上限が近づいた際に一度だけ差し込む
 # ユーザー役テキスト。今の状態のまま仕上げるよう促し、未完成のままハード打ち切りになる
 # 事態を減らす。
@@ -148,6 +203,12 @@ _GRACE_NUDGE_TEXT = (
     "新しい大きな作業は始めず、今組み立て済みのグラフをそのまま仕上げてください。"
     "cook_node でエラーが無いことだけ確認したら、多少シンプルな内容でも構わないので"
     "finish_tutorial を呼んでチュートリアルを完成させてください。"
+    # 2026-09-13追加: 時間・予算が少ない状況ではモデルがfinish_tutorialを呼んだ後の
+    # confirm_tutorial呼び出しを省略しやすい（実機で、finish_tutorialを複数回呼んだ末に
+    # confirm_tutorialを一度も呼ばずツール呼び出し自体をやめてしまう事例を確認した）。
+    # 急いでいる状況こそ明示的に念押しする。
+    "finish_tutorial の直後に見せられるビューポート画像を確認し、"
+    "必ず confirm_tutorial も呼んでください（confirm_tutorialまで呼ばないと生成は完了しません）。"
 )
 
 # Phase1レベリング（IMPROVEMENT_PLAN.md §Phase1）: 同一トピックを basic→applied→advanced の
@@ -173,7 +234,7 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初
 - 以下の「よく使うノードタイプ」に無いタイプ名が少しでも不確かな場合は、create_node の前に必ず list_available_node_types で正確な名前を確認してください（例: `mountain` ではなく `mountain::2.0`）。既知のタイプ名について毎回確認する必要はありません。
 - SOP を作るには、まずサンドボックス直下に Object カテゴリの `geo` ノードを作成し、その中に SOP ノードを作成します。
 - グラフを組み終えたら必ず最終ノードを cook_node で評価し、エラーがあれば修正して再 cook してください。エラーが残ったまま finish_tutorial を呼んではいけません。
-- 表示させたい最終ノードには set_parameter 等で手を加える必要はありません（ディスプレイフラグは不要）。ただし複数の要素（例: 地形と、その上に散布した岩）を同時に見せたい場合は、Merge ノードで結合してから表示フラグを立ててください（片方しか見えない状態で終わらせないこと）。
+- ビューポートの表示（ディスプレイ/レンダーフラグ）はシステムが自動で管理します。connect_nodes で接続した先の末端ノード（出力先が無いノード）と、cook_node したノードが表示されます。display/render は set_parameter で設定できるパラメータではありません（試しても失敗します）。複数の要素（例: 地形と、その上に散布した岩）を同時に見せたい場合は、Merge ノードで結合して末端にしてください（片方しか見えない状態で終わらせないこと）。すべてのノードを最終的な1本の流れにつなぐこと（つなぎ忘れたノードは結果に反映されません）。
 - pyro/fire/クロス/パーティクル/流体/剛体等のシミュレーション系ノードを cook_node する際は、システム側が自動的に複数フレーム分evaluateして時間発展する挙動を検証します（1フレームだけでは正しく動くか分からないためです）。
 - list_available_node_types で調べ続けるより、最も可能性の高いタイプ名で create_node を試す方が早いことが多いです（間違っていても cook_node のエラーから自己修正できます）。ノードを1つも作らずにテキストだけで応答して終了することは禁止です。必ず何らかのツールを呼んでください。
 - トピックが「電子パーティクル」「銀河」のような、Houdiniの具体的なノードタイプ名にそのまま対応しない抽象的・比喩的な題材であっても構いません。その名前のノードタイプを探し続けるのではなく、基本形状（sphere/tube/torus等）・散布や複製（scatter::2.0, copytopoints::2.0）・ノイズや変形（mountain::2.0等）を組み合わせて「それらしい見た目」を表現する方針に切り替えてください。完璧な再現より、まず何かを組み立てて完成させることを優先してください。
@@ -228,8 +289,13 @@ class TutorialResult:
         # なるため、それだけでは「未取得」と「無制限」を区別できない。このフラグで判定する）。
         self.claude_quota_known: bool = False
         self.iterations: int = 0
-        self.completed: bool = False   # finish_tutorial まで到達したか
+        self.completed: bool = False   # confirm_tutorial(looks_correct=true) まで到達したか
         self.abort_reason: str = ""    # 打ち切り理由（上限到達など）
+        # confirm_tutorialが呼ばれないまま打ち切られ、代わりにbest_unconfirmed_draft()の
+        # 下書きをtitle/overview/steps等に採用した場合True（2026-09-13追加）。completed
+        # はFalseのままだが、保存内容が汎用フォールバックではなく実際の下書きであることを
+        # 示す。_assemble_markdownがこのフラグを見て本文に注意書きを追加する。
+        self.used_unconfirmed_draft: bool = False
         # sources[i] に "cited": bool が付与される（finish_tutorial の sources_used で
         # 報告された番号と対応）。RAGが実際にどれだけ生成に寄与したかの研究データ。
         self.sources: list[dict] = []
@@ -237,6 +303,11 @@ class TutorialResult:
         self.rag_sources_cited: list[int] = []
         # 引用率（cited済みsource数 / 全source数）。sourcesが空ならNone。
         self.rag_extraction_rate: float | None = None
+        # generate()の壁時計経過秒数（2026-09-20追加）。トピック入力時の「過去の生成の
+        # 平均コスト・所要時間」見積もり表示（token_usage.py）用。RAG検索・サンドボックス
+        # 作成・エージェントループ・Markdown組み立てまで全体を計測する（ユーザーが実際に
+        # 待つ時間の実感に合わせるため、API呼び出し部分だけを計測するより意味がある）。
+        self.elapsed_seconds: float = 0.0
 
     def file_basename(self) -> str:
         date = datetime.datetime.now().strftime("%Y%m%d")
@@ -294,6 +365,18 @@ class TutorialAgent:
 
     # ── 公開 API ────────────────────────────────────────────────────────────────
 
+    def set_progress_callback(self, cb: Callable[[str], None]) -> None:
+        """
+        progress_cb をコンストラクタ後に差し替える（2026-09-20追加）。
+        tutorial_view.py の単発生成パスは、TutorialWorker（QThread）が持つ
+        Signal.emit を progress_cb に使いたいが、TutorialWorkerの構築には
+        TutorialAgentのインスタンスが先に必要という順序上の制約がある。
+        以前はこれを self._agent._progress = ... という「プライベート属性への
+        外部からの直接代入」で回避していたが、名前が変わればサイレントに壊れる
+        脆い書き方だったため、正式な公開APIとして切り出した。
+        """
+        self._progress = cb or (lambda _: None)
+
     def generate(
         self,
         topic: str,
@@ -309,6 +392,7 @@ class TutorialAgent:
         """
         if level not in _LEVEL_INSTRUCTIONS:
             level = _DEFAULT_LEVEL
+        start_time = time.monotonic()
         result = TutorialResult()
         result.level = level
 
@@ -360,18 +444,31 @@ class TutorialAgent:
         # ④ 成果物組み立て（打ち切りでも途中経過を提示する）
         result.graph = self.executor.export_node_graph()
         result.step_screenshots = self.executor.export_step_screenshots()
-        finish = self.executor.finish_data or {}
         result.completed = self.executor.finish_data is not None
+        finish = self.executor.finish_data
+        if finish is None:
+            # confirm_tutorialが一度も呼ばれず打ち切られた場合、以前は無条件に
+            # finish={}（＝タイトルはトピック名の汎用フォールバック、概要・手順は
+            # 空）になっていた。実機で、モデルが良い下書きを複数回書いた後、最後だけ
+            # title="テスト"のようなプレースホルダーで終わってしまい、それまでの
+            # 良い下書きが丸ごと捨てられる事例を確認した（2026-09-13）。
+            # best_unconfirmed_draft()は全下書きの中から本文量最大のものを選ぶため、
+            # このケースでも以前のまともな下書きを拾える。
+            finish = self.executor.best_unconfirmed_draft()
+            result.used_unconfirmed_draft = finish is not None
+        finish = finish or {}
         result.title = finish.get("title") or f"Houdiniチュートリアル: {topic}"
         result.slug = self._sanitize_slug(finish.get("slug", ""), topic)
         result.next_steps = finish.get("next_steps", "")
         result.pitfalls = finish.get("pitfalls", "")
         self._apply_rag_attribution(finish, result, result.completed)
         result.markdown = self._assemble_markdown(topic, finish, result)
+        result.elapsed_seconds = time.monotonic() - start_time
 
         status = "完了" if result.completed else f"打ち切り（{result.abort_reason}）"
         self._progress(
-            f"生成{status}: {result.iterations} イテレーション / ${result.cost_usd:.3f}"
+            f"生成{status}: {result.iterations} イテレーション / ${result.cost_usd:.3f} "
+            f"/ {result.elapsed_seconds:.0f}秒"
         )
         return result
 
@@ -556,6 +653,7 @@ class TutorialAgent:
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {self._cf_api_key}",
+                    "User-Agent": _HTTP_USER_AGENT,
                 },
                 method="POST",
             )
@@ -628,6 +726,8 @@ class TutorialAgent:
         grace_warned = False        # GRACE_NUDGE_TEXTは1生成につき1回だけ出す
         search_nudge_active = False  # 現在の検索連打ストリークで既に促したか（create_nodeで解除）
         empty_handed_rescues = 0    # 何も作らずテキストのみで終了しようとした際の救済回数
+        unconfirmed_finish_rescues = 0  # finish_tutorial下書き未確定のまま終了しようとした際の救済回数
+        unfinished_work_rescues = 0  # ノードは作成済みだがfinish_tutorial自体を未呼び出しのまま終了しようとした際の救済回数
         cache_marked_content: list | None = None  # ローリングキャッシュ用（下記コメント参照）
         for iteration in range(1, MAX_ITERATIONS + 1):
             # ローリングプロンプトキャッシュ: messages は反復のたびに増え続けるが、
@@ -696,7 +796,58 @@ class TutorialAgent:
                             f"（{empty_handed_rescues}/{_EMPTY_HANDED_MAX_RESCUES}）"
                         )
                         continue
+                    if (
+                        self.executor.pending_finish is not None
+                        and unconfirmed_finish_rescues < _UNCONFIRMED_FINISH_MAX_RESCUES
+                    ):
+                        unconfirmed_finish_rescues += 1
+                        nudge_text = (
+                            _UNCONFIRMED_FINISH_NUDGE_TEXT if unconfirmed_finish_rescues == 1
+                            else _UNCONFIRMED_FINISH_NUDGE_TEXT_2
+                        )
+                        messages.append({
+                            "role": "user",
+                            "content": [{"type": "text", "text": nudge_text}],
+                        })
+                        self._progress(
+                            f"finish_tutorialの下書きが未確定のまま終了しようとしたため、"
+                            f"confirm_tutorialを促しました（{unconfirmed_finish_rescues}/{_UNCONFIRMED_FINISH_MAX_RESCUES}）"
+                        )
+                        continue
+                    if (
+                        has_created_any_node
+                        and self.executor.pending_finish is None
+                        and unfinished_work_rescues < _UNFINISHED_WORK_MAX_RESCUES
+                    ):
+                        # ノードは作成済みだが finish_tutorial 自体を一度も呼んでいない
+                        # まま終了しようとしたケース（上の2つの救済のどちらにも
+                        # 該当しない中間ケース、2026-09-20追加）。
+                        unfinished_work_rescues += 1
+                        messages.append({
+                            "role": "user",
+                            "content": [{"type": "text", "text": _UNFINISHED_WORK_NUDGE_TEXT}],
+                        })
+                        self._progress(
+                            f"ノード作成済みだがfinish_tutorial未呼び出しのまま終了しようとしたため、"
+                            f"提出を促しました（{unfinished_work_rescues}/{_UNFINISHED_WORK_MAX_RESCUES}）"
+                        )
+                        continue
                 result.abort_reason = "モデルがツールを呼ばず終了しました"
+                # 原因調査用: 打ち切り時にモデルが最後に何と言っていたかを残す（2026-09-26追加。
+                # 以前は無言で打ち切られ、「なぜ確定せずやめたのか」がログから分からなかった）。
+                final_text = " ".join(
+                    b.get("text", "") for b in content if b.get("type") == "text"
+                ).strip()
+                if final_text:
+                    self._progress(f"モデルの最後の発言: {' '.join(final_text.split())[:200]}")
+                log_event = getattr(self.executor, "log_event", None)
+                if log_event is not None:
+                    log_event({
+                        "event": "ended_without_tool_call",
+                        "assistant_text": final_text[:2000],
+                        "pending_finish": self.executor.pending_finish is not None,
+                        "iteration": iteration,
+                    })
                 return
 
             tool_results = []
@@ -803,33 +954,64 @@ class TutorialAgent:
             "messages": messages,
         }, ensure_ascii=False).encode("utf-8")
 
-        req = urllib.request.Request(
-            f"{self._cf_url.rstrip('/')}/claude/messages",
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self._cf_api_key}",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                return json.loads(resp.read())
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
+        attempt = 0
+        while True:
+            req = urllib.request.Request(
+                f"{self._cf_url.rstrip('/')}/claude/messages",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self._cf_api_key}",
+                    "User-Agent": _HTTP_USER_AGENT,
+                },
+                method="POST",
+            )
             try:
-                message = json.loads(detail).get("error", detail)
-            except (json.JSONDecodeError, AttributeError):
-                message = detail
-            if exc.code == 429:
-                raise RuntimeError(
-                    f"Claudeトークンの利用上限またはレート制限に達しています: {message}"
-                ) from exc
-            if exc.code in (401, 403):
-                raise RuntimeError(
-                    f"認証エラー: Cloudflare APIキーが無効です。Settingsタブを確認してください: {message}"
-                ) from exc
-            raise RuntimeError(f"Cloudflare Claudeプロキシエラー {exc.code}: {message}") from exc
+                with urllib.request.urlopen(req, timeout=180) as resp:
+                    return json.loads(resp.read())
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                # 2026-09-13: 401/403を「APIキーが無効」と即断していたが、実際には
+                # 応答本文がJSONではなくCloudflareエッジ自体の遮断ページ（例:
+                # "error code: 1010"）であるケースが実機で確認された（Workers
+                # Observabilityにイベントが一切残らないことから、認証ロジック
+                # （auth.ts）どころかWorker自体に到達する前のブロックだと確定した）。
+                # Worker未到達＝トークン予算は消費されていないため、この特定パターン
+                # （401/403だがWorker自身のJSON応答ではない）に限り安全に自動リトライ
+                # できる。JSON解析に失敗した場合は「APIキーが無効」という誤った案内も
+                # しないようにする。
+                try:
+                    parsed = json.loads(detail)
+                    message = parsed.get("error", detail)
+                    is_our_json = True
+                except (json.JSONDecodeError, AttributeError):
+                    message = detail
+                    is_our_json = False
+                if exc.code == 429:
+                    raise RuntimeError(
+                        f"Claudeトークンの利用上限またはレート制限に達しています: {message}"
+                    ) from exc
+                if exc.code in (401, 403):
+                    if is_our_json:
+                        raise RuntimeError(
+                            f"認証エラー: Cloudflare APIキーが無効です。Settingsタブを確認してください: {message}"
+                        ) from exc
+                    if attempt < _CF_EDGE_BLOCK_RETRIES:
+                        wait_sec = _CF_EDGE_BLOCK_BACKOFF_SEC[min(attempt, len(_CF_EDGE_BLOCK_BACKOFF_SEC) - 1)]
+                        self._progress(
+                            f"Cloudflareのエッジにリクエストが一時的に遮断された可能性があります"
+                            f"（{wait_sec:.0f}秒後にリトライします、{attempt + 1}/{_CF_EDGE_BLOCK_RETRIES}回目）"
+                        )
+                        time.sleep(wait_sec)
+                        attempt += 1
+                        continue
+                    raise RuntimeError(
+                        "Cloudflareのセキュリティ機能（Bot Fight Mode／WAF等）にリクエストが"
+                        "遮断された可能性があります（APIキー自体は無効でない可能性が高いです）。"
+                        "Cloudflareダッシュボードのセキュリティイベントを確認してください。"
+                        f" 応答本文の先頭: {message[:200]}"
+                    ) from exc
+                raise RuntimeError(f"Cloudflare Claudeプロキシエラー {exc.code}: {message}") from exc
 
     def _call_api_gas(
         self, system_blocks: list[dict],
@@ -984,11 +1166,25 @@ class TutorialAgent:
                 f"\n> **注意:** この生成は途中で打ち切られました（{result.abort_reason}）。"
                 "ノード構成は未完成の可能性があります。\n"
             )
+            if result.used_unconfirmed_draft:
+                status_note += (
+                    "> 以下の概要・手順は、モデルが見た目の最終確認（confirm_tutorial）を"
+                    "行う前の下書きをそのまま使用しています。実際のノード構成と内容が"
+                    "一致しているか、目視でご確認ください。\n"
+                )
 
+        # 2026-09-14追加: 打ち切り（result.completed=False）の場合はstatus: archivedにする。
+        # scripts/auto_index.py（watchdog自動インデクサー）はarchivedを「スキップ
+        # （インデックス化しない）」として扱うため、打ち切られた——本文に
+        # 「> 注意: 打ち切られました」という警告バナーしか無い可能性がある——
+        # チュートリアルがRAGナレッジベースに紛れ込むのを防げる。実機で、この
+        # バナー付きのままstatus: activeで保存され、動画まで自動生成されてしまう
+        # 事例が報告されたための対応（動画生成自体のガードはtutorial_view.py参照）。
+        frontmatter_status = "active" if result.completed else "archived"
         return f"""---
 title: {result.title}
 namespace: tutorials
-status: active
+status: {frontmatter_status}
 created: {today.isoformat()}
 updated: {today.isoformat()}
 expires: {expires.isoformat()}

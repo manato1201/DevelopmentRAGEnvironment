@@ -226,7 +226,11 @@ class TutorialGeneratePanel(QWidget):
         self._destroy_worker: _DestroySandboxWorker | None = None
         self._image_index_workers: list = []  # GC 防止のため参照を保持（rag_chatbot.pyのRateWorkerと同じ流儀）
         self._last_video_path: Path | None = None  # プレビュー再生対象（生成完了検出時に設定）
-        self._preview_dialog = None  # プレビュー用QDialogのGC防止
+        # 直近のチェーン生成（3段階連続生成）で実際にディスクへ書き出した
+        # (level, md_path, json_path) の一覧（2026-09-20追加）。チェーンモードは
+        # プレビュー確認なしで自動保存するため、結果が気に入らなかった場合に
+        # 手動でファイルを探して消す手間をなくす「生成した3件を削除」ボタン用。
+        self._chain_saved_paths: list[tuple[str, Path, Path]] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -297,25 +301,40 @@ class TutorialGeneratePanel(QWidget):
         self._discard_btn.clicked.connect(self._on_discard)
         self._delete_sandbox_btn = QPushButton("サンドボックス削除")
         self._delete_sandbox_btn.clicked.connect(self._on_delete_sandbox)
-        for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn):
+        # 3段階連続生成（チェーンモード）は確認なしで自動保存するため、結果が
+        # 気に入らなかった場合に保存済みファイル一式を手動で探さず消せるように
+        # する（2026-09-20追加）。単発生成の「破棄」（保存前の内容をメモリ上で
+        # 破棄するだけ）とは意味が異なるため別ボタンにしている。
+        self._discard_chain_btn = QPushButton("生成した3件を削除")
+        self._discard_chain_btn.clicked.connect(self._on_discard_chain_saves)
+        for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn, self._discard_chain_btn):
             btn.setEnabled(False)
             btn_row.addWidget(btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        self._status = QLabel("")
+        self._status = token_usage.fit_label(QLabel(""))
         self._status.setStyleSheet("color:#aaa;font-size:11px;")
         layout.addWidget(self._status)
 
         # 動画生成の進捗表示・完了後のプレビュー再生（2026-08-31追加）。
         video_row = QHBoxLayout()
-        self._video_progress = QLabel("")
+        self._video_progress = token_usage.fit_label(QLabel(""))
         self._video_progress.setStyleSheet("color:#7dd3fc;font-size:11px;")
         video_row.addWidget(self._video_progress, stretch=1)
         self._preview_btn = QPushButton("▶ プレビュー再生")
         self._preview_btn.setEnabled(False)
         self._preview_btn.clicked.connect(self._on_preview_video)
         video_row.addWidget(self._preview_btn)
+        # 2026-09-13追加: Houdini埋め込みのQtWebEngineプレイヤーが「再生中のまま0:00から
+        # 進まない」事例が報告された（ffmpegでの単体デコードは正常なため、ファイル破損では
+        # なくHoudini本体とのGPUコンテキスト競合が濃厚）。埋め込み再生に問題があっても
+        # 動画自体は見られるよう、OS標準プレイヤー（Houdiniと別プロセス）で開く手段を
+        # 常に用意しておく。
+        self._external_player_btn = QPushButton("外部プレイヤーで開く")
+        self._external_player_btn.setEnabled(False)
+        self._external_player_btn.clicked.connect(self._on_open_in_external_player)
+        video_row.addWidget(self._external_player_btn)
         layout.addLayout(video_row)
 
     # ── 外部 API（/tutorial コマンド用） ────────────────────────────────────────
@@ -355,7 +374,8 @@ class TutorialGeneratePanel(QWidget):
         self._result = None
         self._agent = None  # 前回（単発/チェーン問わず）の参照を残さない
         self._chain_agents = []
-        for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn):
+        self._chain_saved_paths = []
+        for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn, self._discard_chain_btn):
             btn.setEnabled(False)
         self._generate_btn.setEnabled(False)
 
@@ -397,8 +417,11 @@ class TutorialGeneratePanel(QWidget):
         )
         level = self._level_combo.currentText()
         self._worker = TutorialWorker(self._agent, topic, level=level)
-        # progress_cb は QThread 内から呼ばれるため Signal 経由で UI スレッドに渡す
-        self._agent._progress = self._worker.progress.emit
+        # progress_cb は QThread 内から呼ばれるため Signal 経由で UI スレッドに渡す。
+        # TutorialWorkerの構築にはagentが先に必要なため、コンストラクタ引数ではなく
+        # set_progress_callback()で後から差し替える（2026-09-20、以前は
+        # self._agent._progress = ... という private属性への直接代入だった）。
+        self._agent.set_progress_callback(self._worker.progress.emit)
         self._worker.progress.connect(self._on_progress)
         self._worker.done.connect(self._on_done)
         self._worker.failed.connect(self._on_failed)
@@ -471,8 +494,23 @@ class TutorialGeneratePanel(QWidget):
                 status_parts.append(f"{result.level}: 保存失敗")
                 continue
             md_path, json_path = paths
-            video_status = self._launch_video_for_result(result, md_path, json_path)
-            status_parts.append(f"{result.level}: {md_path.name} 保存済み / {video_status}")
+            self._chain_saved_paths.append((result.level, md_path, json_path))
+            # 2026-09-20追加: _on_save()（単発生成）にはresult.completed=False（打ち切り）の
+            # 場合に動画生成をデフォルトでスキップする確認ダイアログがあるが、このチェーン
+            # モードは「各レベルを対話無しで自動保存する」設計（このメソッドのdocstring参照）
+            # のため、同じダイアログは出せない。ダイアログの代わりに、打ち切られたレベルは
+            # 自動的に動画生成をスキップすることで、_on_save側と同じ安全側のデフォルト
+            # （「> 注意: 打ち切られました」という警告バナーがそのまま動画化されるのを防ぐ）
+            # をチェーンモードでも保つ。以前はここにこの分岐が無く、チェーンモード経由でのみ
+            # 打ち切り内容がそのまま動画化されてしまう抜け穴になっていた（リファクタリング時に発見）。
+            if result.completed:
+                video_status = self._launch_video_for_result(result, md_path, json_path)
+                status_parts.append(f"{result.level}: {md_path.name} 保存済み / {video_status}")
+            else:
+                status_parts.append(
+                    f"{result.level}: {md_path.name} 保存済み / "
+                    f"打ち切り（{result.abort_reason}）のため動画生成をスキップしました"
+                )
             self._index_screenshots_async(result)
 
         self._refresh_usage()
@@ -480,6 +518,7 @@ class TutorialGeneratePanel(QWidget):
         # サンドボックスは3つ分（各レベル1つずつ）残る。「サンドボックス削除」は
         # _chain_agents 全件をまとめて削除する（_on_delete_sandbox 参照）。
         self._delete_sandbox_btn.setEnabled(True)
+        self._discard_chain_btn.setEnabled(bool(self._chain_saved_paths))
         self._status.setText(" | ".join(status_parts))
 
     def _on_failed(self, msg: str) -> None:
@@ -597,6 +636,7 @@ class TutorialGeneratePanel(QWidget):
                 if video_path.exists():
                     self._last_video_path = video_path
                     self._preview_btn.setEnabled(True)
+                    self._external_player_btn.setEnabled(True)
                     sidecar_path = md_path.with_name(md_path.stem + ".video.txt")
                     try:
                         sidecar_path.write_text(str(video_path), encoding="utf-8")
@@ -631,41 +671,38 @@ class TutorialGeneratePanel(QWidget):
 
     def _on_preview_video(self) -> None:
         """
-        「▶ プレビュー再生」ボタンのコールバック。QtWebEngineが使える環境では
-        パネルとは別の小さいウィンドウで、動画ファイルへ直接navigateして再生する
-        （VP9+Opus/WebMはChromiumならプロプライエタリコーデックの有無に関わらず
-        再生できるため、動画コーデックをVP9+Opusへ切り替えた対策と組み合わさって
-        機能する。詳細はLearningQt側のvideo_encoder.cppのコミット参照）。
-        QtWebEngineがこの環境のPySide6に含まれていない場合は、OS標準の
-        動画プレイヤー（外部ウィンドウ）で開くところまでは保証する。
+        「▶ プレビュー再生」ボタンのコールバック。
+        以前はQtWebEngineの埋め込みプレビュー（別ウィンドウのQDialog内に
+        QWebEngineViewを生成）を使っていたが、Houdiniに埋め込まれたPythonパネル
+        からQtWebEngineのネイティブウィンドウ（Chromiumのレンダラー/GPUプロセスが
+        作る実ウィンドウで、通常のQtウィジェットとは異なりOSレベルの子ウィンドウを
+        持つ）を生成すると、Houdini本体のドッキング/ペイン管理と競合し、パネル全体が
+        異常に横長になったうえ、保存を含む一切の操作が不能になる致命的な不具合が
+        実機で確認された（2026-09-14）。VideoLibraryPanelの埋め込みプレイヤーで
+        全く同じ機構が原因だったため、こちらも含めて撤去し、常にOS標準の外部
+        プレイヤーで開く方式へ統一した（_on_open_in_external_playerと同じ実装。
+        ファイル自体はffmpegでのデコード検証済みで正常、外部プレイヤーでの再生も
+        実機で確認済み）。
         """
         path = self._last_video_path
         if path is None or not path.exists():
             self._video_progress.setText("動画生成: プレビュー対象のファイルが見つかりません")
             return
-        try:
-            from PySide6.QtWebEngineWidgets import QWebEngineView
-        except ImportError:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
-            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"プレビュー: {path.name}")
-        dialog.resize(960, 620)
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(0, 0, 0, 0)
-        view = QWebEngineView(dialog)
-        # HTMLに<video>タグを組み立ててsetHtml()するのではなく、動画ファイルへ直接
-        # navigateする（ChromiumはURLが動画ファイルそのものの場合、ブラウザで動画を
-        # 直接開いたときと同じネイティブの再生UIを自動的に表示する）。setHtml()経由の
-        # 合成HTMLだと、file://リソースへのアクセスがChromiumのオリジン制限に
-        # 引っかかりやすいため、この方が確実に動く。
-        view.load(QUrl.fromLocalFile(str(path)))
-        layout.addWidget(view)
-        dialog.show()
-        # ダイアログ自身がガベージコレクトされないよう保持する（複数回開いた場合は
-        # 直近のものだけ保持すればよい。閉じられたウィンドウの参照はOS側で解放される）。
-        self._preview_dialog = dialog
+    def _on_open_in_external_player(self) -> None:
+        """
+        「外部プレイヤーで開く」ボタンのコールバック（2026-09-13追加）。
+        Houdini埋め込みのQtWebEngineプレイヤーが再生できない・止まる場合の保険。
+        OS標準の関連付けアプリ（Windowsなら通常Media Player等）はHoudiniとは別
+        プロセスで動画を再生するため、Houdini本体とのGPUコンテキスト競合の影響を
+        受けない。ファイル自体はffmpegでのデコード検証済みで正常。
+        """
+        path = self._last_video_path
+        if path is None or not path.exists():
+            self._video_progress.setText("動画生成: 再生対象のファイルが見つかりません")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _index_screenshots_async(self, result) -> None:
         """
@@ -704,6 +741,27 @@ class TutorialGeneratePanel(QWidget):
         tutorials_dir = self._tutorials_dir()
         if tutorials_dir is None:
             return
+
+        # 2026-09-14追加: result.completed=False（confirm_tutorialまで到達しなかった
+        # 打ち切り）の場合、動画生成をデフォルトでスキップするよう確認を挟む。以前は
+        # 打ち切りでも無条件で動画生成まで進んでおり、本文の「> 注意: 打ち切られました」
+        # という警告バナーがそのままスライド内容として動画化される（見た目には
+        # 正常な解説スライドと区別がつかない）不具合が実機で報告された。ノード構成
+        # 自体は途中まで正しく作れていることもあるため、ユーザーが希望すれば
+        # 生成できる選択肢は残す（デフォルトはNo＝生成しない）。
+        skip_video = False
+        if not self._result.completed:
+            answer = QMessageBox.question(
+                self,
+                "打ち切られた生成の保存",
+                f"この生成は途中で打ち切られています（{self._result.abort_reason}）。\n"
+                "ノード構成・チュートリアル文書は保存されますが、動画も生成しますか？\n"
+                "（打ち切り内容がそのまま動画化されます。通常は「いいえ」を推奨）",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            skip_video = answer != QMessageBox.Yes
+
         paths = self._write_result(self._result, tutorials_dir)
         if paths is None:
             self._status.setText("保存失敗")
@@ -716,8 +774,11 @@ class TutorialGeneratePanel(QWidget):
             f"保存しました: {md_path.name} / {json_path.name}"
             "（watchdog が自動インデックス化します）"
         )
-        video_status = self._launch_video_for_result(self._result, md_path, json_path)
-        self._status.setText(f"{self._status.text()} / {video_status}")
+        if skip_video:
+            self._status.setText(f"{self._status.text()} / 打ち切りのため動画生成をスキップしました")
+        else:
+            video_status = self._launch_video_for_result(self._result, md_path, json_path)
+            self._status.setText(f"{self._status.text()} / {video_status}")
         self._index_screenshots_async(self._result)
 
     def _on_discard(self) -> None:
@@ -726,6 +787,46 @@ class TutorialGeneratePanel(QWidget):
         self._save_btn.setEnabled(False)
         self._discard_btn.setEnabled(False)
         self._status.setText("破棄しました（サンドボックスは残っています。不要なら「サンドボックス削除」）")
+
+    def _on_discard_chain_saves(self) -> None:
+        """
+        直近の3段階連続生成が自動保存した.md/.jsonファイル一式（あればスクリーンショット
+        マニフェスト・動画パスのサイドカーも含む）を削除する（2026-09-20追加）。
+        チェーンモードは確認なしで自動保存するため、結果が気に入らなかった場合に
+        ファイルを手動で探して消す手間をなくすためのショートカット。動画生成が
+        バックグラウンドで既に開始・完了している場合、生成済みの.webm自体は
+        （video_factory_bridge.pyの出力先がexe自身のディレクトリ固定のため）ここでは
+        追跡できず削除されない点に注意（動画は「動画」タブから個別に削除できる）。
+        サンドボックス（Houdini側のノード）はここでは削除しない（別ボタン「サンドボックス
+        削除」の責務のまま。ファイル削除とノード削除は別の取り消し操作として分けている）。
+        """
+        if not self._chain_saved_paths:
+            return
+        names = "\n".join(f"{level}: {md_path.name}" for level, md_path, _ in self._chain_saved_paths)
+        answer = QMessageBox.question(
+            self, "生成した3件を削除",
+            f"以下の保存済みファイルを削除しますか？（元に戻せません）\n\n{names}",
+        )
+        if answer != QMessageBox.Yes:
+            return
+        failed = []
+        for level, md_path, json_path in self._chain_saved_paths:
+            for path in (
+                md_path,
+                json_path,
+                md_path.with_name(md_path.stem + "_screenshots.json"),
+                md_path.with_name(md_path.stem + ".video.txt"),
+            ):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as exc:
+                    failed.append(f"{level}（{path.name}）: {exc}")
+        self._chain_saved_paths = []
+        self._discard_chain_btn.setEnabled(False)
+        if failed:
+            self._status.setText("一部削除に失敗しました: " + "; ".join(failed))
+        else:
+            self._status.setText("生成した3件を削除しました（サンドボックス・動画ファイルは残っています）")
 
     def _on_delete_sandbox(self) -> None:
         # 3段階連続生成モードで作られたサンドボックスがあればそちらを優先する
@@ -775,10 +876,15 @@ class TutorialGeneratePanel(QWidget):
 
 class VideoLibraryPanel(QWidget):
     """
-    保存済みチュートリアルの動画を一覧表示し、選択したものをパネル内で再生するタブ。
-    QtWebEngineが使える環境ではパネル内に埋め込んだプレイヤーで直接再生し、
-    使えない環境ではOS標準の動画プレイヤーで開く（TutorialGeneratePanel._on_preview_video
-    と同じフォールバック方針）。
+    保存済みチュートリアルの動画を一覧表示し、選択したものを外部プレイヤーで
+    再生するタブ。以前はQtWebEngineが使える環境でパネル内に埋め込んだプレイヤー
+    （QWebEngineView）で直接再生していたが、Houdiniに埋め込まれたPythonパネル
+    内でQtWebEngineのネイティブウィンドウをリスト選択のたびに自動アクティブ化
+    すると、Houdini本体のドッキング/ペイン管理と競合し、パネル全体が異常に
+    横長になったうえ保存を含む一切の操作が不能になる致命的な不具合が実機で
+    確認された（2026-09-14）。TutorialGeneratePanel._on_preview_videoの旧実装と
+    同じ根本原因のため、両方から埋め込みQtWebEngineを撤去し、常にOS標準の
+    外部プレイヤーで開く方式へ統一した。
     """
 
     _THUMBNAIL_SIZE = QSize(96, 54)  # 16:9相当。QListWidgetのiconSizeと合わせて使う
@@ -786,7 +892,6 @@ class VideoLibraryPanel(QWidget):
     def __init__(self, cfg_getter: Callable[[], dict], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._cfg_getter = cfg_getter
-        self._web_view = None  # QtWebEngineが使えない環境ではNoneのまま
         self._build_ui()
         self.refresh()
 
@@ -807,7 +912,14 @@ class VideoLibraryPanel(QWidget):
         self._delete_btn.setEnabled(False)
         self._delete_btn.clicked.connect(self._on_delete_selected)
         toolbar.addWidget(self._delete_btn)
-        self._status = QLabel("")
+        # 2026-09-13追加: 埋め込みQtWebEngineプレイヤーが再生できない・止まる場合の保険
+        # （TutorialGeneratePanel._on_open_in_external_playerと同じ理由）。
+        self._external_player_btn = QPushButton("外部プレイヤーで開く")
+        self._external_player_btn.setEnabled(False)
+        self._external_player_btn.clicked.connect(self._on_open_in_external_player)
+        toolbar.addWidget(self._external_player_btn)
+        self._current_video_path: Path | None = None
+        self._status = token_usage.fit_label(QLabel(""))
         self._status.setStyleSheet("color:#94a3b8;font-size:11px;")
         toolbar.addWidget(self._status)
         toolbar.addStretch()
@@ -830,14 +942,6 @@ class VideoLibraryPanel(QWidget):
         self._placeholder.setAlignment(Qt.AlignCenter)
         self._placeholder.setStyleSheet("color:#94a3b8;")
         player_layout.addWidget(self._placeholder)
-        try:
-            from PySide6.QtWebEngineWidgets import QWebEngineView
-
-            self._web_view = QWebEngineView()
-            self._web_view.hide()
-            player_layout.addWidget(self._web_view)
-        except ImportError:
-            pass  # OS標準プレイヤーへのフォールバックのみになる（_on_select参照）
         splitter.addWidget(self._player_container)
         splitter.setSizes([220, 640])
         layout.addWidget(splitter, stretch=1)
@@ -1007,26 +1111,28 @@ class VideoLibraryPanel(QWidget):
 
     def _on_select(self, current: QListWidgetItem | None, _previous=None) -> None:
         if current is None:
+            self._current_video_path = None
+            self._external_player_btn.setEnabled(False)
             return
         path = Path(current.data(Qt.UserRole))
         if not path.exists():
             self._placeholder.setText(f"ファイルが見つかりません: {path}")
-            self._placeholder.show()
-            if self._web_view is not None:
-                self._web_view.hide()
+            self._current_video_path = None
+            self._external_player_btn.setEnabled(False)
             return
 
-        if self._web_view is not None:
-            self._placeholder.hide()
-            self._web_view.show()
-            # チュートリアル生成タブのプレビューと同じ理由で、setHtml()経由の合成HTMLでは
-            # なく動画ファイルへ直接navigateする（file://リソースのオリジン制限を避けるため）。
-            self._web_view.load(QUrl.fromLocalFile(str(path)))
-        else:
-            self._placeholder.setText(
-                f"{path.name}\n（この環境にはQtWebEngineが無いため、外部プレイヤーで開きます）"
-            )
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        self._current_video_path = path
+        self._external_player_btn.setEnabled(True)
+        self._placeholder.setText(f"{path.name}\n「外部プレイヤーで開く」で再生してください")
+
+    def _on_open_in_external_player(self) -> None:
+        """「外部プレイヤーで開く」ボタンのコールバック（2026-09-13追加）。
+        TutorialGeneratePanel._on_open_in_external_playerと同じ理由・同じ実装。"""
+        path = self._current_video_path
+        if path is None or not path.exists():
+            self._status.setText("再生対象のファイルが見つかりません")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
 
 # ─── ノードグラフビューア（NodeGraphAsset JSON） ─────────────────────────────────
@@ -1196,6 +1302,7 @@ class TutorialHistoryPanel(QWidget):
         # 切り替えて再生させるためのコールバック（2026-09-12追加、VideoLibraryPanel参照）。
         self._on_open_video = on_open_video or (lambda name, path: None)
         self._selected_video_path: Path | None = None
+        self._selected_video_log_path: Path | None = None
         self._build_ui()
         self.refresh()
 
@@ -1255,7 +1362,17 @@ class TutorialHistoryPanel(QWidget):
         self._open_video_btn.clicked.connect(self._on_open_video_clicked)
         toolbar.addWidget(self._open_video_btn)
 
-        self._status = QLabel("")
+        # 動画生成ログ（<名前>_video_factory.log、video_factory_bridge.py参照）を見る
+        # ボタン（2026-09-20追加）。生成直後のTutorialタブでしかポーリング表示できず、
+        # パネルを閉じた後や別のチュートリアルを見ている間は進捗を追えなかったという
+        # 実機フィードバックへの対応。動画自体がまだ無い（生成中・失敗）場合でも、
+        # ログファイルさえ残っていれば内容を確認できる。
+        self._video_log_btn = QPushButton("動画生成ログを見る")
+        self._video_log_btn.setEnabled(False)
+        self._video_log_btn.clicked.connect(self._on_view_video_log)
+        toolbar.addWidget(self._video_log_btn)
+
+        self._status = token_usage.fit_label(QLabel(""))
         self._status.setStyleSheet("color:#94a3b8;font-size:11px;")
         toolbar.addWidget(self._status)
         toolbar.addStretch()
@@ -1287,7 +1404,7 @@ class TutorialHistoryPanel(QWidget):
         self._detail.setStyleSheet(
             "background:#1e293b;color:#e2e8f0;padding:4px 8px;font-size:11px;"
         )
-        self._detail.setWordWrap(True)
+        token_usage.fit_label(self._detail)
         layout.addWidget(self._detail)
 
     @staticmethod
@@ -1335,15 +1452,26 @@ class TutorialHistoryPanel(QWidget):
             self._status.setText("まだ保存されたチュートリアルがありません")
             return
         files = sorted(tutorials_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+        archived_count = 0
         for path in files:
             label = path.stem
             difficulty = self._peek_difficulty(path)
             if difficulty:
                 label = f"{label}  [{difficulty}]"
+            # 2026-09-14追加: frontmatterのstatusがarchived（=confirm_tutorialまで
+            # 到達せず打ち切られた生成、tutorial_agent.py._assemble_markdown参照）の
+            # ものを一覧上で分かるようにする。「Houdiniチュートリアル生成が正規に
+            # 終了しているか一覧で確認したい」という実機フィードバックへの対応。
+            if self._peek_status(path) == "archived":
+                label = f"⚠ {label}（打ち切り）"
+                archived_count += 1
             item = QListWidgetItem(label)
             item.setData(Qt.UserRole, str(path))
             self._list.addItem(item)
-        self._status.setText(f"{len(files)} 件")
+        status_text = f"{len(files)} 件"
+        if archived_count:
+            status_text += f"（うち打ち切り ⚠ {archived_count}件）"
+        self._status.setText(status_text)
         self._apply_filter(self._search_box.text())
 
     def _apply_filter(self, text: str) -> None:
@@ -1377,6 +1505,25 @@ class TutorialHistoryPanel(QWidget):
             pass
         return ""
 
+    @staticmethod
+    def _peek_status(path: Path) -> str:
+        """
+        frontmatterのstatusフィールドだけを一覧ラベル表示用に軽く読む
+        （_peek_difficultyと同じ方針。2026-09-14追加）。scripts/auto_index.pyの
+        インデックス対象判定と同じ値（active/stale/archived）を返す。
+        """
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                for i, line in enumerate(f):
+                    if i > 20:
+                        break
+                    line = line.strip()
+                    if line.startswith("status:"):
+                        return line.split(":", 1)[1].strip()
+        except OSError:
+            pass
+        return ""
+
     def _on_select(self, current: QListWidgetItem | None, _previous=None) -> None:
         if current is None:
             return
@@ -1398,6 +1545,14 @@ class TutorialHistoryPanel(QWidget):
             except OSError:
                 pass
         self._open_video_btn.setEnabled(self._selected_video_path is not None)
+
+        # 動画生成ログ（video_factory_bridge.launch_video_generationが書く
+        # <名前>_video_factory.log）の有無を確認する（2026-09-20追加）。動画自体が
+        # まだ無い（生成中・失敗）場合でもログだけは残っていることがあるため、
+        # video_sidecarとは別に判定する。
+        log_path = md_path.with_name(md_path.stem + "_video_factory.log")
+        self._selected_video_log_path = log_path if log_path.exists() else None
+        self._video_log_btn.setEnabled(self._selected_video_log_path is not None)
 
         json_path = md_path.with_suffix(".json")
         if json_path.exists():
@@ -1428,6 +1583,50 @@ class TutorialHistoryPanel(QWidget):
         current = self._list.currentItem()
         name = current.text() if current is not None else self._selected_video_path.stem
         self._on_open_video(name, self._selected_video_path)
+
+    def _on_view_video_log(self) -> None:
+        """
+        「動画生成ログを見る」ボタン（2026-09-20追加）。動画自体の再生とは独立して、
+        video_factory_cloudrag_poc.exe の生の出力（進捗行・エラー時のnarration
+        synthesis failed等）をいつでも確認できるようにする。開くたびにファイルを
+        読み直す（ダイアログ内に「更新」ボタンを設け、生成が進行中でも最新内容を
+        再取得できるようにする）。
+        """
+        if self._selected_video_log_path is None:
+            return
+        log_path = self._selected_video_log_path
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"動画生成ログ: {log_path.name}")
+        dialog.resize(720, 480)
+        layout = QVBoxLayout(dialog)
+
+        view = QTextEdit()
+        view.setReadOnly(True)
+        view.setStyleSheet("font-family:Consolas,monospace;font-size:11px;")
+
+        def load_log() -> None:
+            try:
+                view.setPlainText(log_path.read_text(encoding="utf-8", errors="replace"))
+            except OSError as exc:
+                view.setPlainText(f"読み込みエラー: {exc}")
+            sb = view.verticalScrollBar()
+            sb.setValue(sb.maximum())
+
+        load_log()
+        layout.addWidget(view)
+
+        button_row = QHBoxLayout()
+        refresh_btn = QPushButton("更新")
+        refresh_btn.clicked.connect(load_log)
+        button_row.addWidget(refresh_btn)
+        button_row.addStretch()
+        close_btn = QPushButton("閉じる")
+        close_btn.clicked.connect(dialog.accept)
+        button_row.addWidget(close_btn)
+        layout.addLayout(button_row)
+
+        dialog.exec()
 
     def _on_view_mode_changed(self, _button) -> None:
         self._simple_mode = self._simple_btn.isChecked()
