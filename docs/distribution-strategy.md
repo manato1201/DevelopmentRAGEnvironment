@@ -216,18 +216,19 @@ CMake/vcpkgのフルビルドを非開発者に要求するのは明らかに不
 
 ### 5.1 現状のファイル構成と依存関係
 
-`houdini/python_panels/`配下の実ファイル（8ファイル、計3,624行）とimport文を確認した結果:
+`houdini/python_panels/`配下の実ファイル（9ファイル、計7,169行、2026-09-22時点）とimport文を確認した結果:
 
 | ファイル | 行数 | 役割 | 他ファイルへの依存 |
 |---------|------|------|-------------------|
-| `rag_chatbot.py` | 854 | メインパネル（Chat/Graph/Settings） | `graph_view.py`・`tutorial_view.py`を`try/except ImportError`でフォールバック付きimport |
-| `houdini_tools.py` | 708 | チュートリアル生成用ツール定義・実行 | なし（`hou`以外は標準ライブラリのみ） |
-| `tutorial_agent.py` | 562 | 生成オーケストレーター | `from houdini_tools import HOUDINI_TOOLS, HoudiniToolExecutor`（裸のimport、sys.path依存） |
-| `tutorial_view.py` | 527 | チュートリアル生成タブUI | `import token_usage` |
-| `graph_view.py` | 360 | グラフタブUI | なし |
-| `token_usage.py` | 288 | トークン残高ゲージUI | なし（PySide6/標準ライブラリのみ） |
-| `screen_capture.py` | 241 | ビューポート/ネットワークエディタのスクリーンショット | `import hou`（Houdini専用） |
-| `video_factory_bridge.py` | 84 | LearningQt exeの非同期起動 | なし |
+| `rag_chatbot.py` | 1320 | メインパネル（Chat/Graph/Tutorial/History/動画/Settings） | `graph_view.py`・`tutorial_view.py`を`try/except ImportError`でフォールバック付きimport |
+| `tutorial_view.py` | 1709 | チュートリアル生成・履歴・動画タブUI | `import token_usage`・`tutorial_agent`・`screen_capture`・`video_factory_bridge` |
+| `tutorial_agent.py` | 1266 | 生成オーケストレーター（RAG検索→エージェントループ、多段階完了判定救済ロジック） | `from houdini_tools import HOUDINI_TOOLS, HoudiniToolExecutor`（裸のimport、sys.path依存） |
+| `houdini_tools.py` | 931 | チュートリアル生成用ツール定義・実行 | なし（`hou`以外は標準ライブラリのみ） |
+| `graph_view.py` | 725 | グラフタブUI | なし |
+| `screen_capture.py` | 486 | ビューポート/ネットワークエディタのスクリーンショット（動画生成素材） | `import hou`（Houdini専用） |
+| `token_usage.py` | 347 | トークン残高ゲージUI・生成コスト事前見積もり | なし（PySide6/標準ライブラリのみ） |
+| `tutorial_graph_simplify.py` | 288 | 大規模ノードグラフの簡易表示（直列チェーンの折り畳み） | なし |
+| `video_factory_bridge.py` | 97 | LearningQt exeの非同期起動 | なし |
 
 `rag_chatbot.py`の重要な実装詳細（33〜45行目）: Houdini Python Panelはコードを文字列として実行するため`__file__`が未定義になり、通常の相対import解決ができない。そのため`NameError`をキャッチして`hou.homeHoudiniDirectory()`（≒`~/.houdini`）+ `"python_panels"`をsys.pathに手動追加するフォールバックが実装されている。これは**現在の配布方式（コピペ or ファイルコピー先が`~/.houdini/python_panels/`固定）を前提にした実装**であり、配布方式を変える場合はこの前提を意識する必要がある。
 

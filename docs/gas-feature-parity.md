@@ -5,6 +5,8 @@
 
 **運用ルール:** 機能を追加したら都度このファイルのチェックを更新する。まだ着手していない項目に架空の実装状況を書かない。
 
+**スコープの注記（2026-09-22追加）:** 2026-09以降、POC側にGAS版が持たない新機能（再帰URLクローラー・重複コンテンツ検出・Jira/Backlog/Googleカレンダー/Googleマップ連携・OAuthクリック接続化）を追加しているが、これらは「GAS機能の移植」ではないため本ファイルのパリティ表には含めていない。詳細は[docs/cloudflare-rag-technical-report.md](cloudflare-rag-technical-report.md) §9・§7、[cloudflare-rag-poc/README.md](../cloudflare-rag-poc/README.md)を参照。
+
 ---
 
 ## 1. コア検索・回答生成
