@@ -247,8 +247,10 @@ HOUDINI_TOOLS: list[dict] = [
             "画像が意図した見た目になっていれば looks_correct=true でチュートリアル生成を確定する。"
             "見た目に問題がある場合（例: 期待した要素が画面に見えない、明らかに崩れている等）は"
             "looks_correct=false にする。その場合は続けてノードの修正（例: 複数の要素を同時に見せたい"
-            "場合はMergeノードを追加して表示フラグを設定する等）を行い、その後もう一度 finish_tutorial"
-            "を呼んでから再度この confirm_tutorial を呼び直すこと。"
+            "場合はMergeノードで結合して接続する等）を行い、その後もう一度 finish_tutorial"
+            "を呼んでから再度この confirm_tutorial を呼び直すこと。表示フラグはシステムが"
+            "自動で設定する（connect_nodes で末端になったノードが表示される）ので、"
+            "フラグを操作しようとする必要はない。"
         ),
         "input_schema": {
             "type": "object",
@@ -329,6 +331,12 @@ class HoudiniToolExecutor:
     )
     _SIM_COOK_FRAME_COUNT = 10  # シミュレーション検証のため現在フレームから何フレーム進めるか
 
+    # best_unconfirmed_draft() が下書きを「プレースホルダー水準」とみなして棄却する
+    # 閾値（title+overview+steps+pitfalls+next_stepsの合計文字数）。実機で、モデルが
+    # confirm_tutorialを一度も呼ばずに生成を終え、しかも最後のfinish_tutorial呼び出しが
+    # title="テスト"のようなプレースホルダー内容だった事例を確認した（2026-09-13）。
+    _MIN_DRAFT_CONTENT_CHARS = 80
+
     def __init__(
         self,
         log_dir: Path | None = None,
@@ -348,6 +356,11 @@ class HoudiniToolExecutor:
         # finish_tutorial の入力の「下書き」。confirm_tutorial が呼ばれるまでの一時保持。
         # 見た目の自己確認（視覚的自己検証ステップ）を経てから finish_data に格上げされる。
         self._pending_finish: dict | None = None
+        # finish_tutorial の全呼び出し履歴（2026-09-13追加）。confirm_tutorialが一度も
+        # 呼ばれないまま生成が打ち切られた場合のフォールバック選定（best_unconfirmed_draft）
+        # に使う。_pending_finishは直近1件しか持たないため、「最後の下書きがたまたま
+        # プレースホルダーだった」場合に以前の良い下書きへ戻れるよう、全件を残す。
+        self._finish_drafts: list[dict] = []
         # 直前の finish_tutorial 呼び出しで撮ったビューポート画像（base64 PNG）。
         # tutorial_agent.py 側がこれを読み、その1回だけ tool_result に画像として添付する。
         self.last_screenshot_b64: str | None = None
@@ -356,6 +369,10 @@ class HoudiniToolExecutor:
         # スクリーンショット一覧（動画生成側で手順ごとの画面を見せるため）。
         # {"step": int, "tool": str, "viewport": str|None, "network": str|None}
         self.step_screenshots: list[dict] = []
+        # 最後に connect_nodes で「末端（出力先の無いノード）」になったノードのパス。
+        # finish_tutorial 直前にここへ表示フラグを戻し、見た目の自己確認画像が
+        # 途中の cook_node で表示を切り替えた中間ノードにならないようにする。
+        self._display_candidate_path: str | None = None
         self._lock = threading.Lock()
 
         # スクリーンショット保存先。渡された screenshot_dir の下に
@@ -479,11 +496,51 @@ class HoudiniToolExecutor:
         self._append_audit({"event": "tool_call", **entry})
 
         if not is_error and tool_name in self._SCREENSHOT_WORTHY_TOOLS:
-            self._capture_step_screenshot(tool_name, result)
+            self._capture_step_screenshot(tool_name, tool_input, result)
         if not is_error and tool_name == "finish_tutorial":
             self._capture_finish_screenshot()
 
         return result, is_error
+
+    def log_event(self, record: dict) -> None:
+        """呼び出し側（tutorial_agent.py）が生成の経過を監査ログ（JSONL）へ残すための公開口。"""
+        self._append_audit(record)
+
+    # ── ビューポート表示フラグの管理 ────────────────────────────────────────────
+
+    def _show_in_viewport(self, node) -> None:
+        """
+        SOP の display/render フラグをこのノードへ移し、ビューポートにこのノードの結果を映す。
+
+        2026-09-26追加（実機ログで判明）: createNode()で作ったSOPは最初の1個にしか表示
+        フラグが付かず、その後に作ったノード・接続した末端ノードは表示されないままだった。
+        そのためビューポート画像（動画素材・finish_tutorial直後の自己確認画像）が
+        最初のノード（球）のまま変わらず、モデルが「意図した見た目にならない」と判断しても
+        直す手段（フラグを設定するツール）が無く、confirm_tutorial に辿り着けず打ち切りに
+        なっていた。システムプロンプトは「ディスプレイフラグは不要」と案内していたので、
+        その約束をここで実際に成立させる。SOP以外（DOP/VOP等）にはフラグの意味が違うため触らない。
+        """
+        try:
+            if node.type().category().name() != "Sop":
+                return
+        except Exception:  # noqa: BLE001
+            return
+        for setter_name in ("setDisplayFlag", "setRenderFlag"):
+            setter = getattr(node, setter_name, None)
+            if setter is None:
+                continue
+            try:
+                setter(True)
+            except Exception:  # noqa: BLE001 -- 表示切替の失敗で生成を止めない
+                pass
+
+    def _restore_final_display(self) -> None:
+        """最後に接続した末端ノードへ表示フラグを戻す（finish_tutorial直後の自己確認画像用）。"""
+        if not self._display_candidate_path:
+            return
+        node = self._hou.node(self._display_candidate_path)
+        if node is not None:
+            self._show_in_viewport(node)
 
     @property
     def pending_finish(self) -> dict | None:
@@ -509,6 +566,9 @@ class HoudiniToolExecutor:
         def _capture():
             path = self._screenshot_dir / "finish_check.png"
             log_path = self._screenshot_dir / "capture.log"
+            # 途中のcook_nodeで表示を中間ノードへ切り替えていても、自己確認画像は
+            # 必ず最終（末端）ノードの結果を映す。
+            self._restore_final_display()
             if screen_capture.capture_viewport(path, log_path=log_path):
                 try:
                     self.last_screenshot_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
@@ -520,7 +580,38 @@ class HoudiniToolExecutor:
         except Exception:  # noqa: BLE001 -- best-effort, never raise
             pass
 
-    def _capture_step_screenshot(self, tool_name: str, tool_result: str) -> None:
+    def _step_focus_path(self, tool_name: str, tool_input: dict, tool_result: str) -> str | None:
+        """
+        このツール呼び出しが触ったノードの絶対パスを返す（無ければNone）。
+        ネットワーク画面の撮影対象（そのノードが属するネットワーク）と強調表示に使う。
+        delete_node は対象が既に消えているためNone（呼び出し側は親パスを別途求める）。
+        """
+        rel: str | None = None
+        if tool_name == "create_node":
+            match = re.match(r"作成しました: (\S+?)（", tool_result)
+            rel = match.group(1) if match else None
+        elif tool_name == "connect_nodes":
+            rel = tool_input.get("to_node")
+        elif tool_name in ("set_parameter", "cook_node"):
+            rel = tool_input.get("node")
+        if not rel:
+            return None
+        try:
+            return self._resolve(rel).path()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _step_network_path(self, tool_name: str, tool_input: dict, focus_path: str | None) -> str:
+        """撮影するネットワーク（＝ノードを内包するコンテナ）のパス。特定できなければサンドボックス。"""
+        if focus_path and "/" in focus_path:
+            return focus_path.rsplit("/", 1)[0]
+        if tool_name == "delete_node":
+            rel = (tool_input.get("node") or "").strip()
+            if "/" in rel:
+                return f"{self.sandbox_path}/{rel.rsplit('/', 1)[0]}"
+        return self.sandbox_path
+
+    def _capture_step_screenshot(self, tool_name: str, tool_input: dict, tool_result: str) -> None:
         """
         ツール呼び出し成功直後にビューポート/ネットワークエディタを撮影する
         （ベストエフォート）。動画生成側で各手順のノード操作を個別に見せられる
@@ -567,8 +658,19 @@ class HoudiniToolExecutor:
                     self._screenshot_dir, f"step_{step_index:03d}_clip", log_path=log_path
                 )
 
-            screen_capture.focus_network_on(self.sandbox_path, log_path=log_path)
-            got_network = screen_capture.capture_network_editor(network_path, log_path=log_path)
+            # ネットワーク画面は「実際に作業しているネットワーク」を映す。以前は常に
+            # サンドボックス直下を撮っていたため、作業の実体がgeoノードの中にある
+            # 場合（システムプロンプトがそう指示している）、geoの箱1個しか映らなかった。
+            focus_path = self._step_focus_path(tool_name, tool_input, tool_result)
+            container_path = self._step_network_path(tool_name, tool_input, focus_path)
+            screen_capture.focus_network_on(container_path, log_path=log_path)
+            got_network = screen_capture.capture_network_editor(
+                network_path,
+                log_path=log_path,
+                container_path=container_path,
+                focus_path=focus_path,
+                callout=tool_result,
+            )
             self.step_screenshots.append({
                 "step": step_index,
                 "tool": tool_name,
@@ -648,58 +750,90 @@ class HoudiniToolExecutor:
         input_index = int(args.get("input_index", 0))
         output_index = int(args.get("output_index", 0))
         dst.setInput(input_index, src, output_index)
+        # 接続先が末端（出力先が無いノード）なら、それがこのグラフの「今の結果」なので
+        # ビューポートに映す（_show_in_viewport参照）。
+        if not dst.outputs():
+            self._display_candidate_path = dst.path()
+            self._show_in_viewport(dst)
         return (
             f"接続しました: {self._rel(src)}[out:{output_index}] → "
             f"{self._rel(dst)}[in:{input_index}]"
         )
 
-    def _is_simulation_node(self, node) -> bool:
-        """pyro/fire/クロス/パーティクル/流体/剛体等のシミュレーション系ノードかどうか。
-        単一フレームのcookでは時間発展する挙動を検証できないため複数フレーム評価する。"""
+    def _simulation_type_hint(self, node) -> str | None:
+        """
+        pyro/fire/クロス/パーティクル/流体/剛体等のシミュレーション系ノードなら、
+        一致した _SIMULATION_TYPE_HINTS の文字列を返す（そうでなければNone）。
+        単一フレームのcookでは時間発展する挙動を検証できないため複数フレーム評価する。
+        2026-09-20追加: 以前はbool（一致したかどうか）だけを返していたが、動画生成の
+        クリップ撮影が「なぜ発生した/しなかったか」を後から追いにくいという指摘が
+        あったため、判定根拠（どのヒント文字列に一致したか）自体を呼び出し元
+        （_tool_cook_nodeのsim_note）へ伝えられるようにした。
+        """
         type_name = node.type().name().lower()
-        return any(hint in type_name for hint in self._SIMULATION_TYPE_HINTS)
+        for hint in self._SIMULATION_TYPE_HINTS:
+            if hint in type_name:
+                return hint
+        return None
 
-    def _cook_simulation_frames(self, node) -> int:
+    def _cook_simulation_frames(self, node) -> tuple[int, str | None]:
         """
         現在のグローバルフレームから _SIM_COOK_FRAME_COUNT フレーム分、順番に
         フレームを進めながらcookする（シミュレーションは前のフレームの結果に
         依存するため、途中のフレームを飛ばさず1フレームずつ進める必要がある）。
         呼び出し前のフレームは必ず復元する（ユーザーの作業状態を変えないため）。
-        戻り値: 実際に評価したフレーム数。
+        戻り値: (実際に評価したフレーム数, 最後に発生した例外のrepr文字列。無ければNone)。
+        例外を投げたフレームがあってもnode.errors()に反映されるとは限らないため
+        （_tool_cook_node参照）、握りつぶさず呼び出し元へ伝える。
         """
         hou = self._hou
         original_frame = hou.frame()
         evaluated = 0
+        last_exception: str | None = None
         try:
             start = int(original_frame)
             for f in range(start, start + self._SIM_COOK_FRAME_COUNT):
                 hou.setFrame(f)
                 try:
                     node.cook(force=True)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    last_exception = repr(exc)
                 evaluated += 1
         finally:
             hou.setFrame(original_frame)
-        return evaluated
+        return evaluated, last_exception
 
     def _tool_cook_node(self, args: dict) -> str:
         node = self._resolve(args["node"])
-        is_sim = self._is_simulation_node(node)
+        sim_hint = self._simulation_type_hint(node)
+        is_sim = sim_hint is not None
         frames_evaluated = 0
+        cook_exception: str | None = None
         if is_sim:
-            frames_evaluated = self._cook_simulation_frames(node)
+            frames_evaluated, cook_exception = self._cook_simulation_frames(node)
         else:
             try:
                 node.cook(force=True)
-            except Exception:
-                pass  # cook 例外の詳細は errors() から取得する
+            except Exception as exc:
+                cook_exception = repr(exc)  # 詳細は下のガードで扱う（errors()が空の場合の保険）
         errors = list(node.errors())
         warnings = list(node.warnings())
+        if cook_exception and not errors:
+            # node.cook()の失敗は通常node.errors()にも反映されるが、稀にerrors()が
+            # 空のまま例外だけが飛ぶケースがあり得る。その場合に例外を握りつぶして
+            # 「cook成功（エラー・警告なし）」と誤報しないよう、合成のエラー行として
+            # 追加する（2026-09-20、リファクタリング時に発見）。
+            errors = [f"cook()が例外を送出しました（このノードのerrors()には反映されていません）: {cook_exception}"]
         sim_note = (
-            f"（シミュレーションノードのため{frames_evaluated}フレーム分evaluateして確認しました）"
+            f"（シミュレーションノード「{sim_hint}」と判定したため{frames_evaluated}"
+            f"フレーム分evaluateして確認しました）"
             if is_sim else ""
         )
+        if not errors:
+            # cookしたノードの結果を動画のビューポート素材（cook_node回は動画側が
+            # ビューポート画像を優先する）に映すため、表示を一時的にこのノードへ切り替える。
+            # finish_tutorial 直前に末端ノードへ戻す（_restore_final_display）。
+            self._show_in_viewport(node)
         if not errors and not warnings:
             return f"cook 成功: {self._rel(node)}（エラー・警告なし）{sim_note}"
         lines = [f"cook 結果: {self._rel(node)}{sim_note}"]
@@ -780,13 +914,42 @@ class HoudiniToolExecutor:
         # ここでは即座にfinish_dataを確定しない（下書きとして保持するのみ）。
         # 視覚的自己検証ステップ: この直後にビューポート画像が見せられるので、
         # それを確認したうえでconfirm_tutorialを呼んで初めてfinish_dataが確定する。
-        self._pending_finish = dict(args)
+        draft = dict(args)
+        self._pending_finish = draft
+        self._finish_drafts.append(draft)
         return (
             "チュートリアル内容を受け付けました（まだ確定していません）。"
             "このあとビューポートの画像が送られるので、意図した見た目になっているか確認し、"
             "問題なければ confirm_tutorial(looks_correct=true) を呼んでください。"
             "問題があれば修正してから、もう一度 finish_tutorial を呼び直してください。"
         )
+
+    def best_unconfirmed_draft(self) -> dict | None:
+        """
+        confirm_tutorial が一度も呼ばれずに生成が打ち切られた場合のフォールバック用。
+        finish_tutorial は複数回呼ばれることがある（見た目の自己確認NGで書き直すケースを
+        含む）が、実機で最後の呼び出しだけ title="テスト" のようなプレースホルダー的な
+        内容になり、そのままconfirm_tutorialを呼ばずに生成が終わってしまう事例を確認した
+        （2026-09-13）。最後の下書きを無条件に採用すると、こういうケースでかえって
+        以前のまともな下書きより悪い内容を保存してしまうため、全下書きの中から本文量
+        （title+overview+steps+pitfalls+next_stepsの合計文字数）が最大のものを選ぶ。
+        どの下書きもプレースホルダー水準（_MIN_DRAFT_CONTENT_CHARS未満）しか無ければ
+        Noneを返し、呼び出し元（tutorial_agent.py）は従来通りの汎用フォールバックを使う。
+        """
+        if not self._finish_drafts:
+            return None
+
+        def content_length(draft: dict) -> int:
+            fields = ("title", "overview", "steps", "pitfalls", "next_steps")
+            return sum(len(str(draft.get(f, ""))) for f in fields)
+
+        # 文字数が同点の場合はインデックスが大きい（＝より新しい）方を優先する。
+        # 書き直しは通常、cookエラーの修正など前の下書きの改善であるため。
+        best_index, best = max(
+            enumerate(self._finish_drafts),
+            key=lambda pair: (content_length(pair[1]), pair[0]),
+        )
+        return best if content_length(best) >= self._MIN_DRAFT_CONTENT_CHARS else None
 
     def _tool_confirm_tutorial(self, args: dict) -> str:
         if self._pending_finish is None:

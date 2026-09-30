@@ -49,6 +49,13 @@ qtParentWindow().grab() してしまうと、Qt がまだ古い（切り替え�
 数回呼んでイベントループを手動で回し、タブ切り替えの再描画を
 grab() の前に強制的に完了させる。
 
+2026-09-26 ネットワーク画面の撮影を作り直し: capture_network_editor() は
+hou.NetworkEditor.qtScreenGeometry()（公式ドキュメントにある「ペインの画面座標」）で
+実画面を切り出し、成立しなければ自前描画のネットワーク図（render_network_diagram）へ
+フォールバックする。ウィジェット階層の探索（hou.qt.mainWindow()/トップレベルウィンドウ列挙）
+は実機でHoudini本体を返さないと判明済みのため廃止した。撮影対象も「サンドボックス直下」
+から「作業中のネットワーク（geoの中身）」に変更した。
+
 2026-08-12 追加: IMPROVEMENT_PLAN.md Phase2（VLM対応）で、capture_viewport() の
 出力（PNG）を rag_chatbot.py のChatタブ添付画像・localRAG画像インデックス
 （scripts/image_embedding_generator.py）の両方の入力ソースとして流用している。
@@ -62,6 +69,7 @@ grab() の前に強制的に完了させる。
 from __future__ import annotations
 
 import datetime
+import re
 from pathlib import Path
 
 import hou
@@ -100,35 +108,53 @@ def _flush_qt_events() -> None:
         pass
 
 
+def _frame_network_children(network_editor, network, log_path: Path | None) -> None:
+    """ネットワーク直下の全ノードが視野に収まるよう、ネットワークエディタの表示範囲を合わせる。"""
+    children = list(network.children())
+    if children:
+        try:
+            xs = [c.position()[0] for c in children]
+            ys = [c.position()[1] for c in children]
+            pad = 2.5  # ノード1個分（約1.0x0.3）に余白を足した程度
+            bounds = hou.BoundingRect(min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
+            network_editor.setVisibleBounds(bounds)
+            return
+        except Exception as exc:  # noqa: BLE001
+            _log(f"setVisibleBounds failed, falling back to homeToSelection(): {exc!r}", log_path)
+    try:
+        network_editor.homeToSelection()
+    except Exception as exc:  # noqa: BLE001
+        _log(f"homeToSelection() failed: {exc!r}", log_path)
+
+
 def focus_network_on(node_path: str, log_path: Path | None = None) -> None:
     """
-    ネットワークエディタのペインを指定ノード配下にフォーカス・フレームし、
-    そのペインを「現在表示中のタブ」に切り替える。
+    ネットワークエディタのペインを、node_path（ネットワーク＝ノードを内包するコンテナ）の
+    中身が全部見える状態にし、そのペインを「現在表示中のタブ」に切り替える。
 
-    Houdiniのペインはタブ切り替え式で、同じペイングループ内の他のタブ
-    （Scene View等）がアクティブだと、Qt側はネットワークエディタの中身を
-    そもそも描画していない。2026-07-25の実機検証で capture_network_editor()
-    が一貫して間違った内容（アクティブな別タブ）を撮っていたのは、これが
-    根本原因である可能性が高い。setIsCurrentTab() でネットワークエディタを
-    強制的に前面に出してから撮影する。失敗しても静かに諦める
-    （ベストエフォート）。
+    2026-09-26: 引数は「サンドボックス」ではなく「作業中のネットワーク（例: geoノード）」
+    を渡す。以前は常にサンドボックス直下を映しており、実際のノードが入っているgeoの
+    中身が映らなかった。表示範囲も homeToSelection()（選択ノードだけを拡大）ではなく
+    子ノード全体が入る矩形にする。
+
+    Houdiniのペインはタブ切り替え式で、同じペイングループ内の他のタブ（Scene View等）が
+    アクティブだと、Qt側はネットワークエディタの中身をそもそも描画していない。
+    setIsCurrentTab() で前面に出し、_flush_qt_events() で再描画を完了させてから撮影する。
+    失敗しても静かに諦める（ベストエフォート）。
     """
     try:
-        node = hou.node(node_path)
-        if node is None:
-            _log(f"focus_network_on: node not found: {node_path}", log_path)
+        network = hou.node(node_path)
+        if network is None:
+            _log(f"focus_network_on: network not found: {node_path}", log_path)
             return
         network_editor = hou.ui.paneTabOfType(hou.paneTabType.NetworkEditor)
         if network_editor is None:
             _log("focus_network_on: no NetworkEditor pane found", log_path)
             return
-        network_editor.setCurrentNode(node)
-        network_editor.setPwd(node)
-        network_editor.homeToSelection()
+        network_editor.setPwd(network)
+        _frame_network_children(network_editor, network, log_path)
         if hasattr(network_editor, "setIsCurrentTab"):
             network_editor.setIsCurrentTab()
-            # setIsCurrentTab() 直後はまだ古いタブの内容が画面に残っている
-            # ことがあるため、grab() 前に repaint を強制的に完了させる。
             _flush_qt_events()
         else:
             _log("focus_network_on: no setIsCurrentTab() on this Houdini build", log_path)
@@ -236,135 +262,420 @@ def capture_viewport_clip(
         return [], 0
 
 
-def _bounds_size(bounds) -> tuple[int, int] | None:
+_OWN_PANEL_CLASS_HINTS = {"ragchatbotpanel", "tutorialgeneratepanel"}
+# このコードベース自身のUIクラス（rag_chatbot.py/tutorial_view.py）の目印。
+# 撮影範囲の上に自分のパネルが重なっていないかの判定に使う。
+
+
+def _is_own_panel_widget(widget) -> bool:
+    """widget（またはその親のいずれか）がこのコードベース自身のパネルUIなら True。"""
+    current = widget
+    for _ in range(50):
+        if current is None:
+            return False
+        if type(current).__name__.lower() in _OWN_PANEL_CLASS_HINTS:
+            return True
+        current = current.parentWidget()
+    return False
+
+
+def _looks_blank(image) -> bool:
+    """QImage がほぼ単色（何も描かれていない・真っ黒・真っ白）なら True。"""
+    width, height = image.width(), image.height()
+    if width <= 0 or height <= 0:
+        return True
+    colors = set()
+    for gy in range(1, 13):
+        for gx in range(1, 21):
+            colors.add(image.pixel(gx * width // 21, gy * height // 13))
+            if len(colors) > 3:
+                return False
+    return True
+
+
+def _grab_network_pane(network_editor, log_path: Path | None):
     """
-    hou.PaneTab.screenBounds() が返す hou.BoundingRect からサイズ（幅・高さ）
-    だけを取り出す。座標としての信頼性は無い（下記docstring参照）が、
-    「このペインの見た目上の大きさ」としては再利用できる。
-    hou.BoundingRect は 4要素シーケンス (xmin, ymin, xmax, ymax) として
-    インデックスアクセスできるはずだが、Houdiniのビルドによって挙動が
-    変わりうるため sizevec2() も保険として試す。
+    NetworkEditor ペインが「画面上で占めている矩形」を直接切り出して QImage で返す
+    （撮れなければ None）。
+
+    2026-09-26: 以前は hou.PaneTab.screenBounds() の値で画面を切り出そうとして、
+    それがペイン内部のローカル座標（常に同じ [0,0,613,332]）で使い物にならないため
+    断念していた。公式ドキュメントには hou.PaneTab.qtScreenGeometry() が
+    「ペインの左上を画面座標で指す QRect」を返すと明記されており、これが本来使うべき
+    APIだった（qtWidget() が無いのでウィジェット探索に走ったのが遠回りだった）。
+    QScreen.grabWindow() は画面上の矩形をそのままコピーするだけなので、Houdiniの
+    ウィジェット階層（実機ログで、hou.qt.mainWindow() やトップレベルウィンドウ列挙が
+    Houdini本体を返さないと判明済み）には一切依存しない。
+
+    誤った画像を静かに保存しないための検査:
+      ・ペインが小さすぎる（折りたたみ・非表示）→ 撮らない
+      ・矩形の中心に自分のRAGChatBotパネルが重なっている → 撮らない
+      ・切り出し結果がほぼ単色 → 撮らない
+    いずれも None を返し、呼び出し側が自前描画のダイアグラムにフォールバックする。
+    """
+    geometry_fn = getattr(network_editor, "qtScreenGeometry", None)
+    if geometry_fn is None:
+        _log("qtScreenGeometry() is not available on this Houdini build", log_path)
+        return None
+
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtWidgets import QApplication
+
+    rect = geometry_fn()
+    x, y, w, h = int(rect.x()), int(rect.y()), int(rect.width()), int(rect.height())
+    _log(f"NetworkEditor qtScreenGeometry: ({x},{y},{w},{h})", log_path)
+    if w < 200 or h < 120:
+        _log("NetworkEditor pane is too small to capture (hidden or collapsed?)", log_path)
+        return None
+
+    # 画面切り出しは「今画面に見えているもの」をそのままコピーするため、Houdini以外の
+    # アプリ（ブラウザ等）が手前に来ているとそれが映ってしまい、しかもウィジェット側からは
+    # 検知できない。アプリがアクティブでない間は撮らず、自前描画の図に任せる。
+    from PySide6.QtCore import Qt as QtNamespace
+
+    if QGuiApplication.applicationState() != QtNamespace.ApplicationActive:
+        _log("Houdini is not the active application (another window may cover the pane); not grabbing the screen", log_path)
+        return None
+
+    center = QPoint(x + w // 2, y + h // 2)
+    screen = QGuiApplication.screenAt(center)
+    if screen is None:
+        _log(f"no screen contains the pane center ({center.x()},{center.y()})", log_path)
+        return None
+    top_widget = QApplication.widgetAt(center)
+    if top_widget is not None and _is_own_panel_widget(top_widget):
+        _log("the RAGChatBot panel overlaps the NetworkEditor pane on screen; not grabbing it", log_path)
+        return None
+
+    origin = screen.geometry().topLeft()
+    image = screen.grabWindow(0, x - origin.x(), y - origin.y(), w, h).toImage()
+    if _looks_blank(image):
+        _log("the grabbed NetworkEditor region is blank", log_path)
+        return None
+    return image
+
+
+# ─── 自前描画のネットワーク図（実画面が撮れない場合のフォールバック） ──────────────────
+
+_MAX_DIAGRAM_NODES = 60
+
+
+def _safe(fn, default):
+    try:
+        return fn()
+    except Exception:  # noqa: BLE001 -- 図の描画は情報が欠けても続行する
+        return default
+
+
+def _collect_network_model(network) -> list[dict]:
+    """ネットワーク直下のノード（名前・タイプ・色・フラグ・入力接続・元の座標）を集める。"""
+    children = list(network.children())[:_MAX_DIAGRAM_NODES]
+    known = {c.path() for c in children}
+    model = []
+    for c in children:
+        position = _safe(lambda: c.position(), None)
+        entry = {
+            "path": c.path(),
+            "name": c.name(),
+            "type": _safe(lambda: c.type().name(), ""),
+            "color": _safe(lambda: tuple(c.color().rgb()), (0.8, 0.8, 0.8)),
+            "display": bool(_safe(lambda: c.isDisplayFlagSet(), False)),
+            "render": bool(_safe(lambda: c.isRenderFlagSet(), False)),
+            "bypass": bool(_safe(lambda: c.isBypassed(), False)),
+            "error": bool(_safe(lambda: c.errors(), ())),
+            "x": float(position[0]) if position is not None else 0.0,
+            "inputs": [],
+        }
+        for connection in _safe(lambda: c.inputConnections(), ()):
+            source = _safe(lambda: connection.inputNode(), None)
+            if source is not None and source.path() in known:
+                entry["inputs"].append((source.path(), int(connection.inputIndex())))
+        model.append(entry)
+    return model
+
+
+def _assign_layers(model: list[dict]) -> list[list[dict]]:
+    """接続の向き（上流→下流）に沿って上から下へ段（レイヤー）に分け、各段の左右順を決める。"""
+    layer = {n["path"]: 0 for n in model}
+    for _ in range(len(model) + 1):
+        changed = False
+        for n in model:
+            for source_path, _idx in n["inputs"]:
+                if layer[n["path"]] < layer[source_path] + 1:
+                    layer[n["path"]] = layer[source_path] + 1
+                    changed = True
+        if not changed:
+            break
+
+    layers: list[list[dict]] = []
+    for depth in range(max(layer.values(), default=0) + 1):
+        layers.append([n for n in model if layer[n["path"]] == depth])
+
+    order: dict[str, float] = {}
+    for depth, members in enumerate(layers):
+        def sort_key(n, _order=order):
+            parent_positions = [_order[p] for p, _ in n["inputs"] if p in _order]
+            barycenter = sum(parent_positions) / len(parent_positions) if parent_positions else 0.0
+            return (barycenter, n["x"], n["name"])
+
+        members.sort(key=sort_key)
+        for index, n in enumerate(members):
+            order[n["path"]] = float(index)
+    return layers
+
+
+def _short_callout(text: str | None) -> str:
+    """ツール結果テキストを、図の中に添える短いラベルに要約する。"""
+    if not text:
+        return ""
+    first = text.strip().splitlines()[0] if text.strip() else ""
+    if first.startswith("作成しました"):
+        return "NEW"
+    if first.startswith("cook 成功"):
+        return "cook OK"
+    if first.startswith("cook 結果"):
+        return "cook: エラー/警告あり"
+    if first.startswith("接続しました"):
+        return ""
+    match = re.match(r"^\S+\.(\w+) = (.+)$", first)
+    if match:
+        return f"{match.group(1)} = {match.group(2)}"[:60]
+    return first[:40]
+
+
+def _paint_network_diagram(layers, container_path, focus_path, callout, width, height):
+    """Houdiniのネットワークエディタ風のダーク配色で、上→下の流れの図を QImage に描く。"""
+    from PySide6.QtCore import QPointF, QRectF, Qt
+    from PySide6.QtGui import (
+        QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen,
+    )
+
+    image = QImage(width, height, QImage.Format_ARGB32)
+    image.fill(QColor("#2f2f31"))
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setRenderHint(QPainter.TextAntialiasing, True)
+
+    # 背景の格子点（Houdiniのネットワークエディタの雰囲気）
+    painter.setPen(QPen(QColor("#3b3b3e"), 2))
+    for gx in range(20, width, 40):
+        for gy in range(64, height, 40):
+            painter.drawPoint(gx, gy)
+
+    # 上部のパスバー
+    painter.fillRect(QRectF(0, 0, width, 40), QColor("#232325"))
+    painter.setPen(QColor("#c9c9cc"))
+    bar_font = QFont("Segoe UI", 12)
+    bar_font.setBold(True)
+    painter.setFont(bar_font)
+    painter.drawText(QRectF(16, 0, width - 32, 40), Qt.AlignVCenter | Qt.AlignLeft, container_path)
+
+    name_font = QFont("Segoe UI", 11)
+    name_font.setBold(True)
+    type_font = QFont("Segoe UI", 8)
+    tag_font = QFont("Segoe UI", 10)
+    tag_font.setBold(True)
+    name_metrics = QFontMetricsF(name_font)
+
+    box_h, gap_x, gap_y = 48.0, 36.0, 56.0
+    rows = []
+    for members in layers:
+        widths = [max(140.0, name_metrics.horizontalAdvance(n["name"]) + 40.0) for n in members]
+        rows.append(widths)
+
+    if not layers or not any(layers):
+        painter.setPen(QColor("#8d8d92"))
+        painter.setFont(bar_font)
+        painter.drawText(QRectF(0, 40, width, height - 40), Qt.AlignCenter, "(このネットワークにはまだノードがありません)")
+        painter.end()
+        return image
+
+    row_widths = [sum(ws) + gap_x * (len(ws) - 1) for ws in rows]
+    layout_w = max(row_widths)
+    layout_h = len(rows) * box_h + (len(rows) - 1) * gap_y
+    avail_w, avail_h = width - 80.0, height - 40.0 - 48.0
+    scale = max(0.35, min(avail_w / layout_w, avail_h / layout_h, 1.6))
+    offset_x = (width - layout_w * scale) / 2.0
+    offset_y = 40.0 + (height - 40.0 - layout_h * scale) / 2.0
+    painter.translate(offset_x, offset_y)
+    painter.scale(scale, scale)
+
+    rects: dict[str, QRectF] = {}
+    for depth, members in enumerate(layers):
+        start_x = (layout_w - row_widths[depth]) / 2.0
+        y = depth * (box_h + gap_y)
+        cursor = start_x
+        for n, w in zip(members, rows[depth]):
+            rects[n["path"]] = QRectF(cursor, y, w, box_h)
+            cursor += w + gap_x
+
+    # 接続線（下流ノードの上辺の入力スロットへ、上流ノードの下辺中央から）
+    painter.setBrush(Qt.NoBrush)
+    wire_pen = QPen(QColor("#a7a7ab"), 2.2)
+    painter.setPen(wire_pen)
+    for members in layers:
+        for n in members:
+            dest = rects[n["path"]]
+            slots = max([idx for _, idx in n["inputs"]] + [0]) + 1
+            for source_path, input_index in n["inputs"]:
+                src = rects[source_path]
+                x1, y1 = src.center().x(), src.bottom()
+                x2 = dest.left() + dest.width() * (input_index + 0.5) / max(slots, 1)
+                y2 = dest.top()
+                dy = max(24.0, abs(y2 - y1) * 0.45)
+                path = QPainterPath(QPointF(x1, y1))
+                path.cubicTo(QPointF(x1, y1 + dy), QPointF(x2, y2 - dy), QPointF(x2, y2))
+                painter.drawPath(path)
+
+    # ノード本体
+    for members in layers:
+        for n in members:
+            rect = rects[n["path"]]
+            r, g, b = (max(0.0, min(1.0, float(c))) for c in n["color"])
+            fill = QColor.fromRgbF(r, g, b)
+            luminance = 0.299 * r + 0.587 * g + 0.114 * b
+            is_focus = focus_path is not None and n["path"] == focus_path
+            if is_focus:
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QColor(255, 176, 0, 70))
+                painter.drawRoundedRect(rect.adjusted(-7, -7, 7, 7), 9, 9)
+            painter.setPen(QPen(QColor("#ffb000") if is_focus else QColor("#141416"), 3.0 if is_focus else 1.4))
+            painter.setBrush(fill.darker(150) if n["bypass"] else fill)
+            painter.drawRoundedRect(rect, 6, 6)
+            if n["error"]:
+                painter.setPen(QPen(QColor("#e5484d"), 3.0))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRoundedRect(rect.adjusted(-3, -3, 3, 3), 8, 8)
+
+            # ノード名（上段）とタイプ名（下段）を箱の中に収める。箱の外に書くと、下流へ
+            # 伸びる接続線と文字が重なって読めなくなる。
+            dark_text = luminance > 0.55
+            painter.setFont(name_font)
+            painter.setPen(QColor("#1b1b1d") if dark_text else QColor("#f2f2f4"))
+            painter.drawText(QRectF(rect.left(), rect.top() + 4, rect.width(), 24), Qt.AlignCenter, n["name"])
+
+            painter.setFont(type_font)
+            painter.setPen(QColor("#55555b") if dark_text else QColor("#b9b9bf"))
+            painter.drawText(QRectF(rect.left(), rect.top() + 27, rect.width(), 16), Qt.AlignCenter, n["type"])
+
+            # フラグ（Houdiniは右側に表示: 青=display / 紫=render）
+            flag_x = rect.right() + 8
+            for is_set, color in ((n["display"], "#4aa3ff"), (n["render"], "#b57bff")):
+                if is_set:
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QColor(color))
+                    painter.drawEllipse(QPointF(flag_x, rect.center().y()), 6, 6)
+                    flag_x += 16
+
+    # 直近の操作の要点（パラメータ変更・cook結果・新規作成）を対象ノードの脇に添える
+    label = _short_callout(callout)
+    focus_rect = rects.get(focus_path) if focus_path else None
+    if label and focus_rect is not None:
+        painter.setFont(tag_font)
+        tag_w = QFontMetricsF(tag_font).horizontalAdvance(label) + 24.0
+        tag_rect = QRectF(focus_rect.right() + 40, focus_rect.center().y() - 15, tag_w, 30)
+        top_left = painter.transform().map(tag_rect.topLeft())
+        overflow = top_left.x() + tag_w * scale - (width - 8)
+        if overflow > 0:
+            tag_rect = QRectF(focus_rect.left() - 40 - tag_w, tag_rect.top(), tag_w, 30)
+        painter.setPen(QPen(QColor("#ffb000"), 1.6))
+        painter.setBrush(QColor("#1e1e20"))
+        painter.drawRoundedRect(tag_rect, 6, 6)
+        painter.setPen(QColor("#ffd27a"))
+        painter.drawText(tag_rect, Qt.AlignCenter, label)
+
+    painter.end()
+    return image
+
+
+def render_network_diagram(
+    output_path: Path,
+    container_path: str | None,
+    focus_path: str | None = None,
+    callout: str | None = None,
+    width: int = 1280,
+    height: int = 720,
+    log_path: Path | None = None,
+) -> bool:
+    """
+    container_path のネットワーク直下のノード構成を、Houdiniのネットワークエディタ風の図として
+    output_path に描く（ベストエフォート、失敗時は False）。
+
+    実画面のキャプチャ（_grab_network_pane）が成立しない環境でも、ノード画面を確実に
+    動画素材として出すためのフォールバック。実画面と違い、hou のデータから描き直した
+    「図」であること、そのぶんレイアウトが安定して読みやすく、対象ノードを強調できることが
+    特徴（ノード位置が重なる・画面外に出るといった実画面固有の問題が起きない）。
     """
     try:
-        return int(round(bounds[2] - bounds[0])), int(round(bounds[3] - bounds[1]))
-    except Exception:
-        pass
-    try:
-        size = bounds.sizevec2()
-        return int(round(size[0])), int(round(size[1]))
-    except Exception:
-        return None
-
-
-def _find_network_editor_widget(network_editor, main_window, log_path: Path | None):
-    """
-    main_window（hou.qt.mainWindow()）全体ではなく、NetworkEditorペイン
-    単体に絞ってキャプチャするため、その中の該当ウィジェットを探す。
-
-    Houdiniのペインタブオブジェクトは Qt ウィジェットへの直接参照を
-    公開していない（qtWidget() はこのビルドに存在しないことを実機の
-    dir() で確認済み）。そこで network_editor.screenBounds() が返す
-    サイズ（実機で確認: 常に固定値が返る＝絶対座標としては使えないが、
-    ペイン自身の見た目上の幅・高さとしては再利用できる）をシグネチャに
-    使い、main_window 配下の全ウィジェットからサイズが一致する可視
-    ウィジェットを探す。見つからなければ None を返し、呼び出し側は
-    ウィンドウ全体グラブにフォールバックする。
-    """
-    try:
-        bounds = network_editor.screenBounds()
-    except Exception as exc:
-        _log(f"screenBounds() unavailable, cannot narrow capture target: {exc!r}", log_path)
-        return None
-    size = _bounds_size(bounds)
-    if size is None:
-        _log(f"could not extract width/height from screenBounds()={bounds!r}", log_path)
-        return None
-    w, h = size
-    if w <= 0 or h <= 0:
-        return None
-
-    from PySide6.QtWidgets import QWidget
-
-    candidates = [
-        c for c in main_window.findChildren(QWidget)
-        if c.isVisible() and c.width() == w and c.height() == h
-    ]
-    if not candidates:
-        _log(f"no visible child widget matches NetworkEditor size {w}x{h}; "
-             "falling back to whole-window grab", log_path)
-        return None
-    if len(candidates) > 1:
-        _log(f"{len(candidates)} widgets match NetworkEditor size {w}x{h}; using the first", log_path)
-    return candidates[0]
+        network = hou.node(container_path) if container_path else None
+        if network is None:
+            _log(f"render_network_diagram: network not found: {container_path}", log_path)
+            return False
+        layers = _assign_layers(_collect_network_model(network))
+        image = _paint_network_diagram(layers, container_path, focus_path, callout, width, height)
+        if not image.save(str(output_path), "PNG"):
+            _log(f"render_network_diagram: image.save() returned False for {output_path}", log_path)
+            return False
+        _log(f"network capture method: synthetic diagram ({container_path})", log_path)
+        return True
+    except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
+        _log(f"render_network_diagram failed: {exc!r}", log_path)
+        return False
 
 
 def capture_network_editor(
-    output_path: Path, width: int = 1280, height: int = 720, log_path: Path | None = None
+    output_path: Path,
+    width: int = 1280,
+    height: int = 720,
+    log_path: Path | None = None,
+    *,
+    container_path: str | None = None,
+    focus_path: str | None = None,
+    callout: str | None = None,
 ) -> bool:
     """
-    現在のネットワークエディタペインをスクリーンショットとして保存する。
+    ノード画面（ネットワークエディタ）の画像を output_path に保存する。
 
-    2026-07-25 実機検証で判明: network_editor.screenBounds() は物理画面の
-    絶対座標ではなく、Houdiniのペイン内部だけで使われるローカル座標系の
-    模様（17ステップ全てで [0, 0, 613, 332] という同一値が返り、その座標で
-    画面全体スクリーンショットを切り出すと、実際のネットワークエディタの
-    位置に関わらず常に画面左上のメニューバー付近という同一の誤った領域が
-    映ってしまうことを確認した）。よってその方式は撤回し、Qtウィンドウを
-    そのままキャプチャする方式に切り替えた。
+    1. 実画面: hou.NetworkEditor.qtScreenGeometry() が示すペインの矩形を画面から切り出す
+       （_grab_network_pane。誤画像を保存しないための検査つき）
+    2. 上が成立しなければ、container_path のノード構成を自前で描いた図
+       （render_network_diagram）にフォールバックする
+    どちらの方法で撮れたかは log_path に「network capture method: ...」として残る。
 
-    2026-08-08 実機検証で判明: network_editor.qtParentWindow() は
-    「ネットワークエディタが実際に属するウィンドウ」ではなく、その時点で
-    フォーカスを持つ別の最上位ウィンドウ（本チュートリアル生成エージェント
-    自身のPython Panel＝tutorial_view.pyのChat/Graph/...タブUI）を返す
-    ことがあり、生成された動画にNetworkEditorではなくPython Panel Editor
-    の画面が映り込む不具合の原因だった（_flush_qt_events()によるrepaint
-    待ちを追加しても、そもそも掴んでいるウィンドウ自体が別物なので直らな
-    かった）。hou.qt.mainWindow() に切り替えて一意なメインウィンドウを
-    掴むようにしたが、これでもなお不具合が再現した。
-
-    2026-08-08 追加修正: hou.qt.mainWindow() は「Houdiniのメインウィンドウ
-    そのもの」を確実に返すが、それは単なる開始点に過ぎない ── RAGChatBot
-    パネル（Python Panel Editor）がユーザーのレイアウトでメインウィンドウに
-    ドッキングされている場合、NetworkEditor と同じ1つのトップレベル
-    ウィンドウの中に両方が同居することになる。ウィンドウ全体を grab()
-    すると、その中の**すべての**ドッキング済みパネル（RAGChatBotパネルを
-    含む）が一緒に写り込む。動画側のスライドはこの画像をそのまま縮小して
-    使うため、画面占有率の大きい方（往々にしてRAGChatBotパネル）が
-    目立って「NetworkEditorではなくPython Panel Editorが映っている」ように
-    見えていた、というのが一連の不具合の本当の原因だった可能性が高い。
-    _find_network_editor_widget() でメインウィンドウ配下からNetworkEditor
-    ペイン単体に相当する子ウィジェットを探し、見つかればそれだけを
-    grab() することで、他のドッキング済みパネルを写り込ませないようにする。
-    見つからない場合（Houdiniのバージョン差異等）は、従来どおりウィンドウ
-    全体をフォールバックとして使う。
+    経緯（2026-07〜09の実機検証で繰り返し失敗）: qtParentWindow() 全体の grab は
+    自分のRAGChatBotパネルが映り込み、hou.qt.mainWindow()/トップレベルウィンドウ列挙は
+    Houdini本体を返さず（0x0のウィンドウしか見つからない）、screenBounds() は
+    ペイン内ローカル座標で使えなかった。原因は、ドキュメントに載っている
+    qtScreenGeometry() を使わずにウィジェット探索に頼っていたこと。加えて、撮影対象が
+    常にサンドボックス直下で、作業の実体が入っている geo の中身を映していなかった。
     """
     try:
         network_editor = hou.ui.paneTabOfType(hou.paneTabType.NetworkEditor)
-        if network_editor is None:
-            _log("no NetworkEditor pane found in the current desktop", log_path)
-            return False
-        main_window = hou.qt.mainWindow()
-        if main_window is None:
-            _log("hou.qt.mainWindow() returned None", log_path)
-            return False
-        _flush_qt_events()  # 念のため grab() 直前にも repaint を確定させる
+    except Exception as exc:  # noqa: BLE001
+        _log(f"paneTabOfType(NetworkEditor) failed: {exc!r}", log_path)
+        network_editor = None
 
-        target_widget = _find_network_editor_widget(network_editor, main_window, log_path)
-        widget = target_widget if target_widget is not None else main_window
-        pixmap = widget.grab()
-        if width and height:
-            from PySide6.QtCore import Qt as QtNamespace
+    if network_editor is not None:
+        _flush_qt_events()
+        try:
+            image = _grab_network_pane(network_editor, log_path)
+            if image is not None:
+                if width and height:
+                    from PySide6.QtCore import Qt as QtNamespace
 
-            pixmap = pixmap.scaled(
-                width,
-                height,
-                QtNamespace.KeepAspectRatio,
-                QtNamespace.SmoothTransformation,
-            )
-        saved = bool(pixmap.save(str(output_path), "PNG"))
-        if not saved:
-            _log(f"pixmap.save() returned False for {output_path}", log_path)
-        return saved
-    except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
-        _log(f"network editor capture failed: {exc!r}", log_path)
-        return False
+                    image = image.scaled(
+                        width, height, QtNamespace.KeepAspectRatio, QtNamespace.SmoothTransformation
+                    )
+                if image.save(str(output_path), "PNG"):
+                    _log("network capture method: screen (qtScreenGeometry)", log_path)
+                    return True
+                _log(f"image.save() returned False for {output_path}", log_path)
+        except Exception as exc:  # noqa: BLE001
+            _log(f"screen grab of the NetworkEditor pane failed: {exc!r}", log_path)
+    else:
+        _log("no NetworkEditor pane found in the current desktop", log_path)
+
+    return render_network_diagram(
+        output_path, container_path, focus_path, callout, width, height, log_path
+    )
