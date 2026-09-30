@@ -29,7 +29,7 @@ from typing import Optional
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 _LOG_RELATIVE_PATH = Path("logs") / "houdini_token_usage.jsonl"
 _QUOTA_CACHE_RELATIVE_PATH = Path("logs") / "houdini_claude_quota_cache.json"
@@ -62,9 +62,51 @@ def record_usage(bridge_dir: str, topic: str, result) -> None:
         "total_tokens": result.total_tokens,
         "cost_usd": result.cost_usd,
         "completed": result.completed,
+        # 2026-09-20追加: トピック入力時の「過去の生成の平均コスト・所要時間」見積もり
+        # （average_recent()参照）用。elapsed_secondsが無い古いレコード（この変更より前に
+        # 記録されたもの）はaverage_recent()側でgetattr相当のデフォルト0扱いになるため、
+        # 後方互換のためのマイグレーション処理は不要。
+        "elapsed_seconds": getattr(result, "elapsed_seconds", 0.0),
     }
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+_ESTIMATE_RECENT_LIMIT = 20  # 直近何件を「最近の実績」として平均計算に使うか
+
+
+def average_recent(bridge_dir: str, limit: int = _ESTIMATE_RECENT_LIMIT) -> Optional[dict]:
+    """
+    直近limit件の生成実績から、平均コスト・平均所要時間・完了率を計算する
+    （2026-09-20追加、トピック入力欄の「過去の生成実績」見積もり表示用）。
+    トピックごとの類似度マッチングまでは行わず、このHoudiniでの直近の実績全体を
+    「次の生成もだいたいこれくらい」という目安として使う（トピックが違えば
+    コストも変わるが、類似度判定を作り込むより「大体の相場感」を素早く示す方を
+    優先した）。ログが無ければNoneを返す（呼び出し側は見積もりを表示しない）。
+    """
+    path = _log_path(bridge_dir)
+    if path is None or not path.exists():
+        return None
+    records: list[dict] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    if not records:
+        return None
+    recent = records[-limit:]
+    count = len(recent)
+    return {
+        "count": count,
+        "avg_cost_usd": sum(r.get("cost_usd", 0.0) for r in recent) / count,
+        "avg_elapsed_seconds": sum(r.get("elapsed_seconds", 0.0) for r in recent) / count,
+        "completed_rate": sum(1 for r in recent if r.get("completed")) / count,
+    }
 
 
 def load_summary(bridge_dir: str) -> dict:
@@ -147,6 +189,23 @@ def _format_recovery_note(reset_interval_hours: Optional[int], reset_at: Optiona
 
 # ─── ドーナツゲージ（QPainter直描画） ──────────────────────────────────────────────
 
+def fit_label(label: QLabel) -> QLabel:
+    """
+    動的に長い文字列が入るQLabelが、パネル全体を横に押し広げないようにする。
+
+    折り返し無しのQLabelは minimumSizeHint().width が「文字列全体の幅」になり、
+    「保存しました / 動画生成をバックグラウンドで開始しました（…ログ: 長いファイル名）」
+    のような長文が入った瞬間に親レイアウトの最小幅が跳ね上がって、Houdiniのペイン
+    （およびその内側のスクロール領域）が横に伸びてしまう（2026-09-26、動画生成ボタンを
+    押すとレイアウトが拡大する不具合の原因）。折り返しを有効にし、水平方向の
+    sizeHint/minimumSizeHint を無視させ（Ignored）、割り当てられた幅だけを使わせる。
+    """
+    label.setWordWrap(True)
+    label.setMinimumWidth(0)
+    label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+    return label
+
+
 class DonutGauge(QWidget):
     """
     「残量」を円弧の塗り具合で表す小型ゲージ。中央にパーセント、直下にラベル。
@@ -213,22 +272,34 @@ class TokenUsageWidget(QWidget):
         self._label = QLabel("Claudeトークン残量（サーバー管理）")
         self._label.setAlignment(Qt.AlignCenter)
         self._label.setStyleSheet("color:#aaa;font-size:11px;")
+        fit_label(self._label)
         layout.addWidget(self._label)
 
         self._detail = QLabel("")
         self._detail.setAlignment(Qt.AlignCenter)
         self._detail.setStyleSheet("font-size:13px;font-weight:bold;")
+        fit_label(self._detail)
         layout.addWidget(self._detail)
 
         self._sub = QLabel("")
         self._sub.setAlignment(Qt.AlignCenter)
         self._sub.setStyleSheet("color:#888;font-size:10px;")
+        fit_label(self._sub)
         layout.addWidget(self._sub)
 
         self._local_sub = QLabel("")
         self._local_sub.setAlignment(Qt.AlignCenter)
         self._local_sub.setStyleSheet("color:#666;font-size:9px;")
+        fit_label(self._local_sub)
         layout.addWidget(self._local_sub)
+
+        # 2026-09-20追加: トピック入力前に「だいたいこれくらいかかる」の目安が分かるように
+        # する（実機フィードバック「生成コストの事前見積もりがあると助かる」への対応）。
+        self._estimate_label = QLabel("")
+        self._estimate_label.setAlignment(Qt.AlignCenter)
+        self._estimate_label.setStyleSheet("color:#7dd3fc;font-size:10px;")
+        fit_label(self._estimate_label)
+        layout.addWidget(self._estimate_label)
 
     def set_server_quota(
         self,
@@ -286,3 +357,13 @@ class TokenUsageWidget(QWidget):
             )
         else:
             self._local_sub.setText("")
+
+        estimate = average_recent(bridge_dir)
+        if estimate is not None:
+            minutes = estimate["avg_elapsed_seconds"] / 60
+            self._estimate_label.setText(
+                f"次の生成の目安: 約${estimate['avg_cost_usd']:.2f} / 約{minutes:.1f}分"
+                f"（直近{estimate['count']}回の平均、完了率{estimate['completed_rate']:.0%}）"
+            )
+        else:
+            self._estimate_label.setText("")
