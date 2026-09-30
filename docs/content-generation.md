@@ -1,7 +1,7 @@
 # コンテンツ動的生成 — 設計ドキュメント
 
-**ステータス:** houdini21は実装済み・実機検証済み（2026-07-23、[検証レポート](houdini21-tutorial-gen-report.md)）／BrainTQは設計中（実装未着手）
-**更新日:** 2026-06-30
+**ステータス:** houdini21は実装済み・実機検証済み（2026-07-23、[検証レポート](houdini21-tutorial-gen-report.md)。以降の実機不具合対応は本ファイル2.6/2.8節、および検証レポートの追加検証節を参照）／BrainTQは設計中（実装未着手）
+**更新日:** 2026-06-30（2.6/2.8節のみ2026-09-20時点の実装に合わせて更新）
 
 > LocalRAG／CloudRAGを使ったチャットボット機能の次段階として、RAGで取得した知識をもとに**コンテンツを動的に生成**する機能群。houdini21（Houdiniチュートリアル自動生成）とBrainTQ（ミニゲーム動的生成）の2つを「コンテンツ動的生成」という1つのトピックにまとめて扱う。アーキテクチャ・セットアップは [docs/local-rag.md](local-rag.md) / [docs/cloud-rag.md](cloud-rag.md) を前提とする。
 
@@ -12,6 +12,8 @@
 1. [概要](#1-概要)
 2. [houdini21 — Houdiniチュートリアル自動生成](#2-houdini21--houdiniチュートリアル自動生成)
    - 2.7. [Goal・完成条件・委任範囲](#27-goal完成条件委任範囲)
+   - 2.8. [動画生成連携とその不具合対応](#28-動画生成連携とその不具合対応2026-09-20時点)
+   - 2.9. [生成からスクリーンショット・動画までの全体の流れ](#29-生成からスクリーンショット動画までの全体の流れ2026-09-26)
 3. [BrainTQ — ミニゲーム動的生成](#3-braintq--ミニゲーム動的生成)（Phase 1 設計確定 / Phase 2 ロードマップ）
 4. [共通の設計判断](#4-共通の設計判断)
 5. [権利・ライセンスの取り扱い](#5-権利ライセンスの取り扱い)
@@ -161,9 +163,59 @@ node_graph_json = export_node_graph(sandbox)  # NodeGraphAsset形式
 - 反復上限は40回（コスト・暴走防止）。超えたら「途中までの状態」を提示して打ち切り（初期値25回だったが、実機検証で反復消費が想定より多いタスクがあったため40回に調整。経緯は[検証レポート](houdini21-tutorial-gen-report.md) §4参照）
 - **打ち切り時のグレースフル終了：** 反復上限の残り3回以内、またはコスト上限の85%を超えた時点（`GRACE_ITERATIONS`/`GRACE_COST_FRACTION`、`tutorial_agent.py`）で、まだ`finish_tutorial`/`confirm_tutorial`が済んでいなければ「今の状態のまま仕上げてください」という一度だけのシステム通知（`_GRACE_NUDGE_TEXT`）を差し込む。ハード打ち切りで未完成のまま終わる代わりに、多少粗くても完結したチュートリアルになる可能性を上げる
 - **シミュレーションノードの複数フレームcook：** pyro/DOP/cloth/particle/flip/RBD等のノードタイプ名（`_SIMULATION_TYPE_HINTS`、部分文字列マッチ）を検出した場合、`cook_node`は単一フレームではなく現在フレームから10フレーム分（`_SIM_COOK_FRAME_COUNT`）を順次evaluateしてから復元する（`houdini_tools.py`の`_cook_simulation_frames`）。シミュレーションは前フレームの結果に依存するため、時間発展する挙動を1フレームだけでは検証できないことへの対応
-- **検索連打・空振り終了対策（実機で確認された不具合）：** `list_available_node_types`を3回以上連続で呼んでも`create_node`を呼ばない場合、一度だけ「検索を止めて作成を試して」と促す（`_SEARCH_LOOP_NUDGE_TEXT`、`create_node`が呼ばれるとストリークが解除され再度検索連打があれば再度促す）。また、ノードを1つも作らずに`tool_use`無しのテキストのみで終了しようとした場合も、即座に打ち切る前に一度だけ「作業を始めてください」と再開を促す（`_EMPTY_HANDED_NUDGE_TEXT`）。電子パーティクル等のPOP/DOP系トピックで検索が過剰発生していたため、`_COMMON_NODE_TYPES_BLOCK`にPOPノード（popforce/popdrag/popwrangle等）も追加した
+- **検索連打・空振り終了対策（実機で確認された不具合）：** `list_available_node_types`を3回以上連続で呼んでも`create_node`を呼ばない場合、一度だけ「検索を止めて作成を試して」と促す（`_SEARCH_LOOP_NUDGE_TEXT`、`create_node`が呼ばれるとストリークが解除され再度検索連打があれば再度促す）。電子パーティクル等のPOP/DOP系トピックで検索が過剰発生していたため、`_COMMON_NODE_TYPES_BLOCK`にPOPノード（popforce/popdrag/popwrangle等）も追加した
+- **「完了扱い」の誤判定対策（3段階の救済ロジック、2026-09-20時点で3種類を確認・対応済み）：** モデルが`tool_use`無しのテキストのみで応答を終えようとした際、以下の順で状態を判定し、真に何もすべきことが無くなった場合以外は一度だけ再開を促してから打ち切る（`tutorial_agent.py`の`_run_loop`）：
+  1. ノードを1つも作っていない → `_EMPTY_HANDED_NUDGE_TEXT`（2回まで救済。1回目より2回目の方が「完璧な再現より基本形状の組み合わせで妥協してよい」と具体的に譲歩する内容に強めてある）
+  2. `finish_tutorial`は呼んだが`confirm_tutorial`をまだ呼んでいない（下書きが`pending_finish`のまま） → `_UNCONFIRMED_FINISH_NUDGE_TEXT`（1回まで救済）
+  3. ノードは作成済みだが`finish_tutorial`自体を一度も呼んでいない（上記1・2のどちらにも該当しない中間ケース。実装当初はこのケースの救済が漏れており、ノードは正しく組み上がっているのにMarkdownがタイトルだけの汎用フォールバックになる欠陥があった） → `_UNFINISHED_WORK_NUDGE_TEXT`（1回まで救済）
+- **`cook_node`の偽陽性対策：** `node.cook(force=True)`が例外を送出した場合、従来は`except Exception: pass`で握りつぶし`node.errors()`だけを見て判定していた。Houdiniのcook失敗は通常`errors()`にも反映されるが、稀に反映されないまま例外だけが飛ぶケースがあり得るため、`errors()`が空でも例外があれば合成のエラー行として結果に含めるようにし、「cook成功（エラー・警告なし）」という誤報でモデルが壊れた状態のまま先に進んでしまうリスクを塞いだ（`houdini_tools.py`の`_tool_cook_node`）
 - **サンドボックス削除時のHoudiniフリーズ対策：** `HoudiniToolExecutor.destroy_sandbox()`は`hdefereval.executeInMainThreadWithResult()`でメインスレッドへディスパッチする実装だが、「サンドボックス削除」ボタンのクリックハンドラ（既にメインスレッド）から直接呼ぶと自分自身へのディスパッチ待ちでデッドロックしてHoudiniが固まる（実機で確認済み）。`tutorial_view.py`の`_on_delete_sandbox`を`_DestroySandboxWorker`（QThread）経由の呼び出しに変更して解消
 - 保存先ファイル名は `localRAG/tutorials/<slug>_<日付>.md`
+
+### 2.8 動画生成連携とその不具合対応（2026-09-20時点）
+
+保存直後、`tutorial_view.py`の`_on_save`（単発生成）・`_on_chain_done`（3段階連続生成）は`video_factory_bridge.py`経由でLearningQt側の動画生成エンジン（外部exe、`video_factory_cloudrag_poc.exe`）を非同期起動する。各ツール呼び出し直後にビューポート／ネットワークエディタのスクリーンショットを撮影する仕組み（`houdini_tools.py`の`_capture_step_screenshot`、実体は`screen_capture.py`）が、動画の各スライドの素材になる。
+
+- **打ち切り生成の動画化防止：** `result.completed=False`（`confirm_tutorial`まで到達しなかった打ち切り）のまま無条件に動画生成まで進めると、Markdown本文の「> 注意: 打ち切られました」という警告バナーがそのまま動画のナレーション対象になり、見た目には正常な解説動画と区別がつかない不具合が実機で報告された。単発生成（`_on_save`）は確認ダイアログ（既定で動画生成をスキップ）を挟むよう修正済みだったが、3段階連続生成（`_on_chain_done`、確認なしで自動保存する設計のため同じダイアログは出せない）には同じガードが漏れており、チェーンモード経由でのみ同じ不具合が再現する状態だった。`result.completed`を見て自動的に動画生成をスキップする形で、チェーンモードにも同じ安全側デフォルトを適用した
+- **動画再生がQtWebEngine/Houdini間のGPUコンテキスト競合で止まる不具合：** Houdini埋め込みのQtWebEngineプレイヤーで動画が「再生中（一時停止アイコン）」のまま0:00から進まない事例が報告された。ffmpeg単体でのデコードは正常なため、ファイル破損ではなくHoudini本体（自前のOpenGLビューポートを持つ）とQtWebEngine（自前のGPUプロセスを持つChromium）のGPUコンテキスト競合が原因と判断。`QTWEBENGINE_CHROMIUM_FLAGS=--disable-accelerated-video-decode`を試みたうえで、常にOS標準の動画プレイヤー（Houdiniとは別プロセス、GPUコンテキスト競合の影響を受けない）で開ける「外部プレイヤーで開く」ボタンを保険として追加した
+- **【致命的不具合】動画生成直後にパネル全体が操作不能になる不具合：** 上記の対策後もなお、動画生成完了直後にRAGChatBotパネル全体が異常に横長になり、保存を含む一切の操作ができなくなる不具合が報告された。原因は`VideoLibraryPanel`（保存済み動画の一覧・再生タブ）が、動画一覧でアイテムが選択されるたびに**埋め込みのQtWebEngineビューを自動的にアクティブ化**していたこと。動画生成完了時に`on_video_ready`コールバック経由でこの選択が自動発生するため、ユーザーがどのタブを見ていても動画生成完了の瞬間に必ずトリガーされていた。単発プレビュー用の`QDialog`ベースの埋め込み再生（`_on_preview_video`）も同じ機構だったため、両方から埋め込みQtWebEngineを完全に撤去し、動画再生は常に前項の外部プレイヤー経由に統一した。以降、`houdini/python_panels/`配下からQtWebEngineの埋め込み利用はゼロになっている
+
+**動画生成が遅い問題（2026-09-26）**: 実機で519秒の動画の生成に約17分かかっていた。内訳は音声合成3秒、描画・エンコード993秒で、描画・エンコードの約3/4がlibvpx（VP9）のエンコードだった（同一入力を単独実行したときは約38fps、Houdiniと同時に動かした実機では約16fpsと約2倍遅かった）。エンコード設定を速度優先（`deadline=realtime`・`cpu-used=6`・`row-mt=1`）にし、フレームレートを30→15fpsにしたところ、同一入力で64.5秒に短縮した。動画の長さ（519秒）は音声の長さで決まるため変わっておらず、さらに縮めたい場合はナレーションの分量を減らす必要がある。詳細は RAGReel の `docs/technical-reference.md` を参照。
+
+**パネルのレイアウトが広がる問題（2026-09-26）**: 動画生成を始めると、保存・動画生成の状態を表示する長い1行のQLabel（折り返しなし）が「文字列全体の幅」を最小幅として要求し、Houdiniのペインが横に押し広げられていた。ステータス表示用のラベルを、折り返し有効・水平方向のサイズヒント無視（`token_usage.fit_label()`）にして解消した。
+
+**動画の時間配分（2026-09-26）**: ノード画面7割・ビューポート2割・その他1割を目標に、動画エンジン側（RAGReel）が種別ごとに表示時間を配分するようにした。詳細は RAGReel の `docs/technical-reference.md` を参照。
+
+### 2.9 生成からスクリーンショット・動画までの全体の流れ（2026-09-26）
+
+```mermaid
+flowchart TD
+    A["トピック入力<br/>(Tutorialタブ)"] --> B["RAG検索<br/>houdini21ナレッジ 6件"]
+    B --> C["エージェントループ (最大40回)<br/>tutorial_agent.py"]
+    C -->|tool_use| D["HoudiniToolExecutor<br/>houdini_tools.py<br/>サンドボックス内でノード操作"]
+    D -->|"作成・接続・パラメータ・cook・削除"| E["ステップごとの撮影<br/>ビューポート + ノード画面"]
+    D -->|"connect / cook"| F["表示フラグを自動で移す"]
+    E --> C
+    C -->|finish_tutorial| G["ビューポート画像を見せる<br/>(自己確認)"]
+    G -->|confirm_tutorial| H["確定 → Markdown + ノードグラフJSON"]
+    H -->|"保存ボタン / チェーンは自動"| I["screenshots.json マニフェスト"]
+    I --> J["video_factory_cloudrag_poc.exe<br/>(RAGReel)"]
+    J --> K["スライド化 → 7:2:1配分 → 描画 → VP9エンコード → .webm"]
+```
+
+**撮影**: ノード操作が成功するたび（create/set_parameter/connect/cook/delete）に、(1) ビューポート（`hou.SceneViewer.flipbook()`、cook_nodeでは連番クリップも）と、(2) ノード画面を撮る。ノード画面は、`qtScreenGeometry()`で画面上のペイン矩形を切り出す方法を先に試し、Houdiniがアクティブでない・自分のパネルが重なっている・結果が単色、のいずれかなら自前で描いたネットワーク図にフォールバックする（§8.5参照）。撮影対象は、触ったノードを内包するネットワーク（geoの内部）。
+
+**動画**: スライドは「手順ごとに1枚（ツール結果テキスト＋画像）」と「概要・ハマりポイント・参考などのMarkdownの節」から成る。ナレーションはチュートリアル本文全体を読み上げた1本の音声で、その長さが動画の長さを決める（スライドの切替とは同期していない）。表示時間は種別ごとの目標比率（ノード70%／ビューポート20%／その他10%）で配分する。
+
+### 2.10 Houdini 22への導入（2026-09-26）
+
+Houdini 22.0.429（Python 3.13.10 / PySide6 6.8.3。21.0.700は Python 3.11.7 / PySide6 6.5.3）に対応した。配置は `python houdini/deploy_panels.py 22.0 --pypanel`（`--check`で差分だけ確認、上書き前は自動バックアップ）。hython（実物のHoudini）で、ツール実行・表示フラグの自動移動・ネットワーク図の描画が21・22の両方で同じ結果になることと、パネルUIが22のPySide6で構築できることを確認済み。`hou.NetworkEditor.qtScreenGeometry()`・`setVisibleBounds()`・`hou.BoundingRect`・`SceneViewer.flipbook()`も22に存在する。
+
+- システムプロンプトの「よく使うノードタイプ」に、21・22のどちらにも存在しない名前（`noise::2.0`・`attribrandomize::2.0`・`volumetrim`・`popnet`・`pythonscript`等）が混ざっていたため、実在する名前（`attribnoise::2.0`・`attribrandomize`・`python`等）に直した。POP系はDOPノードで、SOP直下には作れない（`dopnet`の中に作る）点も明記した。
+- `.pypanel`のCDATAは、スクリプトのUTF-8バイト列を1バイト=1文字（Latin-1）として読み替えた文字列をUTF-8のXMLとして保存する形式で、日本語や「§」をそのまま書くとHoudiniが読み込み時に壊し、`SyntaxError: (unicode error) 'utf-8' codec can't decode byte 0xa7`になる（2026-09-27に実機で発生。hythonの`hou.pypanel.installFile()`＋`interfaceByName().script()`で再現・修正後にリポジトリの`rag_chatbot.py`と完全一致することを確認）。`deploy_panels.py --pypanel`はこの形式で書く。
+- ナレッジ（RAG）は現状`houdini21`のみ。22の新機能・変更点に関する質問への精度を上げるには、22のドキュメントを別namespaceとして同期する必要がある（生成機能が参照するnamespaceは`tutorial_agent.py`の`RAG_NAMESPACES`/`CLOUDFLARE_RAG_NAMESPACES`）。
+
+**ノード画面の撮影が難しかった理由**: (1) Houdiniはペインからウィジェットへの直接参照を公開せず、Python Panelの実行コンテキストからはHoudini本体のウィンドウ階層がたどれない（`hou.qt.mainWindow()`もトップレベルウィンドウ列挙も本体を返さなかった）、(2) 画面座標を返すAPI（`qtScreenGeometry()`）の存在に気づかず、ローカル座標の`screenBounds()`で試して外れた、(3) ペインはタブ切替式で、非表示のタブは描画されない、(4) 実機のPythonコードが手動コピーで、リポジトリの修正が届いていなかった、(5) 撮影対象がgeoの外（サンドボックス直下）だった、という要因が重なった。画面切り出しは「今画面に見えているもの」をそのまま撮るため、他のウィンドウが手前にあると誤った画像になる点も本質的な制約である。
 
 ### 2.7 Goal・完成条件・委任範囲
 

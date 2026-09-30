@@ -1,6 +1,6 @@
 # ゲーム開発 RAG 環境
 
-**更新日:** 2026-08-27
+**更新日:** 2026-08-27（2026-09-22：Cloudflare RAG POCの新連携・OAuthクリック接続化、houdini21チュートリアル自動生成の動画連携・完了判定強化を反映）
 
 ---
 
@@ -31,8 +31,9 @@
 | **HyDE 検索強化** | クエリ+仮説文書の加重平均埋め込みで語彙ミスマッチを解消（精度向上）|
 | **情報抽出度メトリクス** | 回答中の引用数÷ソース数で抽出効率を可視化（✓引用バッジ・進捗バー）|
 | **houdini21 名前空間** | Houdini 21ドキュメント専用DB（GAS・LocalRAG・Unity/Houdini UI統合）|
-| **houdini21チュートリアル自動生成** | 自然言語の依頼からHoudiniのノードグラフを実際に組み立て、cookエラーなしのチュートリアル（Markdown+ノードグラフJSON）を自動生成 |
-| **Cloudflare RAG POC**（検証環境） | クラウド RAG（GAS+Notion+Sheets）をCloudflare Workers+D1+Vectorizeで再実装できるか検証する技術検証。本番のクラウド RAGには影響しない独立実装 |
+| **houdini21チュートリアル自動生成** | 自然言語の依頼からHoudiniのノードグラフを実際に組み立て、cookエラーなしのチュートリアル（Markdown+ノードグラフJSON）を自動生成。ビューポート画像による視覚的自己検証（`confirm_tutorial`）・多段階の完了判定救済ロジックあり |
+| **チュートリアル動画の自動生成** | 保存したチュートリアルからLearningQt連携で解説動画を自動生成。各ステップのビューポート/ネットワークエディタのスクリーンショットが素材になる |
+| **Cloudflare RAG POC**（検証環境） | クラウド RAG（GAS+Notion+Sheets）をCloudflare Workers+D1+Vectorizeで再実装できるか検証する技術検証。本番のクラウド RAGには影響しない独立実装。GAS版には無い新機能（再帰URLクローラー・重複コンテンツ検出・Jira/Backlog/Googleカレンダー/Googleマップ連携・OAuthクリック接続化）も追加している |
 
 ---
 
@@ -122,12 +123,15 @@ DevelopmentRAGEnvironment/
 │
 ├── houdini/                            # Houdini プロジェクトファイル
 │   └── python_panels/
-│       ├── rag_chatbot.py              # PySide6 製チャットパネル（Chat / Graph / Tutorial / History / Settings タブ）
+│       ├── rag_chatbot.py              # PySide6 製チャットパネル（Chat / Graph / Tutorial / History / 動画 / Settings タブ）
 │       ├── graph_view.py              # QGraphicsView によるグラフビュー
-│       ├── houdini_tools.py            # ★ houラッパー8ツール（サンドボックス強制・監査ログ・NodeGraphAssetエクスポート）
-│       ├── tutorial_agent.py           # ★ チュートリアル生成オーケストレーター（RAG検索→エージェントループ）
-│       ├── tutorial_view.py            # ★ Tutorial/Historyタブ UI（Markdownプレビュー・保存確認）
-│       └── token_usage.py              # ★ トークン消費量トラッキング＆ドーナツゲージ可視化
+│       ├── houdini_tools.py            # ★ houラッパー9ツール（create_node〜confirm_tutorial。サンドボックス強制・監査ログ・NodeGraphAssetエクスポート）
+│       ├── tutorial_agent.py           # ★ チュートリアル生成オーケストレーター（RAG検索→エージェントループ、完了判定の多段階救済ロジック）
+│       ├── tutorial_view.py            # ★ Tutorial/History/動画タブ UI（Markdownプレビュー・保存確認・動画生成連携）
+│       ├── tutorial_graph_simplify.py  # ★ 大規模ノードグラフの簡易表示（直列チェーンの折り畳み）
+│       ├── screen_capture.py           # ★ ビューポート/ネットワークエディタのスクリーンショット取得（動画生成・VLM入力用）
+│       ├── video_factory_bridge.py     # ★ LearningQt動画生成エンジンの非同期起動連携
+│       └── token_usage.py              # ★ トークン消費量トラッキング＆ドーナツゲージ可視化・生成コストの事前見積もり
 │
 ├── scripts/                            # ユーティリティスクリプト
 │   ├── rag_local_bridge.py             # ★ ローカル HTTP ブリッジ（Unity/Houdini → RAGService 直接呼び出し、/search でLLMなし生検索）
