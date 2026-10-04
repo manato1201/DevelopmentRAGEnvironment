@@ -40,6 +40,7 @@ def launch_video_generation(
     sandbox_path: str,
     step_screenshots: list[dict],
     exe_path: str,
+    db_key: str = "",
 ) -> tuple[str, Path | None]:
     """
     動画生成を非同期で起動する。戻り値は (状態メッセージ, ログファイルパス)。
@@ -71,6 +72,12 @@ def launch_video_generation(
         "--houdini-screenshots",
         str(screenshots_path),
     ]
+    # 動画エンジンの位置引数（トピック・DBキー）。トピックはエンジン側がチュートリアルの
+    # タイトルで上書きするので仮の値でよい。DBキーは動画のブランド表示（"HOUDINI22"）と
+    # RAG問い合わせ先になる。未指定だとエンジンの既定値 houdini21 になり、Houdini 22の
+    # チュートリアルなのに動画に「HOUDINI21」と出ていた（2026-10-04）。
+    if db_key:
+        args += [md_path.stem, db_key]
 
     # cwdを明示しない場合、Popenは呼び出し元（Houdini自身）のカレントディレクトリを
     # 継承するため、生成される.webmの出力先が実行のたびに変わりうる不定な状態だった。
