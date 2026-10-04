@@ -6,7 +6,8 @@ import { jsonResponse, clampInt } from "./http";
 // - Claude: houdini/python_panels/tutorial_agent.py の _MODEL_PRICES と同一の値を保つこと
 //   （あちらがコスト上限判定の実測計算に使う価格テーブルの正）。cache_write/cache_readは
 //   このプロキシ経由では未使用のため参考値として残すのみで、コスト計算には使わない。
-//   claude-sonnet-5: 標準価格 $3/$15 / claude-haiku-4-5: $1/$5
+//   公式の料金ページで2026-10-05に確認: sonnet-5 / sonnet-5-5 は $2/$10、opus-5-5 は $4/$20、
+//   opus-5 は $5/$25、haiku-4-5 は $1/$5。
 // - Gemini: https://ai.google.dev/gemini-api/docs/pricing で2026-09-10に確認した値。
 //   gemini-flash-latestは2026-12-31までの期間限定価格（$0.75/$3.75、2027-01-01以降は
 //   $1.50/$7.50に上がる予定）。embeddingは入力のみの課金でoutputは無い（gemini-embedding-001:
@@ -15,11 +16,14 @@ import { jsonResponse, clampInt } from "./http";
 // handleGeminiCostStats）から共通で参照する（2026-09-10リファクタリング：元は
 // Claude専用のCLAUDE_MODEL_PRICESだったものをプロバイダ横断に一般化した）。
 const MODEL_PRICES: Record<string, { input: number; output: number }> = {
-  "claude-sonnet-5": { input: 3.0, output: 15.0 },
+  "claude-sonnet-5": { input: 2.0, output: 10.0 },
+  "claude-sonnet-5-5": { input: 2.0, output: 10.0 },
+  "claude-opus-5-5": { input: 4.0, output: 20.0 },
+  "claude-opus-5": { input: 5.0, output: 25.0 },
   "claude-haiku-4-5": { input: 1.0, output: 5.0 },
   "gemini-flash-latest": { input: 0.75, output: 3.75 },
 };
-const FALLBACK_CLAUDE_PRICE = MODEL_PRICES["claude-sonnet-5"]; // 未知のClaudeモデルは安全側にsonnet-5単価で見積もる
+const FALLBACK_CLAUDE_PRICE = MODEL_PRICES["claude-opus-5"]; // 未知のClaudeモデルは安全側に（現行で高い方の）opus-5単価で見積もる
 const FALLBACK_GEMINI_PRICE = MODEL_PRICES["gemini-flash-latest"]; // 未知のGeminiモデルはflash単価で見積もる
 
 function estimateCostUsd(
