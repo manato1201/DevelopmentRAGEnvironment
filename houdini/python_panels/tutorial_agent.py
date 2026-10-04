@@ -1,5 +1,5 @@
 """
-tutorial_agent.py — houdini21 チュートリアル自動生成オーケストレーター
+tutorial_agent.py — Houdini チュートリアル自動生成オーケストレーター（検索対象はHoudiniのバージョン別namespace）
 
 docs/content-generation.md §2 の設計に基づく:
   ① RAG検索: houdini21 namespace のみから取得（license-compliance のホワイト
@@ -14,7 +14,7 @@ docs/content-generation.md §2 の設計に基づく:
      側でも二重にホワイトリストを強制する）。"cloudflare"モードはサーバー側の
      namespace許可制御がGASのような抜け道を持たないため二重フィルタ不要
   ② エージェントループ: DEFAULT_MODEL（既定claude-sonnet-5、TutorialAgent(model=...)で
-     claude-haiku-4-5等に変更可）+ HOUDINI_TOOLS（最大MAX_ITERATIONS回）
+     claude-sonnet-5-5 / claude-opus-5-5 / claude-haiku-4-5に変更可）+ HOUDINI_TOOLS（最大MAX_ITERATIONS回）
      プロンプトキャッシュ: システムプロンプト・ツール定義・RAGコンテキストを
      cache_control で固定
      Claude API呼び出しは claude_backend で切り替える（既定"gas"、後方互換）:
@@ -60,13 +60,42 @@ COST_LIMIT_USD = 5.00         # ローカル側の実測コスト打ち切り上
                                # クライアント側のフェイルセーフに過ぎない
 GRACE_ITERATIONS = 3          # 反復上限までこの回数以内になったら仕上げを促す（§2.6打ち切り改善）
 GRACE_COST_FRACTION = 0.85    # 累積コストがCOST_LIMIT_USDのこの割合を超えたら仕上げを促す
-MAX_TOKENS_PER_TURN = 4096
+# 1ターンの出力上限。Sonnet 5.5 / Opus 5.5 はthinking（思考）も max_tokens に数えられ、常に有効なため、
+# 以前の4096だと思考だけで使い切って、ツール呼び出し（VEXコード等を含む入力）が途中で切れる恐れがある
+# （2026-10-05に16000へ。非ストリーミングで使える現実的な上限）。
+MAX_TOKENS_PER_TURN = 16000
 RAG_NAMESPACES = ["houdini21"]  # 生成機能が参照してよい namespace のホワイトリスト（§5）
 RAG_LIMIT = 6
 CLOUD_RAG_DB_KEY = "houdini21"  # Cloud RAG（GAS）に問い合わせる際の dbKey
 CLOUDFLARE_RAG_NAMESPACES = ["shared:houdini21"]  # Cloudflare RAG（cloudflare-rag-poc）側のnamespace名
                                     # （2026-08-26追加。GASのCloud RAGの後継として、GAS/Cloudflare
                                     # どちらも選べるようにした。RAG_NAMESPACESとは別名になっている点に注意）
+
+# 2026-10-04追加: 検索対象のナレッジ（Houdiniのバージョン別namespace）を決める。
+# 以前は上の定数（houdini21固定）を使っており、設定画面の「DB」欄（gas_db_key＝チャット用）を
+# houdini22にしても、チュートリアル生成は常にhoudini21を検索していた（Cloudflareには
+# shared:houdini22が8,700チャンク以上あるのに、houdini21は144チャンクだけだった）。
+# 設定値 tutorial_rag_namespace が空なら、起動中のHoudiniのメジャーバージョンに合わせる。
+# ライセンス方針（生成機能が参照してよいのはHoudini公式ドキュメント系のnamespaceのみ）を
+# 保つため、houdini<数字> 以外の値は受け付けず自動判定に戻す。
+_RAG_NAME_RE = re.compile(r"^(?:shared:)?(houdini\d+)$")
+
+
+def detect_houdini_rag_name() -> str:
+    """起動中のHoudiniのバージョンから houdini<メジャー> を返す（hou が無ければ houdini21）。"""
+    try:
+        import hou
+
+        return f"houdini{int(hou.applicationVersion()[0])}"
+    except Exception:  # noqa: BLE001 -- hou無し（テスト等）は従来の既定値
+        return "houdini21"
+
+
+def resolve_rag_name(setting: str = "") -> str:
+    """設定値（"houdini22" / "shared:houdini22" / 空=自動）を houdini<数字> の形に正規化する。"""
+    match = _RAG_NAME_RE.match((setting or "").strip().lower())
+    return match.group(1) if match else detect_houdini_rag_name()
+
 # 2026-09-13追加: /claude/messages呼び出しでWorkerに一度も届かないままCloudflare
 # エッジ（workers.dev共有ドメインのBot Fight Mode等）に弾かれる事象を実機で確認した
 # （Workers Observabilityのイベントログに一切記録が残らないことから、Worker到達前の
@@ -79,19 +108,35 @@ _HTTP_USER_AGENT = "HoudiniTutorialAgent/1.0 (+cloudflare-rag-poc)"
 _CF_EDGE_BLOCK_RETRIES = 2
 _CF_EDGE_BLOCK_BACKOFF_SEC = (2.0, 5.0)
 
-# モデル別単価（USD / 1M tokens）。コスト上限判定の実測計算に使う。
-# token消費対策（コスト面で継続利用しやすくする）として、既定のclaude-sonnet-5に加えて
-# 低コストなclaude-haiku-4-5を選択可能にしている。dictのkey順がそのままUIの表示順。
-# - claude-sonnet-5: 標準価格 $3/$15（導入価格 $2/$10 は2026-08-31までだが、
-#   過大評価になるだけで安全側なのでここでは標準価格を採用）
-# - claude-haiku-4-5: $1/$5。cache_write/cache_readは公表値がないため、
-#   他モデルと同じ比率（write=input×1.25、read=input×0.1）で概算
+# モデル別単価（USD / 1M tokens）。コスト上限判定の実測計算と、UIに出す生成コストに使う。
+# 公式の料金ページ（platform.claude.com/docs/en/about-claude/pricing）で2026-10-05に確認した値。
+# dictのkey順がそのままUI（Settingsタブ）の表示順。cache_writeは5分キャッシュの書き込み単価
+# （入力の1.25倍）、cache_readはキャッシュ読み取り（通常は入力の0.1倍。Opus 5.5だけ0.05倍）。
+# - claude-sonnet-5: $2/$10。発売時は2026-08-31までの導入価格とされ、以前ここでは「9/1から$3/$15に
+#   上がる」前提で$3/$15を使っていたが、公式に「$2/$10が標準価格になり値上げは行わない」と改められた。
+#   旧値のまま計算するとコスト表示が実際より約1.5倍高く出ていた（2026-10-05修正）。
+# - claude-sonnet-5-5: Sonnet 5の後継。単価は同じ$2/$10。
+# - claude-opus-5-5: $4/$20（Opus 5の$5/$25より安い）。キャッシュ読み取りが$0.20と安く、本ツールの
+#   ようにキャッシュ読み取りが入力の大半を占める用途では差がさらに縮む。
+# - claude-haiku-4-5: $1/$5。
 _MODEL_PRICES: dict[str, dict[str, float]] = {
     "claude-sonnet-5": {
-        "input": 3.00,
-        "output": 15.00,
-        "cache_write": 3.75,
-        "cache_read": 0.30,
+        "input": 2.00,
+        "output": 10.00,
+        "cache_write": 2.50,
+        "cache_read": 0.20,
+    },
+    "claude-sonnet-5-5": {
+        "input": 2.00,
+        "output": 10.00,
+        "cache_write": 2.50,
+        "cache_read": 0.20,
+    },
+    "claude-opus-5-5": {
+        "input": 4.00,
+        "output": 20.00,
+        "cache_write": 5.00,
+        "cache_read": 0.20,
     },
     "claude-haiku-4-5": {
         "input": 1.00,
@@ -99,6 +144,16 @@ _MODEL_PRICES: dict[str, dict[str, float]] = {
         "cache_write": 1.25,
         "cache_read": 0.10,
     },
+}
+# モデル別のeffort（思考の深さ）。2026-10-05追加。Sonnet 5.5の既定は"high"だが、公式は多段の
+# ツール利用タスク（本ツールのエージェントループ）の出発点として"medium"を勧めている
+# （Anthropicの検証では、エージェント系のコーディングで medium が Sonnet 5 の high を上回り、
+# コストは5分の1未満）。Opus 5.5は既定が"medium"だが、既定の変更に左右されないよう明示する。
+# effortを受け付けないモデル（Haiku 4.5）や、未検証のSonnet 5には送らない（空=モデルの既定）。
+# 値を変えて試すときはここだけ直す。Cloudflare Worker（/claude/messages）が中継する。
+_MODEL_EFFORT: dict[str, str] = {
+    "claude-sonnet-5-5": "medium",
+    "claude-opus-5-5": "medium",
 }
 # UI（Settingsタブ）のモデル選択プルダウンに出す順序・選択肢
 AVAILABLE_MODELS: tuple[str, ...] = tuple(_MODEL_PRICES.keys())
@@ -228,6 +283,7 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初
 ## レベル: {level}（basic → applied → advanced の一貫進行の一部として生成しています）
 {level_instruction}
 {prior_level_summary}
+{reference_section}
 
 ## 絶対ルール
 - ノード操作はサンドボックス `{sandbox_path}` 内でのみ行われます。ノードパスは常にサンドボックス相対（例: `geo1/grid1`）で指定してください。
@@ -249,8 +305,80 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初
 4. エラーゼロを確認したら finish_tutorial を呼ぶ。steps には実際に行った操作を初心者が再現できる粒度で書き、pitfalls には生成中に遭遇したエラーと対処を書く。next_steps には「このパラメータを変えたら/このノードを足したら何が変わるか」を具体的に3〜5個挙げ、読んだ人が自分のプロジェクトに応用するための手がかりにする（手順の要約の繰り返しにしないこと）。sources_used には実際に参考にした「参考ドキュメント」の番号（下記の[1][2]...）を記入する（使っていなければ空配列）
 5. finish_tutorial の直後に現在のビューポート画像が送られます。**その画像を確認し、意図した見た目になっているか自己検証してから、必ず confirm_tutorial を呼んでください。** 見た目に問題があれば looks_correct=false にして修正し、finish_tutorial からやり直してください
 
-## 参考ドキュメント（houdini21 ナレッジベース。番号は sources_used で引用する際に使う）
+## 参考ドキュメント（{kb_label} ナレッジベース。番号は sources_used で引用する際に使う）
 {rag_context}"""
+
+
+_REFERENCE_SECTION = """
+## 参考画像について
+ユーザーが完成イメージの参考画像を添付しています（最初のメッセージ）。テキストのトピックだけでは伝わらない見た目の意図が含まれています。
+- 作り始める前に、画像から読み取れる特徴（全体の形・要素の構成・色・質感・密度・スケール感）を3〜5点に整理し、それを再現できるノード構成を選ぶこと。
+- Houdiniのノードで再現できる範囲に収める。写実的な質感の完全再現は目指さず、形・構成・色の傾向を優先する。
+- finish_tutorial の直後に見せられるビューポート画像を、この参考画像と見比べて confirm_tutorial を判断する。形・色・構成が大きくズレていれば looks_correct=false にして直す。note には参考画像との違いを書く。
+- finish_tutorial の steps の冒頭（最初の手順の前）に、「参考画像から読み取った特徴」を短い箇条書きで入れる。
+- テキストのトピックと画像が食い違う場合は、トピック（テキスト）を優先し、食い違いを pitfalls に書く。
+"""
+
+# ─── 参考画像（テキスト＋画像での生成、2026-10-05追加） ───────────────────────────────
+# テキストのトピックだけだと、ユーザーの求める完成イメージからズレることがある。完成イメージの
+# 参考画像（スクショ・写真・ラフ等）を一緒に渡せるようにする。Claudeには画像ブロックとして
+# 最初のユーザーメッセージに載せる。GAS経由・Cloudflare経由のどちらも messages をそのまま
+# Claudeへ中継するので、追加の対応は要らない。
+MAX_REFERENCE_IMAGES = 4
+_REFERENCE_IMAGE_MAX_EDGE = 1280  # 長辺。1280x720 ≒ 1,200トークン程度に収まる（大きいほど高コスト）
+
+
+def load_reference_images(paths: list[str], max_images: int = MAX_REFERENCE_IMAGES) -> tuple[list[dict], list[str]]:
+    """
+    画像ファイルを Claude の image ブロックに変換する。戻り値は (ブロック一覧, 読み込めたファイル名一覧)。
+    長辺を _REFERENCE_IMAGE_MAX_EDGE に縮小し、JPEG（使えなければPNG）に再エンコードしてコストと
+    通信量を抑える。透明PNGは白背景に合成する（JPEG化で黒く潰れないように）。読めないファイルは
+    黙って飛ばす（生成そのものは止めない）。Qtが無い環境（テスト等）では何も読まない。
+    """
+    try:
+        import base64
+
+        from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
+        from PySide6.QtGui import QColor, QImage, QPainter
+    except Exception:  # noqa: BLE001
+        return [], []
+
+    blocks: list[dict] = []
+    names: list[str] = []
+    for raw in list(paths)[:max_images]:
+        try:
+            image = QImage(str(raw))
+            if image.isNull():
+                continue
+            if max(image.width(), image.height()) > _REFERENCE_IMAGE_MAX_EDGE:
+                image = image.scaled(
+                    _REFERENCE_IMAGE_MAX_EDGE, _REFERENCE_IMAGE_MAX_EDGE,
+                    Qt.KeepAspectRatio, Qt.SmoothTransformation,
+                )
+            flat = QImage(image.size(), QImage.Format_RGB32)
+            flat.fill(QColor("white"))
+            painter = QPainter(flat)
+            painter.drawImage(0, 0, image)
+            painter.end()
+
+            data, media_type = QByteArray(), "image/jpeg"
+            buffer = QBuffer(data)
+            buffer.open(QIODevice.WriteOnly)
+            if not flat.save(buffer, "JPEG", 85):  # Houdini同梱のQtにJPEGプラグインが無い場合はPNG
+                data, media_type = QByteArray(), "image/png"
+                buffer = QBuffer(data)
+                buffer.open(QIODevice.WriteOnly)
+                if not flat.save(buffer, "PNG"):
+                    continue
+            blocks.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type,
+                           "data": base64.b64encode(bytes(data)).decode("ascii")},
+            })
+            names.append(Path(str(raw)).name)
+        except Exception:  # noqa: BLE001 -- 1枚読めなくても残りで続行
+            continue
+    return blocks, names
 
 
 # ─── 結果オブジェクト ─────────────────────────────────────────────────────────────
@@ -267,6 +395,8 @@ class TutorialResult:
         # Phase1レベリング（basic|applied|advanced）。frontmatterのdifficultyフィールドと
         # build_level_chain() の prior_level_summary 引き継ぎに使う。
         self.level: str = _DEFAULT_LEVEL
+        self.rag_name: str = "houdini21"  # 検索したナレッジ（動画のブランド表示・タグに使う）
+        self.reference_image_count: int = 0  # 生成に使った参考画像の枚数
         self.next_steps: str = ""  # finish_tutorialのnext_steps（応用・発展のヒント）
         self.pitfalls: str = ""    # finish_tutorialのpitfalls（ハマりポイント）
         # HoudiniToolExecutor.export_step_screenshots() の結果（各ステップ実行
@@ -342,6 +472,8 @@ class TutorialAgent:
         claude_backend: str = "gas",
         cf_url: str = "",
         cf_api_key: str = "",
+        rag_namespace: str = "",
+        reference_images: list[str] | None = None,
         progress_cb: Callable[[str], None] | None = None,
         executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
     ) -> None:
@@ -357,6 +489,12 @@ class TutorialAgent:
         self._claude_backend = claude_backend if claude_backend in ("gas", "cloudflare") else "gas"
         self._cf_url = cf_url
         self._cf_api_key = cf_api_key
+        # 検索対象のナレッジ（houdini21 / houdini22 ...）。resolve_rag_name参照。
+        self._rag_name = resolve_rag_name(rag_namespace)
+        # 完成イメージの参考画像（ファイルパス）。generate()の冒頭で読み込む。
+        self._reference_paths = list(reference_images or [])
+        self._reference_blocks: list[dict] = []
+        self._reference_names: list[str] = []
         # 未知のモデル名（設定ファイルの旧値・手編集など）はデフォルトにフォールバック
         self._model = model if model in _MODEL_PRICES else DEFAULT_MODEL
         self._progress = progress_cb or (lambda _: None)
@@ -395,6 +533,14 @@ class TutorialAgent:
         start_time = time.monotonic()
         result = TutorialResult()
         result.level = level
+        result.rag_name = self._rag_name
+        self._reference_blocks, self._reference_names = load_reference_images(self._reference_paths)
+        result.reference_image_count = len(self._reference_blocks)
+        if self._reference_paths:
+            if self._reference_blocks:
+                self._progress(f"参考画像 {len(self._reference_blocks)} 枚を添えて生成します: {', '.join(self._reference_names)}")
+            else:
+                self._progress("参考画像を読み込めませんでした（テキストのみで続行）")
 
         # Claude APIは必ずGASまたはCloudflare経由で呼ぶ（claude_backendで選択）。生の
         # ANTHROPIC_API_KEYをクライアントに持たせない構成にすることで、APIキーごとの
@@ -412,13 +558,15 @@ class TutorialAgent:
                 "（houdini21チュートリアル生成はClaude APIをGAS経由で呼ぶため必須です）。"
             )
 
-        # ① RAG検索（houdini21 namespace のみ）
-        self._progress(f"RAG検索中（houdini21 ナレッジベース / {self._rag_mode} / レベル={level}）...")
+        # ① RAG検索（houdini<バージョン> namespace のみ）
+        self._progress(f"RAG検索中（{self._rag_name} ナレッジベース / {self._rag_mode} / レベル={level}）...")
         rag_texts, result.sources = self._rag_search(topic, level)
         if rag_texts:
-            self._progress(f"参考ドキュメント {len(result.sources)} 件を取得しました")
+            self._progress(f"参考ドキュメント {len(result.sources)} 件を取得しました（{self._rag_name}）")
         else:
-            self._progress("参考ドキュメントが取得できませんでした（コンテキストなしで続行）")
+            self._progress(
+                f"参考ドキュメントが取得できませんでした（コンテキストなしで続行）。検索対象: {self._rag_name}"
+            )
 
         # ② サンドボックス作成
         log_dir = Path(self._project_dir) / "logs" / "tutorial_agent" if self._project_dir else None
@@ -549,7 +697,7 @@ class TutorialAgent:
             body = json.dumps({
                 "query": topic,
                 "limit": RAG_LIMIT,
-                "namespaces": RAG_NAMESPACES,
+                "namespaces": [self._rag_name],
                 "level": level,
             }, ensure_ascii=False).encode("utf-8")
             req = urllib.request.Request(
@@ -584,7 +732,7 @@ class TutorialAgent:
         try:
             body = json.dumps({
                 "query": topic,
-                "dbKey": CLOUD_RAG_DB_KEY,
+                "dbKey": self._rag_name,
                 "history": [],
                 "apiKey": self._gas_api_key,
                 "mode": "raw",
@@ -605,12 +753,12 @@ class TutorialAgent:
 
             raw_sources = [
                 s for s in data.get("sources", [])
-                if s.get("db") == CLOUD_RAG_DB_KEY
+                if s.get("db") == self._rag_name
             ]
             if not raw_sources:
                 self._progress(
-                    "Cloud RAGにhoudini21のドキュメントが見つかりませんでした"
-                    "（APIキーにhoudini21の権限があるか確認してください）"
+                    f"Cloud RAGに{self._rag_name}のドキュメントが見つかりませんでした"
+                    f"（APIキーに{self._rag_name}の権限があるか確認してください）"
                 )
                 return [], []
 
@@ -644,7 +792,7 @@ class TutorialAgent:
             body = json.dumps({
                 "query": topic,
                 "limit": RAG_LIMIT,
-                "namespaces": CLOUDFLARE_RAG_NAMESPACES,
+                "namespaces": [f"shared:{self._rag_name}"],
                 "level": level,
             }, ensure_ascii=False).encode("utf-8")
             req = urllib.request.Request(
@@ -659,7 +807,13 @@ class TutorialAgent:
             )
             with urllib.request.urlopen(req, timeout=60) as resp:
                 data = json.loads(resp.read())
-            return data.get("texts", []), data.get("sources", [])
+            texts, sources = data.get("texts", []), data.get("sources", [])
+            if not sources:
+                self._progress(
+                    f"Cloudflare RAGの shared:{self._rag_name} から該当ドキュメントが0件でした"
+                    "（APIキーにこのnamespaceの権限があるか、ナレッジが同期済みか確認してください）"
+                )
+            return texts, sources
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             self._progress(f"Cloudflare RAG検索エラー {exc.code}（続行します）: {detail}")
@@ -693,11 +847,13 @@ class TutorialAgent:
         )
         system_text = _SYSTEM_PROMPT_TEMPLATE.format(
             sandbox_path=self.executor.sandbox_path,
+            kb_label=self._rag_name,
             rag_context=rag_context,
             common_node_types=_COMMON_NODE_TYPES_BLOCK,
             level=level,
             level_instruction=_LEVEL_INSTRUCTIONS.get(level, _LEVEL_INSTRUCTIONS[_DEFAULT_LEVEL]),
             prior_level_summary=prior_summary_block,
+            reference_section=_REFERENCE_SECTION if self._reference_blocks else "",
         )
         system_blocks = [{
             "type": "text",
@@ -708,10 +864,22 @@ class TutorialAgent:
         tools = [dict(t) for t in HOUDINI_TOOLS]
         tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
 
-        messages = [{
-            "role": "user",
-            "content": f"次のトピックのHoudiniチュートリアルを作成してください: {topic}",
-        }]
+        if self._reference_blocks:
+            content: list[dict] | str = []
+            for index, (name, block) in enumerate(zip(self._reference_names, self._reference_blocks), start=1):
+                content.append({"type": "text", "text": f"[参考画像 {index}: {name}]"})
+                content.append(block)
+            content.append({
+                "type": "text",
+                "text": (
+                    f"次のトピックのHoudiniチュートリアルを作成してください: {topic}\n\n"
+                    "上の画像は、私が求めている完成イメージの参考です。見た目の特徴を読み取って、"
+                    "それに近づくようにノードを組んでください。"
+                ),
+            })
+        else:
+            content = f"次のトピックのHoudiniチュートリアルを作成してください: {topic}"
+        messages = [{"role": "user", "content": content}]
         return system_blocks, tools, messages
 
     # ── ループ ──────────────────────────────────────────────────────────────────
@@ -733,11 +901,11 @@ class TutorialAgent:
             # ローリングプロンプトキャッシュ: messages は反復のたびに増え続けるが、
             # cache_control は system_blocks / tools（固定部分）にしか付けていなかった
             # ため、会話履歴そのもの（tool_result・アシスタント応答の蓄積）は毎ターン
-            # 通常入力価格（$3/M）で再送信・再課金されていた。反復が進むほど履歴が
+            # 通常の入力価格で再送信・再課金されていた。反復が進むほど履歴が
             # 線形に伸びるため、生成1回あたりのコストは反復回数のほぼ2乗で増える
             # ことになり、これが実機で「1生成$3超え」の主因と判明した。
             # ここでは「直前のターンまでの会話」の末尾に cache_control を付け直す
-            # ことで、その部分をキャッシュ読み込み価格（$0.30/M、通常の1/10）で
+            # ことで、その部分をキャッシュ読み込み価格（通常の入力価格の1/10。Opus 5.5は1/20）で
             # 再利用できるようにする。付け直す際は古い位置のマーカーを外す
             # （Anthropic APIは cache_control breakpoint を最大4つまでしか許可せず、
             # system+toolsで既に2つ使っているため、会話側は1つだけを使い回す）。
@@ -765,6 +933,22 @@ class TutorialAgent:
             result.output_tokens += usage.get("output_tokens", 0)
             result.cache_write_tokens += usage.get("cache_creation_input_tokens", 0)
             result.cache_read_tokens += usage.get("cache_read_input_tokens", 0)
+
+            stop_reason = response.get("stop_reason")
+            if stop_reason == "refusal":
+                # Sonnet 5.5 / Opus 5.5 などは安全分類器が応答を拒否することがある（HTTP 200、
+                # stop_reason="refusal"。contentは空や途中まで）。ツール呼び出しが無いので、
+                # そのままだと「作業を終えた」と誤認して救済の催促を重ねてしまう。分類つきで打ち切る。
+                details = response.get("stop_details") or {}
+                category = details.get("category") or "不明"
+                result.abort_reason = f"モデルが安全上の理由で応答を拒否しました（分類: {category}）"
+                self._progress(f"モデルが応答を拒否したため打ち切ります（分類: {category}）。別のモデルでの再生成を試してください")
+                log_event = getattr(self.executor, "log_event", None)
+                if log_event is not None:
+                    log_event({"event": "refusal", "category": category, "explanation": details.get("explanation"), "iteration": iteration})
+                return
+            if stop_reason == "max_tokens":
+                self._progress("警告: 1ターンの出力上限に達しました（思考や長いコードで使い切った可能性があります）")
 
             content = response.get("content", [])
             messages.append({"role": "assistant", "content": content})
@@ -946,13 +1130,17 @@ class TutorialAgent:
         （contentやusageを直接読める）なので、呼び出し元（_run_loop）はGAS版と同じ
         コードでそのまま読める。
         """
-        payload = json.dumps({
+        request_body = {
             "model": self._model,
             "max_tokens": MAX_TOKENS_PER_TURN,
             "system": system_blocks,
             "tools": tools,
             "messages": messages,
-        }, ensure_ascii=False).encode("utf-8")
+        }
+        effort = _MODEL_EFFORT.get(self._model)
+        if effort:
+            request_body["output_config"] = {"effort": effort}
+        payload = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
 
         attempt = 0
         while True:
@@ -1188,8 +1376,9 @@ status: {frontmatter_status}
 created: {today.isoformat()}
 updated: {today.isoformat()}
 expires: {expires.isoformat()}
-tags: [houdini, ai-generated, houdini21]
+tags: [houdini, ai-generated, {result.rag_name}]
 difficulty: {result.level}
+reference_images: {result.reference_image_count}
 rag_indexed: false
 ---
 {status_note}
@@ -1249,6 +1438,8 @@ def build_level_chain(
     claude_backend: str = "gas",
     cf_url: str = "",
     cf_api_key: str = "",
+    rag_namespace: str = "",
+    reference_images: list[str] | None = None,
     progress_cb: Callable[[str], None] | None = None,
     executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
     levels: tuple[str, ...] = _LEVEL_CHAIN_ORDER,
@@ -1283,6 +1474,8 @@ def build_level_chain(
             claude_backend=claude_backend,
             cf_url=cf_url,
             cf_api_key=cf_api_key,
+            rag_namespace=rag_namespace,
+            reference_images=reference_images,
             progress_cb=progress_cb,
             executor_factory=executor_factory,
         )

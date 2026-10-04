@@ -99,6 +99,10 @@ _DEFAULT_CONFIG = {
     "tutorial_claude_backend": "gas",  # "gas" | "cloudflare"（チュートリアル生成のClaude呼び出し先）
     "cf_url":                 "",  # Cloudflare RAG WebAppのデプロイURL（例: https://rag-poc.xxx.workers.dev）
     "cf_api_key":              "",  # Cloudflare RAG APIキー
+    # チュートリアル生成が検索するナレッジ（2026-10-04追加）。""=起動中のHoudiniのバージョンに
+    # 自動で合わせる（Houdini 22なら houdini22）。"houdini22" / "shared:houdini22" のように指定も可。
+    # 上の gas_db_key（チャット用のDB指定）とは別物で、チュートリアル生成には影響しない。
+    "tutorial_rag_namespace":  "",
 }
 
 
@@ -914,15 +918,17 @@ class RAGChatbotPanel(QWidget):
         try:
             from tutorial_agent import AVAILABLE_MODELS
         except ImportError:
-            AVAILABLE_MODELS = ("claude-sonnet-5", "claude-haiku-4-5")
+            AVAILABLE_MODELS = ("claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-4-5")
         self._tutorial_model_combo.addItems(list(AVAILABLE_MODELS))
         self._tutorial_model_combo.setCurrentText(
             self._cfg.get("tutorial_model", "claude-sonnet-5")
         )
         layout.addWidget(self._tutorial_model_combo)
         hint = QLabel(
-            "claude-sonnet-5: 高品質・高コスト（既定） / "
-            "claude-haiku-4-5: 低コストだが生成品質は下がる場合があります"
+            "claude-sonnet-5: 既定（$2/$10 per 1Mトークン） / "
+            "claude-sonnet-5-5: 同価格の後継 / "
+            "claude-opus-5-5: 高品質・約2倍のコスト（$4/$20） / "
+            "claude-haiku-4-5: 低コスト（$1/$5）だが品質は下がる場合があります"
         )
         hint.setStyleSheet("color:#888;")
         layout.addWidget(hint)
@@ -944,6 +950,18 @@ class RAGChatbotPanel(QWidget):
             self._cfg.get("tutorial_rag_mode", "")
         )
         layout.addWidget(self._tutorial_rag_mode_combo)
+
+        # 検索対象のナレッジ（Houdiniのバージョン別）。上の「DB」欄（チャット用）とは別設定。
+        layout.addWidget(QLabel("チュートリアル生成: 検索するナレッジ（空欄=起動中のHoudiniに自動で合わせる）:"))
+        self._tutorial_rag_ns_combo = QComboBox()
+        self._tutorial_rag_ns_combo.setEditable(True)
+        self._tutorial_rag_ns_combo.addItems(["", "houdini22", "houdini21"])
+        self._tutorial_rag_ns_combo.setCurrentText(self._cfg.get("tutorial_rag_namespace", ""))
+        self._tutorial_rag_ns_combo.setToolTip(
+            "空欄: Houdini 22で起動していれば houdini22、21なら houdini21 を検索します。\n"
+            "上の「DB」欄（gas_db_key）はチャットタブ用で、この設定には影響しません。"
+        )
+        layout.addWidget(self._tutorial_rag_ns_combo)
 
         layout.addWidget(QLabel("Cloudflare RAG WebApp URL:"))
         self._cf_url_edit = QLineEdit(self._cfg.get("cf_url", ""))
@@ -1143,6 +1161,7 @@ class RAGChatbotPanel(QWidget):
         self._cfg["tutorial_model"]   = self._tutorial_model_combo.currentText()
         self._cfg["tutorial_claude_backend"] = self._tutorial_backend_combo.currentText()
         self._cfg["tutorial_rag_mode"] = self._tutorial_rag_mode_combo.currentText()
+        self._cfg["tutorial_rag_namespace"] = self._tutorial_rag_ns_combo.currentText().strip()
         self._cfg["cf_url"]           = self._cf_url_edit.text().strip()
         self._cfg["cf_api_key"]       = self._cf_api_key_edit.text().strip()
         self._cfg["score_user_id"]    = self._score_uid_edit.text().strip()
