@@ -9,6 +9,40 @@ import { startAuditLog, finalizeAuditLog } from "./auditLog";
 const DEFAULT_MODEL = "claude-sonnet-5";
 const DEFAULT_MAX_TOKENS = 4096;
 
+// 入力トークンの見積もり。messages全体の文字数/3（日本語混在を踏まえ安全側に厚め）が基本だが、
+// 画像ブロックのbase64文字列（1枚で数十万文字）をそのまま数えると、1枚で数万トークンの
+// 過大見積もりになり、予算が残っていても予約（reserveBudget）が通らなくなる。画像は
+// 縮小済みでも1枚あたり約1,600トークンで課金されるため、base64本体は文字数に数えず、
+// 1枚あたり固定値を加算する（実測との差分はreconcileBudgetで清算される）。
+// 参考画像付きのチュートリアル生成（2026-10-05追加）と、finish_tutorial直後の
+// ビューポート自己確認画像の両方が対象。
+export const IMAGE_TOKEN_ESTIMATE = 1600;
+export function estimateInputTokens(messages: unknown): number {
+  let images = 0;
+  const json = JSON.stringify(messages, (key, value) => {
+    if (key === "data" && typeof value === "string" && value.length > 1000) {
+      images += 1;
+      return "";
+    }
+    return value;
+  });
+  return Math.ceil(json.length / 3) + images * IMAGE_TOKEN_ESTIMATE;
+}
+
+// output_config は effort（思考の深さ）だけを通す（2026-10-05追加）。クライアントから来た
+// 任意のoutput_config（structured outputのformat等）をそのまま中継すると、このプロキシの
+// 用途（Houdiniチュートリアル生成のツール実行ループ）を超えて使えてしまうため、
+// 許可する値を絞って検証する。不正な値は黙って捨てて既定のeffortで動かす（400にはしない：
+// effortは品質・コストの調整用で、無くても動くため）。
+const ALLOWED_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type Effort = (typeof ALLOWED_EFFORTS)[number];
+export function sanitizeEffort(outputConfig: unknown): Effort | undefined {
+  const effort = (outputConfig as { effort?: unknown } | null | undefined)?.effort;
+  return typeof effort === "string" && (ALLOWED_EFFORTS as readonly string[]).includes(effort)
+    ? (effort as Effort)
+    : undefined;
+}
+
 // POST /claude/messages — Claude Messages APIへの薄いプロキシ（既存GAS callClaudeProxy_相当）。
 // Houdiniチュートリアル生成エージェント（tutorial_agent.py）が、ツール実行ループの各ターンで
 // Claudeを呼ぶために使う。エージェントループ自体はPython側にあり、ここは「APIキーをクライアント
@@ -28,6 +62,7 @@ export async function handleClaudeMessages(req: Request, env: Env, user: AuthedU
     tools?: Anthropic.Tool[];
     messages: Anthropic.MessageParam[];
     thinking?: Anthropic.MessageCreateParams["thinking"];
+    output_config?: { effort?: string };
   };
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     return jsonResponse(400, { error: "messages は必須です（配列）" });
@@ -44,11 +79,12 @@ export async function handleClaudeMessages(req: Request, env: Env, user: AuthedU
   // 大まかに見積もる（日本語混在を踏まえ安全側に厚めの係数）。出力側はmax_tokensが
   // 確定した上限なのでそのまま使う。実測との差分はreconcileBudgetで清算する。
   const maxTokens = body.max_tokens ?? DEFAULT_MAX_TOKENS;
-  const inputEstimate = Math.ceil(JSON.stringify(body.messages).length / 3);
+  const inputEstimate = estimateInputTokens(body.messages);
   const estimate = maxTokens + inputEstimate;
   const reserved = await reserveBudget(env, user.userId, "claude", estimate);
   if (!reserved) throw new BudgetExceededError("claude");
 
+  const effort = sanitizeEffort(body.output_config);
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const start = Date.now();
 
@@ -61,6 +97,7 @@ export async function handleClaudeMessages(req: Request, env: Env, user: AuthedU
       tools: body.tools,
       messages: body.messages,
       ...(body.thinking ? { thinking: body.thinking } : {}),
+      ...(effort ? { output_config: { effort } } : {}),
     });
   } catch (err) {
     await reconcileBudget(env, user.userId, "claude", estimate, 0);
