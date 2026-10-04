@@ -78,9 +78,13 @@ import hou
 def _log(message: str, log_path: Path | None) -> None:
     """print() に加えてファイルへも書く（ファイル書き込み失敗は無視する）。"""
     line = f"[screen_capture] {message}"
-    print(line)
     if log_path is None:
+        print(line)
         return
+    # log_path がある（生成中の通常経路）ときは print しない。Houdini は標準出力に初めて
+    # 文字が出た時に「Houdini Console」ウィンドウを開き、それがちょうどネットワーク
+    # エディタの上に重なって動画に写り込んでいた（2026-10-04、実機で確認）。ログは
+    # capture.log に残る。
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(f"{datetime.datetime.now().isoformat()} {line}\n")
@@ -343,9 +347,24 @@ def _grab_network_pane(network_editor, log_path: Path | None):
     if screen is None:
         _log(f"no screen contains the pane center ({center.x()},{center.y()})", log_path)
         return None
-    top_widget = QApplication.widgetAt(center)
-    if top_widget is not None and _is_own_panel_widget(top_widget):
-        _log("the RAGChatBot panel overlaps the NetworkEditor pane on screen; not grabbing it", log_path)
+    # ペインの矩形の中を格子状に調べ、最前面が全部「同じトップレベルウィンドウ」であることを
+    # 確かめる。中心1点だけだと、ペインの一部だけに被さるウィンドウ（Houdini Consoleなど）を
+    # 見逃す（実機で、コンソールが下半分に写り込んだ）。他アプリ・別ウィンドウ・自分のパネルの
+    # いずれかが被っていれば撮らず、自前描画の図に任せる。
+    top_windows = set()
+    for fx in (0.08, 0.3, 0.5, 0.7, 0.92):
+        for fy in (0.1, 0.35, 0.6, 0.9):
+            point = QPoint(x + int(w * fx), y + int(h * fy))
+            covering = QApplication.widgetAt(point)
+            if covering is None:
+                _log("something outside Houdini covers part of the pane; not grabbing the screen", log_path)
+                return None
+            if _is_own_panel_widget(covering):
+                _log("the RAGChatBot panel overlaps the NetworkEditor pane on screen; not grabbing it", log_path)
+                return None
+            top_windows.add(id(covering.window()))
+    if len(top_windows) != 1:
+        _log("another window (e.g. the Houdini Console) overlaps the pane; not grabbing the screen", log_path)
         return None
 
     origin = screen.geometry().topLeft()
@@ -621,6 +640,177 @@ def render_network_diagram(
         return True
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
         _log(f"render_network_diagram failed: {exc!r}", log_path)
+        return False
+
+
+def _fit_text(metrics, text: str, max_width: float) -> str:
+    """max_width に収まるよう、末尾を…で省略した文字列を返す。"""
+    if metrics.horizontalAdvance(text) <= max_width:
+        return text
+    while len(text) > 1 and metrics.horizontalAdvance(text + "…") > max_width:
+        text = text[:-1]
+    return text + "…"
+
+
+def render_parameter_card(
+    output_path: Path,
+    container_path: str,
+    node_name: str,
+    node_type_label: str,
+    changes: list[dict],
+    others: list[tuple[str, str]] | None = None,
+    width: int = 1280,
+    height: int = 720,
+    log_path: Path | None = None,
+) -> bool:
+    """
+    「このノードのどのパラメータを、いくつからいくつに変えたか」を、Houdiniのパラメータ
+    エディタ風のカードとして描く（動画のスライド用、2026-10-04追加）。
+
+    changes: [{"label": "Size X", "name": "sizex", "old": "1", "new": "0.15", "code": False}, ...]
+    コード欄（VEXのsnippet等、"code": True）は等幅フォントのコードブロックで見せる。
+    others: 変更済みだがこのステップの対象ではないパラメータ（label, value）。淡く下に添える。
+
+    実画面のパラメータペインは、どのパラメータを変えたかを示せず、他のウィンドウの
+    重なりや折りたたみでも崩れる。描き直した図なら、変更点を強調でき、毎回同じ品質になる。
+    """
+    try:
+        from PySide6.QtCore import QRectF, Qt
+        from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
+
+        image = QImage(width, height, QImage.Format_ARGB32)
+        image.fill(QColor("#2f2f31"))
+        p = QPainter(image)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setRenderHint(QPainter.TextAntialiasing, True)
+
+        bar_font = QFont("Segoe UI", 12)
+        bar_font.setBold(True)
+        p.fillRect(QRectF(0, 0, width, 40), QColor("#232325"))
+        p.setPen(QColor("#c9c9cc"))
+        p.setFont(bar_font)
+        p.drawText(QRectF(16, 0, width - 32, 40), Qt.AlignVCenter | Qt.AlignLeft, f"{container_path}  ›  {node_name}")
+
+        title_font = QFont("Segoe UI", 22)
+        title_font.setBold(True)
+        sub_font = QFont("Segoe UI", 12)
+        p.setFont(sub_font)
+        p.setPen(QColor("#9a9aa0"))
+        p.drawText(QRectF(40, 56, width - 80, 24), Qt.AlignVCenter | Qt.AlignLeft, node_type_label)
+        p.setFont(title_font)
+        p.setPen(QColor("#f2f2f4"))
+        p.drawText(QRectF(40, 78, width - 80, 40), Qt.AlignVCenter | Qt.AlignLeft, node_name)
+
+        label_font = QFont("Segoe UI", 17)
+        label_font.setBold(True)
+        name_font = QFont("Consolas", 11)
+        value_font = QFont("Segoe UI", 18)
+        value_font.setBold(True)
+        old_font = QFont("Segoe UI", 15)
+        code_font = QFont("Consolas", 12)
+        section_font = QFont("Segoe UI", 11)
+        section_font.setBold(True)
+
+        y = 134.0
+        p.setFont(section_font)
+        p.setPen(QColor("#ffb000"))
+        p.drawText(QRectF(40, y, width - 80, 22), Qt.AlignVCenter | Qt.AlignLeft, "変更したパラメータ")
+        y += 32
+
+        code_changes = [c for c in changes if c.get("code")]
+        all_plain = [c for c in changes if not c.get("code")]
+        plain_changes = all_plain[:8]
+        row_h = 56.0
+        label_w = 330.0
+        value_x = 40 + label_w + 24
+        for c in plain_changes:
+            row = QRectF(40, y, width - 80, row_h - 10)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(255, 176, 0, 34))
+            p.drawRoundedRect(row, 8, 8)
+            p.setPen(QPen(QColor("#ffb000"), 1.6))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(row, 8, 8)
+
+            # ラベル（Houdiniの画面と同じ表示名）と内部名を、行の中で上下に分けて重ならないように置く
+            p.setFont(label_font)
+            p.setPen(QColor("#f2f2f4"))
+            p.drawText(QRectF(56, y + 2, label_w - 20, 26), Qt.AlignVCenter | Qt.AlignLeft,
+                       _fit_text(QFontMetricsF(label_font), c.get("label", c.get("name", "")), label_w - 20))
+            p.setFont(name_font)
+            p.setPen(QColor("#8d8d92"))
+            p.drawText(QRectF(56, y + 27, label_w - 20, 16), Qt.AlignVCenter | Qt.AlignLeft, f"({c.get('name', '')})")
+
+            old, new = str(c.get("old", "")), str(c.get("new", ""))
+            cursor = value_x
+            if old and old != new:
+                p.setFont(old_font)
+                p.setPen(QColor("#8d8d92"))
+                old_text = _fit_text(QFontMetricsF(old_font), old, 260)
+                ow = QFontMetricsF(old_font).horizontalAdvance(old_text)
+                p.drawText(QRectF(cursor, y, ow + 4, row_h - 10), Qt.AlignVCenter | Qt.AlignLeft, old_text)
+                cursor += ow + 18
+                p.setPen(QColor("#ffb000"))
+                p.setFont(value_font)
+                p.drawText(QRectF(cursor, y, 40, row_h - 10), Qt.AlignVCenter | Qt.AlignLeft, "→")
+                cursor += 44
+            p.setFont(value_font)
+            p.setPen(QColor("#ffd27a"))
+            p.drawText(QRectF(cursor, y, width - 60 - cursor, row_h - 10), Qt.AlignVCenter | Qt.AlignLeft,
+                       _fit_text(QFontMetricsF(value_font), new, width - 80 - cursor))
+            y += row_h
+        if len(all_plain) > len(plain_changes):
+            p.setFont(name_font)
+            p.setPen(QColor("#8d8d92"))
+            p.drawText(QRectF(40, y, width - 80, 20), Qt.AlignVCenter | Qt.AlignLeft,
+                       f"… ほか {len(all_plain) - len(plain_changes)} 件")
+            y += 24
+
+        for c in code_changes[:1]:
+            p.setFont(label_font)
+            p.setPen(QColor("#f2f2f4"))
+            p.drawText(QRectF(40, y, width - 80, 28), Qt.AlignVCenter | Qt.AlignLeft,
+                       f"{c.get('label', '')}  ({c.get('name', '')})")
+            y += 34
+            lines = str(c.get("new", "")).splitlines() or [""]
+            avail = height - y - 70
+            max_lines = max(3, int(avail // 22))
+            shown = lines[:max_lines]
+            box = QRectF(40, y, width - 80, min(avail, len(shown) * 22 + 24) + (22 if len(lines) > max_lines else 0))
+            p.setPen(QPen(QColor("#ffb000"), 1.6))
+            p.setBrush(QColor("#1d1d1f"))
+            p.drawRoundedRect(box, 8, 8)
+            p.setFont(code_font)
+            metrics = QFontMetricsF(code_font)
+            ty = y + 12
+            for line in shown:
+                p.setPen(QColor("#7ec699") if line.lstrip().startswith("//") else QColor("#e6e6e8"))
+                p.drawText(QRectF(56, ty, width - 112, 22), Qt.AlignVCenter | Qt.AlignLeft,
+                           _fit_text(metrics, line.replace("\t", "    "), width - 112))
+                ty += 22
+            if len(lines) > max_lines:
+                p.setPen(QColor("#8d8d92"))
+                p.drawText(QRectF(56, ty, width - 112, 22), Qt.AlignVCenter | Qt.AlignLeft,
+                           f"… ほか {len(lines) - max_lines} 行")
+            y = box.bottom() + 16
+
+        if others and y < height - 90:
+            p.setFont(section_font)
+            p.setPen(QColor("#8d8d92"))
+            p.drawText(QRectF(40, height - 100, width - 80, 20), Qt.AlignVCenter | Qt.AlignLeft, "このノードのその他の設定")
+            p.setFont(name_font)
+            line = "    ".join(f"{k} = {v}" for k, v in others[:5])
+            p.drawText(QRectF(40, height - 76, width - 80, 44), Qt.AlignTop | Qt.AlignLeft | Qt.TextWordWrap,
+                       _fit_text(QFontMetricsF(name_font), line, (width - 80) * 2))
+
+        p.end()
+        if not image.save(str(output_path), "PNG"):
+            _log(f"render_parameter_card: image.save() returned False for {output_path}", log_path)
+            return False
+        _log(f"parameter card rendered ({node_name}: {len(changes)} change(s))", log_path)
+        return True
+    except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
+        _log(f"render_parameter_card failed: {exc!r}", log_path)
         return False
 
 

@@ -373,6 +373,10 @@ class HoudiniToolExecutor:
         # finish_tutorial 直前にここへ表示フラグを戻し、見た目の自己確認画像が
         # 途中の cook_node で表示を切り替えた中間ノードにならないようにする。
         self._display_candidate_path: str | None = None
+        # 直近の set_parameter が変えた内容（旧値→新値）と、同じノードへの連続した
+        # set_parameter を1枚のパラメータカードにまとめるための状態（動画用）。
+        self._last_parm_change: dict | None = None
+        self._param_group: dict | None = None
         self._lock = threading.Lock()
 
         # スクリーンショット保存先。渡された screenshot_dir の下に
@@ -611,17 +615,63 @@ class HoudiniToolExecutor:
                 return f"{self.sandbox_path}/{rel.rsplit('/', 1)[0]}"
         return self.sandbox_path
 
+    @staticmethod
+    def _leaf(path: str | None) -> str:
+        return (path or "").rstrip("/").rsplit("/", 1)[-1]
+
+    def _step_instruction(self, tool_name: str, tool_input: dict, tool_result: str, focus_path: str | None,
+                          changes: list[dict] | None) -> str:
+        """
+        このステップで学習者が行う操作を、1〜2文の短い日本語にする。動画のスライド左側の
+        文章になる。以前はツールの結果文（「接続しました: A[out:0] → B[in:0]」）をそのまま出して
+        いたため、見ても何をすればよいか分からなかった（2026-10-04）。
+        """
+        node = self._leaf(focus_path) or self._leaf(tool_input.get("node"))
+        if tool_name == "create_node":
+            name = self._leaf(focus_path) or tool_input.get("name") or tool_input.get("node_type", "")
+            try:
+                ntype = self._hou.node(focus_path).type()
+                desc, tname = ntype.description(), ntype.name()
+            except Exception:  # noqa: BLE001
+                desc, tname = tool_input.get("node_type", ""), tool_input.get("node_type", "")
+            if not tool_input.get("parent"):
+                return f"Object レベルに「{desc}」ノードを作り、名前を {name} にする。この中で作業する"
+            return f"「{desc}」ノード（{tname}）を作り、名前を {name} にする"
+        if tool_name == "connect_nodes":
+            src, dst = self._leaf(tool_input.get("from_node")), self._leaf(tool_input.get("to_node"))
+            idx = int(tool_input.get("input_index", 0) or 0)
+            if idx > 0:
+                return f"{src} の出力を、{dst} の{idx + 1}番目の入力につなぐ"
+            return f"{src} の出力を、{dst} の入力につなぐ"
+        if tool_name == "set_parameter" and changes:
+            if len(changes) == 1 and changes[0].get("code"):
+                return f"{node} の「{changes[0]['label']}」欄に、次のコードを入力する"
+            shown = "、".join(f"{c['label']} を {c['new']}" for c in changes[:3])
+            more = f" ほか{len(changes) - 3}件" if len(changes) > 3 else ""
+            return f"{node} のパラメータを設定: {shown}{more}"
+        if tool_name == "cook_node":
+            if "[エラー]" in tool_result:
+                return f"{node} を評価（cook）するとエラーが出る。内容を読んで原因を直す"
+            return f"{node} を評価（cook）して、エラーが出ないことを確認する"
+        if tool_name == "delete_node":
+            return f"不要になった {self._leaf(tool_input.get('node'))} を削除する"
+        return tool_result
+
     def _capture_step_screenshot(self, tool_name: str, tool_input: dict, tool_result: str) -> None:
         """
-        ツール呼び出し成功直後にビューポート/ネットワークエディタを撮影する
-        （ベストエフォート）。動画生成側で各手順のノード操作を個別に見せられる
-        ようにするための per-step キャプチャ。tool_result（例:「作成しました:
-        stairs_geo/step_shape（タイプ: box）」）もあわせて保存する -- 動画側は
-        Markdown の「### N.」というClaude自身が後から書いた"要約"ステップ番号
-        と、この実行単位のステップ番号が全く別物であることを前提に、この
-        result テキストを直接そのスライドの説明文として使う（要約番号と実行
-        番号を突き合わせようとすると、実機テストで無関係な画面が表示される
-        不具合が確認された）。
+        ツール呼び出し成功直後にビューポート/ネットワークエディタ（set_parameterでは
+        パラメータカード）を撮影する（ベストエフォート）。動画生成側で各手順のノード操作を
+        個別に見せられるようにするための per-step キャプチャ。
+
+        動画側は Markdown の「### N.」というClaude自身が後から書いた"要約"ステップ番号と、
+        この実行単位のステップ番号が全く別物であることを前提に、各ステップの
+        "result" テキストを直接そのスライドの説明文として使う（要約番号と実行番号を
+        突き合わせようとすると、実機テストで無関係な画面が表示される不具合が確認された）。
+        2026-10-04: その "result" を、ツールの結果文ではなく「学習者が行う操作」の短い文章
+        （_step_instruction）にした。元のツール結果は "tool_result" に残す。
+
+        同じノードへの連続した set_parameter は1ステップ（1枚のパラメータカード）に
+        まとめる。以前は7個のパラメータを設定すると7枚の似たスライドになっていた。
         screen_capture のimport失敗・撮影失敗のいずれでもチュートリアル生成
         そのものは止めない。
         """
@@ -633,8 +683,35 @@ class HoudiniToolExecutor:
             return
 
         def _capture():
-            step_index = len(self.step_screenshots) + 1
             log_path = self._screenshot_dir / "capture.log"
+            focus_path = self._step_focus_path(tool_name, tool_input, tool_result)
+            container_path = self._step_network_path(tool_name, tool_input, focus_path)
+
+            # ---- 連続する set_parameter を同じステップにまとめる ----
+            changes: list[dict] | None = None
+            replace_last = False
+            step_index = len(self.step_screenshots) + 1
+            change = self._last_parm_change if tool_name == "set_parameter" else None
+            if change is not None:
+                group = self._param_group
+                if (
+                    group is not None and group["node"] == change["node_path"]
+                    and self.step_screenshots and self.step_screenshots[-1].get("step") == group["step"]
+                ):
+                    for existing in group["changes"]:
+                        if existing["name"] == change["name"]:
+                            existing["new"] = change["new"]  # 同じ欄を2回設定したら最新値（旧値は最初のまま）
+                            break
+                    else:
+                        group["changes"].append(change)
+                    step_index = group["step"]
+                    replace_last = True
+                else:
+                    self._param_group = group = {"node": change["node_path"], "changes": [change], "step": step_index}
+                changes = group["changes"]
+            else:
+                self._param_group = None
+
             viewport_path = self._screenshot_dir / f"step_{step_index:03d}_viewport.png"
             network_path = self._screenshot_dir / f"step_{step_index:03d}_network.png"
             # Capture the viewport BEFORE switching pane tabs: flipbook()
@@ -658,28 +735,53 @@ class HoudiniToolExecutor:
                     self._screenshot_dir, f"step_{step_index:03d}_clip", log_path=log_path
                 )
 
-            # ネットワーク画面は「実際に作業しているネットワーク」を映す。以前は常に
-            # サンドボックス直下を撮っていたため、作業の実体がgeoノードの中にある
-            # 場合（システムプロンプトがそう指示している）、geoの箱1個しか映らなかった。
-            focus_path = self._step_focus_path(tool_name, tool_input, tool_result)
-            container_path = self._step_network_path(tool_name, tool_input, focus_path)
-            screen_capture.focus_network_on(container_path, log_path=log_path)
-            got_network = screen_capture.capture_network_editor(
-                network_path,
-                log_path=log_path,
-                container_path=container_path,
-                focus_path=focus_path,
-                callout=tool_result,
-            )
-            self.step_screenshots.append({
+            network_kind = "network"
+            if changes:
+                # set_parameter: どのパラメータをいくつからいくつに変えたかを見せるカード。
+                try:
+                    node = self._hou.node(change["node_path"])
+                    changed = {c["name"] for c in changes}
+                    others = [
+                        (p.name(), (self._safe_eval(p)[:24] or "?"))
+                        for p in node.parms()
+                        if not p.isAtDefault() and p.name() not in changed and p.tuple().name() not in changed
+                        and "\n" not in self._safe_eval(p)
+                    ][:5]
+                    got_network = screen_capture.render_parameter_card(
+                        network_path, container_path, node.name(), node.type().description(),
+                        changes, others, log_path=log_path,
+                    )
+                    network_kind = "parameter"
+                except Exception as exc:  # noqa: BLE001
+                    screen_capture._log(f"parameter card failed: {exc!r}", log_path)
+                    got_network = False
+            else:
+                # ネットワーク画面は「実際に作業しているネットワーク」を映す。以前は常に
+                # サンドボックス直下を撮っていたため、作業の実体がgeoノードの中にある
+                # 場合（システムプロンプトがそう指示している）、geoの箱1個しか映らなかった。
+                screen_capture.focus_network_on(container_path, log_path=log_path)
+                got_network = screen_capture.capture_network_editor(
+                    network_path,
+                    log_path=log_path,
+                    container_path=container_path,
+                    focus_path=focus_path,
+                    callout=tool_result,
+                )
+            entry = {
                 "step": step_index,
                 "tool": tool_name,
-                "result": tool_result,
+                "result": self._step_instruction(tool_name, tool_input, tool_result, focus_path, changes),
+                "tool_result": tool_result,
                 "viewport": str(viewport_path) if got_viewport else None,
                 "network": str(network_path) if got_network else None,
+                "network_kind": network_kind,
                 "viewport_clip_frames": [str(p) for p in clip_frames],
                 "viewport_clip_fps": clip_fps,
-            })
+            }
+            if replace_last:
+                self.step_screenshots[-1] = entry
+            else:
+                self.step_screenshots.append(entry)
 
         try:
             _run_in_main_thread(_capture)
@@ -708,9 +810,15 @@ class HoudiniToolExecutor:
         parm_name = args["parm"]
         value = args["value"]
 
+        self._last_parm_change = None
         parm = node.parm(parm_name)
         if parm is not None:
+            old_value = self._safe_eval(parm)
             parm.set(self._coerce_scalar(parm, value))
+            self._last_parm_change = {
+                "node_path": node.path(), "name": parm_name, "label": self._parm_label(parm),
+                "old": old_value, "new": str(value), "code": self._is_code_parm(parm, value),
+            }
             return f"{self._rel(node)}.{parm_name} = {value}"
 
         tuple_parm = node.parmTuple(parm_name)
@@ -721,7 +829,16 @@ class HoudiniToolExecutor:
                     f"タプル {parm_name} は {len(tuple_parm)} 成分です。"
                     f"空白区切りで {len(tuple_parm)} 個の値を渡してください（受領: {value}）"
                 )
+            old_value = " ".join(self._safe_eval(p) for p in tuple_parm)
             tuple_parm.set(tuple(float(c) for c in components))
+            try:
+                tuple_label = tuple_parm.parmTemplate().label() or parm_name
+            except Exception:  # noqa: BLE001
+                tuple_label = parm_name
+            self._last_parm_change = {
+                "node_path": node.path(), "name": parm_name, "label": tuple_label,
+                "old": old_value, "new": " ".join(components), "code": False,
+            }
             return f"{self._rel(node)}.{parm_name} = ({', '.join(components)})"
 
         available = ", ".join(p.name() for p in node.parms()[:40])
@@ -729,6 +846,34 @@ class HoudiniToolExecutor:
             f"パラメータ '{parm_name}' が見つかりません。"
             f"利用可能なパラメータ（先頭40件）: {available}"
         )
+
+    @staticmethod
+    def _safe_eval(parm) -> str:
+        """パラメータの現在値を、表示用の短い文字列にする（取れなければ空）。"""
+        try:
+            v = parm.eval()
+            if isinstance(v, float):
+                return f"{v:.6g}"
+            return str(v)
+        except Exception:  # noqa: BLE001
+            return ""
+
+    @staticmethod
+    def _parm_label(parm) -> str:
+        """Houdiniの画面に出る表示名（例: "Size X"、"Divisions Z"）。"""
+        try:
+            base = parm.parmTemplate().label() or parm.name()
+            if len(parm.tuple()) > 1:
+                index = parm.componentIndex()
+                base += " " + ("XYZW"[index] if index < 4 else str(index + 1))
+            return base
+        except Exception:  # noqa: BLE001
+            return parm.name()
+
+    @staticmethod
+    def _is_code_parm(parm, value) -> bool:
+        """VEX等のコード欄（複数行の文字列、または snippet 系）かどうか。"""
+        return "\n" in str(value) or parm.name() in ("snippet", "python", "code")
 
     @staticmethod
     def _coerce_scalar(parm, value):

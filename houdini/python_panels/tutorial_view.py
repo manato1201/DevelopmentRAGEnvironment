@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QFileDialog,
     QGraphicsItem,
     QGraphicsPathItem,
     QGraphicsRectItem,
@@ -277,6 +278,30 @@ class TutorialGeneratePanel(QWidget):
         level_row.addStretch()
         layout.addLayout(level_row)
 
+        # 参考画像（テキスト＋画像での生成、2026-10-05追加）。テキストのトピックだけだと
+        # 求める完成イメージからズレることがあるため、スクショ・写真・ラフ等を添えられる。
+        # 添付は生成を開始してもクリアされない（同じ画像で作り直せる）。ラベルは長いファイル名で
+        # パネルが横に広がらないよう fit_label で折り返す。
+        self._reference_paths: list[str] = []
+        ref_row = QHBoxLayout()
+        self._ref_add_btn = QPushButton("参考画像を追加…")
+        self._ref_add_btn.setToolTip("完成イメージの参考になる画像（png/jpg/webp等）を選びます。最大4枚。")
+        self._ref_add_btn.clicked.connect(self._on_add_reference_images)
+        self._ref_paste_btn = QPushButton("クリップボードの画像")
+        self._ref_paste_btn.setToolTip("コピーしてある画像（スクリーンショット等）を参考画像として追加します。")
+        self._ref_paste_btn.clicked.connect(self._on_paste_reference_image)
+        self._ref_clear_btn = QPushButton("クリア")
+        self._ref_clear_btn.clicked.connect(self._on_clear_reference_images)
+        ref_row.addWidget(self._ref_add_btn)
+        ref_row.addWidget(self._ref_paste_btn)
+        ref_row.addWidget(self._ref_clear_btn)
+        ref_row.addStretch()
+        layout.addLayout(ref_row)
+        self._ref_label = token_usage.fit_label(QLabel(""))
+        self._ref_label.setStyleSheet("color:#7dd3fc;font-size:11px;")
+        layout.addWidget(self._ref_label)
+        self._refresh_reference_label()
+
         # 進行ログとプレビューを縦分割
         splitter = QSplitter(Qt.Vertical)
 
@@ -354,6 +379,56 @@ class TutorialGeneratePanel(QWidget):
         # チェーンモードは常に3レベル全部を生成するため、単発用のレベル選択は無意味になる
         self._level_combo.setEnabled(not checked)
 
+    # ── 参考画像 ────────────────────────────────────────────────────────────────
+
+    def _refresh_reference_label(self) -> None:
+        if not self._reference_paths:
+            self._ref_label.setText("参考画像: なし（テキストだけで生成します）")
+            self._ref_label.setToolTip("")
+            return
+        names = ", ".join(Path(p).name for p in self._reference_paths)
+        self._ref_label.setText(f"参考画像 {len(self._reference_paths)}枚: {names}（テキスト＋画像で生成します）")
+        self._ref_label.setToolTip("\n".join(self._reference_paths))
+
+    def _add_reference_paths(self, paths: list[str]) -> None:
+        from tutorial_agent import MAX_REFERENCE_IMAGES
+
+        for path in paths:
+            if path in self._reference_paths:
+                continue
+            if len(self._reference_paths) >= MAX_REFERENCE_IMAGES:
+                self._status.setText(f"参考画像は最大{MAX_REFERENCE_IMAGES}枚までです")
+                break
+            self._reference_paths.append(path)
+        self._refresh_reference_label()
+
+    def _on_add_reference_images(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "参考画像を選択", "", "画像 (*.png *.jpg *.jpeg *.webp *.bmp);;すべてのファイル (*)"
+        )
+        if paths:
+            self._add_reference_paths(paths)
+
+    def _on_paste_reference_image(self) -> None:
+        image = QGuiApplication.clipboard().image()
+        if image.isNull():
+            self._status.setText("クリップボードに画像がありません（画像をコピーしてから押してください）")
+            return
+        import datetime
+        import tempfile
+
+        folder = Path(tempfile.gettempdir()) / "houdini_tutorial_refs"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"clipboard_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        if not image.save(str(path), "PNG"):
+            self._status.setText("クリップボードの画像を保存できませんでした")
+            return
+        self._add_reference_paths([str(path)])
+
+    def _on_clear_reference_images(self) -> None:
+        self._reference_paths = []
+        self._refresh_reference_label()
+
     def _on_generate(self) -> None:
         if self._worker and self._worker.isRunning():
             return
@@ -393,6 +468,8 @@ class TutorialGeneratePanel(QWidget):
                 "claude_backend": cfg.get("tutorial_claude_backend", "gas"),
                 "cf_url":         cfg.get("cf_url", ""),
                 "cf_api_key":     cfg.get("cf_api_key", ""),
+                "rag_namespace":  cfg.get("tutorial_rag_namespace", ""),
+                "reference_images": list(self._reference_paths),
             }
             self._worker = TutorialChainWorker(topic, chain_kwargs)
             self._worker.progress.connect(self._on_progress)
@@ -414,6 +491,8 @@ class TutorialGeneratePanel(QWidget):
             claude_backend=cfg.get("tutorial_claude_backend", "gas"),
             cf_url=cfg.get("cf_url", ""),
             cf_api_key=cfg.get("cf_api_key", ""),
+            rag_namespace=cfg.get("tutorial_rag_namespace", ""),
+            reference_images=list(self._reference_paths),
         )
         level = self._level_combo.currentText()
         self._worker = TutorialWorker(self._agent, topic, level=level)
@@ -589,6 +668,7 @@ class TutorialGeneratePanel(QWidget):
                 sandbox_path=result.sandbox_path,
                 step_screenshots=result.step_screenshots,
                 exe_path=exe_path,
+                db_key=getattr(result, "rag_name", ""),
             )
             if log_path is not None:
                 self._start_video_progress_poll(log_path, Path(exe_path).parent, md_path)
