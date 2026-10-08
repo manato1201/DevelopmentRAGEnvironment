@@ -694,7 +694,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         # 管理者向け検索テストパネル。ナレッジ登録直後に「実際に検索でヒットするか」を
         # その場で確認できる専用エンドポイント（GAS/Cloudflare/Python版いずれにも無かった
         # 機能ギャップ。既存の_handle_searchをそのまま呼ぶだけで、検索ロジックの新規実装は
-        # 不要。axchatd-knowledge-features-backport.md 2-3参照）。
+        # 不要。other-project-knowledge-features-backport.md 2-3参照）。
         if path == "/api/admin/search-test":
             user = self._require_admin()
             if user:

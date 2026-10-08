@@ -147,7 +147,7 @@ export async function handleBootstrapAdmin(req: Request, env: Env): Promise<Resp
 }
 
 // POST /admin/keys/list — 発行済みキーの一覧（生のキーは表示できない。既存GAS adminListKeys相当）。
-// last_active（最終利用日時）は2026-09-10追加。AXChat:D管理コンソールのUsersページ
+// last_active（最終利用日時）は2026-09-10追加。別プロジェクト管理コンソールのUsersページ
 // 参考画像の「Last Login」相当。audit_log側にはClaudeプロキシ利用のログも混ざっている
 // ため、その分もそのユーザーの「最後に何かした日時」として扱ってよく、区別していない。
 export async function handleListKeys(req: Request, env: Env, user: AuthedUser): Promise<Response> {

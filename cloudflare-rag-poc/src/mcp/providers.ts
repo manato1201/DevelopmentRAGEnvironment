@@ -1,4 +1,4 @@
-// 公式MCPサーバーの登録簿（固有層。2026-10-08追加）。AXChat:D（AxChatD）の
+// 公式MCPサーバーの登録簿（固有層。2026-10-08追加）。別プロジェクトの
 // server/app/mcp/providers/ にならい、サービスごとの違いは「宣言（データ）」だけで表す。
 // 通信・認可・保存・確認の判定は共通層（protocol.ts / auth.ts / permissions.ts / service.ts）に
 // 1つだけ置き、ここには書かない。

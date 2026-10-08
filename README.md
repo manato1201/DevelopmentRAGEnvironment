@@ -178,7 +178,7 @@ DevelopmentRAGEnvironment/
 │   ├── cloudflare-rag-operations-manual.md # ★ Cloudflare RAG POCの日常運用手順
 │   ├── cloudflare-vs-firebase-comparison.md # ★ 同じ構成をFirebaseで作った場合との違い
 │   ├── gas-feature-parity.md           # ★ GAS版とCloudflare RAG POCの機能対応表
-│   └── axchatd-rag-integration-plan.md # ★ AXTechCare/AxChatDへのRAG環境統合計画
+│   └── other-project-rag-integration-plan.md # ★ 別プロジェクトへのRAG環境統合計画
 │
 ├── lecture/                            # 講義資料（HTML）
 │   ├── cloud-rag-lecture.html          # ★ クラウド RAG 講義（コサイン類似度・Spring Layoutのcanvasアニメーション付き）
@@ -297,7 +297,7 @@ Notion/Google Drive同期・PDF/DOCX/PPTX/音声動画の変換・ハイブリ�
 | [docs/cloudflare-vs-firebase-comparison.md](docs/cloudflare-vs-firebase-comparison.md) | 同じ構成をFirebaseで作った場合との違いの検証 |
 | [docs/system-guide.html](docs/system-guide.html) | **システムガイド**（2026-10）。構成図・生成の流れ・エージェントのロジック・評価と学習・ナレッジ追加・公式MCP連携・運用を、色分けしたSVGの図でまとめたもの（`scripts/build_system_guide.py`で生成） |
 | [cloudflare-rag-poc/docs/mcp-client.md](cloudflare-rag-poc/docs/mcp-client.md) | 公式MCPサーバー連携（MCPクライアント）の設計・安全設計・使い方 |
-| [docs/axchatd-rag-integration-plan.md](docs/axchatd-rag-integration-plan.md) | 別プロジェクト（AXTechCare/AxChatD）のRAG環境統合に向けた作業洗い出し |
+| [docs/other-project-rag-integration-plan.md](docs/other-project-rag-integration-plan.md) | 別プロジェクトのRAG環境統合に向けた作業洗い出し |
 
 ---
 
