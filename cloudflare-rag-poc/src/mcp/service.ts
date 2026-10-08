@@ -1,4 +1,4 @@
-// MCP連携の入口（共通層。2026-10-08追加）。AxChatDの mcp/core/service.py にならう。
+// MCP連携の入口（共通層。2026-10-08追加）。別プロジェクトの mcp/core/service.py にならう。
 // ルート（routes.ts）とチャット（chat.ts）は、通信・認可・保存・ポリシーに直接触らず、
 // ここの関数だけを呼ぶ。内部の順序は固定:
 //   connection（D1から読む）→ credentials/auth（期限切れなら更新）→ protocol（サーバーと通信）

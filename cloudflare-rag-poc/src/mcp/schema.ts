@@ -1,5 +1,5 @@
 // MCPツールの引数スキーマ → Geminiの関数宣言が受け付ける形への変換（共通層。2026-10-08追加）。
-// AxChatDの web/src/features/mcp/core/schema.ts にならう。
+// 別プロジェクトの web/src/features/mcp/core/schema.ts にならう。
 //
 // MCPのツールは引数をJSON Schema全体で記述するが、Geminiの関数宣言が受け付けるのは小さな
 // 部分集合（type / properties / required / items / enum / description）だけ。範囲外のものは、
