@@ -53,12 +53,18 @@ from houdini_tools import HOUDINI_TOOLS, HoudiniToolExecutor
 
 DEFAULT_MODEL = "claude-sonnet-5"  # 設計判断（§4.1）。既定値。generate()単価/品質に影響するため
                                     # 変更時はTutorialAgent(model=...)で明示的に指定する
-MAX_ITERATIONS = 40           # 反復上限（§2.6）
+# 反復上限（§2.6）。初期値25 → 40 → 80（2026-10-05）。パーティクル・シミュレーション系は、
+# dopnetの中のノードが多く、cookのたびに複数フレームを評価して直す往復が増えるため、40回では
+# 仕上げの前に打ち切られやすかった。上限を上げても、finish_tutorial / confirm_tutorial に
+# 到達すればそこで終わるので、簡単な題材のコストは増えない。コスト上限（下のCOST_LIMIT_USD）は
+# 据え置き。反復が増えても、キャッシュ読み取りが主体なので1回あたりは安い
+# （Sonnet 5.5で80回のループが概ね$2前後）。
+MAX_ITERATIONS = 80
 COST_LIMIT_USD = 5.00         # ローカル側の実測コスト打ち切り上限（§2.7）。実際の利用上限は
                                # GAS側のclaudeCapacity（管理画面で調整）が唯一の正であり、
                                # これはネットワーク断・GAS未応答時などに暴走を防ぐための
                                # クライアント側のフェイルセーフに過ぎない
-GRACE_ITERATIONS = 3          # 反復上限までこの回数以内になったら仕上げを促す（§2.6打ち切り改善）
+GRACE_ITERATIONS = 5          # 反復上限までこの回数以内になったら仕上げを促す（§2.6打ち切り改善。3→5: 上限を上げたので余裕を持たせる）
 GRACE_COST_FRACTION = 0.85    # 累積コストがCOST_LIMIT_USDのこの割合を超えたら仕上げを促す
 # 1ターンの出力上限。Sonnet 5.5 / Opus 5.5 はthinking（思考）も max_tokens に数えられ、常に有効なため、
 # 以前の4096だと思考だけで使い切って、ツール呼び出し（VEXコード等を含む入力）が途中で切れる恐れがある
@@ -175,7 +181,14 @@ _COMMON_NODE_TYPES_BLOCK = """- 基本形状: box, sphere, grid, tube, torus
 - ボリューム/VDB: vdbfrompolygons, cloudnoise, volumewrangle, volumevop, convertvdb
 - パーティクル: POP系はDOPノードなので SOP 直下には作れない。geo の中に dopnet を作り、その中に popobject, popsolver::2.0, popsource::2.0, popforce, popdrag, popwrangle, popkill, popcollisiondetect, popadvectbyvolumes, popattract, popreplicate を作る（簡易に見せるだけなら scatter::2.0 + copytopoints::2.0 の方が確実）
 - シミュレーション(DOP): pyrosolver::2.0, dopnet, vellumsolver, rbdpackedobject, staticobject
-- スクリプト: python（Python SOP）"""
+- スクリプト: python（Python SOP）
+- UV: uvunwrap, uvlayout（実体は uvlayout::3.0）, uvproject（H22以降は uvrelax, labs::autouv::1.0 も）
+- マテリアル: サンドボックス直下に matnet を作り、中に principledshader::2.0（基本色 basecolor、粗さ rough 等）を作る。SOP の material ノードの shop_materialpath1 にパス（例 `../../matnet1/principledshader1`）を設定して割り当てる
+- Copernicus（画像処理）: サンドボックス直下に copnet を作り、中に Cop カテゴリのノードを作る（list_available_node_types は category=Cop）。例: cellularnoise, fractalnoise, worleynoise, blur, colorcorrect, ramp, checkerboard, constant, null。`noise` という名前は Copernicus には存在しない
+- Solaris(LOP): サンドボックス直下に lopnet を作り、中に sphere, plane, materiallibrary, assignmaterial など。マテリアルは materiallibrary の中に subnet を作り、その中に principledshader::2.0 や mtlx* を作る（`mtlxbuilder` というタイプは無い）
+- TOP: topnet の中に wedge, pythonscript, waitforall。cook_node は作業項目の生成までで、実行はされない
+- CHOP: chopnet の中に wave, math, null
+- VOP: SOP の attribvop の中（geometryvopglobal1 / geometryvopoutput1 が最初からある）に turbnoise, add など。connect_nodes は input_name / output_name で指定する"""
 
 # ノードタイプ検索(list_available_node_types)が続いた際に一度だけ差し込むテキスト。
 # 「よく使うノードタイプ」に無いタイプ名(例: 電子パーティクル等のPOP系)を探し続けて
@@ -284,6 +297,8 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初
 {level_instruction}
 {prior_level_summary}
 {reference_section}
+{requirements_section}
+{domain_sections}
 
 ## 絶対ルール
 - ノード操作はサンドボックス `{sandbox_path}` 内でのみ行われます。ノードパスは常にサンドボックス相対（例: `geo1/grid1`）で指定してください。
@@ -294,6 +309,9 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初
 - pyro/fire/クロス/パーティクル/流体/剛体等のシミュレーション系ノードを cook_node する際は、システム側が自動的に複数フレーム分evaluateして時間発展する挙動を検証します（1フレームだけでは正しく動くか分からないためです）。
 - list_available_node_types で調べ続けるより、最も可能性の高いタイプ名で create_node を試す方が早いことが多いです（間違っていても cook_node のエラーから自己修正できます）。ノードを1つも作らずにテキストだけで応答して終了することは禁止です。必ず何らかのツールを呼んでください。
 - トピックが「電子パーティクル」「銀河」のような、Houdiniの具体的なノードタイプ名にそのまま対応しない抽象的・比喩的な題材であっても構いません。その名前のノードタイプを探し続けるのではなく、基本形状（sphere/tube/torus等）・散布や複製（scatter::2.0, copytopoints::2.0）・ノイズや変形（mountain::2.0等）を組み合わせて「それらしい見た目」を表現する方針に切り替えてください。完璧な再現より、まず何かを組み立てて完成させることを優先してください。
+- cook_node が成功しても中身が正しいとは限りません。cook_node の後に inspect_geometry で、点が0個でないか・範囲がおかしくないか・必要な属性が付いているか・画像が一定値でないかを数値で確かめてください（SOP / COP / LOP）。
+- ランプ（グラデーション・カーブ）のパラメータは value ではなく set_parameter の ramp（pos と value の配列）で設定します（value だと点が1個に潰れます）。
+- connect_nodes の入力は、VOPなど意味が名前で決まるノードでは input_name / output_name で指定します（番号の取り違えは cook が通ってしまい気づけません）。入力名は get_node_info で分かります。
 
 ## よく使うノードタイプ（このリストにあれば list_available_node_types は不要）
 {common_node_types}
@@ -309,6 +327,30 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初
 {rag_context}"""
 
 
+
+_GSPLAT_SECTION = """
+## ガウシアンスプラット（GSplat）について
+Houdini 22 のガウシアンスプラットは、3DGS標準の属性を持つ「ポイント」です（専用のプリミティブではありません）。
+「ガウシアンスプラット風」の見た目（球や光る粒で代用する等）で済ませてはいけません。必ず次の方法で本物のGSplatを扱ってください。
+- 既存データの読み込み: 3DGS形式の .ply は File SOP（file）の file にパスを渡すだけで読み込めます（P と f_dc_0〜2, opacity, scale_0〜2, rot_0〜3 のポイント属性になる）。
+- 手続き的に生成: scatter::2.0 などでポイントを作り、attribwrangle で次の属性を与えます: f@opacity（不透明度。大きいほど不透明）, f@scale_0 / f@scale_1 / f@scale_2（各軸の大きさ。対数値なので -3〜-5 程度が小さな粒）, f@rot_0〜f@rot_3（クォータニオン。回転なしは 1,0,0,0）, f@f_dc_0 / f@f_dc_1 / f@f_dc_2（色。球面調和の0次係数で、0付近が中間色。正負で色味が変わる）。
+- 最後に必ず bakegsplat（Bake GSplats）を接続し、これを末端にします。3DGS属性を Houdini/Karma が扱える形（orient, scale, Cd, GS_Alpha）へ変換するノードです（実機で変換の成功と Karma 用の属性付与を確認済み）。
+- 関連ノード: COP の rasterizegsplats（GSplatを画像にする。Cop カテゴリ）、SOP の labs::normals_from_gsplats::1.0 / labs::delight_gsplats::1.0、LOP の labs::relight_gsplats::1.1。
+- 写真からの再構成（学習）は Houdini 内では行いません。学習済みの .ply が無い場合は、手続き生成＋bakegsplat で「GSplatの属性と変換の仕組み」を学べる内容にしてください。
+- 完成後、steps の冒頭に「このセットアップでどの属性がGSplatの何を決めているか」を短く書くこと。
+"""
+
+_ANIMATION_SECTION = """
+## アニメーション・リギング
+- 動きは set_parameter の expression（Hscript式。例 `sin($F*0.2)*3`、`fit($F,1,48,0,5)`）または keyframes（[{"frame":1,"value":0},{"frame":24,"value":5}]、interpolation は linear/bezier/constant/ease）で付けます。タプル（t, r, s）ではなく成分（tx, ty, tz, rx...）ごとに指定します。固定値を入れるだけでは動きません。
+- cook_node は、時間で変わるノードを自動で複数フレーム評価します。動きが途中で壊れないかの確認になります。
+- ビューポート動画のクリップは cook_node のときに撮られます。動きを見せたいノードを最後に cook_node してください。
+- 骨格・キャラクター（KineFX）: kinefx::skeleton（Skeleton）, kinefx::rigpose（Rig Pose）, kinefx::skeletonblend::3.0, kinefx::biped_setup, kinefx::characterio::2.0（file）。キャラクターの読み込み: kinefx::fbxcharacterimport（fbxfile / アニメ付きは animfbxfile）, kinefx::gltfcharacterimport（gltffile）, kinefx::usdcharacterimport（usdfile）。これらは出力が3本（output1〜3）あるので、cook して中身を確認し、connect_nodes の output_index を使い分けてください。アニメーションだけ読む kinefx::fbxanimimport もあります。
+- APEX（SOPノードとして作れる）: apex::autorigbuilder, apex::autorigcomponent::3.0, apex::mapcharacter, apex::rigpose, apex::packcharacter, apex::unpackcharacter, apex::invokegraph, apex::sceneanimate, apex::sceneaddcharacter。apex::graph の「グラフの中身」はこのツールでは編集できないので、APEXのSOPノードを接続して構成します。
+- ノード名や入力の意味が不確かなときは、list_available_node_types（category=Sop、filter に kinefx や apex）と get_node_info で確認してから接続すること。
+- 見た目の確認では、静止画1枚ではなく、動かした結果（複数フレームで値が変わっていること）をツールの返答の評価値で確かめること。
+"""
+
 _REFERENCE_SECTION = """
 ## 参考画像について
 ユーザーが完成イメージの参考画像を添付しています（最初のメッセージ）。テキストのトピックだけでは伝わらない見た目の意図が含まれています。
@@ -317,6 +359,96 @@ _REFERENCE_SECTION = """
 - finish_tutorial の直後に見せられるビューポート画像を、この参考画像と見比べて confirm_tutorial を判断する。形・色・構成が大きくズレていれば looks_correct=false にして直す。note には参考画像との違いを書く。
 - finish_tutorial の steps の冒頭（最初の手順の前）に、「参考画像から読み取った特徴」を短い箇条書きで入れる。
 - テキストのトピックと画像が食い違う場合は、トピック（テキスト）を優先し、食い違いを pitfalls に書く。
+"""
+
+_MODEL_EXTENSIONS = (
+    ".fbx", ".glb", ".gltf", ".usd", ".usda", ".usdc", ".usdz", ".obj", ".bgeo", ".bgeo.sc", ".abc", ".ply",
+)
+
+
+def build_target_model_section(path: str) -> str:
+    """ユーザーが選んだ対象モデルを、プロンプトに入れる節にする（無ければ空文字）。"""
+    if not path:
+        return ""
+    p = Path(path)
+    name = p.name
+    lower = name.lower()
+    ext = next((e for e in sorted(_MODEL_EXTENSIONS, key=len, reverse=True) if lower.endswith(e)), p.suffix.lower())
+    posix = str(p).replace("\\", "/")
+    if ext == ".fbx":
+        how = "kinefx::fbxcharacterimport の fbxfile（アニメーションも入っているなら animfbxfile も）に設定する。静的なメッシュとして使うだけなら File SOP でもよい"
+    elif ext in (".glb", ".gltf"):
+        how = "kinefx::gltfcharacterimport の gltffile に設定する（静的メッシュだけなら File SOP でもよい）"
+    elif ext in (".usd", ".usda", ".usdc", ".usdz"):
+        how = "kinefx::usdcharacterimport の usdfile に設定する"
+    else:
+        how = "File SOP（file）の file に設定して読み込む"
+    return f"""
+## 対象モデル（ユーザーが選択）
+このチュートリアルは、次のモデルファイルを使って行います。
+- ファイル: {name}
+- 絶対パス: {posix}
+- 読み込み方: {how}
+- 読み取り専用です。書き換え・削除・別の場所への保存はしないこと。
+- このモデルを使わずに、別の形（箱や球など）を作って代用しないこと。読み込めない場合は、cook_node のエラーを読んで原因を直し、直せなければ pitfalls に理由を書く。
+"""
+
+
+_GSPLAT_PATTERN = re.compile(r"gaussian|gsplat|splat|3dgs|ガウシアン|スプラット|スプラッド", re.IGNORECASE)
+_ANIMATION_PATTERN = re.compile(
+    r"animat|アニメ|\brig(ging)?\b|リグ|skelet|スケルトン|kinefx|\bapex\b|キーフレーム|keyframe|モーション|motion|ボーン|\bbones?\b|歩行|歩かせ|歩く|走らせ|キャラクター|\bwalk|\bcharacter",
+    re.IGNORECASE,
+)
+
+
+_HOUDINI22_SECTION = """
+## Houdini 22 の新機能（実機でノードの作成と cook を確認済み。名前はこのとおりに使う）
+- Copernicus（copnet の中。category=Cop）が大幅に増えました。
+  - ノイズ・パターン: cellularnoise, curlnoise, fractalnoise, worleynoise, turingpatterns, cellpattern
+  - 汚れ・質感（grunge）: grunge_rustysurface, grunge_moisture, grunge_drips, grunge_moldspots, grunge_wipetrails
+  - ハイトフィールド: monotoheightfield → heightfield_erode / heightfield_terrace / heightfield_slump / heightfield_strata（入力は画像。noise 系 → monotoheightfield → 侵食、の流れ）
+  - 時間: timeloop, timeshift, timeblend / 効果: starglow, dropshadow, convolvefilter / テスト用ジオメトリ: testgeometry_capybara など
+  - 入力が必要なノードが多いので、get_node_info で入力名を確認してから接続すること
+- SOP: implicitsurface（暗黙サーフェス。_convert / _eval / _slice 等の関連ノードあり）, uvrelax, labs::autouv::1.0, blastbyattribute, curveanimate, walkonsurface（第2入力は多角形メッシュ）, voronoifracture::3.0, rbdmaterialfracture::4.0, rbdmetalfracture, guidedeform::2.0, camera / cameraedit
+- LOP(Solaris): plane, scatterinstances, pointinstancer, texturemateriallibrary, imagefilter, relocate。入力の意味は get_node_info で確認する
+- DOP: rbdreplicator。ROP: gltf::2.0（書き出しは行わない）
+- TOP の ML 系（ml_traingsplats など）と neural 系 COP はモデルや GPU を要するため、ノードを作るだけにして実行しない
+"""
+
+
+def build_houdini22_section(rag_name: str) -> str:
+    """Houdini 22 以降で動いているときだけ、新機能の節を足す。"""
+    major = None
+    try:
+        import hou  # Houdini の中でだけ成功する
+
+        major = int(hou.applicationVersion()[0])
+    except Exception:  # noqa: BLE001
+        match = re.fullmatch(r"houdini(\d+)", rag_name or "")
+        major = int(match.group(1)) if match else None
+    return _HOUDINI22_SECTION if major is not None and major >= 22 else ""
+
+
+def build_domain_sections(topic: str, requirements: str, target_model: str) -> str:
+    """トピック・条件・対象モデルから、必要な専門知識の節（GSplat / アニメーション・リギング）を選ぶ。"""
+    text = f"{topic}\n{requirements}"
+    parts = []
+    if _GSPLAT_PATTERN.search(text):
+        parts.append(_GSPLAT_SECTION)
+    if target_model or _ANIMATION_PATTERN.search(text):
+        parts.append(_ANIMATION_SECTION)
+    return "".join(parts)
+
+
+def build_requirements_section(requirements: str) -> str:
+    requirements = (requirements or "").strip()
+    if not requirements:
+        return ""
+    return f"""
+## ユーザー指定の必須条件（最優先）
+{requirements}
+- この条件はトピックより優先します。条件にある技法・ノードは、それ「風」の代用で済ませず、実際に使うこと。
+- 満たせなかった場合は、何ができなかったか・なぜかを finish_tutorial の pitfalls に必ず書くこと。
 """
 
 # ─── 参考画像（テキスト＋画像での生成、2026-10-05追加） ───────────────────────────────
@@ -397,6 +529,8 @@ class TutorialResult:
         self.level: str = _DEFAULT_LEVEL
         self.rag_name: str = "houdini21"  # 検索したナレッジ（動画のブランド表示・タグに使う）
         self.reference_image_count: int = 0  # 生成に使った参考画像の枚数
+        self.requirements: str = ""  # 生成時にユーザーが指定した必須条件
+        self.target_model: str = ""  # アニメ・リギング用に選んだ対象モデルのファイル名
         self.next_steps: str = ""  # finish_tutorialのnext_steps（応用・発展のヒント）
         self.pitfalls: str = ""    # finish_tutorialのpitfalls（ハマりポイント）
         # HoudiniToolExecutor.export_step_screenshots() の結果（各ステップ実行
@@ -419,6 +553,9 @@ class TutorialResult:
         # なるため、それだけでは「未取得」と「無制限」を区別できない。このフラグで判定する）。
         self.claude_quota_known: bool = False
         self.iterations: int = 0
+        # 生成時に自動で記録する品質指標（tutorial_feedback.write_metrics が <名前>_metrics.json に書く）。
+        # 人手の評価が無くても、モデル・レベル・領域別の傾向を集計できるようにする（2026-10-05）。
+        self.metrics: dict = {}
         self.completed: bool = False   # confirm_tutorial(looks_correct=true) まで到達したか
         self.abort_reason: str = ""    # 打ち切り理由（上限到達など）
         # confirm_tutorialが呼ばれないまま打ち切られ、代わりにbest_unconfirmed_draft()の
@@ -474,6 +611,8 @@ class TutorialAgent:
         cf_api_key: str = "",
         rag_namespace: str = "",
         reference_images: list[str] | None = None,
+        requirements: str = "",
+        target_model: str = "",
         progress_cb: Callable[[str], None] | None = None,
         executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
     ) -> None:
@@ -495,6 +634,10 @@ class TutorialAgent:
         self._reference_paths = list(reference_images or [])
         self._reference_blocks: list[dict] = []
         self._reference_names: list[str] = []
+        # 生成時にユーザーが指定する「必須条件」（自由記述）と、アニメ・リギング用の対象モデル
+        # （ファイルパス）。どちらもプロンプトに差し込む（build_requirements_section / build_target_model_section）。
+        self._requirements = (requirements or "").strip()
+        self._target_model = (target_model or "").strip()
         # 未知のモデル名（設定ファイルの旧値・手編集など）はデフォルトにフォールバック
         self._model = model if model in _MODEL_PRICES else DEFAULT_MODEL
         self._progress = progress_cb or (lambda _: None)
@@ -536,11 +679,22 @@ class TutorialAgent:
         result.rag_name = self._rag_name
         self._reference_blocks, self._reference_names = load_reference_images(self._reference_paths)
         result.reference_image_count = len(self._reference_blocks)
+        result.requirements = self._requirements
+        result.target_model = Path(self._target_model).name if self._target_model else ""
         if self._reference_paths:
             if self._reference_blocks:
                 self._progress(f"参考画像 {len(self._reference_blocks)} 枚を添えて生成します: {', '.join(self._reference_names)}")
             else:
                 self._progress("参考画像を読み込めませんでした（テキストのみで続行）")
+
+        if self._requirements:
+            self._progress(f"生成条件を指定して生成します: {self._requirements[:80]}")
+        if self._target_model:
+            if Path(self._target_model).is_file():
+                self._progress(f"対象モデルを使って生成します: {Path(self._target_model).name}")
+            else:
+                self._progress(f"対象モデルが見つかりません（モデル無しで続行）: {self._target_model}")
+                self._target_model = ""
 
         # Claude APIは必ずGASまたはCloudflare経由で呼ぶ（claude_backendで選択）。生の
         # ANTHROPIC_API_KEYをクライアントに持たせない構成にすることで、APIキーごとの
@@ -561,6 +715,11 @@ class TutorialAgent:
         # ① RAG検索（houdini<バージョン> namespace のみ）
         self._progress(f"RAG検索中（{self._rag_name} ナレッジベース / {self._rag_mode} / レベル={level}）...")
         rag_texts, result.sources = self._rag_search(topic, level)
+        # Cloudflare/ローカルブリッジの /search は file / namespace キーで返すが、Markdownの参考欄は
+        # title / db を読むため、そのままだと「[1] ⬜ 未引用 （）」と題名が空になっていた。
+        for s in result.sources:
+            s.setdefault("title", s.get("file", ""))
+            s.setdefault("db", s.get("namespace", ""))
         if rag_texts:
             self._progress(f"参考ドキュメント {len(result.sources)} 件を取得しました（{self._rag_name}）")
         else:
@@ -612,6 +771,7 @@ class TutorialAgent:
         self._apply_rag_attribution(finish, result, result.completed)
         result.markdown = self._assemble_markdown(topic, finish, result)
         result.elapsed_seconds = time.monotonic() - start_time
+        result.metrics = self._collect_metrics(result, topic)
 
         status = "完了" if result.completed else f"打ち切り（{result.abort_reason}）"
         self._progress(
@@ -854,6 +1014,11 @@ class TutorialAgent:
             level_instruction=_LEVEL_INSTRUCTIONS.get(level, _LEVEL_INSTRUCTIONS[_DEFAULT_LEVEL]),
             prior_level_summary=prior_summary_block,
             reference_section=_REFERENCE_SECTION if self._reference_blocks else "",
+            requirements_section=build_requirements_section(self._requirements),
+            domain_sections=build_target_model_section(self._target_model)
+            + build_domain_sections(topic, self._requirements, self._target_model)
+            + build_houdini22_section(self._rag_name)
+            + self._feedback_sections(topic),
         )
         system_blocks = [{
             "type": "text",
@@ -872,15 +1037,24 @@ class TutorialAgent:
             content.append({
                 "type": "text",
                 "text": (
-                    f"次のトピックのHoudiniチュートリアルを作成してください: {topic}\n\n"
+                    f"{self._task_text(topic)}\n\n"
                     "上の画像は、私が求めている完成イメージの参考です。見た目の特徴を読み取って、"
                     "それに近づくようにノードを組んでください。"
                 ),
             })
         else:
-            content = f"次のトピックのHoudiniチュートリアルを作成してください: {topic}"
+            content = self._task_text(topic)
         messages = [{"role": "user", "content": content}]
         return system_blocks, tools, messages
+
+    def _task_text(self, topic: str) -> str:
+        """最初のユーザーメッセージ本文（トピック＋必須条件＋対象モデル）。"""
+        text = f"次のトピックのHoudiniチュートリアルを作成してください: {topic}"
+        if self._requirements:
+            text += f"\n\n必須条件（必ず守ること）: {self._requirements}"
+        if self._target_model:
+            text += f"\n\n対象モデル: {Path(self._target_model).name}（システムプロンプトの「対象モデル」を参照）"
+        return text
 
     # ── ループ ──────────────────────────────────────────────────────────────────
 
@@ -1137,6 +1311,8 @@ class TutorialAgent:
             "tools": tools,
             "messages": messages,
         }
+        if not tools:
+            request_body.pop("tools")  # 教訓の要約など、ツールを使わない呼び出しではtoolsを送らない
         effort = _MODEL_EFFORT.get(self._model)
         if effort:
             request_body["output_config"] = {"effort": effort}
@@ -1266,6 +1442,80 @@ class TutorialAgent:
             + usage.get("cache_read_input_tokens", 0) * price["cache_read"]
         ) / 1_000_000
 
+    def _feedback_sections(self, topic: str) -> str:
+        """
+        過去の評価から作るプロンプトの節（2026-10-05）。ユーザーが承認した教訓と、似たトピックで
+        高評価だった構成。どちらも無ければ空文字（従来どおりのプロンプト）。評価の仕組みの失敗で
+        生成が止まらないよう、例外は握りつぶして空にする。使った件数は指標に残す（後で
+        「教訓を入れた生成と入れない生成」を比べるため）。
+        """
+        self._lessons_used = 0
+        self._examples_used = 0
+        if not self._project_dir:
+            return ""
+        try:
+            import tutorial_feedback as fb
+
+            lessons = fb.approved_lessons(self._project_dir)
+            examples = fb.select_good_examples(Path(self._project_dir) / "localRAG" / "tutorials", topic)
+            self._lessons_used, self._examples_used = len(lessons), len(examples)
+            if lessons or examples:
+                self._progress(f"過去の評価を反映します（教訓 {len(lessons)} 件 / 高評価の参考例 {len(examples)} 件）")
+            return fb.build_lessons_section(self._project_dir) + fb.build_examples_section(examples)
+        except Exception as exc:  # noqa: BLE001 -- 評価の機能で生成を止めない
+            self._progress(f"過去の評価の読み込みに失敗（無視して続行）: {exc}")
+            return ""
+
+    def _collect_metrics(self, result: "TutorialResult", topic: str) -> dict:
+        """生成の自動指標。数値・真偽・短い文字列だけ（そのままCloudflareへ送れる形）。"""
+        step_log = list(self.executor.step_log) if self.executor else []
+        cook_calls = [e for e in step_log if e.get("tool") == "cook_node"]
+        cook_errors = sum(1 for e in cook_calls if "[エラー]" in str(e.get("result", "")))
+        rejections = sum(
+            1 for e in step_log
+            if e.get("tool") == "confirm_tutorial" and (e.get("input") or {}).get("looks_correct") is False
+        )
+        node_types = [n.get("kind", "") for n in result.graph.get("nodes", [])] if result.graph else []
+        try:
+            import hou  # Houdini の中でだけ成功する
+
+            houdini_version = hou.applicationVersionString()
+        except Exception:  # noqa: BLE001
+            houdini_version = ""
+        try:
+            from tutorial_feedback import detect_domain
+
+            domain = detect_domain(topic, self._requirements, node_types)
+        except Exception:  # noqa: BLE001
+            domain = "general"
+        return {
+            "topic": topic[:300],
+            "model": self._model,
+            "level": result.level,
+            "rag_name": result.rag_name,
+            "houdini_version": houdini_version,
+            "domain": domain,
+            "iterations": result.iterations,
+            "tool_calls": len(step_log),
+            "cook_calls": len(cook_calls),
+            "cook_errors": cook_errors,
+            "confirm_rejections": rejections,
+            "node_count": len(node_types),
+            "completed": result.completed,
+            "used_unconfirmed_draft": result.used_unconfirmed_draft,
+            "abort_reason": result.abort_reason[:120],
+            "cost_usd": round(result.cost_usd, 4),
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "elapsed_seconds": round(result.elapsed_seconds, 1),
+            "rag_extraction_rate": result.rag_extraction_rate if result.rag_extraction_rate is not None else -1,
+            "reference_images": result.reference_image_count,
+            "has_requirements": bool(self._requirements),
+            "has_target_model": bool(self._target_model),
+            "lessons_used": getattr(self, "_lessons_used", 0),
+            "examples_used": getattr(self, "_examples_used", 0),
+        }
+
     def _count_iterations(self) -> int:
         return len(self.executor.step_log) if self.executor else 0
 
@@ -1348,6 +1598,13 @@ class TutorialAgent:
         else:
             extraction_note = ""
 
+        # 生成時の指定（必須条件・対象モデル）をfrontmatterに残す。値は1行のJSON文字列にして、
+        # コロンや改行を含んでもYAMLとして壊れないようにする。
+        extra_frontmatter = ""
+        if result.requirements:
+            extra_frontmatter += "requirements: " + json.dumps(result.requirements.replace(chr(10), " "), ensure_ascii=False) + chr(10)
+        if result.target_model:
+            extra_frontmatter += "target_model: " + json.dumps(result.target_model, ensure_ascii=False) + chr(10)
         status_note = ""
         if not result.completed:
             status_note = (
@@ -1379,7 +1636,7 @@ expires: {expires.isoformat()}
 tags: [houdini, ai-generated, {result.rag_name}]
 difficulty: {result.level}
 reference_images: {result.reference_image_count}
-rag_indexed: false
+{extra_frontmatter}rag_indexed: false
 ---
 {status_note}
 ## 概要
@@ -1440,6 +1697,8 @@ def build_level_chain(
     cf_api_key: str = "",
     rag_namespace: str = "",
     reference_images: list[str] | None = None,
+    requirements: str = "",
+    target_model: str = "",
     progress_cb: Callable[[str], None] | None = None,
     executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
     levels: tuple[str, ...] = _LEVEL_CHAIN_ORDER,
@@ -1476,6 +1735,8 @@ def build_level_chain(
             cf_api_key=cf_api_key,
             rag_namespace=rag_namespace,
             reference_images=reference_images,
+            requirements=requirements,
+            target_model=target_model,
             progress_cb=progress_cb,
             executor_factory=executor_factory,
         )

@@ -116,7 +116,7 @@ rag_context = query_rag(namespace="houdini21", query=user_request)
 messages = [system_prompt(rag_context, sandbox_path), user_request]
 step_log = []
 
-for i in range(MAX_ITER):  # 40回
+for i in range(MAX_ITER):  # 80回（2026-10-05に40から変更）
     response = anthropic.messages.create(
         model="claude-sonnet-5", tools=HOUDINI_TOOLS, messages=messages
     )
@@ -163,8 +163,8 @@ node_graph_json = export_node_graph(sandbox)  # NodeGraphAsset形式
 
 - ユーザーの既存シーンを壊さないよう、`/obj/ai_tutorial_<timestamp>` のような専用サブネット内でのみノード作成・操作を行う
 - 生成完了後もサンドボックスは残す（ユーザーが結果を直接確認できるように）。明示的に「削除」操作をチャット上で選べるようにする
-- 反復上限は40回（コスト・暴走防止）。超えたら「途中までの状態」を提示して打ち切り（初期値25回だったが、実機検証で反復消費が想定より多いタスクがあったため40回に調整。経緯は[検証レポート](houdini21-tutorial-gen-report.md) §4参照）
-- **打ち切り時のグレースフル終了：** 反復上限の残り3回以内、またはコスト上限の85%を超えた時点（`GRACE_ITERATIONS`/`GRACE_COST_FRACTION`、`tutorial_agent.py`）で、まだ`finish_tutorial`/`confirm_tutorial`が済んでいなければ「今の状態のまま仕上げてください」という一度だけのシステム通知（`_GRACE_NUDGE_TEXT`）を差し込む。ハード打ち切りで未完成のまま終わる代わりに、多少粗くても完結したチュートリアルになる可能性を上げる
+- 反復上限は80回（コスト・暴走防止。2026-10-05に40から引き上げ。パーティクル・シミュレーション系は`dopnet`内のノードが多く、cookのたびに複数フレームを評価して直す往復が増えるため、40回では仕上げの前に打ち切られやすかった。`finish_tutorial`/`confirm_tutorial`に到達すればそこで終わるので、簡単な題材のコストは増えない。コスト上限$5は据え置き）。超えたら「途中までの状態」を提示して打ち切り（初期値25回だったが、実機検証で反復消費が想定より多いタスクがあったため40回に調整。経緯は[検証レポート](houdini21-tutorial-gen-report.md) §4参照）
+- **打ち切り時のグレースフル終了：** 反復上限の残り5回以内（3から変更）、またはコスト上限の85%を超えた時点（`GRACE_ITERATIONS`/`GRACE_COST_FRACTION`、`tutorial_agent.py`）で、まだ`finish_tutorial`/`confirm_tutorial`が済んでいなければ「今の状態のまま仕上げてください」という一度だけのシステム通知（`_GRACE_NUDGE_TEXT`）を差し込む。ハード打ち切りで未完成のまま終わる代わりに、多少粗くても完結したチュートリアルになる可能性を上げる
 - **シミュレーションノードの複数フレームcook：** pyro/DOP/cloth/particle/flip/RBD等のノードタイプ名（`_SIMULATION_TYPE_HINTS`、部分文字列マッチ）を検出した場合、`cook_node`は単一フレームではなく現在フレームから10フレーム分（`_SIM_COOK_FRAME_COUNT`）を順次evaluateしてから復元する（`houdini_tools.py`の`_cook_simulation_frames`）。シミュレーションは前フレームの結果に依存するため、時間発展する挙動を1フレームだけでは検証できないことへの対応
 - **検索連打・空振り終了対策（実機で確認された不具合）：** `list_available_node_types`を3回以上連続で呼んでも`create_node`を呼ばない場合、一度だけ「検索を止めて作成を試して」と促す（`_SEARCH_LOOP_NUDGE_TEXT`、`create_node`が呼ばれるとストリークが解除され再度検索連打があれば再度促す）。電子パーティクル等のPOP/DOP系トピックで検索が過剰発生していたため、`_COMMON_NODE_TYPES_BLOCK`にPOPノード（popforce/popdrag/popwrangle等）も追加した
 - **「完了扱い」の誤判定対策（3段階の救済ロジック、2026-09-20時点で3種類を確認・対応済み）：** モデルが`tool_use`無しのテキストのみで応答を終えようとした際、以下の順で状態を判定し、真に何もすべきことが無くなった場合以外は一度だけ再開を促してから打ち切る（`tutorial_agent.py`の`_run_loop`）：
@@ -194,7 +194,7 @@ node_graph_json = export_node_graph(sandbox)  # NodeGraphAsset形式
 ```mermaid
 flowchart TD
     A["トピック入力<br/>(Tutorialタブ)"] --> B["RAG検索<br/>houdini21ナレッジ 6件"]
-    B --> C["エージェントループ (最大40回)<br/>tutorial_agent.py"]
+    B --> C["エージェントループ (最大80回)<br/>tutorial_agent.py"]
     C -->|tool_use| D["HoudiniToolExecutor<br/>houdini_tools.py<br/>サンドボックス内でノード操作"]
     D -->|"作成・接続・パラメータ・cook・削除"| E["ステップごとの撮影<br/>ビューポート + ノード画面"]
     D -->|"connect / cook"| F["表示フラグを自動で移す"]
@@ -413,3 +413,118 @@ Settingsタブの「チュートリアル生成モデル」で、次の4つか�
 **effort（思考の深さ）は5.5系で`medium`（2026-10-05）**: Sonnet 5.5の既定は`high`だが、公式は多段のツール利用タスクの出発点として`medium`を勧めている（Anthropicの検証では、エージェント系のコーディングでSonnet 5.5の`medium`がSonnet 5の`high`を上回り、コストは5分の1未満）。`tutorial_agent.py`の`_MODEL_EFFORT`で`claude-sonnet-5-5`と`claude-opus-5-5`にだけ`medium`を送る（Opus 5.5は既定も`medium`だが明示する）。effortを受け付けないHaiku 4.5と、未検証のSonnet 5には送らない。Cloudflare Worker（`/claude/messages`）は`output_config`のうち`effort`だけを検証して中継する（`low`/`medium`/`high`/`xhigh`/`max`以外は黙って捨てる）。品質とコストへの効果は実測していないので、生成結果とコストを見て`_MODEL_EFFORT`を調整する。
 
 **未着手**: サーバー側フォールバック（拒否時に別モデルで再試行）。
+
+### 2.14 生成条件・対象モデル・GSplat／アニメーション対応（2026-10-05）
+
+**生成タブの追加欄**
+- 「生成条件」: 自由記述。トピックより優先され、システムプロンプトと最初のメッセージに「必須条件」として入る。満たせなかった場合は`pitfalls`に理由を書かせる。frontmatterに`requirements`として残る。
+- 「対象モデルを選択…」: fbx / glb / gltf / usd / obj / bgeo / abc / ply。拡張子に応じた読み込みノード（`kinefx::fbxcharacterimport`の`fbxfile`、`gltfcharacterimport`の`gltffile`、`usdcharacterimport`の`usdfile`、それ以外はFile SOP）をプロンプトで指示する。ファイルは読み取り専用。frontmatterに`target_model`として残る。
+
+**ガウシアンスプラット**: Houdini 22のGSplatは3DGS属性（`f_dc_0〜2`、`opacity`、`scale_0〜2`、`rot_0〜3`）を持つ**ポイント**。3DGS形式の`.ply`はFile SOPで読め、手続き生成（scatter → attribwrangle → `bakegsplat`）でも本物のGSplatになる（`bakegsplat`が`orient` / `scale` / `Cd` / `GS_Alpha`とKarma用の属性へ変換することをhythonで確認）。以前は「GSplat風」の代用で済ませていたため、トピック・条件に`gsplat` / `ガウシアン`等が含まれると、この知識の節をプロンプトに足す。
+
+**アニメーション**: `set_parameter`が固定値しか設定できず、式を渡すと失敗していた。`expression`（Hscript）と`keyframes`（`interpolation`: bezier/linear/constant/ease）を追加し、設定後に3フレームの評価値を返す。不正な式は評価値が黙って0になるため、`node.errors()`を拾って返す。`cook_node`は時間依存ノードを10フレーム評価する。
+
+**ノード種別の一覧**: `list_available_node_types`に`Cop`（Copernicus）・`Lop`・`Chop`を追加（`Cop2`は旧COP）。
+
+### 2.15 ツールの強化とHoudini 22の新機能（2026-10-05）
+
+Houdini 21と22の全ノードタイプを実機で比較し、22で増えた241ノード（COP 123 / SOP 75 / LOP 21 / VOP 11 / TOP 8 / ROP 2 / DOP 1）を、ツール経由で作成・cookして確認した（COPのレシピ245個はノードではないので対象外）。作成は全て成功。cookのエラーは入力未接続が原因で、ツールの不具合ではなかった。VOPの11個（MaterialX、`kma_*`）は`attribvop`の中には作れず、LOPの`materiallibrary`の中に`subnet`を作ればその中に作れる（`mtlxbuilder`というタイプは無い）。その過程で見つかった以前からの不具合・未対応を直した。
+
+| 項目 | 以前 | 今 |
+|---|---|---|
+| ノードの中身の確認 | cookの成功しか分からず、点が0個・一定値の画像・属性の付け忘れに気づけなかった | `inspect_geometry`を追加。SOP: 点/プリム数・バウンディングボックス・属性（型と値の範囲）・グループ・GSplatの判定。COP: 解像度・チャンネル・最小/最大/平均・一定値の検出。LOP: プリム一覧 |
+| ランプ（グラデーション・カーブ） | `value`に`"0 1"`を渡すとポイントが1個に潰れるのに「ok」と返っていた | `value`は拒否して案内を返し、`ramp`（`pos`と`value`の配列、色は`[r,g,b]`）で設定する |
+| 入力の取り違え | 番号だけの接続。`turbnoise`の入力0は`pos`ではなく`type`なのに、つないでもcookが通る | `input_name` / `output_name`で指定でき、接続結果に入出力名を返す（`in:0 type`）。`get_node_info`も入力名を出す |
+| TOPの`cook_node` | 作業項目が0件のまま「cook成功」 | 作業項目の**生成**までを行い、上流を含めた件数を返す。作業の**実行**（`pythonscript`・ファイル出力・プロセス起動）は、サンドボックスのノードパス制限では防げない副作用があるため行わない |
+| プロンプト | SOP中心 | 共通ノード一覧にUV・マテリアル・Copernicus・LOP・TOP・CHOP・VOPを追加。Houdini 22で動いているときだけ、新機能の節（実在確認済みの名前41個）を足す |
+
+**未対応**: APEXグラフの中身の編集、TOPの作業の実行、レンダリング・画像書き出し、フレーム範囲の設定、ノードのフラグ（バイパス等）、HDA化。
+
+### 2.16 評価（good/bad）と、そこからの学習（2026-10-05）
+
+生成されたチュートリアルに👍/👎・理由タグ・一言メモを付け、その内容を集計・プロンプトへ反映する。これは**モデルの重みを学習させるものではなく**、過去の評価を「設定選びの根拠」と「プロンプトへの入力」に使う仕組み（`tutorial_feedback.py`）。
+
+**記録（生成物の隣のサイドカー）**
+- `<名前>_metrics.json`: 生成時に**自動で**残す指標。モデル・レベル・領域（general / gsplat / animation / particles / simulation / copernicus / solaris / material / uv）・反復回数・cookエラー数・`confirm_tutorial`の差し戻し回数・ノード数・コスト・トークン・所要時間・打ち切りか・RAG利用率・条件/参考画像/対象モデルの有無・反映した教訓と成功例の件数。人手の評価が無くても傾向を集計できる。
+- `<名前>_feedback.json`: 履歴タブで付けた評価（👍=1 / 👎=-1、理由タグ、メモ、評価時点の題名・トピック・概要・使ったノード）。
+
+**反映（軽い順）**
+1. **集計**（履歴タブ「評価の集計…」）: モデル・レベル・領域・理由タグ別の好評率、平均反復、平均コスト、平均cookエラー、打ち切り率。評価が少ないうちは参考程度。
+2. **教訓**（履歴タブ「教訓…」、`localRAG/tutorial_lessons.json`）: 👎のメモからClaudeに「避けること」の候補を作らせる（1回の呼び出し）。候補は**未承認**で追加し、ユーザーが読んでチェックを入れたものだけをシステムプロンプトに入れる（最大10件）。生の失敗例をそのまま渡すとモデルが真似るため、一般化したルールの形にする。自分で書いて足すこともできる。
+3. **成功例**: 新しい生成のとき、似たトピックで👍だった（かつ完走した）チュートリアルの題名・概要・使ったノードを最大2件、「構成の参考」として渡す（トピックの文字・単語の重なりで選ぶ軽い方式）。
+
+**Cloudflareでの管理者限定の閲覧**: 評価を付けると`POST /tutorial-feedback/submit`へ送る（ベストエフォート。失敗してもローカルの評価は残り、状況は履歴タブに出る）。送るのは題名・トピック・概要の抜粋・評価・タグ・メモ・数値の指標だけで、チュートリアル本文は送らない。1ユーザー×1チュートリアルで1行（評価を付け直すと上書き、`rating:0`で取り消し）、他人の行は触れない。閲覧・集計は管理画面「利用状況・コスト」タブの「Houdiniチュートリアルの評価」（モデル/レベル/領域/タグ別、一覧、CSV）と`POST /admin/tutorial-feedback/list` / `stats`で、**adminロールのみ**（`requireAdmin`。非adminは403）。テーブルは`migrations/0017_tutorial_feedback.sql`。
+
+**効果の測り方**: 指標に`lessons_used` / `examples_used`が残るので、「教訓を入れた生成」と「入れない生成」を同じ題材で比べられる。評価者が1人だと自分の好みへの最適化になるため、客観指標（cookエラー数・打ち切り率）と併せて見る。
+
+### 2.17 図で見る全体像（2026-10-08）
+
+ブラウザで見やすい版（色分けしたSVGの図・表）は [system-guide.html](system-guide.html) にある。ここではMermaidで同じ内容を示す。
+
+**生成の流れ**
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as 利用者（Tutorialタブ）
+  participant A as tutorial_agent（Houdini内）
+  participant C as Cloudflare Worker
+  participant H as Houdini実機（サンドボックス）
+  U->>A: トピック・生成条件・対象モデル・参考画像
+  A->>A: 領域を判定し、知識の節（GSplat／アニメ／H22／教訓／成功例）を選ぶ
+  A->>C: /search（houdini22）
+  C-->>A: 参考ドキュメント
+  loop 完了まで最大80回（コスト$5）
+    A->>C: /claude/messages（tool_use）
+    C-->>A: ツール呼び出し
+    A->>H: create／set／connect／cook／inspect_geometry
+    H-->>A: 結果（手順ごとに撮影）
+  end
+  A->>H: finish_tutorial → 自己確認画像
+  A->>A: confirm_tutorial → 成果物・指標を組み立て
+  A-->>U: プレビュー → 保存（.md .json _metrics.json）
+  U->>C: 評価（/tutorial-feedback/submit）
+```
+
+**エージェントループの判断**
+
+```mermaid
+flowchart TD
+  start(["生成開始"]) --> rag["RAG検索（失敗しても続行）"] --> prompt["プロンプト組み立て"]
+  prompt --> resp{"Claudeの応答は？"}
+  resp -- "refusal" --> abort1["打ち切り（分類つき）"]
+  resp -- "テキストのみ" --> rescue["救済：ノード未作成／finish未呼出／confirm未呼出を催促（上限あり）"]
+  rescue --> resp
+  resp -- "tool_use" --> tool["ツールを実行して結果を履歴へ"]
+  tool --> done{"confirm_tutorial=true？"}
+  done -- "はい" --> out["成果物を組み立てる"]
+  done -- "いいえ" --> limit{"反復>80 または コスト>$5？"}
+  limit -- "はい" --> abort2["打ち切り（途中経過を提示）"]
+  limit -- "いいえ" --> resp
+  abort1 --> out
+  abort2 --> out
+```
+
+**評価と学習のループ**
+
+```mermaid
+flowchart LR
+  gen["生成<br/>metricsを自動記録"] --> save["保存<br/>.md .json _metrics.json"] --> rate["評価<br/>👍👎・タグ・メモ<br/>_feedback.json"]
+  rate --> report["集計"]
+  rate --> lessons["教訓（承認制・最大10件）"]
+  rate --> examples["成功例（最大2件）"]
+  lessons --> next["次の生成のプロンプト"]
+  examples --> next
+  next --> gen
+  rate -- "POST /tutorial-feedback/submit" --> d1[("D1 tutorial_feedback")] --> admin["管理画面（adminのみ）"]
+```
+
+**ツールの追加分（2026-10）**
+
+| ツール | 追加・変更 |
+|---|---|
+| `set_parameter` | `expression`・`keyframes`・`ramp`。ランプに`value`を渡すと拒否して案内 |
+| `connect_nodes` | `input_name`／`output_name`。結果に入出力名を返す |
+| `cook_node` | 時間依存ノードは10フレーム評価。TOPは作業項目の生成まで |
+| `inspect_geometry` | 新規。SOP・COP・LOPの中身を数値で確認 |
+| `list_available_node_types` | `Cop`・`Lop`・`Chop`を追加 |

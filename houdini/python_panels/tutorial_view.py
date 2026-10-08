@@ -43,10 +43,12 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -190,6 +192,202 @@ class _ImageIndexWorker(QThread):
 
 # ─── 生成タブ ────────────────────────────────────────────────────────────────────
 
+class FeedbackUploadWorker(QThread):
+    """評価をCloudflareへ送る（ベストエフォート。UIを止めないよう別スレッド）。"""
+    finished_with = Signal(bool, str)
+
+    def __init__(self, cf_url: str, cf_api_key: str, payload: dict) -> None:
+        super().__init__()
+        self._cf_url, self._cf_api_key, self._payload = cf_url, cf_api_key, payload
+
+    def run(self) -> None:
+        import tutorial_feedback
+
+        ok, message = tutorial_feedback.upload_feedback(self._cf_url, self._cf_api_key, self._payload)
+        self.finished_with.emit(ok, message)
+
+
+class LessonDistillWorker(QThread):
+    """低評価のメモから、Claudeに「避けること」の教訓候補を作らせる。"""
+    done = Signal(list)    # list[str]
+    failed = Signal(str)
+
+    def __init__(self, agent, bad_entries: list[dict], existing: list[str]) -> None:
+        super().__init__()
+        self._agent, self._bad, self._existing = agent, bad_entries, existing
+
+    def run(self) -> None:
+        try:
+            import tutorial_feedback
+
+            system, messages = tutorial_feedback.build_distill_request(self._bad, self._existing)
+            response = self._agent._call_api([{"type": "text", "text": system}], [], messages)
+            text = "".join(b.get("text", "") for b in response.get("content", []) if b.get("type") == "text")
+            self.done.emit(tutorial_feedback.parse_lessons(text))
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(str(exc))
+
+
+class LessonsDialog(QDialog):
+    """
+    教訓（過去の評価から得た「避けること」）の編集ダイアログ。チェックを入れたものだけが、次回以降の
+    生成のシステムプロンプトに入る（承認制。最大 MAX_APPROVED_LESSONS 件）。低評価のメモからClaudeに
+    候補を作らせることもできるが、候補は未承認で追加し、内容を読んでから自分でチェックを入れる。
+    """
+
+    def __init__(self, parent, project_dir: str, tutorials_dir: Path | None, make_agent: Callable) -> None:
+        super().__init__(parent)
+        import tutorial_feedback
+
+        self._fb = tutorial_feedback
+        self._project_dir = project_dir
+        self._tutorials_dir = tutorials_dir
+        self._make_agent = make_agent
+        self._worker: LessonDistillWorker | None = None
+        self.setWindowTitle("教訓（過去の評価から得た「避けること」）")
+        self.resize(640, 460)
+
+        layout = QVBoxLayout(self)
+        hint = QLabel(
+            f"チェックを入れた教訓だけが、次回以降の生成のプロンプトに入ります（最大{tutorial_feedback.MAX_APPROVED_LESSONS}件）。"
+            "文をダブルクリックで編集できます。"
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#94a3b8;font-size:11px;")
+        layout.addWidget(hint)
+
+        self._list = QListWidget()
+        self._list.itemChanged.connect(self._update_count)
+        layout.addWidget(self._list, stretch=1)
+
+        add_row = QHBoxLayout()
+        self._add_edit = QLineEdit()
+        self._add_edit.setPlaceholderText("教訓を自分で追加（例: ノード数は5個以内に収める）")
+        self._add_edit.returnPressed.connect(self._on_add)
+        add_btn = QPushButton("追加")
+        add_btn.clicked.connect(self._on_add)
+        del_btn = QPushButton("選択を削除")
+        del_btn.clicked.connect(self._on_delete)
+        add_row.addWidget(self._add_edit, stretch=1)
+        add_row.addWidget(add_btn)
+        add_row.addWidget(del_btn)
+        layout.addLayout(add_row)
+
+        distill_row = QHBoxLayout()
+        self._distill_btn = QPushButton("👎のメモから候補を作る（Claudeを1回呼びます）")
+        self._distill_btn.clicked.connect(self._on_distill)
+        self._count_label = QLabel("")
+        self._count_label.setStyleSheet("color:#7dd3fc;font-size:11px;")
+        distill_row.addWidget(self._distill_btn)
+        distill_row.addWidget(self._count_label)
+        distill_row.addStretch()
+        layout.addLayout(distill_row)
+
+        self._status = token_usage.fit_label(QLabel(""))
+        self._status.setStyleSheet("color:#94a3b8;font-size:11px;")
+        layout.addWidget(self._status)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        save_btn = QPushButton("保存して閉じる")
+        save_btn.clicked.connect(self._on_save)
+        cancel_btn = QPushButton("キャンセル")
+        cancel_btn.clicked.connect(self.reject)
+        buttons.addWidget(save_btn)
+        buttons.addWidget(cancel_btn)
+        layout.addLayout(buttons)
+
+        for lesson in self._fb.load_lessons(project_dir):
+            self._add_item(lesson["text"], lesson["approved"])
+        self._update_count()
+
+    def _add_item(self, text: str, approved: bool) -> None:
+        item = QListWidgetItem(text)
+        item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEditable)
+        item.setCheckState(Qt.Checked if approved else Qt.Unchecked)
+        self._list.addItem(item)
+
+    def _lessons(self) -> list[dict]:
+        import datetime
+
+        now = datetime.date.today().isoformat()
+        return [
+            {"text": self._list.item(i).text().strip()[: self._fb.MAX_LESSON_CHARS],
+             "approved": self._list.item(i).checkState() == Qt.Checked, "created": now}
+            for i in range(self._list.count()) if self._list.item(i).text().strip()
+        ]
+
+    def _update_count(self, *_args) -> None:
+        approved = sum(1 for l in self._lessons() if l["approved"])
+        limit = self._fb.MAX_APPROVED_LESSONS
+        over = "（上限超過。先頭から使われます）" if approved > limit else ""
+        self._count_label.setText(f"承認 {approved}/{limit}{over}")
+
+    def _on_add(self) -> None:
+        text = self._add_edit.text().strip()
+        if text:
+            self._add_item(text[: self._fb.MAX_LESSON_CHARS], True)
+            self._add_edit.clear()
+            self._update_count()
+
+    def _on_delete(self) -> None:
+        for item in self._list.selectedItems():
+            self._list.takeItem(self._list.row(item))
+        self._update_count()
+
+    def _on_distill(self) -> None:
+        if self._worker and self._worker.isRunning():
+            return
+        entries = [
+            e for e in (self._fb.list_entries(self._tutorials_dir) if self._tutorials_dir else [])
+            if e["rating"] == -1 and (e["note"] or e["tags"])
+        ]
+        if not entries:
+            self._status.setText("タグかメモの付いた👎がまだありません。評価にタグやメモを付けてから試してください")
+            return
+        try:
+            agent = self._make_agent()
+        except Exception as exc:  # noqa: BLE001
+            self._status.setText(f"Claudeの呼び出し準備に失敗: {exc}")
+            return
+        existing = [l["text"] for l in self._lessons()]
+        self._distill_btn.setEnabled(False)
+        self._status.setText(f"👎 {len(entries)} 件から候補を作っています…")
+        self._worker = LessonDistillWorker(agent, entries, existing)
+        self._worker.done.connect(self._on_distilled)
+        self._worker.failed.connect(self._on_distill_failed)
+        self._worker.start()
+
+    def _on_distilled(self, candidates: list) -> None:
+        self._distill_btn.setEnabled(True)
+        known = {l["text"] for l in self._lessons()}
+        added = 0
+        for text in candidates:
+            if text and text not in known:
+                self._add_item(text, False)  # 候補は未承認。読んでから自分でチェックを入れる
+                added += 1
+        self._update_count()
+        self._status.setText(
+            f"{added} 件の候補を追加しました（未承認）。内容を確認して、使うものにチェックを入れてください"
+            if added else "新しい候補はありませんでした（根拠が弱いか、既存の教訓と重複）"
+        )
+
+    def _on_distill_failed(self, message: str) -> None:
+        self._distill_btn.setEnabled(True)
+        self._status.setText(f"候補の作成に失敗: {message}")
+
+    def _on_save(self) -> None:
+        lessons = self._lessons()
+        limit = self._fb.MAX_APPROVED_LESSONS
+        if sum(1 for l in lessons if l["approved"]) > limit:
+            self._status.setText(f"承認は最大{limit}件までです。チェックを減らしてください")
+            return
+        if not self._fb.save_lessons(self._project_dir, lessons):
+            self._status.setText("保存に失敗しました（Bridge Directoryを確認してください）")
+            return
+        self.accept()
+
+
 class TutorialGeneratePanel(QWidget):
     """
     チュートリアル生成タブ。
@@ -255,6 +453,26 @@ class TutorialGeneratePanel(QWidget):
         input_row.addWidget(self._generate_btn)
         layout.addLayout(input_row)
 
+        # 生成条件（自由記述、2026-10-05追加）。トピックだけだと「ガウシアンスプラット」のような
+        # 指定が「それ風」の代用で済まされることがあったため、必ず守らせたい条件を別欄で渡す。
+        # 条件はトピックより優先され、満たせなかった場合は pitfalls に理由が書かれる。
+        cond_row = QHBoxLayout()
+        cond_label = QLabel("生成条件:")
+        cond_label.setAlignment(Qt.AlignTop)
+        self._requirements_edit = QTextEdit()
+        self._requirements_edit.setAcceptRichText(False)
+        self._requirements_edit.setFixedHeight(54)
+        self._requirements_edit.setPlaceholderText(
+            "（任意）必ず守ってほしい条件。例: ガウシアンスプラットを実際に使う / SOPだけで作る / Karmaは使わない"
+        )
+        self._requirements_edit.setToolTip(
+            "ここに書いた条件はトピックより優先されます。条件にある技法は「それ風」の代用ではなく実際に使わせます。\n"
+            "満たせなかった場合は、チュートリアルの「ハマりポイント」に理由が書かれます。"
+        )
+        cond_row.addWidget(cond_label)
+        cond_row.addWidget(self._requirements_edit, stretch=1)
+        layout.addLayout(cond_row)
+
         # レベル選択行（IMPROVEMENT_PLAN.md Phase1: RAGレベリング）。
         # 「3段階連続生成」がオンのときはレベル選択は無視され、常に
         # basic→applied→advanced の順で3本まとめて生成・自動保存する。
@@ -301,6 +519,28 @@ class TutorialGeneratePanel(QWidget):
         self._ref_label.setStyleSheet("color:#7dd3fc;font-size:11px;")
         layout.addWidget(self._ref_label)
         self._refresh_reference_label()
+
+        # 対象モデル（アニメーション・リギング用、2026-10-05追加）。選んだモデルファイルを
+        # 読み込んで、その上でリグ・アニメーションを作らせる。読み取り専用で、サンドボックス内に
+        # File SOP / KineFXのインポートノードとして読み込まれる（元ファイルは変更しない）。
+        self._target_model_path: str = ""
+        model_row = QHBoxLayout()
+        self._model_pick_btn = QPushButton("対象モデルを選択…")
+        self._model_pick_btn.setToolTip(
+            "アニメーション・リギングのチュートリアルで使うモデル（fbx / glb / gltf / usd / obj / bgeo / abc）を選びます。\n"
+            "ファイルは読み取り専用で、書き換えません。"
+        )
+        self._model_pick_btn.clicked.connect(self._on_pick_target_model)
+        self._model_clear_btn = QPushButton("クリア")
+        self._model_clear_btn.clicked.connect(self._on_clear_target_model)
+        model_row.addWidget(self._model_pick_btn)
+        model_row.addWidget(self._model_clear_btn)
+        model_row.addStretch()
+        layout.addLayout(model_row)
+        self._model_label = token_usage.fit_label(QLabel(""))
+        self._model_label.setStyleSheet("color:#7dd3fc;font-size:11px;")
+        layout.addWidget(self._model_label)
+        self._refresh_model_label()
 
         # 進行ログとプレビューを縦分割
         splitter = QSplitter(Qt.Vertical)
@@ -402,6 +642,27 @@ class TutorialGeneratePanel(QWidget):
             self._reference_paths.append(path)
         self._refresh_reference_label()
 
+    def _refresh_model_label(self) -> None:
+        if not self._target_model_path:
+            self._model_label.setText("対象モデル: なし（アニメーション・リギングで使うモデルを選べます）")
+            self._model_label.setToolTip("")
+            return
+        self._model_label.setText(f"対象モデル: {Path(self._target_model_path).name}（このモデルを使って生成します）")
+        self._model_label.setToolTip(self._target_model_path)
+
+    def _on_pick_target_model(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "対象モデルを選択", "",
+            "3Dモデル (*.fbx *.glb *.gltf *.usd *.usda *.usdc *.usdz *.obj *.bgeo *.sc *.abc *.ply);;すべてのファイル (*)",
+        )
+        if path:
+            self._target_model_path = path
+            self._refresh_model_label()
+
+    def _on_clear_target_model(self) -> None:
+        self._target_model_path = ""
+        self._refresh_model_label()
+
     def _on_add_reference_images(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self, "参考画像を選択", "", "画像 (*.png *.jpg *.jpeg *.webp *.bmp);;すべてのファイル (*)"
@@ -470,6 +731,8 @@ class TutorialGeneratePanel(QWidget):
                 "cf_api_key":     cfg.get("cf_api_key", ""),
                 "rag_namespace":  cfg.get("tutorial_rag_namespace", ""),
                 "reference_images": list(self._reference_paths),
+                "requirements":   self._requirements_edit.toPlainText().strip(),
+                "target_model":   self._target_model_path,
             }
             self._worker = TutorialChainWorker(topic, chain_kwargs)
             self._worker.progress.connect(self._on_progress)
@@ -493,6 +756,8 @@ class TutorialGeneratePanel(QWidget):
             cf_api_key=cfg.get("cf_api_key", ""),
             rag_namespace=cfg.get("tutorial_rag_namespace", ""),
             reference_images=list(self._reference_paths),
+            requirements=self._requirements_edit.toPlainText().strip(),
+            target_model=self._target_model_path,
         )
         level = self._level_combo.currentText()
         self._worker = TutorialWorker(self._agent, topic, level=level)
@@ -647,6 +912,15 @@ class TutorialGeneratePanel(QWidget):
             )
         except OSError:
             return None
+        # 生成時の自動指標を隣に残す（評価の集計・教訓の効果測定に使う。失敗しても保存は成功扱い）。
+        metrics = getattr(result, "metrics", None)
+        if metrics:
+            try:
+                import tutorial_feedback
+
+                tutorial_feedback.write_metrics(md_path, metrics)
+            except Exception:  # noqa: BLE001
+                pass
         return md_path, json_path
 
     def _launch_video_for_result(self, result, md_path: Path, json_path: Path) -> str:
@@ -967,7 +1241,7 @@ class VideoLibraryPanel(QWidget):
     外部プレイヤーで開く方式へ統一した。
     """
 
-    _THUMBNAIL_SIZE = QSize(96, 54)  # 16:9相当。QListWidgetのiconSizeと合わせて使う
+    _THUMBNAIL_SIZE = QSize(192, 108)  # 16:9。一覧をパネル全幅で見せるため、以前（96x54）の倍にした
 
     def __init__(self, cfg_getter: Callable[[], dict], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -1005,26 +1279,21 @@ class VideoLibraryPanel(QWidget):
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
-        splitter = QSplitter(Qt.Horizontal)
+        # 一覧だけをパネル全幅で見せる。右側にあった「外部プレイヤーで開いてください」という
+        # 案内だけのペインは、埋め込みプレイヤーを撤去した後は何も表示できず、一覧の幅を
+        # 狭めるだけだったため撤去した。再生はボタンまたはダブルクリック。
         self._list = QListWidget()
         self._list.setIconSize(self._THUMBNAIL_SIZE)
+        self._list.setSpacing(4)
+        self._list.setWordWrap(True)
         self._list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self._list.setToolTip("ダブルクリックで外部プレイヤーで再生します（Ctrl/Shiftクリックで複数選択）")
         self._list.currentItemChanged.connect(self._on_select)
+        self._list.itemDoubleClicked.connect(lambda _item: self._on_open_in_external_player())
         self._list.itemSelectionChanged.connect(
             lambda: self._delete_btn.setEnabled(len(self._list.selectedItems()) > 0)
         )
-        splitter.addWidget(self._list)
-
-        self._player_container = QWidget()
-        player_layout = QVBoxLayout(self._player_container)
-        player_layout.setContentsMargins(0, 0, 0, 0)
-        self._placeholder = QLabel("左の一覧から動画を選んでください")
-        self._placeholder.setAlignment(Qt.AlignCenter)
-        self._placeholder.setStyleSheet("color:#94a3b8;")
-        player_layout.addWidget(self._placeholder)
-        splitter.addWidget(self._player_container)
-        splitter.setSizes([220, 640])
-        layout.addWidget(splitter, stretch=1)
+        layout.addWidget(self._list, stretch=1)
 
     def _tutorials_dir(self) -> Path | None:
         bridge_dir = self._cfg_getter().get("local_bridge_dir", "")
@@ -1196,14 +1465,13 @@ class VideoLibraryPanel(QWidget):
             return
         path = Path(current.data(Qt.UserRole))
         if not path.exists():
-            self._placeholder.setText(f"ファイルが見つかりません: {path}")
+            self._status.setText(f"ファイルが見つかりません: {path.name}")
             self._current_video_path = None
             self._external_player_btn.setEnabled(False)
             return
 
         self._current_video_path = path
         self._external_player_btn.setEnabled(True)
-        self._placeholder.setText(f"{path.name}\n「外部プレイヤーで開く」で再生してください")
 
     def _on_open_in_external_player(self) -> None:
         """「外部プレイヤーで開く」ボタンのコールバック（2026-09-13追加）。
@@ -1486,6 +1754,236 @@ class TutorialHistoryPanel(QWidget):
         )
         token_usage.fit_label(self._detail)
         layout.addWidget(self._detail)
+        self._build_feedback_ui(layout)
+
+    # ── 評価（good/bad・タグ・メモ）と、そこからの学習（2026-10-05追加） ─────────────────
+
+    def _build_feedback_ui(self, layout: QVBoxLayout) -> None:
+        import tutorial_feedback
+
+        self._fb = tutorial_feedback
+        self._feedback_tags: set[str] = set()
+        self._upload_worker: FeedbackUploadWorker | None = None
+        self._loading_feedback = False
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("評価:"))
+        self._good_btn = QPushButton("👍 良い")
+        self._bad_btn = QPushButton("👎 悪い")
+        for btn in (self._good_btn, self._bad_btn):
+            btn.setCheckable(True)
+            btn.setEnabled(False)
+        self._good_btn.setToolTip("このチュートリアルを「良い」と評価して保存します（理由タグ・メモは後から付けられます）")
+        self._bad_btn.setToolTip("このチュートリアルを「悪い」と評価して保存します。理由タグやメモを付けると、教訓の候補作りに使えます")
+        self._good_btn.clicked.connect(lambda: self._on_rating_clicked(1))
+        self._bad_btn.clicked.connect(lambda: self._on_rating_clicked(-1))
+        row.addWidget(self._good_btn)
+        row.addWidget(self._bad_btn)
+
+        self._tag_btn = QToolButton()
+        self._tag_btn.setText("理由タグ ▾")
+        self._tag_btn.setPopupMode(QToolButton.InstantPopup)
+        self._tag_btn.setEnabled(False)
+        menu = QMenu(self._tag_btn)
+        self._tag_actions = {}
+        for index, tag in enumerate(tutorial_feedback.FEEDBACK_TAGS):
+            if index == len(tutorial_feedback.GOOD_TAGS):
+                menu.addSeparator()
+            action = menu.addAction(tag)
+            action.setCheckable(True)
+            action.toggled.connect(self._on_tags_changed)
+            self._tag_actions[tag] = action
+        self._tag_btn.setMenu(menu)
+        row.addWidget(self._tag_btn)
+
+        self._note_edit = QLineEdit()
+        self._note_edit.setPlaceholderText("一言メモ（何が良かった／悪かったか）")
+        self._note_edit.setEnabled(False)
+        self._note_edit.returnPressed.connect(self._on_save_feedback)
+        row.addWidget(self._note_edit, stretch=1)
+
+        self._fb_save_btn = QPushButton("タグ・メモを保存")
+        self._fb_save_btn.setEnabled(False)
+        self._fb_save_btn.clicked.connect(self._on_save_feedback)
+        self._fb_clear_btn = QPushButton("取り消し")
+        self._fb_clear_btn.setEnabled(False)
+        self._fb_clear_btn.clicked.connect(self._on_clear_feedback)
+        row.addWidget(self._fb_save_btn)
+        row.addWidget(self._fb_clear_btn)
+        layout.addLayout(row)
+
+        row2 = QHBoxLayout()
+        self._report_btn = QPushButton("評価の集計…")
+        self._report_btn.setToolTip("モデル・レベル・領域・理由タグ別の好評率と、平均コスト・反復回数などを表示します")
+        self._report_btn.clicked.connect(self._on_show_report)
+        self._lessons_btn = QPushButton("教訓…")
+        self._lessons_btn.setToolTip("低評価から得た「避けること」を編集します。承認したものだけが次回の生成に入ります")
+        self._lessons_btn.clicked.connect(self._on_open_lessons)
+        self._fb_status = token_usage.fit_label(QLabel(""))
+        self._fb_status.setStyleSheet("color:#94a3b8;font-size:11px;")
+        row2.addWidget(self._report_btn)
+        row2.addWidget(self._lessons_btn)
+        row2.addWidget(self._fb_status, stretch=1)
+        layout.addLayout(row2)
+
+    def _current_md_path(self) -> Path | None:
+        item = self._list.currentItem()
+        return Path(item.data(Qt.UserRole)) if item is not None else None
+
+    def _set_feedback_enabled(self, enabled: bool) -> None:
+        for widget in (self._good_btn, self._bad_btn, self._tag_btn, self._note_edit, self._fb_save_btn, self._fb_clear_btn):
+            widget.setEnabled(enabled)
+
+    def _load_feedback_state(self, md_path: Path | None) -> None:
+        """選択中のチュートリアルの評価をUIへ反映する（評価が無ければ未選択の状態）。"""
+        self._loading_feedback = True
+        try:
+            self._set_feedback_enabled(md_path is not None)
+            entry = self._fb.read_feedback(md_path) if md_path is not None else None
+            self._good_btn.setChecked(bool(entry and entry["rating"] == 1))
+            self._bad_btn.setChecked(bool(entry and entry["rating"] == -1))
+            tags = set(entry["tags"]) if entry else set()
+            for tag, action in self._tag_actions.items():
+                action.setChecked(tag in tags)
+            self._feedback_tags = tags
+            self._note_edit.setText(entry["note"] if entry else "")
+            self._refresh_tag_button()
+            if entry:
+                self._fb_status.setText(f"評価済み（{entry.get('rated_at', '')}）")
+            elif md_path is not None:
+                self._fb_status.setText("未評価")
+            else:
+                self._fb_status.setText("")
+        finally:
+            self._loading_feedback = False
+
+    def _refresh_tag_button(self) -> None:
+        count = len(self._feedback_tags)
+        self._tag_btn.setText(f"理由タグ（{count}）▾" if count else "理由タグ ▾")
+
+    def _on_tags_changed(self, _checked: bool) -> None:
+        if self._loading_feedback:
+            return
+        self._feedback_tags = {tag for tag, action in self._tag_actions.items() if action.isChecked()}
+        self._refresh_tag_button()
+
+    def _current_rating(self) -> int:
+        return 1 if self._good_btn.isChecked() else (-1 if self._bad_btn.isChecked() else 0)
+
+    def _on_rating_clicked(self, rating: int) -> None:
+        """👍/👎のどちらかを選ぶと、その場で保存する（もう一方は外れる）。"""
+        if self._loading_feedback:
+            return
+        self._good_btn.setChecked(rating == 1)
+        self._bad_btn.setChecked(rating == -1)
+        self._on_save_feedback()
+
+    def _on_save_feedback(self) -> None:
+        md_path = self._current_md_path()
+        if md_path is None:
+            return
+        rating = self._current_rating()
+        if rating == 0:
+            self._fb_status.setText("先に👍か👎を選んでください")
+            return
+        entry = self._fb.save_feedback(md_path, rating, sorted(self._feedback_tags), self._note_edit.text())
+        if entry is None:
+            self._fb_status.setText("評価を保存できませんでした（フォルダの書き込み権限を確認してください）")
+            return
+        self._fb_status.setText("評価を保存しました。Cloudflareへ送信中…")
+        self._refresh_current_label(md_path)
+        self._start_feedback_upload(md_path, entry)
+
+    def _on_clear_feedback(self) -> None:
+        md_path = self._current_md_path()
+        if md_path is None:
+            return
+        self._fb.save_feedback(md_path, 0, [], "")
+        self._start_feedback_upload(md_path, {"rating": 0, "title": md_path.stem})
+        self._load_feedback_state(md_path)
+        self._refresh_current_label(md_path)
+        self._fb_status.setText("評価を取り消しました")
+
+    def _start_feedback_upload(self, md_path: Path, entry: dict) -> None:
+        cfg = self._cfg_getter()
+        payload = self._fb.build_upload_payload(md_path, entry) if entry.get("rating") else {
+            "tutorialKey": md_path.stem, "rating": 0,
+        }
+        self._upload_worker = FeedbackUploadWorker(cfg.get("cf_url", ""), cfg.get("cf_api_key", ""), payload)
+        self._upload_worker.finished_with.connect(lambda ok, message: self._fb_status.setText(message))
+        self._upload_worker.start()
+
+    def _refresh_current_label(self, md_path: Path) -> None:
+        item = self._list.currentItem()
+        if item is not None:
+            item.setText(self._label_for(md_path))
+
+    def _label_for(self, path: Path) -> str:
+        label = path.stem
+        difficulty = self._peek_difficulty(path)
+        if difficulty:
+            label = f"{label}  [{difficulty}]"
+        if self._peek_status(path) == "archived":
+            label = f"⚠ {label}（打ち切り）"
+        entry = self._fb.read_feedback(path)
+        if entry:
+            label = ("👍 " if entry["rating"] == 1 else "👎 ") + label
+        return label
+
+    def _on_show_report(self) -> None:
+        tutorials_dir = self._tutorials_dir()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("評価の集計")
+        dialog.resize(760, 520)
+        layout = QVBoxLayout(dialog)
+        view = QTextEdit()
+        view.setReadOnly(True)
+        view.setStyleSheet("font-family:Consolas,'Yu Gothic UI',monospace;font-size:12px;")
+
+        def load() -> None:
+            entries = self._fb.list_entries(tutorials_dir) if tutorials_dir is not None else []
+            view.setPlainText(self._fb.format_report(entries))
+
+        load()
+        layout.addWidget(view)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        refresh = QPushButton("更新")
+        refresh.clicked.connect(load)
+        close = QPushButton("閉じる")
+        close.clicked.connect(dialog.accept)
+        buttons.addWidget(refresh)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+        dialog.exec()
+
+    def _make_agent(self):
+        """教訓の候補作りでClaudeを呼ぶためのエージェント（生成時と同じ設定。サンドボックスは作らない）。"""
+        from tutorial_agent import TutorialAgent
+
+        cfg = self._cfg_getter()
+        return TutorialAgent(
+            bridge_port=cfg.get("local_port", 8766),
+            project_dir=cfg.get("local_bridge_dir", ""),
+            rag_mode=cfg.get("tutorial_rag_mode") or cfg.get("mode", "local"),
+            gas_url=cfg.get("gas_url", ""),
+            gas_api_key=cfg.get("gas_api_key", ""),
+            model=cfg.get("tutorial_model", "claude-sonnet-5"),
+            claude_backend=cfg.get("tutorial_claude_backend", "gas"),
+            cf_url=cfg.get("cf_url", ""),
+            cf_api_key=cfg.get("cf_api_key", ""),
+            rag_namespace=cfg.get("tutorial_rag_namespace", ""),
+        )
+
+    def _on_open_lessons(self) -> None:
+        project_dir = self._cfg_getter().get("local_bridge_dir", "")
+        if not project_dir:
+            self._fb_status.setText("Settings タブで Bridge Directory を設定してください")
+            return
+        dialog = LessonsDialog(self, project_dir, self._tutorials_dir(), self._make_agent)
+        if dialog.exec():
+            approved = len(self._fb.approved_lessons(project_dir))
+            self._fb_status.setText(f"教訓を保存しました（承認 {approved} 件が次回の生成に入ります）")
 
     @staticmethod
     def _style_markdown_view(view: QTextEdit) -> None:
@@ -1534,16 +2032,13 @@ class TutorialHistoryPanel(QWidget):
         files = sorted(tutorials_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
         archived_count = 0
         for path in files:
-            label = path.stem
-            difficulty = self._peek_difficulty(path)
-            if difficulty:
-                label = f"{label}  [{difficulty}]"
             # 2026-09-14追加: frontmatterのstatusがarchived（=confirm_tutorialまで
             # 到達せず打ち切られた生成、tutorial_agent.py._assemble_markdown参照）の
             # ものを一覧上で分かるようにする。「Houdiniチュートリアル生成が正規に
             # 終了しているか一覧で確認したい」という実機フィードバックへの対応。
+            # 2026-10-05: 評価済みなら先頭に👍/👎を付ける。ラベルの組み立ては_label_forに集約。
+            label = self._label_for(path)
             if self._peek_status(path) == "archived":
-                label = f"⚠ {label}（打ち切り）"
                 archived_count += 1
             item = QListWidgetItem(label)
             item.setData(Qt.UserRole, str(path))
@@ -1606,8 +2101,10 @@ class TutorialHistoryPanel(QWidget):
 
     def _on_select(self, current: QListWidgetItem | None, _previous=None) -> None:
         if current is None:
+            self._load_feedback_state(None)
             return
         md_path = Path(current.data(Qt.UserRole))
+        self._load_feedback_state(md_path)
         try:
             self._md_view.setMarkdown(md_path.read_text(encoding="utf-8"))
         except OSError as exc:
