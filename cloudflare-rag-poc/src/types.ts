@@ -82,6 +82,9 @@ export interface QueryRequest {
   // 質問に添付する画像（VLM入力。既存GASの`image: {mimeType, data}`と同一契約、2026-08-27追加）。
   // 検索・埋め込みには使わず、最終回答生成時にRAGコンテキストと一緒にGeminiへ渡すだけ。
   image?: { mimeType: string; data: string };
+  // 接続済みの公式MCPサーバー（Notion・Atlassian等）の読み取り専用ツールも使って答える（2026-10-08追加、
+  // src/mcp/chat.ts）。管理者が「チャットで使う」をオンにしたサービスだけが対象。
+  useMcp?: boolean;
 }
 
 // POST /query レスポンス（既存契約と同一形式。memoryIdはPOC独自追加、チャットUIの評価ボタン用）
@@ -93,6 +96,8 @@ export interface QueryResponse {
   extractionRate: number;
   extractionDetail: string;
   memoryId?: number;
+  // useMcp で実際に呼んだMCPツール（画面に「どの外部サービスを使ったか」を出すため）
+  toolCalls?: Array<{ providerId: string; providerLabel: string; tool: string; ok: boolean; error?: string }>;
 }
 
 // "editor"（ナレッジ登録権限者）は2026-09-10追加。ナレッジ登録・KB同期のみ許可され、

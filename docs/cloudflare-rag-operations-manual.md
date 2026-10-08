@@ -16,7 +16,8 @@
 5. [ヘルスチェック・アラートの運用](#5-ヘルスチェックアラートの運用)
 6. [バックアップとロールバック](#6-バックアップとロールバック)
 7. [Houdiniチュートリアル生成をCloudflare経由に切り替える](#7-houdiniチュートリアル生成をcloudflare経由に切り替える)
-8. [障害対応の基本フロー](#8-障害対応の基本フロー)
+8. [公式MCP連携・チュートリアル評価の運用](#8-公式mcp連携チュートリアル評価の運用2026-10追加)
+9. [障害対応の基本フロー](#9-障害対応の基本フロー)
 
 ---
 
@@ -225,7 +226,54 @@ Cloudflareダッシュボード（[dash.cloudflare.com](https://dash.cloudflare.
 
 **既定値は変更していないため、これらの設定を触らなければ従来通りGAS経由で動作する。** 切り替えた場合、Claude呼び出しのトークン消費は`token_budgets`の`budget_type='claude'`で管理される。上限は未設定だと無制限になる点に注意（RAGのnamespace予算のような警告のみの仕組みとは異なり、`src/claude.ts`の`reserveBudget()`が超過時に実際にリクエストを拒否するサーバー側の強制）。設定・変更は管理タブの「APIキー管理」の「Claude予算（チュートリアル生成等）」列から行える（2026-09-23追加。入力欄を空にして「設定」を押すと無制限に戻る）。CLIからは`POST /admin/keys/set-capacity`（`limitTokens: null`で無制限に戻す）でも同じことができる。
 
-## 8. 障害対応の基本フロー
+## 8. 公式MCP連携・チュートリアル評価の運用（2026-10追加）
+
+### 8-0. ナレッジ登録タブの画面構成（2026-10-08〜）
+
+- 上部に「＋ ナレッジを追加」（3ステップのポップアップ：登録方法の選択 → コンテンツの登録 → 確認・実行）と「🔗 ＋ 連携するシステムを追加」（システム選択グリッド → 詳細）。
+- 「📖 登録済みナレッジ」：namespace切替・検索・ページ送り・個別削除。
+- 「🧩 連携中のシステム」：接続済みの連携を一覧し、行クリックで詳細を開く。
+
+### 8-1. 公式MCP連携（Notion・Atlassian）
+
+| やること | 手順 |
+|---|---|
+| 接続する | 管理画面 →「ナレッジ登録」→「🔗 ＋ 連携するシステムを追加」→ Notion / Atlassian のカードを選び「…で認証する（公式MCP）」。各社の同意画面で許可すると管理画面へ戻る（管理者のみ） |
+| ツールを選ぶ | 詳細画面の「チャットで使うツール」で、使うものにチェックして「ツールの選択を保存」 |
+| チャットで使う | 「RAGチャットでこのサービスのツールを使う」をオン（既定はオフ）。チャット画面に「外部サービスも使う」が出る |
+| 再認証 | 状態が「要再認証」のとき「再認証する」。ツール選択・チャット設定は引き継がれる |
+| 解除 | 「連携を解除」。接続情報（トークン）をD1から削除する |
+| 監査の確認 | D1の`mcp_audit`（誰が・どのツールを・成否）。引数は保存しない。180日で自動削除 |
+
+```bash
+# 状態をD1から直接確認（トークンは出さない）
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT provider_id, status, chat_enabled, connected_at FROM mcp_connections"
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT provider_id, action, status, created_at FROM mcp_audit ORDER BY id DESC LIMIT 20"
+```
+
+詳細・設計は [mcp-client.md](../cloudflare-rag-poc/docs/mcp-client.md)。
+
+### 8-2. チュートリアルの評価（管理者の閲覧）
+
+- Houdiniパネル（履歴タブ）で付けた👍👎・タグ・メモが、`POST /tutorial-feedback/submit`でD1の`tutorial_feedback`に入る（1ユーザー×1チュートリアルで1行）。
+- 管理画面 →「利用状況・コスト」→「Houdiniチュートリアルの評価」で、モデル・レベル・領域・タグ別の集計、一覧、CSVを見られる（adminのみ。非adminは403）。
+- 送信に失敗したときは、履歴タブの状態欄に出る。ローカルの`_feedback.json`は残るので、評価を付け直せば再送される。
+
+```bash
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT rating, COUNT(*) FROM tutorial_feedback GROUP BY rating"
+```
+
+### 8-3. マイグレーションの適用
+
+```bash
+cd cloudflare-rag-poc
+npm run db:migrate:remote   # 0017（評価）・0018（MCP）
+npm run deploy
+```
+
+wranglerが`7403`（アカウントが無効）で失敗することがあるが、一時的なAPIエラーのことが多い。`wrangler whoami`でログインとスコープ（d1・workers）を確認し、再実行する。
+
+## 9. 障害対応の基本フロー
 
 ```mermaid
 flowchart TD

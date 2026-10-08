@@ -75,7 +75,17 @@ export async function handleImportUrl(req: Request, env: Env, user: AuthedUser):
 }
 
 const CRAWL_DEFAULT_MAX_PAGES = 20;
-const CRAWL_HARD_MAX_PAGES = 50;
+// 最大ページ数の上限（2026-10-06に50から事実上の無制限へ）。以前は50で頭打ちだったが、大きなドキュメント
+// サイトを丸ごと取り込めなかった。バッチ処理（1リクエスト1〜5ページ）なので1リクエストの負荷は
+// ページ数に依存しない。実際の歯止めは下のCRAWL_MAX_STATE_CHARS（進行状態がD1の1行に収まる範囲）。
+const CRAWL_HARD_MAX_PAGES = 100000;
+// 進行状態（キュー＋訪問済みURLのJSON）をcrawl_jobsの1行に保存するため、D1の行サイズ上限（約2MB）に
+// 余裕を持たせた文字数で打ち切る。超えたらそこまでを正常終了として返す（取り込み済みの分は有効）。
+// 目安: URLが1件100文字前後なら、訪問済み約1万ページ分。
+const CRAWL_MAX_STATE_CHARS = 1_500_000;
+// キューの長さの上限。ファンアウトの大きいページで未処理URLが際限なく溜まるのを防ぐ
+// （溢れたURLは捨てるだけで、別のページのリンクから後で再発見される）。
+const CRAWL_MAX_QUEUE = 3000;
 const CRAWL_DEFAULT_DEPTH = 1;
 const CRAWL_HARD_MAX_DEPTH = 3;
 // Drive/Notion同期と同じ理由（Cloudflare Workers Freeプランはこのアカウントでは
@@ -325,7 +335,7 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
         if (visited.has(link)) continue;
         // ファンアウトの大きいページ（リンクが数百〜数千件）でキューが際限なく
         // 肥大化しないよう、実際に処理され得る件数（maxPages）の数倍で頭打ちにする。
-        if (job.queue.length >= job.maxPages * 4) break;
+        if (job.queue.length >= Math.min(job.maxPages * 4, CRAWL_MAX_QUEUE)) break;
         let linkUrl: URL;
         try {
           linkUrl = new URL(link);
@@ -343,7 +353,15 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
   }
 
   job.visited = Array.from(visited);
-  const done = job.queue.length === 0 || job.processedCount >= job.maxPages;
+  let done = job.queue.length === 0 || job.processedCount >= job.maxPages;
+  let stoppedEarly = "";
+  if (!done) {
+    const stateSize = JSON.stringify(job.queue).length + JSON.stringify(job.visited).length;
+    if (stateSize > CRAWL_MAX_STATE_CHARS) {
+      done = true;
+      stoppedEarly = `${job.processedCount}ページ処理した時点で、クロールの進行状態が保存できる大きさを超えたため終了しました（取り込み済みの分は登録されています）。続きは、パス絞り込みを変えて別のクロールとして実行してください。`;
+    }
+  }
 
   if (done) {
     if (!isNewJob) await deleteCrawlJob(env, opId);
@@ -360,5 +378,6 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
     processedCount: job.processedCount,
     maxPages: job.maxPages,
     done,
+    stoppedEarly: stoppedEarly || undefined,
   });
 }

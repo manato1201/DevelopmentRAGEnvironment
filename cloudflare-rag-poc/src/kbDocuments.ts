@@ -45,7 +45,23 @@ export async function handleListDocuments(req: Request, env: Env, user: AuthedUs
   const res = await env.DB.prepare("SELECT file FROM kb_documents WHERE namespace = ? ORDER BY file")
     .bind(namespace)
     .all<{ file: string }>();
-  return jsonResponse(200, { status: "ok", files: (res.results ?? []).map((r) => r.file) });
+  // 管理画面の一覧用に、ドキュメントごとの種類（登録元）と最終更新日時を付ける（2026-10-08）。
+  // kb_log（成功した登録の記録）から引く。ログが無い（古い登録・ログ削除後）ものはnullのまま返す。
+  // filesは従来の呼び出し元（名前だけを使うもの）のために残す。
+  const logRes = await env.DB.prepare(
+    `SELECT file, source, MAX(created_at) AS updated_at
+     FROM kb_log WHERE namespace_id = ? AND status = 'ok' AND file IS NOT NULL
+     GROUP BY file`,
+  )
+    .bind(namespace)
+    .all<{ file: string; source: string; updated_at: number }>();
+  const logByFile = new Map((logRes.results ?? []).map((r) => [r.file, r]));
+  const files = (res.results ?? []).map((r) => r.file);
+  const documents = files.map((file) => {
+    const log = logByFile.get(file);
+    return { file, source: log?.source ?? null, updatedAt: log?.updated_at ?? null };
+  });
+  return jsonResponse(200, { status: "ok", files, documents });
 }
 
 // POST /admin/kb/delete-document — namespace内の特定ドキュメント（file名一致）だけを削除

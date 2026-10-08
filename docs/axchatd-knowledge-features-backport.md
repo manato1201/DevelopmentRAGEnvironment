@@ -263,3 +263,31 @@ Python版（ローカルGPU/CPU環境に依存するが、一般に同様の重�
 | 音声/動画文字起こし | `RAGEnvironment/server/app/converters/media_transcribe.py` | `scripts/youtube_transcribe.py`(bridge未接続) |
 | HTTPルーティング | `RAGEnvironment/server/app/routers/writer.py` | `scripts/rag_local_bridge.py` |
 | 管理画面UI | `RAGEnvironment/web/src/pages/AdminPage.tsx` | (要確認、無い場合は新規検討) |
+
+---
+
+## 6. 2026-10 の逆輸入（ポップアップ・公式MCP）
+
+AxChatD（`Enterprises/AXTechCare/AxChatD`）の2026-10時点のコード・ドキュメント（`docs/external_integrations.html`・`AddKnowledgeModal.tsx`・`mcp/`）を読み、次を取り入れた。
+
+| AxChatD側 | 本プロジェクトでの取り込み | 状態 |
+|---|---|---|
+| `AddKnowledgeModal.tsx`（3ステップ：方法選択→確認→登録、ドラッグ＆ドロップ、1件ずつの状態、Q&A・CSV） | `cloudflare-rag-poc/src/chatUi.ts` の「ナレッジを追加」ポップアップ。6つの入力欄を統合。namespaceは選択式。失敗分だけの再実行、中断、複数URL・複数ファイルに対応 | 反映済み |
+| `knowledgeRegistration.ts`（クロールのバッチ・タイムアウト対策） | 既存のバッチ方式（opId）を踏襲。最大ページ数の上限を撤廃し、状態サイズで安全に停止 | 反映済み |
+| `mcp/core/{protocol,auth,permissions,service,connection}.py` | `src/mcp/{protocol,auth,permissions,service}.ts`。探索・自動登録（RFC 7591）・PKCE・ツール方針・状態管理を移植。保存はD1 | 反映済み |
+| `mcp/providers/`（宣言だけの固有層） | `src/mcp/providers.ts`（Notion・Atlassian） | 反映済み |
+| `features/mcp/core/schema.ts`（JSON Schema→ライブモデルの部分集合） | `src/mcp/schema.ts`（Geminiの関数宣言へ） | 反映済み |
+| `McpToolPicker.tsx`・`SystemConnectionModal.tsx` | 管理画面の「公式MCP連携」ポップアップ（接続・ツール選択・チャット利用の切り替え） | 反映済み |
+| `external_integrations.html`（構成・図・手順の見せ方） | `docs/system-guide.html`（`scripts/build_system_guide.py`で生成）。図の作り方・目次・色分けを参考にした | 反映済み |
+
+**取り入れなかったもの・差分**
+
+- 接続の単位：AxChatDはエージェント（namespace）単位。こちらはデプロイ単位（既存の`oauth_connections`と同じ）。
+- 書き込みツール：AxChatDはブラウザ側のライブチャットが確認ダイアログを出せる。こちらはチャットがサーバー側で回答を作るため、書き込み系はチャットに出さない（読み取り専用のみ）。
+- ユーザー単位のGoogle連携（Gmail・Calendar・Drive）、Google公式MCP（Developer Preview参加が必要）、Analytics画面、エージェントの自己認識：今回は対象外。
+- トークンの暗号化：AxChat:D側も未対応。こちらもD1に平文（PoC水準）。
+
+**逆方向に伝えられること（本プロジェクトで先に分かったこと）**
+
+- Atlassianの公式MCPサーバーは、無効なトークンでも`tools/list`を返す。失効の検知は実行時になる場合がある。
+- OAuth結果ページに外部のエラー文を出すときはHTMLエスケープが要る（本プロジェクトでは修正済み）。

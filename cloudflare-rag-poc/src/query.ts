@@ -1,6 +1,7 @@
 import type { AuthedUser, Env, QueryRequest, QueryResponse, SourceEntry } from "./types";
 import { jsonResponse } from "./http";
-import { generateAnswer, sha256Hex } from "./embeddings";
+import { buildAnswerPrompt, generateAnswer, sha256Hex } from "./embeddings";
+import { answerWithMcpTools, type McpToolCallLog } from "./mcp/chat";
 import { BudgetExceededError, reserveBudget, reconcileBudget } from "./budget";
 import { assertNotRateLimited } from "./rateLimit";
 import { buildContextTexts, resolveEffectiveNamespaces, retrieve } from "./retrieve";
@@ -69,11 +70,19 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
   let tokensUsed: number;
   let inputTokens: number;
   let outputTokens: number;
+  let toolCalls: McpToolCallLog[] = [];
   try {
     const { ranked, hydeTokensUsed } = await retrieve(env, user, query, effective, level, limit);
     const { texts, sources } = buildContextTexts(ranked);
 
-    const answerResult = await generateAnswer(env, query, texts, history, image);
+    // 外部サービスのMCPツールも使う指定（useMcp）。使えるツールが無ければ従来どおり検索結果だけで答える。
+    const mcpResult = body.useMcp
+      ? await answerWithMcpTools(env, user.userId, buildAnswerPrompt(query, texts, history, true), image)
+      : null;
+    const answerResult = mcpResult
+      ? { text: mcpResult.text, promptTokens: mcpResult.promptTokens, candidateTokens: mcpResult.candidateTokens }
+      : await generateAnswer(env, query, texts, history, image);
+    if (mcpResult) toolCalls = mcpResult.toolCalls;
     const parsed = parseExtractionRate(answerResult.text, sources.length);
     cited = parsed.cited;
     sourcesWithCitation = sources.map((s, i) => ({ ...s, cited: parsed.citationCounts[i] > 0, citationCount: parsed.citationCounts[i] }));
@@ -115,6 +124,7 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
     extractionRate,
     extractionDetail: `${cited}/${sourcesLength}`,
     memoryId,
+    ...(toolCalls.length > 0 ? { toolCalls } : {}),
   } satisfies QueryResponse);
 }
 
