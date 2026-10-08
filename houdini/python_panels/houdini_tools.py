@@ -65,6 +65,10 @@ HOUDINI_TOOLS: list[dict] = [
             "（例: 'tx', 'scale', 'rows'）。タプルパラメータ（例: 't', 'size'）に対しては "
             "value に空白区切り文字列（例: '0 1 0'）を渡すと各成分に展開される。"
             "パラメータ名が不明な場合は get_node_info で確認できる。"
+            "アニメーションさせたいときは value の代わりに expression（時間で変わる式）か "
+            "keyframes（フレームごとの値）を渡す。この2つはタプルではなく成分名（'tx','ty','tz'）で指定する。"
+            "ランプ（Ramp: グラデーションやカーブ）のパラメータは value では設定できない（点が1個に潰れる）ので、"
+            "ramp（ポイントの配列）で指定する。"
         ),
         "input_schema": {
             "type": "object",
@@ -79,15 +83,59 @@ HOUDINI_TOOLS: list[dict] = [
                 },
                 "value": {
                     "type": ["string", "number", "boolean"],
-                    "description": "設定する値。タプルには空白区切り文字列",
+                    "description": "設定する値。タプルには空白区切り文字列。expression/keyframes を使うときは不要",
+                },
+                "expression": {
+                    "type": "string",
+                    "description": (
+                        "Hscript の式（アニメーション用）。例: 'sin($F*0.2)*3'、'fit($F,1,48,0,5)'、"
+                        "'$FF*0.1'。$F は現在のフレーム。数値パラメータにだけ使える"
+                    ),
+                },
+                "keyframes": {
+                    "type": "array",
+                    "description": "キーフレーム（アニメーション用）。例: [{\"frame\":1,\"value\":0},{\"frame\":24,\"value\":5}]",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "frame": {"type": "number"},
+                            "value": {"type": "number"},
+                        },
+                        "required": ["frame", "value"],
+                    },
+                },
+                "interpolation": {
+                    "type": "string",
+                    "enum": ["bezier", "linear", "constant", "ease"],
+                    "description": "keyframes の補間（既定 bezier）。ramp の補間にも使う（既定 linear。ease は滑らか）",
+                },
+                "ramp": {
+                    "type": "array",
+                    "description": (
+                        "ランプパラメータ用。pos（0〜1）と value のポイントを2個以上。数値ランプは value が数、"
+                        "カラーランプは value が [r,g,b]。例: [{\"pos\":0,\"value\":1},{\"pos\":0.5,\"value\":3},{\"pos\":1,\"value\":1}]"
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "pos": {"type": "number"},
+                            "value": {"type": ["number", "array"], "items": {"type": "number"}},
+                        },
+                        "required": ["pos", "value"],
+                    },
                 },
             },
-            "required": ["node", "parm", "value"],
+            "required": ["node", "parm"],
         },
     },
     {
         "name": "connect_nodes",
-        "description": "2つのノードを接続する（from_node の出力 → to_node の入力）。",
+        "description": (
+            "2つのノードを接続する（from_node の出力 → to_node の入力）。"
+            "入力の意味が名前で決まるノード（VOPなど）は、番号ではなく input_name で指定すること"
+            "（例: turbnoise の入力0は pos ではなく type。番号の取り違えはcookが通ってしまい気づけない）。"
+            "入力名は get_node_info で確認できる。"
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -106,6 +154,14 @@ HOUDINI_TOOLS: list[dict] = [
                 "output_index": {
                     "type": "integer",
                     "description": "接続元の出力インデックス（デフォルト 0）",
+                },
+                "input_name": {
+                    "type": "string",
+                    "description": "接続先の入力名（input_index の代わり。例: 'pos'）。get_node_info の in[i] \"名前\" で確認",
+                },
+                "output_name": {
+                    "type": "string",
+                    "description": "接続元の出力名（output_index の代わり。例: 'P'）",
                 },
             },
             "required": ["from_node", "to_node"],
@@ -141,7 +197,7 @@ HOUDINI_TOOLS: list[dict] = [
             "properties": {
                 "category": {
                     "type": "string",
-                    "description": "ノードカテゴリ: 'Sop' | 'Object' | 'Dop' | 'Vop' | 'Cop2' | 'Top'",
+                    "description": "ノードカテゴリ: 'Sop' | 'Object' | 'Dop' | 'Vop' | 'Cop'（Copernicus。copnet の中身） | 'Cop2'（旧COP） | 'Top' | 'Lop' | 'Chop'",
                 },
                 "filter": {
                     "type": "string",
@@ -163,6 +219,26 @@ HOUDINI_TOOLS: list[dict] = [
                 "node": {
                     "type": "string",
                     "description": "対象ノードのサンドボックス相対パス",
+                },
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "inspect_geometry",
+        "description": (
+            "ノードの出力の「中身」を調べる。cook が成功しても、点が0個・範囲がおかしい・属性が付いていない・"
+            "画像が一定値、といった失敗は分からないため、cook_node の後にこれで結果を確かめること。"
+            "SOP: 点/プリミティブ数、バウンディングボックス、属性（型と値の範囲）、グループ。"
+            "COP（Copernicus）: 解像度、チャンネル数、値の範囲（最小/最大/平均）、一定値かどうか。"
+            "LOP: ステージ内のプリム一覧。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {
+                    "type": "string",
+                    "description": "調べるノードのサンドボックス相対パス（SOP / COP / LOP）",
                 },
             },
             "required": ["node"],
@@ -640,6 +716,8 @@ class HoudiniToolExecutor:
         if tool_name == "connect_nodes":
             src, dst = self._leaf(tool_input.get("from_node")), self._leaf(tool_input.get("to_node"))
             idx = int(tool_input.get("input_index", 0) or 0)
+            if tool_input.get("input_name"):
+                return f"{src} の出力を、{dst} の「{tool_input['input_name']}」入力につなぐ"
             if idx > 0:
                 return f"{src} の出力を、{dst} の{idx + 1}番目の入力につなぐ"
             return f"{src} の出力を、{dst} の入力につなぐ"
@@ -808,10 +886,23 @@ class HoudiniToolExecutor:
     def _tool_set_parameter(self, args: dict) -> str:
         node = self._resolve(args["node"])
         parm_name = args["parm"]
-        value = args["value"]
 
         self._last_parm_change = None
+        if args.get("ramp"):
+            return self._set_parameter_ramp(node, parm_name, args)
+        if args.get("expression") is not None or args.get("keyframes"):
+            return self._set_parameter_animation(node, parm_name, args)
+        if "value" not in args:
+            return "value、expression、keyframes のいずれかを指定してください"
+        value = args["value"]
         parm = node.parm(parm_name)
+        if parm is not None and self._is_ramp_parm(parm):
+            # value を渡すとランプが「点1個」に潰れるのに「ok」と返っていた（2026-10-05に実機で発見）。
+            return (
+                f"'{parm_name}' はランプパラメータです。value では設定できません。"
+                f"ramp 引数でポイントを渡してください（現在: {self._ramp_summary(parm)}）。"
+                "例: ramp=[{\"pos\":0,\"value\":1},{\"pos\":1,\"value\":0}]"
+            )
         if parm is not None:
             old_value = self._safe_eval(parm)
             parm.set(self._coerce_scalar(parm, value))
@@ -846,6 +937,362 @@ class HoudiniToolExecutor:
             f"パラメータ '{parm_name}' が見つかりません。"
             f"利用可能なパラメータ（先頭40件）: {available}"
         )
+
+    def _set_parameter_animation(self, node, parm_name: str, args: dict) -> str:
+        """
+        数値パラメータに式（expression）またはキーフレーム（keyframes）を設定する（2026-10-05追加）。
+        以前は set_parameter が固定値しか設定できず、「sin($F*0.2)*3」のような式を渡すと
+        「numeric parm to a non-numeric value」で失敗し、アニメーションを一切作れなかった。
+        設定後に数フレームを評価して値の変化を返す（モデルが「本当に動くか」を確認できる）。
+        """
+        hou = self._hou
+        parm = node.parm(parm_name)
+        if parm is None:
+            tuple_parm = node.parmTuple(parm_name)
+            if tuple_parm is not None:
+                names = ", ".join(p.name() for p in tuple_parm)
+                return f"{parm_name} はタプルです。式・キーフレームは成分ごとに設定してください（{names}）"
+            available = ", ".join(p.name() for p in node.parms()[:40])
+            return f"パラメータ '{parm_name}' が見つかりません。利用可能なパラメータ（先頭40件）: {available}"
+
+        old_value = self._safe_eval(parm)
+        expression = args.get("expression")
+        keyframes = args.get("keyframes")
+        if expression is not None:
+            parm.deleteAllKeyframes()
+            parm.setExpression(str(expression), hou.exprLanguage.Hscript)
+            shown = f"= {expression}"
+            summary = f"式 {expression}"
+        else:
+            interp = {"bezier": "bezier()", "linear": "linear()", "constant": "constant()", "ease": "ease()"}.get(
+                str(args.get("interpolation") or "bezier"), "bezier()"
+            )
+            parm.deleteAllKeyframes()
+            ordered = sorted(keyframes, key=lambda k: float(k["frame"]))
+            for item in ordered:
+                key = hou.Keyframe()
+                key.setFrame(float(item["frame"]))
+                key.setValue(float(item["value"]))
+                key.setExpression(interp, hou.exprLanguage.Hscript)
+                parm.setKeyframe(key)
+            shown = "キーフレーム " + ", ".join(f"F{float(k['frame']):g}={float(k['value']):g}" for k in ordered)
+            summary = f"{len(ordered)}個のキーフレーム（{args.get('interpolation') or 'bezier'}）"
+
+        start = float(ordered[0]["frame"]) if expression is None else float(hou.frame())
+        end = float(ordered[-1]["frame"]) if expression is None else start + 24
+        samples = []
+        for frame in (start, (start + end) / 2, end):
+            try:
+                samples.append(f"F{frame:g}={parm.evalAtFrame(frame):.4g}")
+            except Exception as exc:  # noqa: BLE001
+                return f"{self._rel(node)}.{parm_name} に{summary}を設定しましたが、評価でエラー: {exc}"
+        # 不正な式（未知の関数・括弧の不整合など）は評価値が黙って0になり、例外にならず
+        # node.errors() にだけ出る。0を「正常な値」と誤解させないため、ここで拾って返す。
+        try:
+            node.cook(force=True)
+        except Exception:  # noqa: BLE001
+            pass
+        problems = [e for e in node.errors() if "expression" in e.lower() or parm_name in e]
+        if problems:
+            return (
+                f"{self._rel(node)}.{parm_name} に{summary}を設定しましたが、式にエラーがあります: "
+                f"{' / '.join(problems)}。式を直して設定し直してください（Hscriptの関数: sin, cos, fit, rand, noise など）"
+            )
+        self._last_parm_change = {
+            "node_path": node.path(), "name": parm_name, "label": self._parm_label(parm),
+            "old": old_value, "new": shown, "code": False,
+        }
+        return f"{self._rel(node)}.{parm_name} に{summary}を設定（{', '.join(samples)}）"
+
+    def _is_ramp_parm(self, parm) -> bool:
+        try:
+            return parm.parmTemplate().type() == self._hou.parmTemplateType.Ramp
+        except Exception:  # noqa: BLE001
+            return False
+
+    @staticmethod
+    def _ramp_summary(parm) -> str:
+        try:
+            ramp = parm.eval()
+            parts = []
+            for key, value in zip(ramp.keys(), ramp.values()):
+                if isinstance(value, (tuple, list)):
+                    shown = "(" + ",".join(f"{c:.2g}" for c in value) + ")"
+                else:
+                    shown = f"{value:.4g}"
+                parts.append(f"{key:.3g}→{shown}")
+            return f"{len(parts)}点 " + ", ".join(parts)
+        except Exception:  # noqa: BLE001
+            return "?"
+
+    def _set_parameter_ramp(self, node, parm_name: str, args: dict) -> str:
+        """ランプ（グラデーション・カーブ）パラメータを、ポイントの配列で設定する（2026-10-05追加）。"""
+        hou = self._hou
+        parm = node.parm(parm_name)
+        if parm is None or not self._is_ramp_parm(parm):
+            ramps = [p.name() for p in node.parms() if self._is_ramp_parm(p)]
+            hint = f"このノードのランプパラメータ: {', '.join(ramps)}" if ramps else "このノードにランプパラメータはありません"
+            return f"'{parm_name}' はランプパラメータではありません。{hint}"
+        is_color = parm.parmTemplate().parmType() == hou.rampParmType.Color
+        basis_map = {
+            "linear": hou.rampBasis.Linear, "bezier": hou.rampBasis.Bezier,
+            "constant": hou.rampBasis.Constant, "ease": hou.rampBasis.MonotoneCubic,
+        }
+        basis = basis_map.get(str(args.get("interpolation") or "linear"), hou.rampBasis.Linear)
+        points = sorted(args["ramp"], key=lambda p: float(p["pos"]))
+        if len(points) < 2:
+            return "ランプは2点以上のポイントが必要です"
+        keys, values = [], []
+        for point in points:
+            keys.append(float(point["pos"]))
+            value = point["value"]
+            if is_color:
+                comps = value.split() if isinstance(value, str) else value
+                if not isinstance(comps, (list, tuple)) or len(comps) != 3:
+                    return f"'{parm_name}' はカラーランプです。value は [r,g,b] の3成分で渡してください"
+                values.append(tuple(float(c) for c in comps))
+            else:
+                if isinstance(value, (list, tuple)):
+                    return f"'{parm_name}' は数値ランプです。value は数値で渡してください"
+                values.append(float(value))
+        old_value = self._ramp_summary(parm)
+        parm.set(hou.Ramp((basis,) * len(keys), tuple(keys), tuple(values)))
+        new_value = self._ramp_summary(parm)
+        self._last_parm_change = {
+            "node_path": node.path(), "name": parm_name, "label": self._parm_label(parm),
+            "old": old_value, "new": new_value, "code": False,
+        }
+        return f"{self._rel(node)}.{parm_name} = ランプ {new_value}"
+
+    @staticmethod
+    def _port_names(node, kind: str) -> list[str]:
+        try:
+            return list(node.inputNames() if kind == "in" else node.outputNames())
+        except Exception:  # noqa: BLE001
+            return []
+
+    @staticmethod
+    def _port_label(names: list[str], index: int) -> str:
+        """入出力名の表示。input1 / source のような名前に意味が無いものは出さない。"""
+        if index < len(names) and names[index] and not re.fullmatch(r"(input|source|output)\d*", names[index]):
+            return f" {names[index]}"
+        return ""
+
+    def _port_index(self, names: list[str], wanted: str, label: str, node) -> int:
+        if wanted in names:
+            return names.index(wanted)
+        listing = ", ".join(f"{i}:{n}" for i, n in enumerate(names)) or "（名前を取得できません。番号で指定してください）"
+        raise ValueError(f"{label}名 '{wanted}' が見つかりません。{node.name()} の{label}: {listing}")
+
+    def _tool_inspect_geometry(self, args: dict) -> str:
+        """cook後の「中身」を数値で返す（2026-10-05追加）。cookの成功だけでは、点が0個・一定値の画像・
+        属性の付け忘れなどに気づけなかった。SOP / COP(Copernicus) / LOP に対応。"""
+        node = self._resolve(args["node"])
+        category = node.type().category().name()
+        try:
+            node.cook(force=False)
+        except Exception:  # noqa: BLE001
+            pass
+        lines = [f"ノード: {self._rel(node)}（タイプ: {node.type().name()} / カテゴリ: {category}）"]
+        lines += [f"  [エラー] {e}" for e in node.errors()]
+        if category == "Sop":
+            lines += self._inspect_sop(node)
+        elif category == "Cop":
+            lines += self._inspect_cop(node)
+        elif category == "Lop":
+            lines += self._inspect_lop(node)
+        else:
+            lines.append(f"このカテゴリ（{category}）の中身の検査には未対応です（Sop / Cop / Lop に対応）")
+        return "\n".join(lines)
+
+    _INSPECT_STAT_LIMIT = 200_000
+
+    @staticmethod
+    def _fmt_num(value) -> str:
+        if isinstance(value, float):
+            return f"{value:.4g}"
+        return str(value)
+
+    def _inspect_sop(self, node) -> list[str]:
+        import itertools
+        from collections import Counter
+
+        hou = self._hou
+        geo = node.geometry()
+        if geo is None:
+            return ["ジオメトリがありません（このノードは何も出力していません）"]
+        n_points = geo.intrinsicValue("pointcount")
+        n_prims = geo.intrinsicValue("primitivecount")
+        n_verts = geo.intrinsicValue("vertexcount")
+        lines = [f"点: {n_points} / プリミティブ: {n_prims} / 頂点: {n_verts}"]
+        if n_points == 0 and n_prims == 0:
+            lines.append("※ ジオメトリが空です（点もプリミティブも0個）。入力の接続・パラメータ・グループ指定を確認してください")
+            return lines
+        try:
+            box = geo.boundingBox()
+            size, center = box.sizevec(), box.center()
+            lines.append(
+                f"バウンディングボックス: サイズ ({size[0]:.4g}, {size[1]:.4g}, {size[2]:.4g}) / "
+                f"中心 ({center[0]:.4g}, {center[1]:.4g}, {center[2]:.4g})"
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        if n_prims:
+            sample = list(itertools.islice(geo.iterPrims(), 20000))
+            kinds = Counter(p.type().name() for p in sample)
+            note = f"（先頭{len(sample)}件で集計）" if n_prims > len(sample) else ""
+            lines.append("プリミティブの種類: " + ", ".join(f"{k} {v}" for k, v in kinds.most_common(6)) + note)
+
+        def describe(attrib, values_fn, count) -> str:
+            data_type = attrib.dataType()
+            type_name = str(data_type).split(".")[-1].lower()
+            size = attrib.size()
+            label = f"{attrib.name()}({type_name}{size if size > 1 else ''})"
+            if data_type not in (hou.attribData.Float, hou.attribData.Int) or values_fn is None or count == 0:
+                return label
+            if count * size > self._INSPECT_STAT_LIMIT:
+                return label + "[多数のため統計は省略]"
+            try:
+                values = values_fn(attrib.name())
+            except Exception:  # noqa: BLE001
+                return label
+            if not values:
+                return label
+            if size == 1:
+                return f"{label}[{self._fmt_num(min(values))}〜{self._fmt_num(max(values))}, 平均{sum(values) / len(values):.4g}]"
+            comps = [values[i::size] for i in range(min(size, 3))]
+            spans = " ".join(f"[{self._fmt_num(min(c))},{self._fmt_num(max(c))}]" for c in comps)
+            return f"{label}{spans}"
+
+        for title, attribs, fn, count in (
+            ("ポイント属性", geo.pointAttribs(), geo.pointFloatAttribValues, n_points),
+            ("プリミティブ属性", geo.primAttribs(), geo.primFloatAttribValues, n_prims),
+            ("頂点属性", geo.vertexAttribs(), None, n_verts),
+        ):
+            shown = []
+            for attrib in list(attribs)[:25]:
+                if attrib.name() == "P":
+                    continue
+                fn_for = fn
+                if fn is not None and attrib.dataType() == hou.attribData.Int:
+                    fn_for = geo.pointIntAttribValues if title == "ポイント属性" else geo.primIntAttribValues
+                shown.append(describe(attrib, fn_for, count))
+            if shown:
+                lines.append(f"{title}: " + ", ".join(shown))
+        detail = []
+        for attrib in list(geo.globalAttribs())[:12]:
+            try:
+                value = str(geo.attribValue(attrib.name()))
+            except Exception:  # noqa: BLE001
+                value = "?"
+            detail.append(f"{attrib.name()}={value[:40]}")
+        if detail:
+            lines.append("ディテール属性: " + ", ".join(detail))
+        groups = [g.name() for g in geo.pointGroups()][:10] + [g.name() for g in geo.primGroups()][:10]
+        if groups:
+            lines.append("グループ: " + ", ".join(groups))
+        names = {a.name() for a in geo.pointAttribs()}
+        if {"opacity", "scale_0", "rot_0", "f_dc_0"} <= names:
+            lines.append("※ 3DGS属性を持つポイントです（GSplatのデータ）。表示・レンダーには bakegsplat での変換が必要です")
+        elif "GS_Alpha" in names:
+            lines.append("※ bakegsplat 済みのGSplatです（orient / scale / Cd / GS_Alpha）")
+        return lines
+
+    def _inspect_cop(self, node) -> list[str]:
+        try:
+            layer = node.layer()
+        except Exception as exc:  # noqa: BLE001
+            return [f"レイヤーを取得できませんでした: {exc}"]
+        if layer is None:
+            return ["レイヤーがありません（このCOPノードは画像を出力していません）"]
+        lines = []
+        try:
+            res = layer.bufferResolution()
+            storage = str(layer.storageType()).split(".")[-1]
+            lines.append(f"解像度: {res[0]}x{res[1]} / チャンネル数: {layer.channelCount()} / 型: {storage}")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            lines.append(
+                f"値の範囲: 最小 {layer.computeMin()} / 最大 {layer.computeMax()} / 平均 {layer.computeAverage()}"
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if layer.isConstant():
+                lines.append("※ 画像は一定値です（全ピクセルが同じ）。入力の接続やパラメータを確認してください")
+        except Exception:  # noqa: BLE001
+            pass
+        return lines or ["画像の情報を取得できませんでした"]
+
+    def _inspect_lop(self, node) -> list[str]:
+        import itertools
+        from collections import Counter
+
+        try:
+            stage = node.stage()
+        except Exception as exc:  # noqa: BLE001
+            return [f"ステージを取得できませんでした: {exc}"]
+        if stage is None:
+            return ["ステージがありません"]
+        prims = [(str(p.GetPath()), p.GetTypeName()) for p in itertools.islice(stage.Traverse(), 2000)]
+        prims = [p for p in prims if p[0] != "/HoudiniLayerInfo"]
+        if not prims:
+            return ["ステージにプリムがありません（空です）"]
+        kinds = Counter(kind or "（型なし）" for _, kind in prims)
+        lines = [f"プリム: {len(prims)}件 / 種類: " + ", ".join(f"{k} {v}" for k, v in kinds.most_common(8))]
+        lines += [f"  {path}  [{kind or '型なし'}]" for path, kind in prims[:30]]
+        if len(prims) > 30:
+            lines.append(f"  …ほか{len(prims) - 30}件")
+        return lines
+
+    def _cook_top_static(self, node) -> str:
+        """
+        TOPノードは cook() しても作業項目が生成されず、実際には何もしていないのに「cook成功」に
+        見えていた（2026-10-05に実機で発見）。作業項目を「生成」して数を返す。ただし作業の「実行」
+        （pythonscriptの実行・ファイル出力・プロセス起動）は副作用があり、サンドボックスの
+        ノードパス制限では防げないため行わない。
+        """
+        generate_error = None
+        try:
+            node.generateStaticWorkItems(block=True)
+        except Exception as exc:  # noqa: BLE001
+            generate_error = repr(exc)
+        chain, seen, stack = [], set(), [node]
+        while stack:
+            current = stack.pop()
+            if current.path() in seen:
+                continue
+            seen.add(current.path())
+            chain.append(current)
+            stack.extend(i for i in current.inputs() if i is not None)
+        counts = []
+        total = 0
+        for current in reversed(chain):
+            try:
+                pdg_node = current.getPDGNode()
+                n_items = len(pdg_node.workItems) if pdg_node is not None else 0
+            except Exception:  # noqa: BLE001
+                n_items = 0
+            total += n_items
+            counts.append(f"  {self._rel(current)}: 作業項目 {n_items}件")
+        errors = list(node.errors())
+        warnings = list(node.warnings())
+        if generate_error and not errors:
+            errors = [f"作業項目の生成で例外: {generate_error}"]
+        header = f"TOP の作業項目を生成: {self._rel(node)}（生成のみ。作業の実行はしていません）"
+        lines = [header] + counts
+        lines.append(
+            "  ※ 実行（ファイル出力・プロセス起動）は行いません。partition / wait 系の作業項目は実行時に"
+            "決まるため0件になることがあります"
+        )
+        if total == 0 and not errors:
+            lines.append("  ※ 作業項目が0件です。上流にジェネレーター（wedge, genericgenerator, filepattern 等）があるか確認してください")
+        lines += [f"  [エラー] {e}" for e in errors]
+        lines += [f"  [警告] {w}" for w in warnings]
+        if not errors:
+            lines[0] = f"cook 成功（TOPは作業項目の生成まで）: {self._rel(node)}（エラーなし）"
+        return "\n".join(lines)
 
     @staticmethod
     def _safe_eval(parm) -> str:
@@ -894,15 +1341,23 @@ class HoudiniToolExecutor:
         dst = self._resolve(args["to_node"])
         input_index = int(args.get("input_index", 0))
         output_index = int(args.get("output_index", 0))
+        in_names = self._port_names(dst, "in")
+        out_names = self._port_names(src, "out")
+        if args.get("input_name"):
+            input_index = self._port_index(in_names, str(args["input_name"]), "入力", dst)
+        if args.get("output_name"):
+            output_index = self._port_index(out_names, str(args["output_name"]), "出力", src)
         dst.setInput(input_index, src, output_index)
         # 接続先が末端（出力先が無いノード）なら、それがこのグラフの「今の結果」なので
         # ビューポートに映す（_show_in_viewport参照）。
         if not dst.outputs():
             self._display_candidate_path = dst.path()
             self._show_in_viewport(dst)
+        # 入出力名も返す。番号だけの接続は、意図と違う入力（例: pos のつもりで type）へつないでも
+        # cook が通ってしまうため、何につないだかをモデルが見て気づけるようにする。
         return (
-            f"接続しました: {self._rel(src)}[out:{output_index}] → "
-            f"{self._rel(dst)}[in:{input_index}]"
+            f"接続しました: {self._rel(src)}[out:{output_index}{self._port_label(out_names, output_index)}] → "
+            f"{self._rel(dst)}[in:{input_index}{self._port_label(in_names, input_index)}]"
         )
 
     def _simulation_type_hint(self, node) -> str | None:
@@ -950,6 +1405,12 @@ class HoudiniToolExecutor:
 
     def _tool_cook_node(self, args: dict) -> str:
         node = self._resolve(args["node"])
+        try:
+            is_top = node.type().category().name() == "Top"
+        except Exception:  # noqa: BLE001 -- カテゴリが取れないノードは通常のcookへ
+            is_top = False
+        if is_top:
+            return self._cook_top_static(node)
         sim_hint = self._simulation_type_hint(node)
         is_sim = sim_hint is not None
         frames_evaluated = 0
@@ -961,6 +1422,14 @@ class HoudiniToolExecutor:
                 node.cook(force=True)
             except Exception as exc:
                 cook_exception = repr(exc)  # 詳細は下のガードで扱う（errors()が空の場合の保険）
+            # 式・キーフレームで時間とともに変わるノード（アニメーション）は、1フレームだけでは
+            # 動きの途中で出るエラーを見逃すため、シミュレーションと同様に複数フレーム評価する。
+            try:
+                if not cook_exception and node.isTimeDependent():
+                    frames_evaluated, cook_exception = self._cook_simulation_frames(node)
+                    sim_hint, is_sim = "time-dependent", True
+            except Exception:  # noqa: BLE001
+                pass
         errors = list(node.errors())
         warnings = list(node.warnings())
         if cook_exception and not errors:
@@ -969,11 +1438,15 @@ class HoudiniToolExecutor:
             # 「cook成功（エラー・警告なし）」と誤報しないよう、合成のエラー行として
             # 追加する（2026-09-20、リファクタリング時に発見）。
             errors = [f"cook()が例外を送出しました（このノードのerrors()には反映されていません）: {cook_exception}"]
-        sim_note = (
-            f"（シミュレーションノード「{sim_hint}」と判定したため{frames_evaluated}"
-            f"フレーム分evaluateして確認しました）"
-            if is_sim else ""
-        )
+        if is_sim and sim_hint == "time-dependent":
+            sim_note = f"（時間とともに変化するノードなので{frames_evaluated}フレーム分evaluateして確認しました）"
+        elif is_sim:
+            sim_note = (
+                f"（シミュレーションノード「{sim_hint}」と判定したため{frames_evaluated}"
+                f"フレーム分evaluateして確認しました）"
+            )
+        else:
+            sim_note = ""
         if not errors:
             # cookしたノードの結果を動画のビューポート素材（cook_node回は動画側が
             # ビューポート画像を優先する）に映すため、表示を一時的にこのノードへ切り替える。
@@ -995,13 +1468,18 @@ class HoudiniToolExecutor:
             "obj": "objNodeTypeCategory",
             "dop": "dopNodeTypeCategory",
             "vop": "vopNodeTypeCategory",
-            "cop2": "cop2NodeTypeCategory",
+            "cop2": "cop2NodeTypeCategory",  # 旧COP（copnet ではなく cop2net の中身）
+            # Copernicus（H20.5以降の新COP）。`copnet` で作れるのはこちら。以前はこの一覧が
+            # 無く、「cop2」で旧COPの名前（Copernicusに存在しない `noise` 等）を返していた。
+            "cop": "copNodeTypeCategory",
             "top": "topNodeTypeCategory",
+            "lop": "lopNodeTypeCategory",
+            "chop": "chopNodeTypeCategory",
         }
         cat_key = args["category"].lower()
         getter_name = category_map.get(cat_key)
         if getter_name is None:
-            return f"未知のカテゴリです: {args['category']}（Sop/Object/Dop/Vop/Cop2/Top）"
+            return f"未知のカテゴリです: {args['category']}（Sop/Object/Dop/Vop/Cop/Cop2/Top/Lop/Chop。copnet の中身は Cop）"
         category = getattr(self._hou, getter_name)()
 
         keyword = (args.get("filter") or "").lower()
@@ -1029,12 +1507,18 @@ class HoudiniToolExecutor:
         lines.append("デフォルトから変更されたパラメータ:")
         lines.extend(changed[:30] or ["  （なし）"])
 
-        inputs = [
-            f"  in[{i}] ← {self._rel(inp)}" if inp else f"  in[{i}] ← （未接続）"
-            for i, inp in enumerate(node.inputs())
-        ]
-        lines.append("入力接続:")
+        in_names = self._port_names(node, "in")
+        connected = list(node.inputs())
+        inputs = []
+        for i in range(min(max(len(in_names), len(connected)), 16)):
+            name = f' "{in_names[i]}"' if i < len(in_names) and in_names[i] else ""
+            inp = connected[i] if i < len(connected) else None
+            inputs.append(f"  in[{i}]{name} ← {self._rel(inp)}" if inp else f"  in[{i}]{name} ← （未接続）")
+        lines.append("入力接続（番号と名前。connect_nodes は input_name でも指定できる）:")
         lines.extend(inputs or ["  （入力なし）"])
+        out_names = self._port_names(node, "out")
+        if len(out_names) > 1:
+            lines.append("出力: " + ", ".join(f"out[{i}] {n}" for i, n in enumerate(out_names[:16])))
 
         errors = list(node.errors())
         warnings = list(node.warnings())
