@@ -715,7 +715,7 @@ with urllib.request.urlopen(req, timeout=30) as res:
 - [x] ~~知識ベース同期のサブリクエスト数上限対策~~ → バッチ処理（`startIndex`/`batchSize`/`opId`/`nextIndex`）に変更済み
 - [x] 評価（Houdiniチュートリアル）の受付と管理者限定の閲覧 → `src/tutorialFeedback.ts`・`migrations/0017`・管理画面「利用状況・コスト」タブ（2026-10-05）
 - [x] クロールの最大ページ数の上限（50）を撤廃（進行状態が約1.5MBを超えたら案内つきで正常終了、待ち行列は3000件で頭打ち） → `src/urlImport.ts`（2026-10-06）
-- [x] ナレッジ追加を3ステップのポップアップに統合（ファイル・URL・YouTube・クロール・Q&A・CSV） → `src/chatUi.ts`（2026-10-08、AXChat:Dを参考）
+- [x] ナレッジ追加を3ステップのポップアップに統合（ファイル・URL・YouTube・クロール・Q&A・CSV） → `src/chatUi.ts`（2026-10-08）
 - [x] 公式MCP連携（MCPクライアント。Notion・Atlassian。OAuth 2.1・自動登録・PKCE、チャットから読み取り専用ツール） → `src/mcp/`・`migrations/0018`・[docs/mcp-client.md](docs/mcp-client.md)（2026-10-08）
 - [x] システム全体のガイド → [../docs/system-guide.html](../docs/system-guide.html)
 - [x] ~~Google Drive側の実認証情報での同期検証~~ → サービスアカウント経由で実際のDriveフォルダ（houdini21・houdini22・cedecnotes）を同期。houdini22は8ドキュメント・67チャンク登録、cedecnotesはPDF/PPTX中心で大半スキップ（既知の未対応mimeType）、houdini21は対象フォルダが空だった（2026-08-26）

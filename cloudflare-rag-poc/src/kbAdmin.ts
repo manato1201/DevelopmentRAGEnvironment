@@ -105,7 +105,7 @@ export async function handleKbHistory(req: Request, env: Env, user: AuthedUser):
 }
 
 // POST /admin/kb/overview — namespaceごとのナレッジ登録状況を一覧表示する（2026-09-10追加。
-// AXChat:D管理コンソールの「Knowledge by Agent」参考画像を元に、ナレッジ登録タブに
+// 別プロジェクト管理コンソールの「Knowledge by Agent」参考画像を元に、ナレッジ登録タブに
 // 「どのnamespaceにどれだけ登録済みか」が一目で分かる集計を追加した）。
 // chunks_fts（1チャンク=1行、ingest.ts/kbIngest.tsの両方から書き込まれる）から
 // ファイル数・チャンク数を、kb_log（status='ok'の最新行）から最終更新日時を、

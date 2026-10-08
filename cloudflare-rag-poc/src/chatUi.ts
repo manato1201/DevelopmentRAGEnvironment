@@ -35,8 +35,10 @@ export function chatUiHtml(): string {
     --user-bubble: #130f22; --assistant-bubble: transparent;
     --good: #15846e; --bad: #ff6f5e;
   }
+  /* U6: テーマは data-theme="light|dark" で手動指定。未指定（自動）ならOS設定に追従する。 */
   @media (prefers-color-scheme: light) {
-    :root {
+    :root:not([data-theme]) {
+      color-scheme: light;
       --bg: #ffffff; --panel: #f7f5ff; --border: #e4e1ea;
       --text: #14121a; --muted: #6b6470; --muted2: #857e8c;
       --accent: #6a3ef0; --highlight: #b8790f; --teal: #0f6656;
@@ -44,6 +46,26 @@ export function chatUiHtml(): string {
       --good: #0f6656; --bad: #d94f3f;
     }
   }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #ffffff; --panel: #f7f5ff; --border: #e4e1ea;
+    --text: #14121a; --muted: #6b6470; --muted2: #857e8c;
+    --accent: #6a3ef0; --highlight: #b8790f; --teal: #0f6656;
+    --user-bubble: #efe9ff; --assistant-bubble: transparent;
+    --good: #0f6656; --bad: #d94f3f;
+  }
+  /* U1: 数字は等幅（桁揃え）。追加トークンは2つだけ。 */
+  :root { --font-num: tabular-nums; --row-sub: var(--muted); }
+  .score-pct, #myBudget, .kpi-card .kpi-value, .kpi-card .kpi-sub, .pager, .ns-count, .answer-foot { font-variant-numeric: var(--font-num); }
+  .icon { width: 1em; height: 1em; vertical-align: -.15em; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .answer-foot { font-size: .74rem; color: var(--row-sub); margin-top: .3rem; }
+  .empty-state { text-align: center; color: var(--muted); font-size: .88rem; padding: 1.2rem .5rem; }
+  .empty-dots { display: inline-flex; gap: 6px; margin-top: .6rem; }
+  .empty-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: drift 2.4s ease-in-out infinite; }
+  .empty-dots i:nth-child(2) { animation-delay: .4s; } .empty-dots i:nth-child(3) { animation-delay: .8s; }
+  @keyframes drift { 0%,100% { transform: translateY(0); opacity: .4; } 50% { transform: translateY(-5px); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .empty-dots i { animation: none; } }
+  #themeToggle { white-space: nowrap; }
   * { box-sizing: border-box; }
   html, body { overflow-x: hidden; max-width: 100%; }
   body {
@@ -220,7 +242,7 @@ export function chatUiHtml(): string {
   .role-badge.member, .role-badge.guest { color: var(--muted); }
   .role-select { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: .2rem .4rem; font-size: .78rem; font-family: inherit; }
 
-  /* AXChat:D管理コンソールのOverview/Billingページ（添付画像）を参考にしたKPIカード
+  /* 別プロジェクト管理コンソールのOverview/Billingページ（添付画像）を参考にしたKPIカード
      （2026-09-10追加）。既存のDala方針（枠線ゼロ・無シャドウ）は保ちつつ、hairlineの
      区切りだけを使った軽量なカードにしている。 */
   .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .8rem; margin-bottom: 1.2rem; }
@@ -278,7 +300,7 @@ export function chatUiHtml(): string {
   .role-table th, .role-table td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--border); }
   .role-table th { color: var(--muted); font-weight: 600; font-size: .72rem; }
 
-  /* Overview/Knowledgeの2カラムミニリスト（AXChat:D参考画像の"Plan Distribution"/
+  /* Overview/Knowledgeの2カラムミニリスト（別プロジェクト参考画像の"Plan Distribution"/
      "Top Agents by Token Usage"に相当、2026-09-10追加）。 */
   .overview-cols { display: flex; gap: 1.2rem; flex-wrap: wrap; margin-top: 1rem; }
   .overview-col { flex: 1; min-width: 220px; }
@@ -333,7 +355,7 @@ export function chatUiHtml(): string {
   #tab-chat.chat-empty #chatHero { display: block; }
   #tab-chat.chat-empty #messages { display: none; }
 
-  /* ---------- ポップアップ（モーダル、2026-10-08追加。AXChat:DのAddKnowledgeModal等を参考） ---------- */
+  /* ---------- ポップアップ（モーダル、2026-10-08追加。別プロジェクトのAddKnowledgeModal等を参考） ---------- */
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.62); z-index: 900; display: flex; align-items: center; justify-content: center; padding: 1rem; }
   .modal { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 14px; width: min(680px, 100%); max-height: calc(100vh - 2rem); display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.5); outline: none; }
   .modal.wide { width: min(860px, 100%); }
@@ -406,7 +428,7 @@ export function chatUiHtml(): string {
   .mcp-status-list li { display: flex; align-items: center; gap: .5rem; padding: .3rem 0; font-size: .85rem; }
   .tool-calls { font-size: .76rem; color: var(--muted); margin-top: .3rem; }
 
-  /* ---------- AXChat:Dを参考にした画面構成（2026-10-08）：アクションバー・カード・システム選択・詳細 ---------- */
+  /* ---------- 別プロジェクトを参考にした画面構成（2026-10-08）：アクションバー・カード・システム選択・詳細 ---------- */
   .btn.outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
   .btn.outline:hover { background: var(--panel); color: var(--accent); }
   .kb-toolbar { display: flex; gap: .6rem; flex-wrap: wrap; padding-bottom: 1rem; }
@@ -427,7 +449,7 @@ export function chatUiHtml(): string {
   .conn-empty { color: var(--muted); font-size: .85rem; padding: .4rem 0; }
   .chip { font-size: .75rem; padding: .1rem .65rem; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); color: var(--muted2); }
   .chip.ok { color: var(--teal); border-color: var(--teal); }
-  /* 登録ポップアップ：3つの帯状のステップ（AXChat:Dのナレッジ追加と同じ見せ方） */
+  /* 登録ポップアップ：3つの帯状のステップ（別プロジェクトのナレッジ追加と同じ見せ方） */
   .modal-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; padding: 0 1.2rem .8rem; }
   .modal-step { padding: .55rem .8rem; border-radius: 10px; border: none; background: var(--panel); font-size: .85rem; }
   .modal-step.active { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text); }
@@ -469,7 +491,7 @@ export function chatUiHtml(): string {
     <h1>RAG Chat（Cloudflare POC）</h1>
     <input type="password" id="apiKey" placeholder="APIキー（Bearer トークン）" autocomplete="off">
     <select id="namespaceFocus" title="検索対象を個別DBに絞り込む（精度向上）">
-      <option value="">🌐 全DB横断検索</option>
+      <option value="">全DB横断検索</option>
     </select>
     <select id="level">
       <option value="">レベル: すべて</option>
@@ -478,6 +500,7 @@ export function chatUiHtml(): string {
       <option value="advanced">advanced</option>
     </select>
     <span id="myBudget" class="hint" title="自分のAPIキーのトークン予算残量"></span>
+    <button type="button" id="themeToggle" title="テーマ切替（自動 / ライト / ダーク）">テーマ: 自動</button>
   </div>
   <nav class="tabs">
     <button data-tab="chat" class="active">チャット</button>
@@ -681,7 +704,7 @@ export function chatUiHtml(): string {
 
       <div class="section">
         <h2>namespaceごとのナレッジ登録状況</h2>
-        <p class="hint">AXChat:D管理コンソールの「Knowledge by Agent」を参考に追加（2026-09-10）。ファイル数・チャンク数はchunks_ftsから、最終更新日時は同期成功ログから集計しています。</p>
+        <p class="hint">別プロジェクト管理コンソールの「Knowledge by Agent」を参考に追加（2026-09-10）。ファイル数・チャンク数はchunks_ftsから、最終更新日時は同期成功ログから集計しています。</p>
         <button class="btn" id="refreshKbOverview">再読み込み</button>
         <div class="table-scroll"><table class="admin-table" id="kbOverviewTable"><thead><tr><th>namespace</th><th>ファイル数</th><th>チャンク数</th><th>同期元</th><th>最終更新</th></tr></thead><tbody></tbody></table></div>
       </div>
@@ -799,7 +822,7 @@ export function chatUiHtml(): string {
 
       <div class="section">
         <h2>公式MCP連携（Notion・Atlassian）</h2>
-        <p class="hint">各社が公開する公式のMCPサーバーに接続し、そのツールをRAGチャットから使えるようにします（2026-10-08追加。AXChat:Dの公式MCP連携を参考）。認証はOAuth 2.1で、こちらでOAuthアプリを作る必要はありません。接続・ツール選択は管理者のみ、使えるのは読み取り専用のツールだけです。</p>
+        <p class="hint">各社が公開する公式のMCPサーバーに接続し、そのツールをRAGチャットから使えるようにします（2026-10-08追加。別プロジェクトの公式MCP連携を参考）。認証はOAuth 2.1で、こちらでOAuthアプリを作る必要はありません。接続・ツール選択は管理者のみ、使えるのは読み取り専用のツールだけです。</p>
         <ul class="mcp-status-list" id="mcpStatusList"><li class="hint">確認中…</li></ul>
         <button class="btn primary" id="mcpOpenBtn">MCP連携を管理…</button>
         <button class="btn" id="mcpRefreshBtn">状態を再読み込み</button>
@@ -821,7 +844,7 @@ export function chatUiHtml(): string {
     <div class="admin-subpanel admin-only-section" data-subtab="users">
       <div class="section">
         <h2>ユーザー概要</h2>
-        <p class="hint">AXChat:D管理コンソールのUsersページを参考に追加（2026-09-10）。</p>
+        <p class="hint">別プロジェクト管理コンソールのUsersページを参考に追加（2026-09-10）。</p>
         <div class="kpi-grid" id="usersOverviewKpis"></div>
       </div>
 
@@ -970,7 +993,7 @@ export function chatUiHtml(): string {
 
       <div class="section">
         <h2>Houdiniチュートリアルの評価</h2>
-        <p class="hint">Houdiniパネルで付けられた👍/👎・理由タグ・メモと、生成時の自動指標（反復回数・コスト・cookエラー数）です。管理者だけが閲覧できます（2026-10-05追加）。</p>
+        <p class="hint">Houdiniパネルで付けられた良い/悪い評価・理由タグ・メモと、生成時の自動指標（反復回数・コスト・cookエラー数）です。管理者だけが閲覧できます（2026-10-05追加）。</p>
         <div class="field-row">
           <label>期間</label>
           <select id="tutorialFeedbackDays">
@@ -981,8 +1004,8 @@ export function chatUiHtml(): string {
           <label>評価</label>
           <select id="tutorialFeedbackRating">
             <option value="" selected>すべて</option>
-            <option value="1">👍 良い</option>
-            <option value="-1">👎 悪い</option>
+            <option value="1">良い</option>
+            <option value="-1">悪い</option>
           </select>
           <label>ユーザー名</label>
           <input type="text" id="tutorialFeedbackUser" placeholder="任意（部分一致）">
@@ -991,13 +1014,13 @@ export function chatUiHtml(): string {
         </div>
         <div class="kpi-grid" id="tutorialFeedbackKpis"></div>
         <h3>モデル別</h3>
-        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByModel"><thead><tr><th>モデル</th><th>件数</th><th>👍 / 👎</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByModel"><thead><tr><th>モデル</th><th>件数</th><th>良い / 悪い</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
         <h3>レベル別</h3>
-        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByLevel"><thead><tr><th>レベル</th><th>件数</th><th>👍 / 👎</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByLevel"><thead><tr><th>レベル</th><th>件数</th><th>良い / 悪い</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
         <h3>領域別</h3>
-        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByDomain"><thead><tr><th>領域</th><th>件数</th><th>👍 / 👎</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByDomain"><thead><tr><th>領域</th><th>件数</th><th>良い / 悪い</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
         <h3>理由タグ別</h3>
-        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByTag"><thead><tr><th>タグ</th><th>件数</th><th>👍 / 👎</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByTag"><thead><tr><th>タグ</th><th>件数</th><th>良い / 悪い</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
         <h3>評価の一覧</h3>
         <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackTable"><thead><tr><th>日時</th><th>ユーザー</th><th>評価</th><th>チュートリアル</th><th>モデル / レベル</th><th>タグ</th><th>メモ</th><th>自動指標</th></tr></thead><tbody></tbody></table></div>
       </div>
@@ -1231,7 +1254,7 @@ export function chatUiHtml(): string {
     try {
       const data = await api("/me/namespaces", {});
       setAuthGate(true, data.role);
-      namespaceFocusEl.innerHTML = '<option value="">🌐 全DB横断検索</option>';
+      namespaceFocusEl.innerHTML = '<option value="">全DB横断検索</option>';
       data.namespaces.slice().sort().forEach((ns) => {
         const opt = document.createElement("option");
         opt.value = ns;
@@ -1518,6 +1541,47 @@ export function chatUiHtml(): string {
     heroAnimId = requestAnimationFrame(frame);
   }
 
+  // U1: アイコンは線幅1.5pxの1セットのインラインSVGのみ（絵文字は使わない）。
+  // パスはすべて固定文字列で、外部入力は渡さない。
+  const ICON_PATHS = {
+    check: "M3.5 8.5l3 3 6-7",
+    star: "M8 2l1.8 3.7 4 .6-2.9 2.8.7 4L8 11.2 4.4 13.1l.7-4L2.2 6.3l4-.6z",
+    sources: "M3 4h10M3 8h10M3 12h6",
+  };
+  function iconEl(name) {
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("class", "icon");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("d", ICON_PATHS[name]);
+    svg.appendChild(path);
+    return svg;
+  }
+
+  // U6: テーマ手動切替（自動 → ライト → ダーク）。選択はlocalStorageに保存する（不可環境では握りつぶす）。
+  const THEME_LABELS = { auto: "自動", light: "ライト", dark: "ダーク" };
+  function applyTheme(mode) {
+    if (mode === "light" || mode === "dark") document.documentElement.setAttribute("data-theme", mode);
+    else document.documentElement.removeAttribute("data-theme");
+    const btn = document.getElementById("themeToggle");
+    if (btn) btn.textContent = "テーマ: " + THEME_LABELS[mode === "light" || mode === "dark" ? mode : "auto"];
+  }
+  (function initTheme() {
+    let saved = "auto";
+    try { saved = localStorage.getItem("ragPocTheme") || "auto"; } catch { /* 不可環境は自動 */ }
+    applyTheme(saved);
+    const btn = document.getElementById("themeToggle");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme") || "auto";
+      const next = cur === "auto" ? "light" : cur === "light" ? "dark" : "auto";
+      applyTheme(next);
+      try { localStorage.setItem("ragPocTheme", next); } catch { /* noop */ }
+    });
+  })();
+
   function setStatus(text, isError) {
     statusEl.textContent = text || "";
     statusEl.className = isError ? "error" : "";
@@ -1640,7 +1704,7 @@ export function chatUiHtml(): string {
       // お気に入り登録（2026-09-04追加）。ratingとは独立に「あとで見返したい」を残せるようにする。
       const pinBtn = document.createElement("button");
       pinBtn.className = "rate-btn" + (existingPinned ? " active-pin" : "");
-      pinBtn.textContent = existingPinned ? "★お気に入り" : "☆お気に入り";
+      setPinLabel(pinBtn, !!existingPinned);
       pinBtn.onclick = () => togglePin(memoryId, !pinBtn.classList.contains("active-pin"), pinBtn);
       meta.appendChild(pinBtn);
     }
@@ -1758,13 +1822,32 @@ export function chatUiHtml(): string {
         }
         const citedBadge = document.createElement("span");
         citedBadge.className = "cited-badge " + (s.cited ? "cited" : "uncited");
-        citedBadge.textContent = s.cited ? "✓引用" : "未引用";
+        if (s.cited) citedBadge.appendChild(iconEl("check"));
+        citedBadge.appendChild(document.createTextNode(s.cited ? "引用" : "未引用"));
         li.appendChild(citedBadge);
         sourceLiRefs[i] = li;
         ul.appendChild(li);
       });
       details.appendChild(ul);
       wrap.appendChild(details);
+    }
+
+    // U4: 回答の下に、出典件数とAI生成であることを固定表示する。
+    const foot = document.createElement("div");
+    foot.className = "answer-foot";
+    foot.textContent = "出典 " + (sources ? sources.length : 0) + "件・AIが生成した回答です";
+    wrap.appendChild(foot);
+
+    // U5: 0件ヒット時だけ、小さな空状態を出す（通常画面には遊びを入れない）。
+    if (!sources || sources.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.appendChild(document.createTextNode("深い海に迷ってしまいました。別のキーワードを試してみてください"));
+      const dots = document.createElement("div");
+      dots.className = "empty-dots";
+      for (let i = 0; i < 3; i++) dots.appendChild(document.createElement("i"));
+      empty.appendChild(dots);
+      wrap.appendChild(empty);
     }
     container.appendChild(wrap);
   }
@@ -1789,11 +1872,17 @@ export function chatUiHtml(): string {
     }
   }
 
+  function setPinLabel(btn, pinned) {
+    btn.textContent = "";
+    btn.appendChild(iconEl("star"));
+    btn.appendChild(document.createTextNode(pinned ? " お気に入り済み" : " お気に入り"));
+  }
+
   async function togglePin(memoryId, pinned, btn) {
     try {
       await api("/memory/pin", { id: memoryId, pinned });
       btn.classList.toggle("active-pin", pinned);
-      btn.textContent = pinned ? "★お気に入り" : "☆お気に入り";
+      setPinLabel(btn, pinned);
     } catch (e) {
       showToast("お気に入り登録に失敗しました: " + e.message, "error");
     }
@@ -2436,7 +2525,7 @@ export function chatUiHtml(): string {
     );
   });
 
-  // Overview KPIサマリー（AXChat:D管理コンソールの添付参考画像を元にしたレイアウト、
+  // Overview KPIサマリー（別プロジェクト管理コンソールの添付参考画像を元にしたレイアウト、
   // 2026-09-10追加）。既存の各エンドポイントを束ねて叩くだけで、専用の集計APIは
   // 追加していない（呼び出し回数は増えるが、管理タブを開いた時の1回だけなので許容範囲）。
   // ミニリストの1行を組み立てる共通ヘルパー（ロール内訳・namespaceランキングで共用、
@@ -2480,7 +2569,7 @@ export function chatUiHtml(): string {
       box.appendChild(kpiCard("RAGトークン使用量", tokensThisMonth.toLocaleString(), "直近30日間"));
       box.appendChild(kpiCard("推定コスト合計（Gemini+Claude）", "$" + totalCost.toFixed(2), "直近30日間"));
 
-      // ロール別キー内訳（AXChat:Dの"Plan Distribution"に相当）
+      // ロール別キー内訳（別プロジェクトの"Plan Distribution"に相当）
       const roleCounts = {};
       keysData.keys.forEach((k) => { roleCounts[k.role] = (roleCounts[k.role] || 0) + 1; });
       const roleKeys = Object.keys(roleCounts);
@@ -2495,7 +2584,7 @@ export function chatUiHtml(): string {
         });
       }
 
-      // namespace別ナレッジ登録量ランキング（AXChat:Dの"Top Agents by Token Usage"に相当）
+      // namespace別ナレッジ登録量ランキング（別プロジェクトの"Top Agents by Token Usage"に相当）
       const topNamespaces = kbOverview.namespaces.slice(0, 5);
       if (topNamespaces.length === 0) {
         topNsBox.innerHTML = '<li class="empty">登録されたナレッジがありません</li>';
@@ -2703,7 +2792,7 @@ export function chatUiHtml(): string {
       claudeCell.appendChild(claudeInput);
       claudeCell.appendChild(claudeSetBtn);
 
-      // 最終利用日時（2026-09-10追加、AXChat:D Usersページの"Last Login"に相当）。
+      // 最終利用日時（2026-09-10追加、別プロジェクト Usersページの"Last Login"に相当）。
       // audit_log全体のMAX(created_at)なのでClaudeプロキシ利用も含む（keyAdmin.ts参照）。
       const lastActiveCell = document.createElement("td");
       lastActiveCell.textContent = k.last_active ? new Date(k.last_active * 1000).toLocaleString() : "利用履歴なし";
@@ -2784,7 +2873,7 @@ export function chatUiHtml(): string {
   $("keysSearch").addEventListener("input", applyKeysFilter);
   $("keysRoleFilter").addEventListener("change", applyKeysFilter);
 
-  // ユーザー概要KPI（AXChat:D Usersページの「総ユーザー数/管理者数/編集者数/
+  // ユーザー概要KPI（別プロジェクト Usersページの「総ユーザー数/管理者数/編集者数/
   // ナレッジ登録者数」に相当、2026-09-10追加）。
   function renderUsersOverviewKpis(keys) {
     const box = $("usersOverviewKpis");
@@ -3507,7 +3596,7 @@ export function chatUiHtml(): string {
       const kpis = $("tutorialFeedbackKpis");
       kpis.innerHTML = "";
       kpis.appendChild(kpiCard("評価件数", stats.total));
-      kpis.appendChild(kpiCard("好評率", feedbackPct(stats.goodRate), "👍 " + stats.good + " / 👎 " + stats.bad));
+      kpis.appendChild(kpiCard("好評率", feedbackPct(stats.goodRate), "良い " + stats.good + " / 悪い " + stats.bad));
       fillFeedbackBuckets("tutorialFeedbackByModel", stats.byModel);
       fillFeedbackBuckets("tutorialFeedbackByLevel", stats.byLevel);
       fillFeedbackBuckets("tutorialFeedbackByDomain", stats.byDomain);
@@ -3519,7 +3608,7 @@ export function chatUiHtml(): string {
         const tr = appendRow(tbody, [
           new Date(e.updatedAt * 1000).toLocaleString(),
           e.displayName || e.userId.slice(0, 8),
-          e.rating === 1 ? "👍" : "👎",
+          e.rating === 1 ? "良い" : "悪い",
           e.title || e.tutorialKey,
           (e.model || "-") + " / " + (e.level || "-"),
           e.tags.join(", ") || "-",
@@ -3605,7 +3694,7 @@ export function chatUiHtml(): string {
   });
 
   // ---------- 共通：ポップアップ（モーダル、2026-10-08追加） ----------
-  // AXChat:D（AxChatD）のAddKnowledgeModal / SystemConnectionModalを参考にした。Escと背景クリックで
+  // 別プロジェクトのAddKnowledgeModal / SystemConnectionModalを参考にした。Escと背景クリックで
   // 閉じる・Tabキーの循環・閉じたら元のフォーカスへ戻す。処理中（setLocked）は閉じられない。
   function mk(tag, cls, text) {
     const node = document.createElement(tag);
@@ -3692,7 +3781,7 @@ export function chatUiHtml(): string {
 
   // ---------- 管理タブ：ナレッジを追加（ポップアップ、2026-10-08追加） ----------
   // 以前は「URL手動登録」「再帰クロール」「YouTube」「ファイルアップロード」「FAQ単発」
-  // 「QA CSV一括」が縦に並び、どれもnamespaceを毎回手入力していた。AXChat:Dの
+  // 「QA CSV一括」が縦に並び、どれもnamespaceを毎回手入力していた。別プロジェクトの
   // 「ナレッジを追加」と同じ3ステップ（①方法と内容 → ②確認 → ③登録）のポップアップに統合し、
   // namespaceは選択式にした。複数ファイル・複数URL・複数Q&Aをまとめて登録でき、結果は1件ずつ表示する。
   const KB_NS_STORAGE = "ragPocKbNamespace";
@@ -4281,7 +4370,7 @@ export function chatUiHtml(): string {
   $("openKnowledgeModalBtn").addEventListener("click", openKnowledgeModal);
 
   // ---------- 管理タブ：連携するシステム（ポップアップ、2026-10-08追加） ----------
-  // AXChat:Dの「連携するシステムを追加」（システムの選択グリッド → 詳細ポップアップ）を参考にした。
+  // 別プロジェクトの「連携するシステムを追加」（システムの選択グリッド → 詳細ポップアップ）を参考にした。
   // 公式MCP（Notion・Atlassian）と、ナレッジ同期用のOAuth接続（Jira・Backlog・Googleカレンダー・Slack）を
   // 同じ入口から選べる。同期するプロジェクト等の細かい設定は、従来どおり「連携」タブで行う。
   const SYSTEM_DEFS = [
@@ -4588,7 +4677,7 @@ export function chatUiHtml(): string {
 
   // ---------- 管理タブ：登録済みナレッジ（一覧・検索・削除、2026-10-08） ----------
   // 以前は「登録済みファイル一覧・個別削除」でnamespaceを手入力して読み込む形だった。
-  // AXChat:Dの「登録済みナレッジ」カードを参考に、namespaceを選択式にし、検索・ページ送り・
+  // 別プロジェクトの「登録済みナレッジ」カードを参考に、namespaceを選択式にし、検索・ページ送り・
   // 種類と更新日時の表示を足した。削除は従来どおり1件ずつ（opId単位の一括取り消しはシステムタブ）。
   const kbList = { items: [], page: 1, size: 20, query: "", ns: "", ready: false };
   const KB_SOURCE_LABELS = { manual: "手動登録", notion: "Notion", drive: "Google Drive", jira: "Jira", backlog: "Backlog", calendar: "カレンダー" };

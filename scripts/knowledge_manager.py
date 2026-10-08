@@ -288,7 +288,7 @@ class KnowledgeManager:
         # a_idx=0に一致する一方q_idxは何にも一致せずデフォルト0のまま残ってq_idx==a_idx
         # が衝突し、フォールバック（a_idx=q_idx+1）で実際は回答列が質問として使われる
         # サイレントなデータ破損（質問と回答の入れ替わり）が起きていた
-        # （axchatd-knowledge-features-backport.md 1-2）。
+        # （other-project-knowledge-features-backport.md 1-2）。
         header = [c.strip().lower() for c in rows[0]]
         is_header_row = (len(header) >= 2 and header[0] in ("question", "質問") and header[1] in ("answer", "回答"))
         start = 1 if is_header_row else 0
@@ -348,7 +348,7 @@ class KnowledgeManager:
         # 初回取り込み。失敗した場合は登録自体を取り消し、取得できなかったURLが
         # 壊れたまま永久に登録され続け、以後のcrawl_dueで際限なく再試行されるのを防ぐ
         # （crawl_sourceは失敗時にlast_crawledを更新しないため、期限チェックが常に
-        # 偽になり無限リトライストームになっていた。axchatd-knowledge-features-backport.md 1-1）。
+        # 偽になり無限リトライストームになっていた。other-project-knowledge-features-backport.md 1-1）。
         try:
             self.crawl_source(src["id"])
         except Exception:

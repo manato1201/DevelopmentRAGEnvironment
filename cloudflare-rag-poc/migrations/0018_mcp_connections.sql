@@ -1,4 +1,4 @@
--- 公式MCPサーバー連携（MCPクライアント、2026-10-08追加）。AXChat:D（AxChatD）のMCP連携
+-- 公式MCPサーバー連携（MCPクライアント、2026-10-08追加）。別プロジェクトのMCP連携
 -- （RAGEnvironment/server/app/mcp/）を参考に、このWorkerをMCPクライアントにして、
 -- Notion・Atlassianなどの公式リモートMCPサーバーへつなぐ。
 --

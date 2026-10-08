@@ -4,8 +4,7 @@ build_system_guide.py — docs/system-guide.html を生成する（2026-10-08追
 使い方:  python scripts/build_system_guide.py
 出力:    docs/system-guide.html（単体で開ける。外部ライブラリなし、フォントだけGoogle Fonts）
 
-AXChat:Dの docs/external_integrations.html（左の目次・層ごとの色分け・手書きSVGの構成図/フロー図/
-状態遷移図・表・手順・運用）の構成を参考に、このリポジトリ（Houdiniチュートリアル生成、Cloudflare RAG、
+左の目次・層ごとの色分け・手書きSVGの構成図/フロー図/状態遷移図・表・手順・運用の構成で、このリポジトリ（Houdiniチュートリアル生成、Cloudflare RAG、
 公式MCP連携、ナレッジ追加、評価と学習）をまとめたガイド。図は guide_svg.py の部品で組み、
 内容を変えたらこのスクリプトを直して再生成する（HTMLを手で直さない）。
 """
@@ -398,7 +397,7 @@ def body() -> str:
         ["Houdini", "<strong>評価と学習</strong>：👍👎・理由タグ・メモ、自動指標、集計、教訓（承認制）、成功例", OK("反映済み")],
         ["Cloudflare", "評価の受け付けと<strong>管理者限定の閲覧</strong>（集計・一覧・CSV）", OK("本番反映済み")],
         ["Cloudflare", "クロールの最大ページ数の上限（50）を撤廃（状態サイズで安全に停止）", OK("本番反映済み")],
-        ["Cloudflare", "<strong>ナレッジ追加</strong>を3ステップのポップアップに統合（AXChat:Dを参考）", OK("本番反映済み")],
+        ["Cloudflare", "<strong>ナレッジ追加</strong>を3ステップのポップアップに統合", OK("本番反映済み")],
         ["Cloudflare", "<strong>公式MCP連携</strong>（Notion・Atlassian）。管理画面で接続・ツール選択、RAGチャットで読み取り専用ツールを利用", OK("本番反映済み")],
         ["不具合修正", "参考欄の題名が空になる／OAuth結果ページの未エスケープ／ランプが1点に潰れる／TOPが「cook成功」でも何もしない", OK("修正済み")],
     ]))
@@ -477,7 +476,7 @@ def body() -> str:
 
     # ── Cloudflare ──
     add('<h2 id="knowledge">ナレッジ追加<small>KNOWLEDGE</small></h2>')
-    add("<p>以前は、URL・クロール・YouTube・ファイル・FAQ・QA CSVの6つの入力欄が縦に並び、どれもnamespaceを毎回手入力していました。AXChat:Dの「ナレッジを追加」を参考に、<strong>3ステップのポップアップ</strong>に統合しました。</p>")
+    add("<p>以前は、URL・クロール・YouTube・ファイル・FAQ・QA CSVの6つの入力欄が縦に並び、どれもnamespaceを毎回手入力していました。<strong>3ステップのポップアップ</strong>に統合しました。</p>")
     add(diagram_wizard())
     add(table(["方法", "できること"], [
         ["ファイル", "複数同時・ドラッグ＆ドロップ。PDF・Word（.docx）・PowerPoint（.pptx）・音声・動画。対応外の形式はその場で弾く"],
@@ -489,7 +488,7 @@ def body() -> str:
         "<li>クロールは1リクエストで1〜5ページずつ処理するバッチ方式（Workers Freeプランの制限対策）。進行状態はD1の1行（<code>crawl_jobs</code>）に保存するため、<strong>状態が約1.5MB（訪問済み約1万ページ分）を超えたら、そこまでを正常終了</strong>して案内する。待ち行列は3000件で頭打ち。</li></ul>")
 
     add('<h2 id="mcp">公式MCP連携<small>MCP</small></h2>')
-    add("<p>Workerを<strong>MCPクライアント</strong>にして、各社が公開する公式のリモートMCPサーバーにつなぎ、そのツールをRAGチャットから使えるようにしました（AXChat:Dの公式MCP連携を参考）。</p>")
+    add("<p>Workerを<strong>MCPクライアント</strong>にして、各社が公開する公式のリモートMCPサーバーにつなぎ、そのツールをRAGチャットから使えるようにしました。</p>")
     add(table(["サービス", "MCPサーバー", "自動登録", "PKCE S256", "公開クライアント"], [
         ["Notion", "<code>https://mcp.notion.com/mcp</code>", OK("対応"), OK("対応"), OK("対応")],
         ["Atlassian（Jira／Confluence）", "<code>https://mcp.atlassian.com/v1/mcp</code>", OK("対応"), OK("対応"), OK("対応")],
@@ -506,7 +505,7 @@ def body() -> str:
     add('<h2 id="mcp-chat">チャットでの利用<small>CHAT</small></h2>')
     add("<p>チャット画面に「外部サービスも使う」が出るのは、管理者が「チャットで使う」をオンにした接続があるときだけです。オンで質問すると、検索結果で足りないときに限り、Geminiが読み取り専用のツールを呼びます。回答の下に、使ったサービスとツール名が出ます。</p>")
     add(diagram_mcp_chat() + LEGEND)
-    add("<ul><li>書き込み系のツールは、利用者の確認を挟む手段がまだ無いので、チャットには出しません（AXChat:Dはブラウザ側のライブチャットが確認ダイアログを出せますが、このWorkerのチャットはサーバー側で回答を作ります）。</li>"
+    add("<ul><li>書き込み系のツールは、利用者の確認を挟む手段がまだ無いので、チャットには出しません（このWorkerのチャットはサーバー側で回答を作るため、確認ダイアログを挟めません）。</li>"
         "<li>Geminiの関数名は <code>mcp_&lt;サービス&gt;_&lt;ツール&gt;</code>。MCPの引数スキーマ（JSON Schema全体）は、Geminiが受け付ける部分集合（type・properties・required・items・enum・description）に変換します。</li></ul>")
 
     add('<h2 id="mcp-policy">ツールの方針<small>POLICY</small></h2>')
@@ -630,7 +629,7 @@ def build() -> str:
 <header class="top">
 <p class="kicker">DevelopmentRAGEnvironment</p>
 <h1>システムガイド</h1>
-<p class="lead">Houdiniチュートリアル自動生成・Cloudflare RAG・公式MCP連携・ナレッジ追加・評価と学習の、構成・ロジック・運用をまとめたガイドです。AXChat:Dの外部サービス連携ガイドの構成を参考にしています。最終更新 2026-10-08。</p>
+<p class="lead">Houdiniチュートリアル自動生成・Cloudflare RAG・公式MCP連携・ナレッジ追加・評価と学習の、構成・ロジック・運用をまとめたガイドです。左の目次・層ごとの色分け・図中心の構成にしています。最終更新 2026-10-08。</p>
 </header>
 {body()}
 <footer>このページは <code>scripts/build_system_guide.py</code> で生成しています。内容を変えるときはスクリプトを直して再生成してください。</footer>
