@@ -33,6 +33,9 @@
 | **houdini21 名前空間** | Houdini 21ドキュメント専用DB（GAS・LocalRAG・Unity/Houdini UI統合）|
 | **houdini21チュートリアル自動生成** | 自然言語の依頼からHoudiniのノードグラフを実際に組み立て、cookエラーなしのチュートリアル（Markdown+ノードグラフJSON）を自動生成。ビューポート画像による視覚的自己検証（`confirm_tutorial`）・多段階の完了判定救済ロジックあり |
 | **チュートリアル動画の自動生成** | 保存したチュートリアルからLearningQt連携で解説動画を自動生成。各ステップのビューポート/ネットワークエディタのスクリーンショットが素材になる |
+| **チュートリアルの評価と学習**（2026-10） | 👍👎・理由タグ・メモと、生成時の自動指標を保存。集計・教訓（承認制）・成功例として次の生成に反映。評価はCloudflareにも送られ、管理者だけが閲覧できる |
+| **公式MCP連携**（2026-10） | Cloudflare WorkerをMCPクライアントにして、Notion・Atlassianの公式MCPサーバーへ接続（自動登録・PKCE）。RAGチャットから読み取り専用ツールを使える |
+| **ナレッジ追加のポップアップ**（2026-10） | ファイル・URL（YouTube・クロール）・Q&Aを3ステップでまとめて登録。クロールの最大ページ数は上限なし |
 | **Cloudflare RAG POC**（検証環境） | クラウド RAG（GAS+Notion+Sheets）をCloudflare Workers+D1+Vectorizeで再実装できるか検証する技術検証。本番のクラウド RAGには影響しない独立実装。GAS版には無い新機能（再帰URLクローラー・重複コンテンツ検出・Jira/Backlog/Googleカレンダー/Googleマップ連携・OAuthクリック接続化）も追加している |
 
 ---
@@ -84,7 +87,7 @@ uv run python scripts\rag_local_bridge.py
    - Houdiniマシン側にANTHROPIC_API_KEYを環境変数として置く必要は**ない**（生のキーはGASのスクリプトプロパティにのみ保存する構成に変更済み。詳細 → [docs/cloud-rag.md §8.14](docs/cloud-rag.md)）
    - 同じ Settings タブで **チュートリアル生成モデル**（`claude-sonnet-5`＝既定・高品質 / `claude-haiku-4-5`＝低コスト）を選択できる。token消費対策として追加した機能で、既定は変更していない（詳細 → [docs/model-strategy-report.md](docs/model-strategy-report.md) §4）
 3. Houdini パネルの **Tutorial** タブでトピックを入力、または Chat タブで `/tutorial <トピック>` と入力
-4. RAG検索（houdini21 名前空間のみ・Local/Cloud両対応）→ エージェントループ（最大40回・$5.00 上限のローカル推定に加え、GAS側のAPIキーごとのClaudeトークン上限が実際に強制される）でノードグラフを組み立て → Markdown プレビュー →「保存」を押すと `localRAG/tutorials/` に `.md`＋`.json` を保存
+4. RAG検索（houdini21 名前空間のみ・Local/Cloud両対応）→ エージェントループ（最大80回・$5.00 上限のローカル推定に加え、GAS側のAPIキーごとのClaudeトークン上限が実際に強制される）でノードグラフを組み立て → Markdown プレビュー →「保存」を押すと `localRAG/tutorials/` に `.md`＋`.json` を保存
 5. 過去の生成物は **History** タブでノードグラフとあわせて確認できる
 
 詳細 → [docs/content-generation.md](docs/content-generation.md) §2（実機検証レポート → [docs/houdini21-tutorial-gen-report.md](docs/houdini21-tutorial-gen-report.md)、講義資料 → [lecture/houdini21-tutorial-gen-lecture.html](lecture/houdini21-tutorial-gen-lecture.html)、モデル運用戦略・コスト対策 → [docs/model-strategy-report.md](docs/model-strategy-report.md)）
@@ -292,6 +295,8 @@ Notion/Google Drive同期・PDF/DOCX/PPTX/音声動画の変換・ハイブリ�
 | [docs/cloudflare-rag-technical-report.md](docs/cloudflare-rag-technical-report.md)（[HTML版](docs/cloudflare-rag-technical-report.html)） | 設計・データフロー・実際に発見/修正したバグの解説（mermaid図解付き） |
 | [docs/cloudflare-rag-operations-manual.md](docs/cloudflare-rag-operations-manual.md) | 日常運用手順（知識ベース同期・D1データの直接確認・障害対応等） |
 | [docs/cloudflare-vs-firebase-comparison.md](docs/cloudflare-vs-firebase-comparison.md) | 同じ構成をFirebaseで作った場合との違いの検証 |
+| [docs/system-guide.html](docs/system-guide.html) | **システムガイド**（2026-10）。構成図・生成の流れ・エージェントのロジック・評価と学習・ナレッジ追加・公式MCP連携・運用を、色分けしたSVGの図でまとめたもの（`scripts/build_system_guide.py`で生成） |
+| [cloudflare-rag-poc/docs/mcp-client.md](cloudflare-rag-poc/docs/mcp-client.md) | 公式MCPサーバー連携（MCPクライアント）の設計・安全設計・使い方 |
 | [docs/axchatd-rag-integration-plan.md](docs/axchatd-rag-integration-plan.md) | 別プロジェクト（AXTechCare/AxChatD）のRAG環境統合に向けた作業洗い出し |
 
 ---
