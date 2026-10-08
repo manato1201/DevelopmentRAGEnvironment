@@ -40,6 +40,8 @@ import { handleImportYoutube, handleUploadDoc } from "./mediaImport";
 import { handleHealthCheck, handleTestAlert, checkHealthAndAlert } from "./healthCheck";
 import { handleBackupExport } from "./backup";
 import { handleClaudeMessages } from "./claude";
+import { handleMcpOAuthStart, handleMcpOAuthCallback, handleMcpStatus, handleMcpDisconnect, handleMcpTools, handleMcpSetTools, handleMcpSetChat, handleMcpCall, handleMyMcp } from "./mcp/routes";
+import { handleTutorialFeedbackSubmit, handleTutorialFeedbackList, handleTutorialFeedbackStats } from "./tutorialFeedback";
 import { handleMyNamespaces, handleMyBudget } from "./retrieve";
 import { RateLimitedError } from "./rateLimit";
 import { chatUiHtml } from "./chatUi";
@@ -74,8 +76,14 @@ export default {
     // ルーティングは下のauthenticate()より前・POST限定ゲートより前に置く必要がある
     // （startはクエリの?keyで、callbackはstate自体の検証で認可を確認する）。
     if (req.method === "GET" && url.pathname.startsWith("/admin/oauth/")) {
-      const [, , , service, action] = url.pathname.split("/");
+      const [, , , service, action, step] = url.pathname.split("/");
       try {
+        // 公式MCPサーバー連携（src/mcp/）。/admin/oauth/mcp/callback と /admin/oauth/mcp/<provider>/start
+        if (service === "mcp") {
+          if (action === "callback") return await handleMcpOAuthCallback(req, env);
+          if (step === "start") return await handleMcpOAuthStart(req, env, action);
+          return json(404, { error: "未定義のOAuthエンドポイントです" });
+        }
         switch (`${service}/${action}`) {
           case "jira/start":
             return await handleJiraOAuthStart(req, env);
@@ -281,6 +289,28 @@ export default {
           return await handleBackupExport(req, env, user);
         case "/claude/messages":
           return await handleClaudeMessages(req, env, user);
+        // Houdiniチュートリアル生成への評価（migrations/0017）。送信は評価者本人、閲覧・集計はadminのみ。
+        // 公式MCPサーバー連携（MCPクライアント、2026-10-08）。接続・ツール選択はadminのみ
+        case "/admin/mcp/status":
+          return await handleMcpStatus(req, env, user);
+        case "/admin/mcp/disconnect":
+          return await handleMcpDisconnect(req, env, user);
+        case "/admin/mcp/tools":
+          return await handleMcpTools(req, env, user);
+        case "/admin/mcp/set-tools":
+          return await handleMcpSetTools(req, env, user);
+        case "/admin/mcp/set-chat":
+          return await handleMcpSetChat(req, env, user);
+        case "/admin/mcp/call":
+          return await handleMcpCall(req, env, user);
+        case "/me/mcp":
+          return await handleMyMcp(req, env, user);
+        case "/tutorial-feedback/submit":
+          return await handleTutorialFeedbackSubmit(req, env, user);
+        case "/admin/tutorial-feedback/list":
+          return await handleTutorialFeedbackList(req, env, user);
+        case "/admin/tutorial-feedback/stats":
+          return await handleTutorialFeedbackStats(req, env, user);
         case "/me/namespaces":
           return await handleMyNamespaces(req, env, user);
         case "/me/budget":
@@ -314,6 +344,7 @@ export default {
       await env.DB.prepare("DELETE FROM memory WHERE created_at < ?").bind(memoryCutoff).run();
       const auditCutoff = Math.floor(Date.now() / 1000) - AUDIT_LOG_RETENTION_DAYS * 86400;
       await env.DB.prepare("DELETE FROM audit_log WHERE created_at < ?").bind(auditCutoff).run();
+      await env.DB.prepare("DELETE FROM mcp_audit WHERE created_at < ?").bind(auditCutoff).run();
       const crawlJobCutoff = Math.floor(Date.now() / 1000) - CRAWL_JOB_ABANDONED_DAYS * 86400;
       await env.DB.prepare("DELETE FROM crawl_jobs WHERE updated_at < ?").bind(crawlJobCutoff).run();
       return;

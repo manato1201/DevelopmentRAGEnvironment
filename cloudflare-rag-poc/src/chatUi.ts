@@ -332,6 +332,134 @@ export function chatUiHtml(): string {
   #chatHero { flex: 1; display: none; min-height: 0; width: 100%; }
   #tab-chat.chat-empty #chatHero { display: block; }
   #tab-chat.chat-empty #messages { display: none; }
+
+  /* ---------- ポップアップ（モーダル、2026-10-08追加。AXChat:DのAddKnowledgeModal等を参考） ---------- */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.62); z-index: 900; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+  .modal { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 14px; width: min(680px, 100%); max-height: calc(100vh - 2rem); display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.5); outline: none; }
+  .modal.wide { width: min(860px, 100%); }
+  .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.2rem .6rem; }
+  .modal-header h3 { margin: 0; font-size: 1.05rem; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 1.1rem; cursor: pointer; padding: .2rem .5rem; border-radius: 6px; }
+  .modal-close:hover { color: var(--text); background: var(--panel); }
+  .modal-steps { display: flex; gap: .4rem; padding: 0 1.2rem .7rem; flex-wrap: wrap; }
+  .modal-step { display: flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--muted); padding: .2rem .6rem; border: 1px solid var(--border); border-radius: 999px; }
+  .modal-step .idx { width: 1.15rem; height: 1.15rem; border-radius: 50%; background: var(--border); color: var(--text); display: inline-flex; align-items: center; justify-content: center; font-size: .7rem; }
+  .modal-step.active { color: var(--text); border-color: var(--accent); }
+  .modal-step.active .idx { background: var(--accent); color: #fff; }
+  .modal-step.done .idx { background: var(--teal); color: #fff; }
+  .modal-body { padding: .4rem 1.2rem 1rem; overflow-y: auto; flex: 1; }
+  .modal-footer { display: flex; justify-content: flex-end; align-items: center; gap: .6rem; padding: .8rem 1.2rem; border-top: 1px solid var(--border); }
+  .modal-footer .grow { flex: 1; color: var(--muted); font-size: .8rem; }
+  .method-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .6rem; margin: .4rem 0 1rem; }
+  .method-card { text-align: left; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: .8rem; cursor: pointer; color: var(--text); font-family: inherit; display: flex; flex-direction: column; gap: .25rem; }
+  .method-card:hover { border-color: var(--muted); }
+  .method-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .method-card .icon { font-size: 1.4rem; }
+  .method-card small { color: var(--muted); font-size: .76rem; }
+  .modal-grid { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 1rem; }
+  @media (max-width: 720px) { .modal-grid { grid-template-columns: 1fr; } }
+  .modal-tips { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: .7rem .8rem; font-size: .78rem; color: var(--muted2); align-self: start; }
+  .modal-tips h4 { margin: 0 0 .4rem; font-size: .8rem; color: var(--text); }
+  .modal-tips ul { margin: 0; padding-left: 1.1rem; }
+  .modal-tips li { margin-bottom: .3rem; }
+  .dropzone { border: 2px dashed var(--border); border-radius: 12px; padding: 1.2rem; text-align: center; color: var(--muted); }
+  .dropzone.drag-over { border-color: var(--accent); background: var(--panel); }
+  .dropzone p { margin: .2rem 0; }
+  .file-list { list-style: none; margin: .7rem 0 0; padding: 0; text-align: left; }
+  .file-row { display: flex; align-items: center; gap: .5rem; padding: .35rem .5rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: .35rem; font-size: .82rem; background: var(--bg); }
+  .file-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .file-row .size { color: var(--muted); font-size: .74rem; }
+  .file-row .icon-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: .9rem; }
+  .file-row .icon-btn:hover { color: var(--bad); }
+  .file-row.vertical { flex-direction: column; align-items: stretch; }
+  .file-row .line { display: flex; align-items: center; gap: .5rem; }
+  .file-row .err { color: var(--bad); font-size: .76rem; margin: .1rem 0 0 1.6rem; word-break: break-all; }
+  .file-row .detail { color: var(--muted); font-size: .76rem; margin: .1rem 0 0 1.6rem; word-break: break-all; }
+  .badge { font-size: .7rem; padding: .05rem .5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .badge.running { color: var(--highlight); border-color: var(--highlight); }
+  .badge.ok { color: var(--teal); border-color: var(--teal); }
+  .badge.error { color: var(--bad); border-color: var(--bad); }
+  .progress-track { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; margin: .6rem 0; }
+  .progress-bar { height: 100%; background: var(--accent); transition: width .25s; }
+  .qa-pair { border: 1px solid var(--border); border-radius: 10px; padding: .6rem; margin-bottom: .6rem; background: var(--panel); }
+  .qa-pair .head { display: flex; justify-content: space-between; align-items: center; font-size: .8rem; margin-bottom: .3rem; }
+  .qa-pair textarea { width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: .4rem; font-family: inherit; font-size: .85rem; margin-bottom: .3rem; resize: vertical; }
+  .modal-note { font-size: .8rem; color: var(--muted); margin: .4rem 0; }
+  .modal-error { font-size: .82rem; color: var(--bad); margin: .5rem 0; }
+  .modal-fields label { display: block; font-size: .78rem; color: var(--muted); margin: .5rem 0 .2rem; }
+  .modal-fields input[type="text"], .modal-fields input[type="number"], .modal-fields select, .modal-fields textarea { width: 100%; box-sizing: border-box; background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: .4rem .5rem; font-family: inherit; font-size: .85rem; }
+  .modal-fields .radio-row, .modal-fields .check-row { display: flex; align-items: center; gap: .4rem; font-size: .84rem; color: var(--text); margin: .25rem 0; }
+  .modal-fields .radio-row input, .modal-fields .check-row input { width: auto; }
+  .modal-fields details { margin-top: .6rem; border: 1px solid var(--border); border-radius: 8px; padding: .4rem .7rem; }
+  .modal-fields summary { cursor: pointer; font-size: .82rem; color: var(--muted2); }
+  .mcp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .6rem; margin: .4rem 0; }
+  .mcp-card { text-align: left; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: .8rem; cursor: pointer; color: var(--text); font-family: inherit; }
+  .mcp-card:hover { border-color: var(--accent); }
+  .mcp-card strong { display: flex; align-items: center; gap: .5rem; margin-bottom: .2rem; }
+  .mcp-card small { color: var(--muted); font-size: .76rem; }
+  .mcp-tools { list-style: none; margin: .5rem 0; padding: 0; max-height: 260px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .mcp-tools li { padding: .4rem .6rem; border-bottom: 1px solid var(--border); font-size: .8rem; }
+  .mcp-tools li:last-child { border-bottom: none; }
+  .mcp-tools label { display: flex; gap: .5rem; align-items: flex-start; cursor: pointer; }
+  .mcp-tools small { display: block; color: var(--muted); font-size: .74rem; margin-top: .1rem; }
+  .mcp-status-list { list-style: none; margin: .5rem 0; padding: 0; }
+  .mcp-status-list li { display: flex; align-items: center; gap: .5rem; padding: .3rem 0; font-size: .85rem; }
+  .tool-calls { font-size: .76rem; color: var(--muted); margin-top: .3rem; }
+
+  /* ---------- AXChat:Dを参考にした画面構成（2026-10-08）：アクションバー・カード・システム選択・詳細 ---------- */
+  .btn.outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
+  .btn.outline:hover { background: var(--panel); color: var(--accent); }
+  .kb-toolbar { display: flex; gap: .6rem; flex-wrap: wrap; padding-bottom: 1rem; }
+  .section.card { border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.2rem 1.1rem; margin-bottom: 1.2rem; }
+  .card-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .7rem; }
+  .card-head h2 { margin: 0; font-size: 1rem; flex: 1; min-width: 12rem; }
+  .card-head select, .card-head input { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: .4rem .6rem; font-family: inherit; font-size: .85rem; }
+  .kb-name { max-width: 30rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kb-doc-icon { margin-right: .45rem; }
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: 1rem; font-size: .8rem; color: var(--muted); margin-top: .7rem; flex-wrap: wrap; }
+  .pager .pages { display: flex; align-items: center; gap: .5rem; }
+  .pager select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: .2rem .4rem; font-family: inherit; }
+  .conn-list { list-style: none; margin: .4rem 0; padding: 0; }
+  .conn-row { display: flex; align-items: center; gap: .6rem; padding: .6rem .4rem; border-bottom: 1px solid var(--border); cursor: pointer; flex-wrap: wrap; border-radius: 6px; }
+  .conn-row:hover, .conn-row:focus-visible { background: var(--panel); outline: none; }
+  .conn-row:last-child { border-bottom: none; }
+  .conn-desc { color: var(--muted); font-size: .78rem; }
+  .conn-empty { color: var(--muted); font-size: .85rem; padding: .4rem 0; }
+  .chip { font-size: .75rem; padding: .1rem .65rem; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); color: var(--muted2); }
+  .chip.ok { color: var(--teal); border-color: var(--teal); }
+  /* 登録ポップアップ：3つの帯状のステップ（AXChat:Dのナレッジ追加と同じ見せ方） */
+  .modal-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; padding: 0 1.2rem .8rem; }
+  .modal-step { padding: .55rem .8rem; border-radius: 10px; border: none; background: var(--panel); font-size: .85rem; }
+  .modal-step.active { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text); }
+  .modal-step.done { background: color-mix(in srgb, var(--teal) 16%, transparent); }
+  .method-card { align-items: center; text-align: center; padding: 1rem .8rem; }
+  .method-card .icon { font-size: 1.7rem; }
+  .method-card strong { font-size: .95rem; }
+  .modal-tips ul { padding-left: 0; list-style: none; }
+  .modal-tips li { display: flex; gap: .45rem; }
+  .tip-check { color: var(--teal); font-weight: 700; }
+  /* 連携するシステム：選択グリッド */
+  .sys-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .7rem; }
+  .sys-card { display: flex; align-items: center; gap: .8rem; text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1rem; cursor: pointer; color: var(--text); font-family: inherit; }
+  .sys-card:hover, .sys-card:focus-visible { border-color: var(--accent); outline: none; }
+  .sys-icon { font-size: 1.4rem; width: 2.4rem; height: 2.4rem; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; background: var(--panel); flex: none; }
+  .sys-icon.big { width: 4rem; height: 4rem; font-size: 2rem; background: var(--bg); }
+  .sys-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
+  .sys-text strong { font-size: .92rem; display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+  .sys-text small { color: var(--muted); font-size: .76rem; }
+  .sys-chevron { color: var(--muted); font-size: 1.5rem; }
+  /* 連携するシステム：詳細（アカウント・アクセス範囲・セキュリティ） */
+  .sys-hero { display: flex; gap: 1rem; align-items: center; background: color-mix(in srgb, var(--accent) 9%, var(--panel)); border-radius: 12px; padding: 1rem; margin-bottom: .8rem; }
+  .sys-hero h4 { margin: 0 0 .2rem; font-size: 1.05rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .sys-hero p { margin: .1rem 0; font-size: .85rem; color: var(--muted2); }
+  .sys-hero p.sys-account { color: var(--accent); font-weight: 600; }
+  .sys-rows { display: flex; flex-direction: column; gap: .5rem; }
+  .sys-row { display: grid; grid-template-columns: 9.5rem 1fr; gap: .8rem; align-items: center; }
+  .sys-row-label { font-size: .85rem; font-weight: 700; }
+  .sys-val { background: var(--panel); border-radius: 8px; padding: .55rem .8rem; font-size: .84rem; color: var(--muted2); }
+  .sys-panel { border: 1px solid var(--border); border-radius: 10px; padding: .8rem 1rem; margin-top: .8rem; }
+  .sys-panel h4 { margin: 0 0 .4rem; font-size: .9rem; }
+  @media (max-width: 640px) { .sys-row { grid-template-columns: 1fr; } .modal-steps { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body class="locked">
@@ -370,6 +498,7 @@ export function chatUiHtml(): string {
   <div id="status"></div>
   <div id="composer">
     <div id="imageAttachPreview" class="attach-preview" style="display:none;"></div>
+    <label id="mcpToggleWrap" class="attach-preview" style="display:none; cursor:pointer;" title="検索結果で足りないとき、接続済みの外部サービス（公式MCP）の読み取り専用ツールで調べます。回答に、使ったサービスが表示されます"><input type="checkbox" id="mcpToggle"> <span id="mcpToggleLabel">外部サービスも使う</span></label>
     <div class="composer-row">
       <label class="attach-btn" title="画像を添付する（VLM入力。8MBまで、検索には使わず最終回答生成時にだけ渡す）">📎<input type="file" id="imageAttachInput" accept="image/*" style="display:none;"></label>
       <textarea id="input" placeholder="質問を入力（Enterで送信、Shift+Enterで改行）" rows="1"></textarea>
@@ -523,22 +652,38 @@ export function chatUiHtml(): string {
 
     <!-- ナレッジ登録: admin/editor共通 -->
     <div class="admin-subpanel" data-subtab="knowledge">
+      <div class="section kb-toolbar">
+        <button class="btn primary" id="openKnowledgeModalBtn">＋ ナレッジを追加</button>
+        <button class="btn outline" id="openSystemsModalBtn">🔗 ＋ 連携するシステムを追加</button>
+      </div>
+
+      <div class="section card" id="kbListCard">
+        <div class="card-head">
+          <h2>📖 登録済みナレッジ</h2>
+          <select id="kbListNs" aria-label="namespace"></select>
+          <input type="search" id="kbListSearch" placeholder="ナレッジを検索…">
+          <button class="btn" id="kbListRefresh">更新</button>
+        </div>
+        <div class="table-scroll"><table class="admin-table" id="kbListTable"><thead><tr><th>ナレッジ名</th><th>種類</th><th>更新日時</th><th>操作</th></tr></thead><tbody></tbody></table></div>
+        <div class="pager">
+          <span id="kbListCount"></span>
+          <span class="pages"><button class="btn" id="kbListPrev">‹</button><span id="kbListPageNo">1 / 1</span><button class="btn" id="kbListNext">›</button></span>
+          <label>表示件数 <select id="kbListSize"><option value="10">10</option><option value="20" selected>20</option><option value="50">50</option><option value="100">100</option></select></label>
+        </div>
+        <p class="hint">登録時のopId単位でまとめて取り消す場合は、システムタブの「KBロールバック」を使います。</p>
+      </div>
+
+      <div class="section card" id="connectedSystemsCard">
+        <div class="card-head"><h2>🧩 連携中のシステム</h2></div>
+        <ul class="conn-list" id="connectedSystemsList"><li class="conn-empty">確認中…</li></ul>
+        <p class="hint">※ 連携はこの管理画面（デプロイ全体）で共有されます。チャットから使えるのは、管理者が「チャットで使う」を許可した公式MCPの読み取り専用ツールだけです。</p>
+      </div>
+
       <div class="section">
         <h2>namespaceごとのナレッジ登録状況</h2>
         <p class="hint">AXChat:D管理コンソールの「Knowledge by Agent」を参考に追加（2026-09-10）。ファイル数・チャンク数はchunks_ftsから、最終更新日時は同期成功ログから集計しています。</p>
         <button class="btn" id="refreshKbOverview">再読み込み</button>
         <div class="table-scroll"><table class="admin-table" id="kbOverviewTable"><thead><tr><th>namespace</th><th>ファイル数</th><th>チャンク数</th><th>同期元</th><th>最終更新</th></tr></thead><tbody></tbody></table></div>
-      </div>
-
-      <div class="section">
-        <h2>登録済みファイル一覧・個別削除</h2>
-        <p class="hint">opId単位で一括取り消す「KBロールバック」（システムタブ）と違い、まとめて登録した中の1件だけを取り消したい場合に使います。</p>
-        <div class="field-row"><label>namespace</label><input type="text" id="docListNamespace" placeholder="例: shared:houdini_docs"></div>
-        <button class="btn" id="docListLoadBtn">一覧を読み込み</button>
-        <div id="docListResult" class="hint"></div>
-        <div class="table-scroll" id="docListTableWrap" style="display:none; margin-top:.6rem;">
-          <table class="admin-table" id="docListTable"><thead><tr><th>ファイル名</th><th></th></tr></thead><tbody></tbody></table>
-        </div>
       </div>
 
       <div class="section">
@@ -563,78 +708,6 @@ export function chatUiHtml(): string {
           <button class="btn" id="kbRetryFailedBtn" disabled>失敗ファイルだけ再同期</button>
         </div>
         <div id="kbSyncProgress" class="hint"></div>
-      </div>
-
-      <div class="section">
-        <h2>URLを手動登録</h2>
-        <div class="field-row"><label>namespace</label><input type="text" id="urlImportNamespace" placeholder="例: shared:tool_docs"></div>
-        <div class="field-row"><label>URL</label><input type="text" id="urlImportUrl" placeholder="https://..."></div>
-        <div class="field-row"><label>タイトル（任意）</label><input type="text" id="urlImportTitle" placeholder="省略時はURLをそのまま使用"></div>
-        <button class="btn primary" id="urlImportBtn">登録</button>
-        <div id="urlImportResult" class="hint"></div>
-      </div>
-
-      <div class="section">
-        <h2>URLを再帰クロールして一括登録</h2>
-        <p class="hint">起点URLのページ内リンクをたどって、複数ページをまとめて登録します（例: ドキュメントサイトの目次ページを起点に配下ページを一括登録）。安全のため起点と同一オリジンのリンクのみ辿ります。</p>
-        <div class="field-row"><label>namespace</label><input type="text" id="crawlUrlNamespace" placeholder="例: shared:houdini_docs"></div>
-        <div class="field-row"><label>起点URL</label><input type="text" id="crawlUrlUrl" placeholder="https://.../index.html"></div>
-        <div class="field-row"><label>パス絞り込み（任意）</label><input type="text" id="crawlUrlPathPrefix" placeholder="例: /docs/houdini/（空欄なら同一オリジン全体）"></div>
-        <div class="field-row"><label>深さ</label>
-          <select id="crawlUrlDepth">
-            <option value="0">0（起点URLのみ）</option>
-            <option value="1" selected>1（起点＋直接リンク先）</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-          </select>
-        </div>
-        <div class="field-row"><label>最大ページ数</label><input type="number" id="crawlUrlMaxPages" value="20" min="1" max="50"></div>
-        <div class="field-row"><label>除外パターン（任意）</label><input type="text" id="crawlUrlExcludePatterns" placeholder="例: /download/, .pdf（カンマまたは改行区切り、部分一致）"></div>
-        <label style="display:flex; align-items:center; gap:.4rem; margin:.4rem 0;"><input type="checkbox" id="crawlUrlSkipExisting"> 同じnamespaceに同名で登録済みのページはスキップする（再クロール時のAPIコスト削減）</label>
-        <button class="btn primary" id="crawlUrlBtn">クロール開始</button>
-        <button class="btn" id="crawlUrlResumeBtn" disabled>途中から再開</button>
-        <div id="crawlUrlResult" class="hint"></div>
-        <div class="table-scroll" id="crawlUrlTableWrap" style="display:none; margin-top:.6rem;">
-          <table class="admin-table" id="crawlUrlTable"><thead><tr><th>URL</th><th>タイトル</th><th>チャンク</th><th>結果</th></tr></thead><tbody></tbody></table>
-        </div>
-      </div>
-
-      <div class="section">
-        <h2>YouTube動画を文字起こし登録</h2>
-        <div class="field-row"><label>namespace</label><input type="text" id="ytImportNamespace" placeholder="例: shared:tool_docs"></div>
-        <div class="field-row"><label>YouTube URL</label><input type="text" id="ytImportUrl" placeholder="https://www.youtube.com/watch?v=..."></div>
-        <div class="field-row"><label>タイトル（任意）</label><input type="text" id="ytImportTitle" placeholder="省略時はURLをそのまま使用"></div>
-        <button class="btn primary" id="ytImportBtn">文字起こし・登録</button>
-        <div id="ytImportResult" class="hint"></div>
-      </div>
-
-      <div class="section">
-        <h2>ファイルをアップロードして登録</h2>
-        <p class="hint">対応形式: PDF・Word（.docx）・PowerPoint（.pptx）・音声・動画</p>
-        <div class="field-row"><label>namespace</label><input type="text" id="fileUploadNamespace" placeholder="例: shared:tool_docs"></div>
-        <div class="field-row"><label>ファイル</label><input type="file" id="fileUploadInput" accept=".pdf,.docx,.pptx,audio/*,video/*"></div>
-        <button class="btn primary" id="fileUploadBtn">アップロード・登録</button>
-        <div id="fileUploadResult" class="hint"></div>
-      </div>
-
-      <div class="section">
-        <h2>FAQ単発登録</h2>
-        <p class="hint">質問と回答を1件だけ登録します。まとめて登録したい場合は下のQA CSV一括登録を使ってください。</p>
-        <div class="field-row"><label>namespace</label><input type="text" id="faqNamespace" placeholder="例: shared:tool_docs"></div>
-        <div class="field-row"><label>質問</label><input type="text" id="faqQuestion" placeholder="例: HyDEとは何ですか？"></div>
-        <div class="field-row"><label>回答</label><input type="text" id="faqAnswer" placeholder="例: 仮の回答を先に生成してから検索する手法です"></div>
-        <label style="display:flex; align-items:center; gap:.4rem; margin:.4rem 0;"><input type="checkbox" id="faqAlsoNotion"> このnamespaceの同期先Notion DBにもページを作成する（namespaceにNotion DB設定が必要）</label>
-        <button class="btn primary" id="faqAddBtn">登録</button>
-        <div id="faqAddResult" class="hint"></div>
-      </div>
-
-      <div class="section">
-        <h2>QA CSV一括登録</h2>
-        <p class="hint">ヘッダー行に question, answer 列を含むCSVを貼り付けてください。</p>
-        <div class="field-row"><label>namespace</label><input type="text" id="qaCsvNamespace" placeholder="例: shared:tool_docs"></div>
-        <textarea id="qaCsvText" rows="6" style="width:100%; font-family:monospace; font-size:.8rem; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:.5rem;" placeholder="question,answer&#10;質問1,回答1&#10;質問2,回答2"></textarea>
-        <button class="btn primary" id="qaCsvImportBtn" style="margin-top:.5rem;">一括登録を実行</button>
-        <div id="qaCsvProgress" class="hint"></div>
       </div>
 
       <div class="section">
@@ -722,6 +795,14 @@ export function chatUiHtml(): string {
         <textarea id="mapsCsvText" rows="6" style="width:100%; font-family:monospace; font-size:.8rem; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:.5rem;" placeholder="東京都渋谷区〇〇店&#10;大阪府大阪市△△支店"></textarea>
         <button class="btn primary" id="mapsCsvImportBtn" style="margin-top:.5rem;">一括登録を実行</button>
         <div id="mapsCsvProgress" class="hint" style="white-space:pre-line;"></div>
+      </div>
+
+      <div class="section">
+        <h2>公式MCP連携（Notion・Atlassian）</h2>
+        <p class="hint">各社が公開する公式のMCPサーバーに接続し、そのツールをRAGチャットから使えるようにします（2026-10-08追加。AXChat:Dの公式MCP連携を参考）。認証はOAuth 2.1で、こちらでOAuthアプリを作る必要はありません。接続・ツール選択は管理者のみ、使えるのは読み取り専用のツールだけです。</p>
+        <ul class="mcp-status-list" id="mcpStatusList"><li class="hint">確認中…</li></ul>
+        <button class="btn primary" id="mcpOpenBtn">MCP連携を管理…</button>
+        <button class="btn" id="mcpRefreshBtn">状態を再読み込み</button>
       </div>
 
       <div class="section admin-only-section">
@@ -885,6 +966,40 @@ export function chatUiHtml(): string {
           <button class="btn" id="exportAuditLogCsv">CSVエクスポート</button>
         </div>
         <div class="table-scroll"><table class="admin-table" id="auditLogTable"><thead><tr><th>日時</th><th>ユーザー</th><th>namespace</th><th>レベル</th><th>参考件数</th><th>レイテンシ</th><th>トークン</th><th>モデル</th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="section">
+        <h2>Houdiniチュートリアルの評価</h2>
+        <p class="hint">Houdiniパネルで付けられた👍/👎・理由タグ・メモと、生成時の自動指標（反復回数・コスト・cookエラー数）です。管理者だけが閲覧できます（2026-10-05追加）。</p>
+        <div class="field-row">
+          <label>期間</label>
+          <select id="tutorialFeedbackDays">
+            <option value="30">直近30日間</option>
+            <option value="90" selected>直近90日間</option>
+            <option value="365">直近1年</option>
+          </select>
+          <label>評価</label>
+          <select id="tutorialFeedbackRating">
+            <option value="" selected>すべて</option>
+            <option value="1">👍 良い</option>
+            <option value="-1">👎 悪い</option>
+          </select>
+          <label>ユーザー名</label>
+          <input type="text" id="tutorialFeedbackUser" placeholder="任意（部分一致）">
+          <button class="btn" id="refreshTutorialFeedback">再読み込み</button>
+          <button class="btn" id="exportTutorialFeedbackCsv">CSVエクスポート</button>
+        </div>
+        <div class="kpi-grid" id="tutorialFeedbackKpis"></div>
+        <h3>モデル別</h3>
+        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByModel"><thead><tr><th>モデル</th><th>件数</th><th>👍 / 👎</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
+        <h3>レベル別</h3>
+        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByLevel"><thead><tr><th>レベル</th><th>件数</th><th>👍 / 👎</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
+        <h3>領域別</h3>
+        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByDomain"><thead><tr><th>領域</th><th>件数</th><th>👍 / 👎</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
+        <h3>理由タグ別</h3>
+        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackByTag"><thead><tr><th>タグ</th><th>件数</th><th>👍 / 👎</th><th>好評率</th><th>平均反復</th><th>平均コスト</th><th>平均cookエラー</th></tr></thead><tbody></tbody></table></div>
+        <h3>評価の一覧</h3>
+        <div class="table-scroll"><table class="admin-table" id="tutorialFeedbackTable"><thead><tr><th>日時</th><th>ユーザー</th><th>評価</th><th>チュートリアル</th><th>モデル / レベル</th><th>タグ</th><th>メモ</th><th>自動指標</th></tr></thead><tbody></tbody></table></div>
       </div>
 
       <div class="section">
@@ -1125,6 +1240,7 @@ export function chatUiHtml(): string {
       });
       if (data.namespaces.includes(prevValue)) namespaceFocusEl.value = prevValue;
       loadMyBudget();
+      refreshMcpAvailability();
       loadChatHero();
     } catch (e) {
       // APIキーが無効、またはネットワークエラー。理由が分かるようゲートの文言に出す
@@ -1228,6 +1344,7 @@ export function chatUiHtml(): string {
           loadGeminiCostStats();
           loadAuditLog();
           loadRatingStats();
+          loadTutorialFeedback();
         }
       }
       else clearNewKey(); // 管理タブを離れたら、発行直後のAPIキー表示が残らないようにする
@@ -1248,7 +1365,8 @@ export function chatUiHtml(): string {
       document.querySelector('.admin-subpanel[data-subtab="' + btn.dataset.subtab + '"]').classList.add("active");
       // 「連携」タブを開くたびに接続状況を再確認する（OAuth接続直後の戻り先でもあるため、
       // 2026-09-22追加）。
-      if (btn.dataset.subtab === "integrations") loadOAuthStatus();
+      if (btn.dataset.subtab === "integrations") { loadOAuthStatus(); loadMcpStatus(); }
+      if (btn.dataset.subtab === "knowledge") { initKbList(); refreshConnectedSystems(); }
     });
   });
 
@@ -1263,7 +1381,7 @@ export function chatUiHtml(): string {
   function runAutoRefresh() {
     const subtab = currentAdminSubtab();
     if (subtab === "overview") loadAdminOverview();
-    else if (subtab === "usage") { loadUsageStats(); loadClaudeCostStats(); loadGeminiCostStats(); loadAuditLog(); loadRatingStats(); }
+    else if (subtab === "usage") { loadUsageStats(); loadClaudeCostStats(); loadGeminiCostStats(); loadAuditLog(); loadRatingStats(); loadTutorialFeedback(); }
     else if (subtab === "namespaces") { loadNamespaces(); loadNamespaceUsage(); }
     else if (subtab === "users") loadKeys();
     else if (subtab === "knowledge") { loadKbOverview(); loadKbHistory(); }
@@ -1728,8 +1846,17 @@ export function chatUiHtml(): string {
     setStatus("検索・回答生成中…");
     try {
       const focusNs = namespaceFocusEl.value;
-      const data = await api("/query", { query: text, limit: 5, level: levelEl.value, namespaces: focusNs ? [focusNs] : undefined, image: imageToSend || undefined });
+      const useMcp = $("mcpToggle") && $("mcpToggle").checked && $("mcpToggleWrap").style.display !== "none";
+      const data = await api("/query", { query: text, limit: 5, level: levelEl.value, namespaces: focusNs ? [focusNs] : undefined, image: imageToSend || undefined, useMcp: useMcp || undefined });
       renderAssistantMessage(messagesEl, text, data.answer, data.sources, data.extractionRate, data.extractionDetail, data.memoryId, null, false);
+      if (data.toolCalls && data.toolCalls.length > 0) {
+        // 使った外部サービスのツールを回答の下に出す（textContentのみ）
+        const note = document.createElement("div");
+        note.className = "tool-calls";
+        note.textContent = "🔧 使った外部サービス: " + data.toolCalls.map((c) => c.providerLabel + "「" + c.tool + "」" + (c.ok ? "" : "（失敗）")).join(" / ");
+        const last = messagesEl.lastElementChild;
+        if (last) last.appendChild(note);
+      }
       sessionLog.push({ question: text, answer: data.answer, sources: data.sources });
       messagesEl.scrollTop = messagesEl.scrollHeight;
       setStatus("");
@@ -3270,54 +3397,6 @@ export function chatUiHtml(): string {
   }
   $("refreshKbOverview").addEventListener("click", loadKbOverview);
 
-  // ---------- 管理タブ：登録済みファイル一覧・個別削除（2026-09-13追加） ----------
-  async function loadDocList() {
-    const namespace = $("docListNamespace").value.trim();
-    if (!namespace) { $("docListResult").textContent = "namespaceを入力してください"; return; }
-    $("docListResult").textContent = "読み込み中…";
-    $("docListTableWrap").style.display = "none";
-    try {
-      const data = await api("/admin/kb/list-documents", { namespace });
-      const tbody = $("docListTable").querySelector("tbody");
-      tbody.innerHTML = "";
-      if (data.files.length === 0) {
-        $("docListResult").textContent = "このnamespaceに登録済みファイルはありません";
-        return;
-      }
-      data.files.forEach((file) => {
-        const tr = document.createElement("tr");
-        const nameTd = document.createElement("td");
-        nameTd.textContent = file;
-        tr.appendChild(nameTd);
-        const actionTd = document.createElement("td");
-        const delBtn = document.createElement("button");
-        delBtn.className = "btn danger";
-        delBtn.textContent = "削除";
-        delBtn.addEventListener("click", async () => {
-          if (!confirm(file + " を削除しますか？（元に戻せません）")) return;
-          delBtn.disabled = true;
-          try {
-            const delData = await api("/admin/kb/delete-document", { namespace, file });
-            showToast(file + " を削除しました（" + delData.deletedChunks + "チャンク）", "success");
-            tr.remove();
-            loadKbOverview();
-          } catch (e) {
-            showToast("削除に失敗しました: " + e.message, "error");
-            delBtn.disabled = false;
-          }
-        });
-        actionTd.appendChild(delBtn);
-        tr.appendChild(actionTd);
-        tbody.appendChild(tr);
-      });
-      $("docListResult").textContent = data.files.length + "件のファイルが見つかりました";
-      $("docListTableWrap").style.display = "";
-    } catch (e) {
-      $("docListResult").textContent = "取得に失敗しました: " + e.message;
-    }
-  }
-  $("docListLoadBtn").addEventListener("click", loadDocList);
-
   // ---------- 管理タブ：重複コンテンツの確認・削除（2026-09-15追加） ----------
   async function checkDuplicateDocs() {
     const namespace = $("dupCheckNamespace").value.trim();
@@ -3387,94 +3466,89 @@ export function chatUiHtml(): string {
   }
   $("refreshRatingStats").addEventListener("click", loadRatingStats);
 
-  // ---------- 管理タブ：URL手動登録 ----------
-  $("urlImportBtn").addEventListener("click", async () => {
-    const namespace = $("urlImportNamespace").value.trim();
-    const url = $("urlImportUrl").value.trim();
-    const title = $("urlImportTitle").value.trim();
-    if (!namespace || !url) { $("urlImportResult").textContent = "namespaceとURLを入力してください"; return; }
-    $("urlImportResult").textContent = "取得・登録中…";
+  // ---------- 管理タブ：Houdiniチュートリアルの評価（2026-10-05追加） ----------
+  // 評価者が書いたメモ等は外部入力なので、必ずtextContentで描画する（innerHTMLに入れない）。
+  let lastTutorialFeedback = [];
+  function feedbackPct(rate) { return rate == null ? "-" : Math.round(rate * 100) + "%"; }
+  function feedbackNum(v, digits, prefix) { return v == null ? "-" : (prefix || "") + Number(v).toFixed(digits); }
+  function fillFeedbackBuckets(tableId, buckets) {
+    const tbody = $(tableId).querySelector("tbody");
+    tbody.innerHTML = "";
+    if (buckets.length === 0) { tbody.innerHTML = "<tr><td colspan=7>データがありません</td></tr>"; return; }
+    buckets.forEach((b) => {
+      appendRow(tbody, [b.key, b.total, b.good + " / " + b.bad, feedbackPct(b.goodRate),
+        feedbackNum(b.avgIterations, 1), feedbackNum(b.avgCostUsd, 3, "$"), feedbackNum(b.avgCookErrors, 1)]);
+    });
+  }
+  function feedbackMetricsText(m) {
+    const parts = [];
+    if (m.iterations != null) parts.push("反復 " + m.iterations);
+    if (m.cost_usd != null) parts.push("$" + Number(m.cost_usd).toFixed(3));
+    if (m.cook_errors != null) parts.push("cookエラー " + m.cook_errors);
+    if (m.completed === false) parts.push("打ち切り");
+    if (m.domain && m.domain !== "general") parts.push(m.domain);
+    return parts.join(" / ") || "-";
+  }
+  async function loadTutorialFeedback() {
+    const tbody = $("tutorialFeedbackTable").querySelector("tbody");
+    tbody.innerHTML = "<tr><td colspan=8>読み込み中…</td></tr>";
+    const days = Number($("tutorialFeedbackDays").value) || 90;
+    const ratingValue = $("tutorialFeedbackRating").value;
     try {
-      const data = await api("/admin/kb/import-url", { namespace, url, title: title || undefined });
-      $("urlImportResult").textContent = "完了: " + data.chunks + "チャンク登録" + (data.skipped > 0 ? "（" + data.skipped + "件スキップ）" : "");
-      loadKbHistory(); loadKbOverview();
-    } catch (e) {
-      $("urlImportResult").textContent = "エラー: " + e.message;
+      const [stats, list] = await Promise.all([
+        api("/admin/tutorial-feedback/stats", { days }),
+        api("/admin/tutorial-feedback/list", {
+          days,
+          limit: 200,
+          rating: ratingValue ? Number(ratingValue) : undefined,
+          user: $("tutorialFeedbackUser").value.trim() || undefined,
+        }),
+      ]);
+      const kpis = $("tutorialFeedbackKpis");
+      kpis.innerHTML = "";
+      kpis.appendChild(kpiCard("評価件数", stats.total));
+      kpis.appendChild(kpiCard("好評率", feedbackPct(stats.goodRate), "👍 " + stats.good + " / 👎 " + stats.bad));
+      fillFeedbackBuckets("tutorialFeedbackByModel", stats.byModel);
+      fillFeedbackBuckets("tutorialFeedbackByLevel", stats.byLevel);
+      fillFeedbackBuckets("tutorialFeedbackByDomain", stats.byDomain);
+      fillFeedbackBuckets("tutorialFeedbackByTag", stats.byTag);
+      lastTutorialFeedback = list.entries;
+      tbody.innerHTML = "";
+      if (list.entries.length === 0) { tbody.innerHTML = "<tr><td colspan=8>該当する評価がありません</td></tr>"; return; }
+      list.entries.forEach((e) => {
+        const tr = appendRow(tbody, [
+          new Date(e.updatedAt * 1000).toLocaleString(),
+          e.displayName || e.userId.slice(0, 8),
+          e.rating === 1 ? "👍" : "👎",
+          e.title || e.tutorialKey,
+          (e.model || "-") + " / " + (e.level || "-"),
+          e.tags.join(", ") || "-",
+          e.note || "-",
+          feedbackMetricsText(e.metrics),
+        ]);
+        // 長い文字列はホバーで全文を確認できるようにする
+        tr.children[3].title = (e.topic ? "トピック: " + e.topic + String.fromCharCode(10) : "") + (e.overview || "");
+        tr.children[6].title = e.note || "";
+      });
+    } catch (err) {
+      tbody.innerHTML = "<tr><td colspan=8>取得に失敗しました: " + err.message + "</td></tr>";
     }
+  }
+  $("refreshTutorialFeedback").addEventListener("click", loadTutorialFeedback);
+  $("tutorialFeedbackDays").addEventListener("change", loadTutorialFeedback);
+  $("tutorialFeedbackRating").addEventListener("change", loadTutorialFeedback);
+  $("exportTutorialFeedbackCsv").addEventListener("click", () => {
+    if (lastTutorialFeedback.length === 0) { showToast("エクスポートする評価がありません", "error"); return; }
+    downloadCsv(
+      "tutorial-feedback-" + new Date().toISOString().slice(0, 10) + ".csv",
+      ["日時", "ユーザー", "評価", "題名", "トピック", "モデル", "レベル", "ナレッジ", "タグ", "メモ", "反復", "コスト(USD)", "cookエラー", "領域"],
+      lastTutorialFeedback.map((e) => [
+        new Date(e.updatedAt * 1000).toLocaleString(), e.displayName || e.userId.slice(0, 8),
+        e.rating === 1 ? "good" : "bad", e.title, e.topic, e.model || "", e.level || "", e.ragName || "",
+        e.tags.join("; "), e.note, e.metrics.iterations ?? "", e.metrics.cost_usd ?? "", e.metrics.cook_errors ?? "", e.metrics.domain ?? "",
+      ]),
+    );
   });
-
-  // ---------- 管理タブ：URL再帰クロール一括登録（2026-09-13追加、同日にバッチ処理化） ----------
-  // Cloudflare Workers FreeプランのCPU時間制限のため、Drive/Notion同期（runSync）と同じ
-  // 「1リクエストにつき少数ページだけ処理し、サーバーから返るopIdを使って続きを呼び直す」
-  // 方式に変更した。1回で全ページ処理する実装だとページ数が多い時にError 1102
-  // （Worker exceeded resource limits）で落ちるリスクがあったため。
-  function crawlResultStatusLabel(r) {
-    if (r.status === "skipped_existing") return "スキップ（既存）";
-    if (r.status === "error") return "エラー: " + (r.error || "");
-    return "OK";
-  }
-  let lastCrawlOpId = null;
-  async function runCrawl(startOpId) {
-    const namespace = $("crawlUrlNamespace").value.trim();
-    const url = $("crawlUrlUrl").value.trim();
-    const pathPrefix = $("crawlUrlPathPrefix").value.trim();
-    const excludePatterns = $("crawlUrlExcludePatterns").value.trim();
-    const skipExisting = $("crawlUrlSkipExisting").checked;
-    const depth = parseInt($("crawlUrlDepth").value, 10);
-    const maxPages = parseInt($("crawlUrlMaxPages").value, 10);
-    if (!startOpId && (!namespace || !url)) { $("crawlUrlResult").textContent = "namespaceと起点URLを入力してください"; return; }
-
-    const startBtn = $("crawlUrlBtn");
-    const resumeBtn = $("crawlUrlResumeBtn");
-    startBtn.disabled = true;
-    resumeBtn.disabled = true;
-    const tbody = $("crawlUrlTable").querySelector("tbody");
-    if (!startOpId) tbody.innerHTML = "";
-    $("crawlUrlTableWrap").style.display = "";
-    $("crawlUrlResult").textContent = "クロール中…";
-
-    let opId = startOpId || null;
-    let totalChunks = 0;
-    let errorCount = 0;
-    let skippedCount = 0;
-    let processedCount = 0;
-    let maxPagesActual = maxPages;
-    try {
-      while (true) {
-        const body = opId
-          ? { opId }
-          : { namespace, url, depth, maxPages, pathPrefix: pathPrefix || undefined, excludePatterns: excludePatterns || undefined, skipExisting };
-        const data = await api("/admin/kb/crawl-url", body);
-        opId = data.opId;
-        processedCount = data.processedCount;
-        maxPagesActual = data.maxPages;
-        data.results.forEach((r) => {
-          appendRow(tbody, [r.url, r.title, r.chunks, crawlResultStatusLabel(r)]);
-          totalChunks += r.chunks;
-          if (r.status === "error") errorCount++;
-          if (r.status === "skipped_existing") skippedCount++;
-        });
-        $("crawlUrlResult").textContent = "進捗: " + processedCount + "/" + maxPagesActual + "ページ（累計 " + totalChunks + "チャンク登録" +
-          (skippedCount > 0 ? "・" + skippedCount + "件スキップ" : "") +
-          (errorCount > 0 ? "・" + errorCount + "件エラー" : "") + "）";
-        if (data.done) break;
-      }
-      $("crawlUrlResult").textContent = "完了: " + processedCount + "ページ処理・" + totalChunks + "チャンク登録" +
-        (skippedCount > 0 ? "（" + skippedCount + "件スキップ）" : "") +
-        (errorCount > 0 ? "（" + errorCount + "件エラー）" : "") +
-        "　opId: " + opId + "（内容に問題があれば「システム」タブのKBロールバックでこのopIdを指定して一括取り消せます）";
-      lastCrawlOpId = null;
-      loadKbHistory(); loadKbOverview();
-    } catch (e) {
-      lastCrawlOpId = opId;
-      resumeBtn.disabled = !opId;
-      $("crawlUrlResult").textContent = "エラー: " + e.message + (opId ? "（途中まで進行済み。「途中から再開」で続きを処理できます）" : "");
-    } finally {
-      startBtn.disabled = false;
-    }
-  }
-  $("crawlUrlBtn").addEventListener("click", () => runCrawl(null));
-  $("crawlUrlResumeBtn").addEventListener("click", () => runCrawl(lastCrawlOpId));
 
   // ---------- 管理タブ：設定バックアップ ----------
   $("backupExportBtn").addEventListener("click", async () => {
@@ -3530,23 +3604,83 @@ export function chatUiHtml(): string {
     }
   });
 
-  // ---------- 管理タブ：YouTube文字起こし登録 ----------
-  $("ytImportBtn").addEventListener("click", async () => {
-    const namespace = $("ytImportNamespace").value.trim();
-    const youtubeUrl = $("ytImportUrl").value.trim();
-    const title = $("ytImportTitle").value.trim();
-    if (!namespace || !youtubeUrl) { $("ytImportResult").textContent = "namespaceとYouTube URLを入力してください"; return; }
-    $("ytImportResult").textContent = "文字起こし中…（動画の長さによっては数十秒かかります）";
-    try {
-      const data = await api("/admin/kb/import-youtube", { namespace, youtubeUrl, title: title || undefined });
-      $("ytImportResult").textContent = "完了: " + data.chunks + "チャンク登録" + (data.skipped > 0 ? "（" + data.skipped + "件スキップ）" : "");
-      loadKbHistory(); loadKbOverview();
-    } catch (e) {
-      $("ytImportResult").textContent = "エラー: " + e.message;
-    }
-  });
+  // ---------- 共通：ポップアップ（モーダル、2026-10-08追加） ----------
+  // AXChat:D（AxChatD）のAddKnowledgeModal / SystemConnectionModalを参考にした。Escと背景クリックで
+  // 閉じる・Tabキーの循環・閉じたら元のフォーカスへ戻す。処理中（setLocked）は閉じられない。
+  function mk(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
 
-  // ---------- 管理タブ：ファイルアップロード登録 ----------
+  function openModal(options) {
+    const previous = document.activeElement;
+    const backdrop = mk("div", "modal-backdrop");
+    const dialog = mk("section", "modal" + (options.wide ? " wide" : ""));
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.tabIndex = -1;
+    const header = mk("div", "modal-header");
+    const titles = mk("div");
+    const heading = mk("h3", "", options.title || "");
+    const sub = mk("p", "hint", options.subtitle || "");
+    sub.style.margin = "0";
+    titles.appendChild(heading);
+    titles.appendChild(sub);
+    const closeBtn = mk("button", "modal-close", "✕");
+    closeBtn.type = "button";
+    closeBtn.setAttribute("aria-label", "閉じる");
+    header.appendChild(titles);
+    header.appendChild(closeBtn);
+    const body = mk("div", "modal-body");
+    const footer = mk("div", "modal-footer");
+    dialog.appendChild(header);
+    dialog.appendChild(body);
+    dialog.appendChild(footer);
+    backdrop.appendChild(dialog);
+    document.body.appendChild(backdrop);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    let locked = false;
+    const handle = {
+      body, footer, dialog, alive: true,
+      setTitle(text) { heading.textContent = text; },
+      setSubtitle(text) { sub.textContent = text; },
+      setLocked(value) { locked = value; closeBtn.style.visibility = value ? "hidden" : "visible"; },
+      close() {
+        if (!handle.alive) return;
+        handle.alive = false;
+        backdrop.remove();
+        document.body.style.overflow = overflow;
+        if (previous && previous.focus) previous.focus();
+        if (options.onClose) options.onClose();
+      },
+    };
+    closeBtn.addEventListener("click", () => { if (!locked) handle.close(); });
+    backdrop.addEventListener("mousedown", (event) => { if (event.target === backdrop && !locked) handle.close(); });
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !locked) { event.stopPropagation(); handle.close(); return; }
+      if (event.key !== "Tab") return;
+      const focusable = dialog.querySelectorAll("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex='0']");
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+    dialog.focus();
+    return handle;
+  }
+
+  function modalButton(label, className, onClick) {
+    const button = mk("button", "btn" + (className ? " " + className : ""), label);
+    button.type = "button";
+    if (onClick) button.addEventListener("click", onClick);
+    return button;
+  }
+
+  // ---------- チャット画像添付でも使う共通ヘルパー ----------
   function readFileAsBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -3555,73 +3689,1018 @@ export function chatUiHtml(): string {
       reader.readAsDataURL(file);
     });
   }
-  $("fileUploadBtn").addEventListener("click", async () => {
-    const namespace = $("fileUploadNamespace").value.trim();
-    const fileInput = $("fileUploadInput");
-    const file = fileInput.files[0];
-    if (!namespace || !file) { $("fileUploadResult").textContent = "namespaceとファイルを選択してください"; return; }
-    $("fileUploadResult").textContent = "アップロード・変換中…（音声/動画は時間がかかることがあります）";
-    try {
-      const fileBase64 = await readFileAsBase64(file);
-      const data = await api("/admin/kb/upload-doc", {
-        namespace,
-        fileBase64,
-        mimeType: file.type || "application/octet-stream",
-        fileName: file.name,
-      });
-      $("fileUploadResult").textContent = "完了: " + data.chunks + "チャンク登録" + (data.skipped > 0 ? "（" + data.skipped + "件スキップ）" : "");
-      loadKbHistory(); loadKbOverview();
-    } catch (e) {
-      $("fileUploadResult").textContent = "エラー: " + e.message;
-    }
-  });
 
-  // ---------- 管理タブ：FAQ単発登録 ----------
-  $("faqAddBtn").addEventListener("click", async () => {
-    const namespace = $("faqNamespace").value.trim();
-    const question = $("faqQuestion").value.trim();
-    const answer = $("faqAnswer").value.trim();
-    const alsoWriteToNotion = $("faqAlsoNotion").checked;
-    const resultEl = $("faqAddResult");
-    if (!namespace || !question || !answer) { resultEl.textContent = "namespace・質問・回答を入力してください"; return; }
-    resultEl.textContent = "登録中…";
-    try {
-      const data = await api("/admin/kb/add-faq", { namespace, question, answer, alsoWriteToNotion });
-      resultEl.textContent = "完了: " + data.chunks + "チャンク登録" + (data.notionPageId ? "（Notionページも作成: " + data.notionPageId + "）" : "");
-      $("faqQuestion").value = "";
-      $("faqAnswer").value = "";
-      loadKbHistory(); loadKbOverview();
-    } catch (e) {
-      resultEl.textContent = "エラー: " + e.message;
-    }
-  });
+  // ---------- 管理タブ：ナレッジを追加（ポップアップ、2026-10-08追加） ----------
+  // 以前は「URL手動登録」「再帰クロール」「YouTube」「ファイルアップロード」「FAQ単発」
+  // 「QA CSV一括」が縦に並び、どれもnamespaceを毎回手入力していた。AXChat:Dの
+  // 「ナレッジを追加」と同じ3ステップ（①方法と内容 → ②確認 → ③登録）のポップアップに統合し、
+  // namespaceは選択式にした。複数ファイル・複数URL・複数Q&Aをまとめて登録でき、結果は1件ずつ表示する。
+  const KB_NS_STORAGE = "ragPocKbNamespace";
+  const KB_METHODS = [
+    { key: "file", icon: "📄", title: "ファイル", description: "PDF・Word・PowerPoint・音声・動画" },
+    { key: "url", icon: "🌐", title: "URL", description: "Webページ・サイト配下・YouTube" },
+    { key: "qa", icon: "❓", title: "Q&A", description: "質問と回答を入力、またはCSV" },
+  ];
+  const KB_TIPS = {
+    file: [
+      "PDF・Word（.docx）・PowerPoint（.pptx）に対応しています",
+      "音声・動画は自動で文字起こしされます（時間がかかることがあります）",
+      "複数のファイルをまとめて追加できます",
+    ],
+    url: [
+      "1行に1件、複数のURLをまとめて登録できます",
+      "YouTubeのURLは字幕を自動で取得します",
+      "「配下ページも含む」で同じサイト内のリンク先も登録できます（最大ページ数は自由に指定できます）",
+      "再クロール時は「登録済みはスキップ」でAPIコストを抑えられます",
+    ],
+    qa: [
+      "質問は簡潔に、回答は正確に書きましょう",
+      "想定される質問は網羅的に洗い出しましょう",
+      "CSV（1行目に question, answer の列名）で一括登録もできます",
+    ],
+  };
+  const KB_AV_EXT = [".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".mp4", ".mov", ".webm", ".mkv", ".avi"];
+  const KB_DOC_EXT = [".pdf", ".docx", ".pptx"];
+  const KB_NL = String.fromCharCode(10);
 
-  // ---------- 管理タブ：QA CSV一括登録 ----------
-  $("qaCsvImportBtn").addEventListener("click", async () => {
-    const namespace = $("qaCsvNamespace").value.trim();
-    const csvText = $("qaCsvText").value;
-    if (!namespace || !csvText.trim()) { $("qaCsvProgress").textContent = "namespaceとCSVを入力してください"; return; }
-    const progressEl = $("qaCsvProgress");
-    let opId = null, startIndex = 0, totalDocs = 0, totalChunks = 0;
-    progressEl.textContent = "登録中…";
+  function kbExt(name) {
+    const i = name.lastIndexOf(".");
+    return i < 0 ? "" : name.slice(i).toLowerCase();
+  }
+  function kbFileAllowed(file) {
+    const ext = kbExt(file.name);
+    return KB_DOC_EXT.includes(ext) || KB_AV_EXT.includes(ext) || /^(audio|video)[/]/.test(file.type || "");
+  }
+  function kbFormatSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1024 / 1024).toFixed(1) + " MB";
+  }
+  function kbIsYoutube(url) {
+    return /^https?:[/][/](www[.]|m[.])?(youtube[.]com|youtu[.]be)[/]/i.test(url);
+  }
+  function kbLooksLikeUrl(text) {
+    return /^https?:[/][/][^ ]+$/i.test(text);
+  }
+
+  async function kbLoadNamespaces() {
     try {
+      const data = await api("/me/namespaces", {});
+      return (data.namespaces || []).slice().sort();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // 1件の登録を実行して、画面に出す詳細文字列を返す。失敗は例外。
+  async function kbRunItem(item, namespace, setDetail) {
+    if (item.kind === "file") {
+      setDetail("アップロード・変換中…");
+      const fileBase64 = await readFileAsBase64(item.file);
+      const data = await api("/admin/kb/upload-doc", { namespace, fileBase64, mimeType: item.file.type || "application/octet-stream", fileName: item.file.name });
+      return data.chunks + "チャンク登録" + (data.skipped > 0 ? "（" + data.skipped + "件スキップ）" : "");
+    }
+    if (item.kind === "youtube") {
+      setDetail("文字起こし中…（動画の長さによっては数十秒かかります）");
+      const data = await api("/admin/kb/import-youtube", { namespace, youtubeUrl: item.url, title: item.title || undefined });
+      return data.chunks + "チャンク登録" + (data.skipped > 0 ? "（" + data.skipped + "件スキップ）" : "");
+    }
+    if (item.kind === "url") {
+      setDetail("取得・登録中…");
+      const data = await api("/admin/kb/import-url", { namespace, url: item.url, title: item.title || undefined });
+      return data.chunks + "チャンク登録" + (data.skipped > 0 ? "（" + data.skipped + "件スキップ）" : "");
+    }
+    if (item.kind === "crawl") {
+      // サーバーが1リクエストで少数ページずつ処理するので、opIdで続きを呼び直す（Workers Freeプランの制限対策）
+      let opId = null;
+      let processed = 0, chunks = 0, errors = 0, skipped = 0, maxPages = item.options.maxPages, stopped = "";
       while (true) {
-        const body = { namespace, csvText, startIndex, batchSize: 5 };
+        const body = opId ? { opId } : {
+          namespace, url: item.url, depth: item.options.depth, maxPages: item.options.maxPages,
+          pathPrefix: item.options.pathPrefix || undefined, excludePatterns: item.options.excludePatterns || undefined,
+          skipExisting: item.options.skipExisting,
+        };
+        const data = await api("/admin/kb/crawl-url", body);
+        opId = data.opId;
+        processed = data.processedCount;
+        maxPages = data.maxPages;
+        if (data.stoppedEarly) stopped = data.stoppedEarly;
+        data.results.forEach((r) => {
+          chunks += r.chunks;
+          if (r.status === "error") errors++;
+          if (r.status === "skipped_existing") skipped++;
+        });
+        setDetail("取得中… " + processed + "/" + maxPages + "ページ（" + chunks + "チャンク登録）");
+        if (data.done) break;
+      }
+      const summary = processed + "ページ処理・" + chunks + "チャンク登録" + (skipped ? "・" + skipped + "件スキップ" : "") + (errors ? "・" + errors + "件エラー" : "") + "（opId: " + opId + "）" + (stopped ? " ※ " + stopped : "");
+      if (processed > 0 && errors === processed) throw new Error("全ページの取得に失敗しました。" + summary);
+      return summary;
+    }
+    if (item.kind === "faq") {
+      setDetail("登録中…");
+      const data = await api("/admin/kb/add-faq", { namespace, question: item.question, answer: item.answer, alsoWriteToNotion: item.alsoNotion });
+      return data.chunks + "チャンク登録" + (data.notionPageId ? "（Notionページも作成）" : "");
+    }
+    if (item.kind === "csv") {
+      let opId = null, startIndex = 0, docs = 0, chunks = 0;
+      while (true) {
+        const body = { namespace, csvText: item.csvText, startIndex, batchSize: 5 };
         if (opId) body.opId = opId;
         const data = await api("/admin/kb/import-qa-csv", body);
         opId = data.opId;
-        totalDocs += data.documents;
-        totalChunks += data.chunks;
-        progressEl.textContent = "進捗: " + data.processedRange[1] + "/" + data.totalRows + "（累計 " + totalDocs + "件・" + totalChunks + "チャンク）";
+        docs += data.documents;
+        chunks += data.chunks;
+        setDetail("進捗: " + data.processedRange[1] + "/" + data.totalRows + "行");
         if (data.nextIndex === null || data.nextIndex === undefined) break;
         startIndex = data.nextIndex;
       }
-      progressEl.textContent = "完了: " + totalDocs + "件・" + totalChunks + "チャンク登録（opId: " + opId + "）";
-      loadKbHistory(); loadKbOverview();
-    } catch (e) {
-      progressEl.textContent = "エラー: " + e.message;
+      return docs + "件・" + chunks + "チャンク登録（opId: " + opId + "）";
     }
-  });
+    throw new Error("未対応の種類です: " + item.kind);
+  }
+
+  async function openKnowledgeModal() {
+    const modal = openModal({ title: "ナレッジを追加", subtitle: "登録先を選び、方法を選んで内容を入力してください", wide: true, onClose: () => { if (anyDone) refreshKnowledgeLists(); } });
+    let anyDone = false;
+    const S = {
+      screen: "input", method: null, namespace: localStorage.getItem(KB_NS_STORAGE) || "", namespaces: [], customNs: false,
+      files: [], urlText: "", urlTitle: "", crawl: false, depth: 1, maxPages: 30, pathPrefix: "", exclude: "", skipExisting: true,
+      pairs: [{ question: "", answer: "" }], alsoNotion: false, csvName: "", csvText: "", csvRows: 0,
+      items: [], status: [], detail: [], message: [], error: "", stop: false,
+    };
+    S.namespaces = await kbLoadNamespaces();
+    if (!S.namespace || (S.namespaces.length > 0 && !S.namespaces.includes(S.namespace))) {
+      S.namespace = S.namespaces.includes(S.namespace) ? S.namespace : (S.namespaces.find((n) => n.indexOf("shared:") === 0) || S.namespaces[0] || "");
+    }
+    if (S.namespaces.length === 0) S.customNs = true;
+
+    function stepIndex() { return S.screen === "input" ? (S.method ? 1 : 0) : 2; }
+    function addFiles(list) {
+      const known = new Set(S.files.map((f) => f.name + ":" + f.size));
+      const rejected = [];
+      Array.from(list).forEach((file) => {
+        if (!file.size) return;
+        if (!kbFileAllowed(file)) { rejected.push(file.name); return; }
+        if (!known.has(file.name + ":" + file.size)) S.files.push(file);
+      });
+      S.error = rejected.length ? "対応していない形式のため追加しませんでした: " + rejected.join(", ") : "";
+      render();
+    }
+    function urlLines() {
+      return S.urlText.split(KB_NL).map((line) => line.trim()).filter(Boolean);
+    }
+    function validPairs() { return S.pairs.filter((p) => p.question.trim() && p.answer.trim()); }
+    function incompletePairs() { return S.pairs.filter((p) => (p.question.trim() || p.answer.trim()) && !(p.question.trim() && p.answer.trim())).length; }
+    function canProceed() {
+      if (!S.namespace.trim()) return false;
+      if (S.method === "file") return S.files.length > 0;
+      if (S.method === "url") return urlLines().length > 0;
+      if (S.method === "qa") return validPairs().length > 0 || S.csvText.trim().length > 0;
+      return false;
+    }
+    function buildItems() {
+      if (S.method === "file") return S.files.map((file) => ({ kind: "file", icon: "📄", label: file.name + "（" + kbFormatSize(file.size) + "）", file }));
+      if (S.method === "url") {
+        const lines = urlLines();
+        return lines.map((url) => {
+          const title = lines.length === 1 ? S.urlTitle.trim() : "";
+          if (kbIsYoutube(url)) return { kind: "youtube", icon: "▶️", label: url, url, title };
+          if (S.crawl) {
+            return { kind: "crawl", icon: "🕸️", label: url + "（配下ページも含む・最大" + S.maxPages + "ページ）", url,
+              options: { depth: S.depth, maxPages: S.maxPages, pathPrefix: S.pathPrefix.trim(), excludePatterns: S.exclude.trim(), skipExisting: S.skipExisting } };
+          }
+          return { kind: "url", icon: "🌐", label: url, url, title };
+        });
+      }
+      const items = validPairs().map((p) => ({ kind: "faq", icon: "❓", label: p.question.trim(), question: p.question.trim(), answer: p.answer.trim(), alsoNotion: S.alsoNotion }));
+      if (S.csvText.trim()) items.push({ kind: "csv", icon: "📊", label: (S.csvName || "貼り付けたCSV") + "（約" + S.csvRows + "行）", csvText: S.csvText });
+      return items;
+    }
+
+    async function startRun(onlyIndexes) {
+      S.screen = "progress";
+      S.stop = false;
+      S.error = "";
+      modal.setLocked(true);
+      const targets = onlyIndexes || S.items.map((_, i) => i);
+      targets.forEach((i) => { S.status[i] = "pending"; S.detail[i] = ""; S.message[i] = ""; });
+      render();
+      for (const index of targets) {
+        if (S.stop) break;
+        S.status[index] = "running";
+        render();
+        try {
+          const result = await kbRunItem(S.items[index], S.namespace, (text) => { S.detail[index] = text; render(); });
+          S.status[index] = "done";
+          S.detail[index] = result;
+          anyDone = true;
+        } catch (e) {
+          S.status[index] = "error";
+          S.message[index] = e.message || String(e);
+        }
+        render();
+      }
+      targets.forEach((i) => { if (S.status[i] === "pending") S.status[i] = "skipped"; });
+      S.screen = "done";
+      modal.setLocked(false);
+      render();
+    }
+
+    function renderStepper(parent) {
+      const steps = mk("div", "modal-steps");
+      ["登録方法の選択", "コンテンツの登録", "確認・実行"].forEach((label, i) => {
+        const cls = i === stepIndex() ? " active" : i < stepIndex() ? " done" : "";
+        const step = mk("div", "modal-step" + cls);
+        step.appendChild(mk("span", "idx", String(i + 1)));
+        step.appendChild(mk("span", "", label));
+        steps.appendChild(step);
+      });
+      parent.appendChild(steps);
+    }
+
+    function renderNamespacePicker(parent) {
+      const wrap = mk("div", "modal-fields");
+      wrap.appendChild(mk("label", "", "登録先 namespace"));
+      const row = mk("div");
+      row.style.display = "flex";
+      row.style.gap = ".5rem";
+      if (S.namespaces.length > 0) {
+        const select = document.createElement("select");
+        S.namespaces.forEach((ns) => {
+          const option = mk("option", "", ns);
+          option.value = ns;
+          option.selected = !S.customNs && ns === S.namespace;
+          select.appendChild(option);
+        });
+        const custom = mk("option", "", "その他（手入力）…");
+        custom.value = "__custom__";
+        custom.selected = S.customNs;
+        select.appendChild(custom);
+        select.addEventListener("change", () => {
+          if (select.value === "__custom__") { S.customNs = true; S.namespace = ""; }
+          else { S.customNs = false; S.namespace = select.value; localStorage.setItem(KB_NS_STORAGE, S.namespace); }
+          render();
+        });
+        row.appendChild(select);
+      }
+      if (S.customNs) {
+        const input = document.createElement("input");
+        input.type = "text";
+        input.placeholder = "例: shared:houdini_docs";
+        input.value = S.namespace;
+        input.addEventListener("input", () => { S.namespace = input.value.trim(); updateFooter(); });
+        row.appendChild(input);
+      }
+      wrap.appendChild(row);
+      parent.appendChild(wrap);
+    }
+
+    function renderFileInput(parent) {
+      const zone = mk("div", "dropzone");
+      zone.appendChild(mk("p", "", "ファイルをドラッグ＆ドロップするか、ボタンで選択してください"));
+      zone.appendChild(mk("p", "hint", "PDF・Word（.docx）・PowerPoint（.pptx）・音声・動画"));
+      const input = document.createElement("input");
+      input.type = "file";
+      input.multiple = true;
+      input.hidden = true;
+      input.accept = ".pdf,.docx,.pptx,audio/*,video/*";
+      input.addEventListener("change", () => { if (input.files && input.files.length) addFiles(input.files); input.value = ""; });
+      zone.appendChild(input);
+      zone.appendChild(modalButton("ファイルを選択", "primary", () => input.click()));
+      zone.addEventListener("dragover", (event) => { event.preventDefault(); zone.classList.add("drag-over"); });
+      zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+      zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("drag-over"); if (event.dataTransfer && event.dataTransfer.files.length) addFiles(event.dataTransfer.files); });
+      if (S.files.length > 0) {
+        const list = mk("ul", "file-list");
+        S.files.forEach((file, index) => {
+          const li = mk("li", "file-row");
+          li.appendChild(mk("span", "", "📄"));
+          li.appendChild(mk("span", "name", file.name));
+          li.appendChild(mk("span", "size", kbFormatSize(file.size)));
+          const remove = mk("button", "icon-btn", "✕");
+          remove.type = "button";
+          remove.setAttribute("aria-label", "削除");
+          remove.addEventListener("click", () => { S.files.splice(index, 1); render(); });
+          li.appendChild(remove);
+          list.appendChild(li);
+        });
+        zone.appendChild(list);
+      }
+      parent.appendChild(zone);
+    }
+
+    function renderUrlInput(parent) {
+      const wrap = mk("div", "modal-fields");
+      wrap.appendChild(mk("label", "", "URL（1行に1件）"));
+      const area = document.createElement("textarea");
+      area.rows = 4;
+      area.placeholder = "https://example.com/docs/" + KB_NL + "https://www.youtube.com/watch?v=...";
+      area.value = S.urlText;
+      area.addEventListener("input", () => { S.urlText = area.value; updateFooter(); });
+      wrap.appendChild(area);
+      if (urlLines().length === 1) {
+        wrap.appendChild(mk("label", "", "タイトル（任意）"));
+        const title = document.createElement("input");
+        title.type = "text";
+        title.placeholder = "省略時はURL（または取得したページ名）";
+        title.value = S.urlTitle;
+        title.addEventListener("input", () => { S.urlTitle = title.value; });
+        wrap.appendChild(title);
+      }
+      const scope = mk("div");
+      scope.appendChild(mk("label", "", "登録の範囲（YouTube以外のURLに適用）"));
+      [[false, "このページのみ"], [true, "配下ページも含む（同じサイト内のリンク先も登録）"]].forEach(([value, text]) => {
+        const row = mk("label", "radio-row");
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "kbCrawlScope";
+        radio.checked = S.crawl === value;
+        radio.addEventListener("change", () => { S.crawl = value; render(); });
+        row.appendChild(radio);
+        row.appendChild(document.createTextNode(text));
+        scope.appendChild(row);
+      });
+      wrap.appendChild(scope);
+      if (S.crawl) {
+        const details = document.createElement("details");
+        details.open = true;
+        details.appendChild(mk("summary", "", "クロールの詳細設定"));
+        details.appendChild(mk("label", "", "深さ"));
+        const depth = document.createElement("select");
+        [[0, "0（起点URLのみ）"], [1, "1（起点＋直接リンク先）"], [2, "2"], [3, "3"]].forEach(([value, text]) => {
+          const option = mk("option", "", text);
+          option.value = String(value);
+          option.selected = S.depth === value;
+          depth.appendChild(option);
+        });
+        depth.addEventListener("change", () => { S.depth = Number(depth.value); });
+        details.appendChild(depth);
+        details.appendChild(mk("label", "", "最大ページ数（上限なし。多いほど時間とAPIコストがかかります）"));
+        const maxPages = document.createElement("input");
+        maxPages.type = "number";
+        maxPages.min = "1";
+        maxPages.step = "1";
+        maxPages.value = String(S.maxPages);
+        maxPages.addEventListener("input", () => { const n = parseInt(maxPages.value, 10); S.maxPages = Number.isFinite(n) && n > 0 ? n : 1; });
+        details.appendChild(maxPages);
+        details.appendChild(mk("label", "", "パス絞り込み（任意）"));
+        const prefix = document.createElement("input");
+        prefix.type = "text";
+        prefix.placeholder = "例: /docs/houdini/（空欄なら同一オリジン全体）";
+        prefix.value = S.pathPrefix;
+        prefix.addEventListener("input", () => { S.pathPrefix = prefix.value; });
+        details.appendChild(prefix);
+        details.appendChild(mk("label", "", "除外パターン（任意・カンマ区切り・部分一致）"));
+        const exclude = document.createElement("input");
+        exclude.type = "text";
+        exclude.placeholder = "例: /download/, .pdf";
+        exclude.value = S.exclude;
+        exclude.addEventListener("input", () => { S.exclude = exclude.value; });
+        details.appendChild(exclude);
+        const skipRow = mk("label", "check-row");
+        const skip = document.createElement("input");
+        skip.type = "checkbox";
+        skip.checked = S.skipExisting;
+        skip.addEventListener("change", () => { S.skipExisting = skip.checked; });
+        skipRow.appendChild(skip);
+        skipRow.appendChild(document.createTextNode("同じnamespaceに同名で登録済みのページはスキップする（再クロール時のAPIコスト削減）"));
+        details.appendChild(skipRow);
+        wrap.appendChild(details);
+      }
+      parent.appendChild(wrap);
+    }
+
+    function renderQaInput(parent) {
+      const wrap = mk("div", "modal-fields");
+      // 未入力の行の警告。入力のたびに更新する（再描画だと入力中のフォーカスが外れるため）
+      const warn = mk("p", "modal-error");
+      function refreshQaWarning() {
+        const count = incompletePairs();
+        warn.textContent = "質問・回答のどちらかが未入力の行が" + count + "件あります。このまま進むと、それらは登録されません。";
+        warn.style.display = count > 0 ? "" : "none";
+      }
+      S.pairs.forEach((pair, index) => {
+        const box = mk("div", "qa-pair");
+        const head = mk("div", "head");
+        head.appendChild(mk("strong", "", "Q&A " + (index + 1)));
+        if (S.pairs.length > 1) {
+          const remove = mk("button", "icon-btn", "✕");
+          remove.type = "button";
+          remove.addEventListener("click", () => { S.pairs.splice(index, 1); render(); });
+          head.appendChild(remove);
+        }
+        box.appendChild(head);
+        const q = document.createElement("textarea");
+        q.rows = 2;
+        q.placeholder = "質問（例: HyDEとは何ですか？）";
+        q.value = pair.question;
+        q.addEventListener("input", () => { pair.question = q.value; refreshQaWarning(); updateFooter(); });
+        const a = document.createElement("textarea");
+        a.rows = 3;
+        a.placeholder = "回答";
+        a.value = pair.answer;
+        a.addEventListener("input", () => { pair.answer = a.value; refreshQaWarning(); updateFooter(); });
+        box.appendChild(q);
+        box.appendChild(a);
+        wrap.appendChild(box);
+      });
+      wrap.appendChild(warn);
+      refreshQaWarning();
+      const actions = mk("div");
+      actions.style.display = "flex";
+      actions.style.gap = ".5rem";
+      actions.style.flexWrap = "wrap";
+      actions.appendChild(modalButton("＋ Q&Aを追加", "", () => { S.pairs.push({ question: "", answer: "" }); render(); }));
+      const csvInput = document.createElement("input");
+      csvInput.type = "file";
+      csvInput.accept = ".csv,text/csv";
+      csvInput.hidden = true;
+      csvInput.addEventListener("change", async () => {
+        const file = csvInput.files && csvInput.files[0];
+        csvInput.value = "";
+        if (!file) return;
+        const text = await file.text();
+        setCsv(file.name, text);
+      });
+      actions.appendChild(csvInput);
+      actions.appendChild(modalButton("CSVを読み込む", "", () => csvInput.click()));
+      wrap.appendChild(actions);
+      const details = document.createElement("details");
+      details.open = S.csvText.length > 0;
+      details.appendChild(mk("summary", "", "CSVを貼り付ける（ヘッダー行に question, answer 列）"));
+      const area = document.createElement("textarea");
+      area.rows = 5;
+      area.style.fontFamily = "monospace";
+      area.placeholder = "question,answer" + KB_NL + "HyDEとは,仮の回答を先に生成してから検索する手法です";
+      area.value = S.csvText;
+      area.addEventListener("input", () => { setCsv(S.csvName, area.value, true); });
+      details.appendChild(area);
+      if (S.csvText.trim()) details.appendChild(mk("p", "modal-note", "CSV: 約" + S.csvRows + "行を一括登録します" + (S.csvName ? "（" + S.csvName + "）" : "")));
+      wrap.appendChild(details);
+      const notion = mk("label", "check-row");
+      const notionBox = document.createElement("input");
+      notionBox.type = "checkbox";
+      notionBox.checked = S.alsoNotion;
+      notionBox.addEventListener("change", () => { S.alsoNotion = notionBox.checked; });
+      notion.appendChild(notionBox);
+      notion.appendChild(document.createTextNode("このnamespaceの同期先Notion DBにもページを作成する（Q&Aの手入力分のみ。namespaceにNotion DB設定が必要）"));
+      wrap.appendChild(notion);
+      parent.appendChild(wrap);
+    }
+
+    function setCsv(name, text, typing) {
+      S.csvName = typing ? "" : name;
+      S.csvText = text;
+      const lines = text.split(KB_NL).filter((line) => line.trim());
+      S.csvRows = Math.max(lines.length - 1, 0);
+      const header = (lines[0] || "").toLowerCase();
+      S.error = text.trim() && !(header.indexOf("question") >= 0 && header.indexOf("answer") >= 0) ? "CSVのヘッダー行に question と answer の列が必要です" : "";
+      if (typing) updateFooter(); else render();
+    }
+
+    function renderItems(parent, showStatus) {
+      const list = mk("ul", "file-list");
+      S.items.forEach((item, index) => {
+        const li = mk("li", "file-row vertical");
+        const line = mk("div", "line");
+        line.appendChild(mk("span", "", item.icon));
+        line.appendChild(mk("span", "name", item.label));
+        if (showStatus) {
+          const status = S.status[index];
+          const labels = { pending: "待機中", running: "登録中…", done: "完了", error: "失敗", skipped: "中断" };
+          const badge = mk("span", "badge " + (status === "done" ? "ok" : status === "error" ? "error" : status === "running" ? "running" : ""), labels[status] || "");
+          line.appendChild(badge);
+        }
+        li.appendChild(line);
+        if (showStatus && S.detail[index] && S.status[index] !== "error") li.appendChild(mk("div", "detail", S.detail[index]));
+        if (showStatus && S.status[index] === "error" && S.message[index]) li.appendChild(mk("div", "err", S.message[index]));
+        list.appendChild(li);
+      });
+      parent.appendChild(list);
+    }
+
+    function counts() {
+      return {
+        done: S.status.filter((s) => s === "done").length,
+        error: S.status.filter((s) => s === "error").length,
+        skipped: S.status.filter((s) => s === "skipped").length,
+      };
+    }
+
+    function updateFooter() {
+      modal.footer.innerHTML = "";
+      if (S.screen === "input") {
+        modal.footer.appendChild(modalButton("キャンセル", "", () => modal.close()));
+        const next = modalButton("次へ", "primary", () => { S.items = buildItems(); S.status = S.items.map(() => "pending"); S.detail = S.items.map(() => ""); S.message = S.items.map(() => ""); S.screen = "review"; S.error = ""; render(); });
+        next.disabled = !canProceed() || (S.method === "qa" && S.error !== "");
+        modal.footer.appendChild(next);
+      } else if (S.screen === "review") {
+        modal.footer.appendChild(modalButton("戻る", "", () => { S.screen = "input"; render(); }));
+        modal.footer.appendChild(modalButton("登録開始", "primary", () => startRun(null)));
+      } else if (S.screen === "progress") {
+        const note = mk("span", "grow", "登録中です。画面を閉じずにお待ちください");
+        modal.footer.appendChild(note);
+        modal.footer.appendChild(modalButton("残りを中断", "", () => { S.stop = true; }));
+      } else {
+        const c = counts();
+        modal.footer.appendChild(mk("span", "grow", c.done + "/" + S.items.length + "件を登録しました" + (c.error ? "（失敗 " + c.error + "件）" : "") + (c.skipped ? "（中断 " + c.skipped + "件）" : "")));
+        const retry = S.status.map((s, i) => (s === "error" || s === "skipped" ? i : -1)).filter((i) => i >= 0);
+        if (retry.length > 0) modal.footer.appendChild(modalButton("失敗・中断した分だけ再実行", "", () => startRun(retry)));
+        modal.footer.appendChild(modalButton("続けて追加", "", () => { S.screen = "input"; S.method = null; S.files = []; S.urlText = ""; S.urlTitle = ""; S.pairs = [{ question: "", answer: "" }]; S.csvName = ""; S.csvText = ""; S.csvRows = 0; S.error = ""; render(); }));
+        modal.footer.appendChild(modalButton("閉じる", "primary", () => modal.close()));
+      }
+    }
+
+    function render() {
+      const body = modal.body;
+      body.innerHTML = "";
+      renderStepper(body);
+      if (S.screen === "input") {
+        modal.setSubtitle("登録先: " + (S.namespace || "（未選択）"));
+        renderNamespacePicker(body);
+        const cards = mk("div", "method-cards");
+        KB_METHODS.forEach((method) => {
+          const card = mk("button", "method-card" + (S.method === method.key ? " selected" : ""));
+          card.type = "button";
+          card.appendChild(mk("span", "icon", method.icon));
+          card.appendChild(mk("strong", "", method.title));
+          card.appendChild(mk("small", "", method.description));
+          card.addEventListener("click", () => { S.method = method.key; S.error = ""; render(); });
+          cards.appendChild(card);
+        });
+        body.appendChild(cards);
+        if (S.method) {
+          const grid = mk("div", "modal-grid");
+          const main = mk("div");
+          if (S.method === "file") renderFileInput(main);
+          else if (S.method === "url") renderUrlInput(main);
+          else renderQaInput(main);
+          grid.appendChild(main);
+          const tips = mk("aside", "modal-tips");
+          tips.appendChild(mk("h4", "", "ⓘ 登録のポイント"));
+          const ul = mk("ul");
+          KB_TIPS[S.method].forEach((tip) => { const li = mk("li"); li.appendChild(mk("span", "tip-check", "✓")); li.appendChild(mk("span", "", tip)); ul.appendChild(li); });
+          tips.appendChild(ul);
+          grid.appendChild(tips);
+          body.appendChild(grid);
+        }
+      } else if (S.screen === "review") {
+        modal.setSubtitle("登録先: " + S.namespace);
+        body.appendChild(mk("p", "modal-note", "次の" + S.items.length + "件を「" + S.namespace + "」へ登録します。内容を確認して「登録開始」を押してください。"));
+        renderItems(body, false);
+      } else {
+        modal.setSubtitle("登録先: " + S.namespace);
+        const c = counts();
+        const finished = c.done + c.error + c.skipped;
+        if (S.screen === "progress") {
+          const percent = S.items.length ? Math.round(((finished + (S.status.indexOf("running") >= 0 ? 0.5 : 0)) / S.items.length) * 100) : 0;
+          const track = mk("div", "progress-track");
+          const bar = mk("div", "progress-bar");
+          bar.style.width = percent + "%";
+          track.appendChild(bar);
+          body.appendChild(track);
+          body.appendChild(mk("p", "modal-note", finished + "/" + S.items.length + " 件処理（" + percent + "%）"));
+        } else {
+          body.appendChild(mk("p", "modal-note", c.error || c.skipped ? "登録結果（一部が完了していません）" : "登録が完了しました"));
+        }
+        renderItems(body, true);
+      }
+      if (S.error) body.appendChild(mk("p", "modal-error", S.error));
+      updateFooter();
+    }
+
+    function refreshKnowledgeLists() {
+      loadKbHistory();
+      loadKbOverview();
+      if (kbList.ready) loadKbList();
+      refreshConnectedSystems();
+    }
+    render();
+  }
+  $("openKnowledgeModalBtn").addEventListener("click", openKnowledgeModal);
+
+  // ---------- 管理タブ：連携するシステム（ポップアップ、2026-10-08追加） ----------
+  // AXChat:Dの「連携するシステムを追加」（システムの選択グリッド → 詳細ポップアップ）を参考にした。
+  // 公式MCP（Notion・Atlassian）と、ナレッジ同期用のOAuth接続（Jira・Backlog・Googleカレンダー・Slack）を
+  // 同じ入口から選べる。同期するプロジェクト等の細かい設定は、従来どおり「連携」タブで行う。
+  const SYSTEM_DEFS = [
+    { id: "mcp:notion", kind: "mcp", provider: "notion", name: "Notion", brand: "Notion", icon: "📓",
+      description: "ページの検索・閲覧（公式MCP）",
+      access: "Notionのページ・データベースを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、書き込みを行うツールは使われません。" },
+    { id: "mcp:atlassian", kind: "mcp", provider: "atlassian", name: "Atlassian（Jira / Confluence）", brand: "Atlassian", icon: "🧭",
+      description: "課題・ページの検索と閲覧（公式MCP）",
+      access: "Jiraの課題・Confluenceのページを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新を行うツールは使われません。" },
+    { id: "oauth:jira", kind: "oauth", service: "jira", name: "Jira（課題の同期）", brand: "Atlassian", icon: "🎫",
+      description: "課題をナレッジとして毎日同期",
+      access: "Jiraのプロジェクトの課題（要約・説明・種別・ステータス）を読み取り、ナレッジとして登録します。読み取り専用（read:jira-work）です。" },
+    { id: "oauth:backlog", kind: "oauth", service: "backlog", needsSpace: true, name: "Backlog（課題の同期）", brand: "Backlog", icon: "🗂",
+      description: "課題をナレッジとして毎日同期",
+      access: "Backlogのプロジェクトの課題を読み取り、ナレッジとして登録します。認証の前に、スペースURL（例: yourspace.backlog.com）を入力してください。" },
+    { id: "oauth:google_calendar", kind: "oauth", service: "google_calendar", name: "Google カレンダー", brand: "Google", icon: "📅",
+      description: "予定をナレッジとして毎日同期",
+      access: "選んだカレンダーの予定（タイトル・日時・場所・説明）を、過去7日〜未来90日分、読み取って登録します。" },
+    { id: "oauth:slack", kind: "oauth", service: "slack", adminOnly: true, name: "Slack（通知）", brand: "Slack", icon: "💬",
+      description: "ヘルスチェック・アラートの通知先",
+      access: "選んだチャンネルへ、ヘルスチェックのアラートなどの通知を送ります（管理者のみ）。" },
+    { id: "plan", kind: "plan", name: "その他のシステム", brand: "", icon: "➕",
+      description: "GitHub・Zoom・Google公式MCPなど（準備中）", access: "" },
+  ];
+
+  async function loadSystemStates() {
+    const state = { mcp: {}, oauth: {} };
+    const [mcpRes, oauthRes] = await Promise.allSettled([api("/admin/mcp/status", {}), api("/admin/oauth/status", {})]);
+    if (mcpRes.status === "fulfilled") mcpRes.value.providers.forEach((p) => { state.mcp[p.id] = p; });
+    if (oauthRes.status === "fulfilled") state.oauth = oauthRes.value;
+    return state;
+  }
+
+  // 1つのシステムの状態。connected / reauth / chip（アカウント・サイト名など）
+  function systemInfo(def, state) {
+    if (def.kind === "mcp") {
+      const p = state.mcp[def.provider];
+      if (!p) return { connected: false, reauth: false, chip: "", chatEnabled: false };
+      return { connected: p.connected, reauth: p.status === "reauth_required", chip: "", chatEnabled: p.chatEnabled };
+    }
+    if (def.kind === "oauth") {
+      const o = state.oauth[def.service];
+      return { connected: !!(o && o.connected), reauth: false, chip: o && o.connected ? (o.label || "") : "", chatEnabled: false };
+    }
+    return { connected: false, reauth: false, chip: "", chatEnabled: false };
+  }
+
+  function statusBadge(info) {
+    if (info.reauth) return mk("span", "badge error", "要再認証");
+    if (info.connected) return mk("span", "badge ok", "連携済み");
+    return null;
+  }
+
+  // 「連携中のシステム」カード（ナレッジ登録タブ）
+  async function refreshConnectedSystems() {
+    const list = $("connectedSystemsList");
+    if (!list) return;
+    try {
+      const state = await loadSystemStates();
+      list.innerHTML = "";
+      const rows = SYSTEM_DEFS.filter((d) => d.kind !== "plan").map((d) => ({ d, info: systemInfo(d, state) })).filter((r) => r.info.connected || r.info.reauth);
+      if (rows.length === 0) {
+        list.appendChild(mk("li", "conn-empty", "連携しているシステムはまだありません。「連携するシステムを追加」から接続できます。"));
+        return;
+      }
+      rows.forEach(({ d, info }) => {
+        const li = mk("li", "conn-row");
+        li.tabIndex = 0;
+        li.appendChild(statusBadge(info));
+        li.appendChild(mk("strong", "", d.name));
+        if (info.chip) li.appendChild(mk("span", "chip", info.chip));
+        if (info.chatEnabled) li.appendChild(mk("span", "chip ok", "チャットで使用中"));
+        li.appendChild(mk("span", "conn-desc", d.description));
+        const open = () => openSystemsModal(d.id);
+        li.addEventListener("click", open);
+        li.addEventListener("keydown", (event) => { if (event.key === "Enter") open(); });
+        list.appendChild(li);
+      });
+    } catch (e) {
+      list.innerHTML = "";
+      list.appendChild(mk("li", "conn-empty", "状態を取得できませんでした: " + e.message));
+    }
+  }
+
+  async function openSystemsModal(focusId) {
+    const isAdmin = currentUserRole === "admin";
+    const modal = openModal({ title: "連携するシステムを追加", subtitle: "連携したいシステムを選択してください。選択後、各サービスの認証画面に移行します。", wide: true,
+      onClose: () => { refreshConnectedSystems(); loadMcpStatus(); loadOAuthStatus(); } });
+    let state = await loadSystemStates();
+    let selected = SYSTEM_DEFS.find((d) => d.id === focusId) || null;
+
+    function renderGrid() {
+      modal.setTitle("連携するシステムを追加");
+      modal.setSubtitle("連携したいシステムを選択してください。選択後、各サービスの認証画面に移行します。");
+      modal.body.innerHTML = "";
+      modal.footer.innerHTML = "";
+      const grid = mk("div", "sys-grid");
+      SYSTEM_DEFS.forEach((def) => {
+        const info = systemInfo(def, state);
+        const card = mk("button", "sys-card");
+        card.type = "button";
+        card.appendChild(mk("span", "sys-icon", def.icon));
+        const text = mk("span", "sys-text");
+        const title = mk("strong", "", def.name);
+        const badge = statusBadge(info);
+        if (badge) title.appendChild(badge);
+        text.appendChild(title);
+        text.appendChild(mk("small", "", def.description));
+        card.appendChild(text);
+        card.appendChild(mk("span", "sys-chevron", "›"));
+        card.addEventListener("click", () => { selected = def; renderDetail(); });
+        grid.appendChild(card);
+      });
+      modal.body.appendChild(grid);
+      modal.footer.appendChild(modalButton("キャンセル", "", () => modal.close()));
+    }
+
+    function detailRow(icon, label, value) {
+      const row = mk("div", "sys-row");
+      row.appendChild(mk("span", "sys-row-label", icon + " " + label));
+      row.appendChild(mk("span", "sys-val", value));
+      return row;
+    }
+
+    function renderDetail() {
+      const def = selected;
+      const info = systemInfo(def, state);
+      modal.body.innerHTML = "";
+      modal.footer.innerHTML = "";
+      if (def.kind === "plan") {
+        modal.setTitle("その他のシステム");
+        modal.setSubtitle("今後対応を予定しているシステムです。");
+        const list = mk("ul", "modal-note");
+        ["GitHub・Zoom など、他社の公式MCPサーバー（自動登録に対応しているもの）", "Google公式MCP（Gmail・Calendar・Drive。Developer Previewへの参加が必要）", "書き込みを行うツールのチャット利用（実行前の確認ダイアログが必要）"].forEach((text) => list.appendChild(mk("li", "", text)));
+        modal.body.appendChild(list);
+        modal.body.appendChild(mk("p", "modal-note", "サービスを足すには、src/mcp/providers.ts に公式MCPサーバーのURLを1件登録します（詳しくは docs/mcp-client.md）。"));
+        modal.footer.appendChild(modalButton("← 一覧へ", "", () => { selected = null; renderGrid(); }));
+        return;
+      }
+      modal.setTitle(def.name + "と連携");
+      modal.setSubtitle(def.name + "をこのシステムに連携します。認証後、許可した情報を検索・同期に利用できるようになります。");
+
+      const hero = mk("div", "sys-hero");
+      hero.appendChild(mk("span", "sys-icon big", def.icon));
+      const heroText = mk("div");
+      const heroTitle = mk("h4", "", def.name);
+      const badge = statusBadge(info);
+      if (badge) heroTitle.appendChild(badge);
+      heroText.appendChild(heroTitle);
+      heroText.appendChild(mk("p", "", def.description));
+      if (info.connected && info.chip) heroText.appendChild(mk("p", "sys-account", "連携アカウント：" + info.chip));
+      hero.appendChild(heroText);
+      modal.body.appendChild(hero);
+      if (info.reauth) modal.body.appendChild(mk("p", "modal-error", "連携の有効期限が切れたか、取り消されました。もう一度認証してください。"));
+
+      const rows = mk("div", "sys-rows");
+      rows.appendChild(detailRow("👤", "対象", "この管理画面（デプロイ全体）。連携した方の権限で動きます"));
+      rows.appendChild(detailRow("🔗", "連携サービス", def.name));
+      rows.appendChild(detailRow("🔒", "アクセス範囲", def.access));
+      rows.appendChild(detailRow("🛡", "セキュリティ", "認証は" + def.brand + "側で行われ、パスワードはこのシステムには渡りません。許可した内容はいつでも解除できます。"));
+      modal.body.appendChild(rows);
+
+      const canOperate = def.kind === "mcp" ? isAdmin : (def.adminOnly ? isAdmin : true);
+      if (!canOperate) modal.body.appendChild(mk("p", "modal-note", "接続・設定は管理者だけが行えます。"));
+
+      let spaceInput = null;
+      if (def.needsSpace && !info.connected && canOperate) {
+        const field = mk("div", "modal-fields");
+        field.appendChild(mk("label", "", "スペースURL"));
+        spaceInput = document.createElement("input");
+        spaceInput.type = "text";
+        spaceInput.placeholder = "例: yourspace.backlog.com";
+        field.appendChild(spaceInput);
+        modal.body.appendChild(field);
+      }
+
+      if (def.kind === "mcp" && isAdmin && info.connected) {
+        const panel = mk("div", "sys-panel");
+        panel.appendChild(mk("h4", "", "チャットで使うツール"));
+        const row = mk("label", "check-row");
+        row.style.display = "flex";
+        row.style.gap = ".4rem";
+        const toggle = document.createElement("input");
+        toggle.type = "checkbox";
+        toggle.checked = info.chatEnabled;
+        toggle.addEventListener("change", async () => {
+          try { await api("/admin/mcp/set-chat", { provider: def.provider, enabled: toggle.checked }); showToast(toggle.checked ? "チャットで使うようにしました" : "チャットでは使わないようにしました", "success"); state = await loadSystemStates(); }
+          catch (e) { toggle.checked = !toggle.checked; showToast("変更に失敗しました: " + e.message, "error"); }
+        });
+        row.appendChild(toggle);
+        row.appendChild(document.createTextNode("RAGチャットでこのサービスのツールを使う（読み取り専用のみ）"));
+        panel.appendChild(row);
+        const toolsBox = mk("div");
+        toolsBox.appendChild(mk("p", "modal-note", "ツール一覧を取得しています…"));
+        panel.appendChild(toolsBox);
+        modal.body.appendChild(panel);
+        loadSystemTools(def, toolsBox, false);
+      }
+      if (def.kind === "oauth") {
+        const panel = mk("div", "sys-panel");
+        panel.appendChild(mk("h4", "", "同期の設定"));
+        panel.appendChild(mk("p", "modal-note", "同期するプロジェクト・カレンダー・通知先などは、「連携」タブで設定します。"));
+        panel.appendChild(modalButton("「連携」タブを開く", "", () => { modal.close(); const tab = document.querySelector('button[data-subtab="integrations"]'); if (tab) tab.click(); }));
+        modal.body.appendChild(panel);
+      }
+
+      modal.footer.appendChild(modalButton("キャンセル", "", () => { selected = null; renderGrid(); }));
+      if (canOperate) {
+        const disconnectable = def.kind === "mcp" ? (info.connected || info.reauth) : info.connected;
+        if (disconnectable) {
+          modal.footer.appendChild(modalButton("連携を解除", "danger", async () => {
+            if (!confirm(def.name + "との連携を解除しますか？")) return;
+            try {
+              await api(def.kind === "mcp" ? "/admin/mcp/disconnect" : "/admin/oauth/" + def.service + "/disconnect", def.kind === "mcp" ? { provider: def.provider } : {});
+              showToast("解除しました", "success");
+              state = await loadSystemStates();
+              renderDetail();
+            } catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
+          }));
+        }
+        const label = info.connected || info.reauth ? "再認証する" : def.brand + "で認証する" + (def.kind === "mcp" ? "（公式MCP）" : "");
+        modal.footer.appendChild(modalButton(label, "primary", () => {
+          if (def.kind === "mcp") { startOAuthConnect("mcp/" + def.provider); return; }
+          if (def.needsSpace) {
+            const space = spaceInput ? spaceInput.value.trim() : "";
+            if (!space) { showToast("スペースURLを入力してください", "error"); return; }
+            startOAuthConnect(def.service, { space });
+            return;
+          }
+          startOAuthConnect(def.service);
+        }));
+      }
+    }
+
+    if (selected) renderDetail(); else renderGrid();
+  }
+
+  async function loadSystemTools(def, box, refresh) {
+    try {
+      const data = await api("/admin/mcp/tools", { provider: def.provider, refresh });
+      box.innerHTML = "";
+      box.appendChild(mk("p", "modal-note", "使うツールを選びます（未選択のものは使われません）。モデルに見せるツールは少ないほど選びやすくなります。"));
+      const list = mk("ul", "mcp-tools");
+      const checks = [];
+      data.tools.forEach((tool) => {
+        const li = mk("li");
+        const label = mk("label");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = tool.enabled;
+        checks.push([tool.name, input]);
+        label.appendChild(input);
+        const text = mk("span");
+        const name = mk("strong", "", tool.name);
+        name.appendChild(document.createTextNode(" "));
+        name.appendChild(mk("span", "badge " + (tool.readOnly ? "ok" : ""), tool.readOnly ? "読み取り" : "書き込みの可能性（チャットでは使われません）"));
+        text.appendChild(name);
+        text.appendChild(mk("small", "", (tool.description || "").slice(0, 160)));
+        label.appendChild(text);
+        li.appendChild(label);
+        list.appendChild(li);
+      });
+      box.appendChild(list);
+      const actions = mk("div");
+      actions.style.display = "flex";
+      actions.style.gap = ".5rem";
+      actions.appendChild(modalButton("ツールの選択を保存", "primary", async () => {
+        try { await api("/admin/mcp/set-tools", { provider: def.provider, tools: checks.filter((c) => c[1].checked).map((c) => c[0]) }); showToast("保存しました", "success"); }
+        catch (e) { showToast("保存に失敗しました: " + e.message, "error"); }
+      }));
+      actions.appendChild(modalButton("一覧を再取得", "", () => { box.innerHTML = ""; box.appendChild(mk("p", "modal-note", "取得しています…")); loadSystemTools(def, box, true); }));
+      box.appendChild(actions);
+    } catch (e) {
+      box.innerHTML = "";
+      box.appendChild(mk("p", "modal-error", "ツール一覧を取得できませんでした: " + e.message));
+    }
+  }
+
+  $("openSystemsModalBtn").addEventListener("click", () => openSystemsModal(null));
+
+  // 「連携」タブの公式MCPセクション（状態の一覧）
+  let mcpProviders = [];
+  async function loadMcpStatus() {
+    const list = $("mcpStatusList");
+    if (!list) return;
+    try {
+      const data = await api("/admin/mcp/status", {});
+      mcpProviders = data.providers;
+      list.innerHTML = "";
+      mcpProviders.forEach((p) => {
+        const li = mk("li");
+        li.appendChild(mk("strong", "", p.label));
+        li.appendChild(mk("span", "badge " + (p.connected ? "ok" : p.status === "reauth_required" ? "error" : ""), p.status === "reauth_required" ? "要再認証" : p.connected ? "接続済み" : "未接続"));
+        if (p.connected && p.chatEnabled) li.appendChild(mk("span", "badge ok", "チャットで使用中"));
+        list.appendChild(li);
+      });
+    } catch (e) {
+      list.innerHTML = "";
+      list.appendChild(mk("li", "hint", "状態を取得できませんでした: " + e.message));
+    }
+  }
+  $("mcpOpenBtn").addEventListener("click", () => openSystemsModal(null));
+  $("mcpRefreshBtn").addEventListener("click", loadMcpStatus);
+
+  // ---------- 管理タブ：登録済みナレッジ（一覧・検索・削除、2026-10-08） ----------
+  // 以前は「登録済みファイル一覧・個別削除」でnamespaceを手入力して読み込む形だった。
+  // AXChat:Dの「登録済みナレッジ」カードを参考に、namespaceを選択式にし、検索・ページ送り・
+  // 種類と更新日時の表示を足した。削除は従来どおり1件ずつ（opId単位の一括取り消しはシステムタブ）。
+  const kbList = { items: [], page: 1, size: 20, query: "", ns: "", ready: false };
+  const KB_SOURCE_LABELS = { manual: "手動登録", notion: "Notion", drive: "Google Drive", jira: "Jira", backlog: "Backlog", calendar: "カレンダー" };
+  function kbKind(item) {
+    const ext = kbExt(item.file);
+    if (ext === ".pdf") return "PDF";
+    if (ext === ".docx") return "Word";
+    if (ext === ".pptx") return "PowerPoint";
+    if (KB_AV_EXT.includes(ext)) return "音声・動画";
+    return KB_SOURCE_LABELS[item.source] || "テキスト";
+  }
+
+  async function initKbList() {
+    const select = $("kbListNs");
+    if (!select || kbList.ready) return;
+    const namespaces = await kbLoadNamespaces();
+    select.innerHTML = "";
+    namespaces.forEach((ns) => { const option = mk("option", "", ns); option.value = ns; select.appendChild(option); });
+    const saved = localStorage.getItem(KB_NS_STORAGE) || "";
+    kbList.ns = namespaces.includes(saved) ? saved : (namespaces.find((n) => n.indexOf("shared:") === 0) || namespaces[0] || "");
+    select.value = kbList.ns;
+    kbList.ready = true;
+    loadKbList();
+  }
+
+  async function loadKbList() {
+    if (!kbList.ns) { renderKbList("登録先のnamespaceがありません"); return; }
+    $("kbListCount").textContent = "読み込み中…";
+    try {
+      const data = await api("/admin/kb/list-documents", { namespace: kbList.ns });
+      kbList.items = data.documents || (data.files || []).map((file) => ({ file, source: null, updatedAt: null }));
+      kbList.page = 1;
+      renderKbList("");
+    } catch (e) {
+      kbList.items = [];
+      renderKbList("取得に失敗しました: " + e.message);
+    }
+  }
+
+  function renderKbList(message) {
+    const tbody = $("kbListTable").querySelector("tbody");
+    tbody.innerHTML = "";
+    const query = kbList.query.trim().toLowerCase();
+    const filtered = kbList.items.filter((item) => !query || item.file.toLowerCase().indexOf(query) >= 0);
+    const pages = Math.max(1, Math.ceil(filtered.length / kbList.size));
+    kbList.page = Math.min(kbList.page, pages);
+    const start = (kbList.page - 1) * kbList.size;
+    const slice = filtered.slice(start, start + kbList.size);
+    if (slice.length === 0) {
+      const tr = document.createElement("tr");
+      const td = mk("td", "", message || (query ? "該当するナレッジがありません" : "登録済みのナレッジはありません"));
+      td.colSpan = 4;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+    slice.forEach((item) => {
+      const tr = document.createElement("tr");
+      const name = mk("td", "kb-name");
+      name.appendChild(mk("span", "kb-doc-icon", "📄"));
+      name.appendChild(document.createTextNode(item.file));
+      name.title = item.file;
+      tr.appendChild(name);
+      tr.appendChild(mk("td", "", kbKind(item)));
+      tr.appendChild(mk("td", "", item.updatedAt ? new Date(item.updatedAt * 1000).toLocaleString() : "-"));
+      const actions = mk("td");
+      const del = modalButton("削除", "danger", async () => {
+        if (!confirm(item.file + " を削除しますか？（元に戻せません）")) return;
+        del.disabled = true;
+        try {
+          const result = await api("/admin/kb/delete-document", { namespace: kbList.ns, file: item.file });
+          showToast(item.file + " を削除しました（" + result.deletedChunks + "チャンク）", "success");
+          kbList.items = kbList.items.filter((x) => x.file !== item.file);
+          renderKbList("");
+          loadKbOverview();
+        } catch (e) {
+          showToast("削除に失敗しました: " + e.message, "error");
+          del.disabled = false;
+        }
+      });
+      actions.appendChild(del);
+      tr.appendChild(actions);
+      tbody.appendChild(tr);
+    });
+    const from = filtered.length === 0 ? 0 : start + 1;
+    $("kbListCount").textContent = from + "–" + (start + slice.length) + " / " + filtered.length + " 件";
+    $("kbListPageNo").textContent = kbList.page + " / " + pages;
+    $("kbListPrev").disabled = kbList.page <= 1;
+    $("kbListNext").disabled = kbList.page >= pages;
+  }
+
+  if ($("kbListNs")) {
+    $("kbListNs").addEventListener("change", () => { kbList.ns = $("kbListNs").value; localStorage.setItem(KB_NS_STORAGE, kbList.ns); loadKbList(); });
+    $("kbListSearch").addEventListener("input", () => { kbList.query = $("kbListSearch").value; kbList.page = 1; renderKbList(""); });
+    $("kbListSize").addEventListener("change", () => { kbList.size = Number($("kbListSize").value) || 20; kbList.page = 1; renderKbList(""); });
+    $("kbListPrev").addEventListener("click", () => { kbList.page -= 1; renderKbList(""); });
+    $("kbListNext").addEventListener("click", () => { kbList.page += 1; renderKbList(""); });
+    $("kbListRefresh").addEventListener("click", () => { kbList.ready ? loadKbList() : initKbList(); });
+  }
+
+  // チャットの「外部サービスも使う」スイッチ。管理者が「チャットで使う」をオンにしたサービスが
+  // 1つでもあるときだけ表示する（外部へは通信せず、D1の接続状態だけを見る）。
+  async function refreshMcpAvailability() {
+    const wrap = $("mcpToggleWrap");
+    if (!wrap) return;
+    try {
+      const data = await api("/me/mcp", {});
+      wrap.style.display = data.available ? "flex" : "none";
+      $("mcpToggleLabel").textContent = "外部サービスも使う（" + data.providers.map((p) => p.label).join("・") + "）";
+    } catch (e) {
+      wrap.style.display = "none";
+    }
+  }
 
   // ---------- 管理タブ：KBロールバック ----------
   $("rollbackBtn").addEventListener("click", async () => {
