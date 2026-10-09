@@ -279,6 +279,9 @@ export function chatUiHtml(): string {
   }
   .admin-subnav button.active { color: var(--accent); border-left-color: var(--accent); background: var(--panel); border-radius: 0 8px 8px 0; }
   .admin-content { flex: 1; min-width: 0; }
+  details.sync-settings { border: 1px solid var(--border); border-radius: 12px; padding: .7rem 1.2rem; margin-bottom: 1.2rem; }
+  details.sync-settings > summary { cursor: pointer; font-weight: 700; font-size: .95rem; }
+  details.sync-settings[open] > summary { margin-bottom: .8rem; }
   /* U3: 管理タブの右サマリ（予算・ナレッジ量・連携）。広い画面でだけ出す。状態は色だけでなく文字でも示す。 */
   .admin-summary { display: none; width: 260px; flex: none; border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1rem; position: sticky; top: .5rem; }
   .admin-summary h3 { margin: 0 0 .5rem; font-size: .85rem; }
@@ -641,7 +644,6 @@ export function chatUiHtml(): string {
       <button data-subtab="guide" class="active">ガイド</button>
       <button data-subtab="overview" class="admin-only-section">Overview</button>
       <button data-subtab="knowledge">ナレッジ登録</button>
-      <button data-subtab="integrations">連携</button>
       <button data-subtab="users" class="admin-only-section">ユーザー・権限</button>
       <button data-subtab="namespaces" class="admin-only-section">namespace管理</button>
       <button data-subtab="usage" class="admin-only-section">利用状況・コスト</button>
@@ -781,10 +783,9 @@ export function chatUiHtml(): string {
         <button class="btn" id="refreshKbHistory">再読み込み</button>
         <div class="table-scroll"><table class="admin-table" id="kbHistoryTable"><thead><tr><th>日時</th><th>opId</th><th>種別</th><th>namespace</th><th>ファイル</th><th>状態</th><th>詳細</th></tr></thead><tbody></tbody></table></div>
       </div>
-    </div>
-
-    <!-- 連携: editor/admin共通（Slack/Gmailの通知テストのみadmin専用。2026-09-17追加） -->
-    <div class="admin-subpanel" data-subtab="integrations">
+    
+      <details class="sync-settings" id="syncSettings">
+        <summary>同期・通知の設定（Jira / Backlog / カレンダー / マップ / Slack）</summary>
       <div class="section">
         <h2>Jira</h2>
         <p class="hint">プロジェクトの課題（要約・説明・種別・ステータス）をnamespaceへ一括登録します。設定済みのプロジェクトは毎日自動で差分同期されます（更新された課題だけを追加登録。初回の全件取り込みは下の「Jira同期を実行」で行ってください）。</p>
@@ -863,14 +864,6 @@ export function chatUiHtml(): string {
         <div id="mapsCsvProgress" class="hint" style="white-space:pre-line;"></div>
       </div>
 
-      <div class="section">
-        <h2>公式MCP連携（Notion・Atlassian）</h2>
-        <p class="hint">各社が公開する公式のMCPサーバーに接続し、そのツールをRAGチャットから使えるようにします（2026-10-08追加。別プロジェクトの公式MCP連携を参考）。認証はOAuth 2.1で、こちらでOAuthアプリを作る必要はありません。接続・ツール選択は管理者のみ、使えるのは読み取り専用のツールだけです。</p>
-        <ul class="mcp-status-list" id="mcpStatusList"><li class="hint">確認中…</li></ul>
-        <button class="btn primary" id="mcpOpenBtn">MCP連携を管理…</button>
-        <button class="btn" id="mcpRefreshBtn">状態を再読み込み</button>
-      </div>
-
       <div class="section admin-only-section">
         <h2>通知連携（Slack / Gmail）</h2>
         <p class="hint">管理者向けの通知・アラート先です。</p>
@@ -881,6 +874,8 @@ export function chatUiHtml(): string {
         <button class="btn" id="integrationsTestAlertBtn" style="margin-top:.6rem;">テスト通知を送信</button>
         <div id="integrationsTestAlertResult" class="hint"></div>
       </div>
+    
+      </details>
     </div>
 
     <!-- ユーザー・権限: admin専用 -->
@@ -1078,12 +1073,6 @@ export function chatUiHtml(): string {
 
     <!-- システム: admin専用 -->
     <div class="admin-subpanel admin-only-section" data-subtab="system">
-      <div class="section">
-        <h2>データモデル</h2>
-        <p class="hint">D1の主なテーブルの関係です。概念図は「誰が・どのnamespaceの・どの文書を使えるか」だけ、ER図はテーブルと主な列を示します（マイグレーションから手で維持）。</p>
-        <div class="src-sort" id="dataModelToggle"><button type="button" data-view="concept" class="active">概念図</button><button type="button" data-view="er">ER図</button></div>
-        <div class="table-scroll"><svg id="dataModelSvg" viewBox="0 0 900 440" width="900" height="440" role="img" aria-label="データモデル"></svg></div>
-      </div>
       <div class="section">
         <h2>設定バックアップ</h2>
         <p class="hint">APIキー・namespace・KB同期元設定・トークン予算のスナップショットをJSONでダウンロードします（チャット履歴本文やベクトルデータは含みません。実データはD1の自動バックアップに任せています）。</p>
@@ -1438,8 +1427,7 @@ export function chatUiHtml(): string {
       document.querySelector('.admin-subpanel[data-subtab="' + btn.dataset.subtab + '"]').classList.add("active");
       // 「連携」タブを開くたびに接続状況を再確認する（OAuth接続直後の戻り先でもあるため、
       // 2026-09-22追加）。
-      if (btn.dataset.subtab === "integrations") { loadOAuthStatus(); loadMcpStatus(); }
-      if (btn.dataset.subtab === "knowledge") { initKbList(); refreshConnectedSystems(); }
+      if (btn.dataset.subtab === "knowledge") { initKbList(); refreshConnectedSystems(); loadOAuthStatus(); }
     });
   });
 
@@ -3639,65 +3627,6 @@ export function chatUiHtml(): string {
   }
   $("refreshKbOverview").addEventListener("click", loadKbOverview);
 
-  // R7: データモデルの概念図 / ER図（手で維持する静的データ。固定文字列だけをSVGに入れる）
-  const ER_TABLES = [
-    { id: "users", x: 20, y: 20, cols: ["user_id (PK)", "display_name", "role"] },
-    { id: "namespaces", x: 330, y: 20, cols: ["namespace_id (PK)", "scope", "owner_user_id (FK)"] },
-    { id: "key_namespace_grants", x: 20, y: 160, cols: ["user_id (FK)", "namespace_id (FK)"] },
-    { id: "token_budgets", x: 20, y: 270, cols: ["user_id (FK)", "budget_type", "limit_tokens / used_tokens"] },
-    { id: "kb_documents", x: 330, y: 160, cols: ["chunk_id (PK)", "file", "namespace"] },
-    { id: "kb_log", x: 330, y: 270, cols: ["op_id", "namespace_id", "status"] },
-    { id: "kb_sources", x: 640, y: 20, cols: ["namespace_id (PK/FK)", "notion_database_id", "drive_folder_id"] },
-    { id: "memory", x: 640, y: 160, cols: ["id (PK)", "user_id (FK)", "rating"] },
-    { id: "audit_log", x: 640, y: 270, cols: ["user_id", "namespace_id", "latency_ms"] },
-    { id: "oauth_connections / mcp_connections", x: 330, y: 360, cols: ["service / provider_id (PK)", "token (暗号化なし・PoC)"], wide: true },
-  ];
-  const ER_LINKS = [["namespaces", "users"], ["key_namespace_grants", "users"], ["key_namespace_grants", "namespaces"], ["token_budgets", "users"], ["kb_sources", "namespaces"], ["memory", "users"], ["kb_documents", "namespaces"], ["kb_log", "namespaces"], ["audit_log", "users"]];
-  const CONCEPT_BOXES = [
-    { id: "user", x: 30, y: 150, w: 170, label: "ユーザー（APIキー）", sub: "役割: admin / editor / member" },
-    { id: "grant", x: 270, y: 150, w: 170, label: "アクセス許可", sub: "どのnamespaceを使えるか" },
-    { id: "ns", x: 510, y: 150, w: 170, label: "namespace", sub: "shared / personal" },
-    { id: "doc", x: 730, y: 150, w: 150, label: "文書・チャンク", sub: "検索の対象" },
-    { id: "budget", x: 30, y: 300, w: 170, label: "トークン予算", sub: "RAG / Claude" },
-    { id: "mem", x: 270, y: 300, w: 170, label: "履歴・評価", sub: "質問・回答・役に立った" },
-    { id: "conn", x: 510, y: 300, w: 170, label: "外部連携", sub: "OAuth / 公式MCP" },
-  ];
-  const CONCEPT_LINKS = [["user", "grant"], ["grant", "ns"], ["ns", "doc"], ["user", "budget"], ["user", "mem"], ["ns", "conn"]];
-  function drawDataModel(view) {
-    const NSVG = "http://www.w3.org/2000/svg";
-    const svg = $("dataModelSvg");
-    svg.textContent = "";
-    function el(tag, attrs, text) {
-      const e = document.createElementNS(NSVG, tag);
-      Object.keys(attrs).forEach((k) => e.setAttribute(k, attrs[k]));
-      if (text) e.textContent = text;
-      return e;
-    }
-    const boxes = view === "er"
-      ? ER_TABLES.map((tb) => ({ id: tb.id, x: tb.x, y: tb.y, w: tb.wide ? 300 : 250, h: 28 + tb.cols.length * 18, title: tb.id, lines: tb.cols }))
-      : CONCEPT_BOXES.map((b) => ({ id: b.id, x: b.x, y: b.y, w: b.w, h: 56, title: b.label, lines: [b.sub] }));
-    const links = view === "er" ? ER_LINKS : CONCEPT_LINKS;
-    const byId = {};
-    boxes.forEach((b) => { byId[b.id] = b; });
-    links.forEach(([a, b]) => {
-      const A = byId[a];
-      const B = byId[b];
-      if (!A || !B) return;
-      svg.appendChild(el("line", { x1: A.x + A.w / 2, y1: A.y + A.h / 2, x2: B.x + B.w / 2, y2: B.y + B.h / 2, style: "stroke: var(--muted); stroke-width: 1.2;" }));
-    });
-    boxes.forEach((b) => {
-      svg.appendChild(el("rect", { x: b.x, y: b.y, width: b.w, height: b.h, rx: 8, style: "fill: var(--panel); stroke: var(--border); stroke-width: 1.2;" }));
-      svg.appendChild(el("text", { x: b.x + 10, y: b.y + 19, style: "fill: var(--text); font-size: 13px; font-weight: 700;" }, b.title));
-      b.lines.forEach((ln, i) => svg.appendChild(el("text", { x: b.x + 10, y: b.y + 38 + i * 18, style: "fill: var(--muted); font-size: 11.5px;" }, ln)));
-    });
-  }
-  $("dataModelToggle").querySelectorAll("button").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      $("dataModelToggle").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
-      drawDataModel(btn.dataset.view);
-    });
-  });
-  drawDataModel("concept");
 
   // U3: 管理タブの右サマリ。予算（RAG/Claude）、namespace別のナレッジ量、連携中のシステムを1か所にまとめる。
   async function refreshAdminSummary() {
@@ -4869,8 +4798,8 @@ export function chatUiHtml(): string {
       if (def.kind === "oauth") {
         const panel = mk("div", "sys-panel");
         panel.appendChild(mk("h4", "", "同期の設定"));
-        panel.appendChild(mk("p", "modal-note", "同期するプロジェクト・カレンダー・通知先などは、「連携」タブで設定します。"));
-        panel.appendChild(modalButton("「連携」タブを開く", "", () => { modal.close(); const tab = document.querySelector('button[data-subtab="integrations"]'); if (tab) tab.click(); }));
+        panel.appendChild(mk("p", "modal-note", "同期するプロジェクト・カレンダー・通知先などは、ナレッジ登録タブの「同期・通知の設定」で設定します。"));
+        panel.appendChild(modalButton("同期・通知の設定を開く", "", () => { modal.close(); const tab = document.querySelector('button[data-subtab="knowledge"]'); if (tab) tab.click(); const d = $("syncSettings"); if (d) { d.open = true; d.scrollIntoView({ behavior: "smooth", block: "start" }); } }));
         modal.body.appendChild(panel);
       }
 
@@ -4969,8 +4898,6 @@ export function chatUiHtml(): string {
       list.appendChild(mk("li", "hint", "状態を取得できませんでした: " + e.message));
     }
   }
-  $("mcpOpenBtn").addEventListener("click", () => openSystemsModal(null));
-  $("mcpRefreshBtn").addEventListener("click", loadMcpStatus);
 
   // ---------- 管理タブ：登録済みナレッジ（一覧・検索・削除、2026-10-08） ----------
   // 以前は「登録済みファイル一覧・個別削除」でnamespaceを手入力して読み込む形だった。
