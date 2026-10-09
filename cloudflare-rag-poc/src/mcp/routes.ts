@@ -43,6 +43,10 @@ export async function handleMcpOAuthStart(req: Request, env: Env, providerId: st
   }
   if (!MCP_PROVIDERS[providerId]) return oauthResultPage(false, "未対応のMCPサーバーです。");
   try {
+    if (MCP_PROVIDERS[providerId].auth === "none") {
+      const provider = await service.connectPublic(env, providerId, user.userId);
+      return oauthResultPage(true, `${provider.label}を有効にしました（認証は不要です）。管理画面でツールを選んでください。`);
+    }
     const url = await service.startAuthorization(env, providerId, new URL(req.url).origin, user.userId);
     return Response.redirect(url, 302);
   } catch (err) {
