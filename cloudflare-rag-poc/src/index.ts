@@ -13,6 +13,8 @@ import { handleImportPlace, handleImportPlacesCsv, handleTestMapsConnection } fr
 import { handleJiraOAuthStart, handleJiraOAuthCallback, handleJiraOAuthDisconnect } from "./jiraOAuth";
 import { handleBacklogOAuthStart, handleBacklogOAuthCallback, handleBacklogOAuthDisconnect } from "./backlogOAuth";
 import { handleCalendarOAuthStart, handleCalendarOAuthCallback, handleCalendarOAuthDisconnect } from "./calendarOAuth";
+import { handleGoogleOAuthStart, handleGoogleOAuthCallback, handleGoogleOAuthDisconnect, googleOAuthStatus } from "./googleOAuth";
+import { handleSyncGmail, handleRetryFailedGmail, handleListGmailLabels, handleTestGmailConnection } from "./gmailSync";
 import { handleSlackOAuthStart, handleSlackOAuthCallback, handleSlackOAuthDisconnect } from "./slackOAuth";
 import { getConnection } from "./oauthConnections";
 import { oauthResultPage } from "./http";
@@ -97,6 +99,14 @@ export default {
             return await handleCalendarOAuthStart(req, env);
           case "google_calendar/callback":
             return await handleCalendarOAuthCallback(req, env);
+          case "google_drive/start":
+            return await handleGoogleOAuthStart(req, env, "google_drive");
+          case "google_drive/callback":
+            return await handleGoogleOAuthCallback(req, env, "google_drive");
+          case "gmail/start":
+            return await handleGoogleOAuthStart(req, env, "gmail");
+          case "gmail/callback":
+            return await handleGoogleOAuthCallback(req, env, "gmail");
           case "slack/start":
             return await handleSlackOAuthStart(req, env);
           case "slack/callback":
@@ -168,6 +178,12 @@ export default {
           return await handleSyncCalendar(req, env, user);
         case "/admin/sync/calendar/retry-failed":
           return await handleRetryFailedCalendar(req, env, user);
+        case "/admin/sync/gmail":
+          return await handleSyncGmail(req, env, user);
+        case "/admin/sync/gmail/retry-failed":
+          return await handleRetryFailedGmail(req, env, user);
+        case "/admin/gmail/list-labels":
+          return await handleListGmailLabels(req, env, user);
         case "/admin/jira/list-projects":
           return await handleListJiraProjects(req, env, user);
         case "/admin/backlog/list-projects":
@@ -184,6 +200,8 @@ export default {
           return await handleTestBacklogConnection(req, env, user);
         case "/admin/kb/test-connection/calendar":
           return await handleTestCalendarConnection(req, env, user);
+        case "/admin/kb/test-connection/gmail":
+          return await handleTestGmailConnection(req, env, user);
         case "/admin/kb/test-connection/maps":
           return await handleTestMapsConnection(req, env, user);
         case "/admin/oauth/jira/disconnect":
@@ -192,21 +210,31 @@ export default {
           return await handleBacklogOAuthDisconnect(req, env, user);
         case "/admin/oauth/google_calendar/disconnect":
           return await handleCalendarOAuthDisconnect(req, env, user);
+        case "/admin/oauth/google_drive/disconnect":
+          return await handleGoogleOAuthDisconnect(env, user, "google_drive");
+        case "/admin/oauth/gmail/disconnect":
+          return await handleGoogleOAuthDisconnect(env, user, "gmail");
         case "/admin/oauth/slack/disconnect":
           return await handleSlackOAuthDisconnect(req, env, user);
         case "/admin/oauth/status": {
           requireKnowledgeEditor(user);
-          const [jira, backlog, googleCalendar, slack] = await Promise.all([
+          const [jira, backlog, googleCalendar, slack, googleDrive, gmail] = await Promise.all([
             getConnection(env, "jira"),
             getConnection(env, "backlog"),
             getConnection(env, "google_calendar"),
             getConnection(env, "slack"),
+            googleOAuthStatus(env, "google_drive"),
+            googleOAuthStatus(env, "gmail"),
           ]);
           return json(200, {
             status: "ok",
             jira: jira ? { connected: true, label: jira.extra.siteName ?? "Jira" } : { connected: false },
             backlog: backlog ? { connected: true, label: backlog.extra.spaceUrl ?? "Backlog" } : { connected: false },
             google_calendar: googleCalendar ? { connected: true, label: "Google" } : { connected: false },
+            google_drive: googleDrive,
+            gmail,
+            // マップはOAuthではなくAPIキー（secret）方式。キーが設定済みかどうかだけを返す。
+            google_maps: env.GOOGLE_MAPS_API_KEY ? { connected: true, label: "APIキー設定済み" } : { connected: false },
             slack: slack
               ? {
                   connected: true,

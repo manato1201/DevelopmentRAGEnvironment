@@ -67,7 +67,8 @@ export async function ingestDocument(
     | "manual"
     | "jira"
     | "backlog"
-    | "google_calendar" = "manual",
+    | "google_calendar"
+    | "gmail" = "manual",
   signal?: AbortSignal,
 ): Promise<IngestResult> {
   const fullText = sanitizeText(rawText);
@@ -194,7 +195,7 @@ export async function logKb(
   opId: string,
   namespaceId: string,
   source:
-    "notion" | "drive" | "manual" | "jira" | "backlog" | "google_calendar",
+    "notion" | "drive" | "manual" | "jira" | "backlog" | "google_calendar" | "gmail",
   file: string | null,
   status: "ok" | "error" | "skipped",
   detail: string,

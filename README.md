@@ -297,6 +297,7 @@ Notion/Google Drive同期・PDF/DOCX/PPTX/音声動画の変換・ハイブリ�
 | [docs/cloudflare-vs-firebase-comparison.md](docs/cloudflare-vs-firebase-comparison.md) | 同じ構成をFirebaseで作った場合との違いの検証 |
 | [docs/system-guide.html](docs/system-guide.html) | **システムガイド**（2026-10）。構成図・生成の流れ・エージェントのロジック・評価と学習・ナレッジ追加・公式MCP連携・運用を、色分けしたSVGの図でまとめたもの（`scripts/build_system_guide.py`で生成） |
 | [cloudflare-rag-poc/docs/mcp-client.md](cloudflare-rag-poc/docs/mcp-client.md) | 公式MCPサーバー連携（MCPクライアント）の設計・安全設計・使い方 |
+| [cloudflare-rag-poc/docs/google-integrations.md](cloudflare-rag-poc/docs/google-integrations.md) | Google連携（Drive・Gmail・カレンダー・マップ）の準備と使い方 |
 | [docs/other-project-rag-integration-plan.md](docs/other-project-rag-integration-plan.md) | 別プロジェクトのRAG環境統合に向けた作業洗い出し |
 | [docs/improvement-report-2026-10.md](docs/improvement-report-2026-10.md) | 2026-10の改善（UI統一・出典パネル・管理サマリ）の実施報告 |
 | [docs/sandbox-policy.md](docs/sandbox-policy.md) | 実行環境の隔離方針と運用ルール（[AUTOMATION_RULES.md](docs/AUTOMATION_RULES.md)） |

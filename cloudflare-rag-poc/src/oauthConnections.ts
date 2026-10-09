@@ -6,7 +6,7 @@ import type { Env } from "./types";
 // 各サービス固有のOAuthフロー（jiraOAuth.ts/backlogOAuth.ts/calendarOAuth.ts/
 // slackOAuth.ts）はこのモジュールの関数だけを使ってトークンを読み書きする。
 
-export type OAuthService = "jira" | "backlog" | "google_calendar" | "slack" | "mcp";
+export type OAuthService = "jira" | "backlog" | "google_calendar" | "google_drive" | "gmail" | "slack" | "mcp";
 
 export interface OAuthConnection {
   service: OAuthService;
