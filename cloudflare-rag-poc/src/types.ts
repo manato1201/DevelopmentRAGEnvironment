@@ -125,7 +125,7 @@ export interface ChunkMetadata {
   text: string;
   // グラフ表示のノード詳細パネル用（2026-08-25追加。それ以前に投入済みのベクトルには無い）。
   // jira/backlog/google_calendarは2026-09-17追加（連携サブタブ）。
-  source?: "notion" | "drive" | "manual" | "jira" | "backlog" | "google_calendar";
+  source?: "notion" | "drive" | "manual" | "jira" | "backlog" | "google_calendar" | "gmail";
   size?: number; // ドキュメント全体の文字数
   ingested_at?: number; // 登録時のUnixタイムスタンプ（秒）
 }
