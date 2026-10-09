@@ -335,7 +335,7 @@ while True:
 
 ### Jira
 
-**OAuthクリック接続（推奨、2026-09-22追加）**: 一度だけ技術者がOAuthアプリを登録すれば、以後は管理タブの「連携」タブの「Jiraと接続する」ボタンを押すだけで、非技術者でもブラウザ認証だけで接続できる（APIトークンの発行・貼り付け不要）。
+**OAuthクリック接続（推奨、2026-09-22追加）**: 一度だけ技術者がOAuthアプリを登録すれば、以後は管理タブの「ナレッジ登録」タブ下部「同期・通知の設定」の「Jiraと接続する」ボタンを押すだけで、非技術者でもブラウザ認証だけで接続できる（APIトークンの発行・貼り付け不要）。
 
 1. （技術者が一度だけ）https://developer.atlassian.com/console/myapps/ で「Create」→「OAuth 2.0 integration」を作成する
 2. 「Permissions」で「Jira API」を追加し、スコープに `read:jira-work` と `offline_access` を追加する
@@ -347,7 +347,7 @@ npx wrangler secret put JIRA_OAUTH_CLIENT_ID
 npx wrangler secret put JIRA_OAUTH_CLIENT_SECRET
 ```
 
-5. 以後は管理タブの「連携」タブから「Jiraと接続する」→ ブラウザでAtlassianアカウントにログイン・許可、で接続完了
+5. 以後は管理タブの「ナレッジ登録」タブ下部「同期・通知の設定」から「Jiraと接続する」→ ブラウザでAtlassianアカウントにログイン・許可、で接続完了
 
 **従来方式（APIトークンを手動発行、技術者向け）**: OAuthアプリを登録せずに使う場合はこちら。OAuth接続がある場合はそちらが優先される。
 
@@ -371,7 +371,7 @@ npx wrangler secret put JIRA_API_TOKEN
 
 ### Backlog
 
-**OAuthクリック接続（推奨、2026-09-22追加）**: 一度だけ技術者がOAuthアプリを登録すれば、以後は管理タブの「連携」タブでスペースURLを入力して「Backlogと接続する」ボタンを押すだけで、非技術者でもブラウザ認証だけで接続できる。
+**OAuthクリック接続（推奨、2026-09-22追加）**: 一度だけ技術者がOAuthアプリを登録すれば、以後は管理タブの「ナレッジ登録」タブ下部「同期・通知の設定」でスペースURLを入力して「Backlogと接続する」ボタンを押すだけで、非技術者でもブラウザ認証だけで接続できる。
 
 1. （技術者が一度だけ）Backlogの「個人設定」→「アプリケーション」→「新規アプリケーション登録」でOAuth2アプリを作成する
 2. 「コールバックURL」に `https://<デプロイ先ドメイン>/admin/oauth/backlog/callback` を設定する（例: `https://rag-poc.<アカウント名>.workers.dev/admin/oauth/backlog/callback`）
@@ -382,7 +382,7 @@ npx wrangler secret put BACKLOG_OAUTH_CLIENT_ID
 npx wrangler secret put BACKLOG_OAUTH_CLIENT_SECRET
 ```
 
-4. 以後は管理タブの「連携」タブでスペースURL（例: `yourspace.backlog.com`）を入力し「Backlogと接続する」→ ブラウザでBacklogアカウントにログイン・許可、で接続完了
+4. 以後は管理タブの「ナレッジ登録」タブ下部「同期・通知の設定」でスペースURL（例: `yourspace.backlog.com`）を入力し「Backlogと接続する」→ ブラウザでBacklogアカウントにログイン・許可、で接続完了
 
 **従来方式（APIキーを手動発行、技術者向け）**: OAuthアプリを登録せずに使う場合はこちら。OAuth接続がある場合はそちらが優先される。
 
@@ -404,14 +404,14 @@ npx wrangler secret put BACKLOG_API_KEY
 
 ### Googleカレンダー
 
-**OAuthクリック接続（推奨、2026-09-22追加）**: 管理タブの「連携」タブの「Googleと接続する」ボタンを押し、自分のGoogleアカウントでログイン・許可するだけで、そのアカウントが見えるカレンダーを連携できる（対象カレンダーをサービスアカウントへ共有する手順は不要）。
+**OAuthクリック接続（推奨、2026-09-22追加）**: 管理タブの「ナレッジ登録」タブ下部「同期・通知の設定」の「Googleと接続する」ボタンを押し、自分のGoogleアカウントでログイン・許可するだけで、そのアカウントが見えるカレンダーを連携できる（対象カレンダーをサービスアカウントへ共有する手順は不要）。
 
 Gmail連携（下記「ヘルスチェック・アラート通知のセットアップ」参照）で既にOAuthアプリ（`GMAIL_OAUTH_CLIENT_ID`/`GMAIL_OAUTH_CLIENT_SECRET`）を登録済みなら、それをそのまま流用でき新規登録は不要。まだの場合：
 
 1. （技術者が一度だけ）Gmail連携のセットアップ手順の1〜3（GCPコンソールでGmail APIを有効化し、OAuthクライアントIDを作成）を行う
 2. GCPコンソールの当該OAuthクライアントの「承認済みのリダイレクトURI」に `https://<デプロイ先ドメイン>/admin/oauth/google_calendar/callback` を追加する
 3. `GMAIL_OAUTH_CLIENT_ID`/`GMAIL_OAUTH_CLIENT_SECRET`をシークレット登録済みであること
-4. 以後は管理タブの「連携」タブから「Googleと接続する」→ ブラウザでGoogleアカウントにログイン・許可、で接続完了
+4. 以後は管理タブの「ナレッジ登録」タブ下部「同期・通知の設定」から「Googleと接続する」→ ブラウザでGoogleアカウントにログイン・許可、で接続完了
 
 **従来方式（サービスアカウント、技術者向け）**: Drive同期と同じサービスアカウント（`GOOGLE_SERVICE_ACCOUNT_JSON`）を流用する方式もOAuth未接続時のフォールバックとして引き続き使える。
 
@@ -444,7 +444,7 @@ npx wrangler secret put GOOGLE_MAPS_API_KEY
 
 ### Slack
 
-**OAuthクリック接続（推奨、2026-09-22追加）**: 一度だけ技術者がSlackアプリを登録すれば、以後は管理タブの「連携」タブの「Slackワークスペースに追加」ボタンを押すだけで、非技術者でも通知先チャンネルを選んで接続できる。
+**OAuthクリック接続（推奨、2026-09-22追加）**: 一度だけ技術者がSlackアプリを登録すれば、以後は管理タブの「ナレッジ登録」タブ下部「同期・通知の設定」の「Slackワークスペースに追加」ボタンを押すだけで、非技術者でも通知先チャンネルを選んで接続できる。
 
 1. （技術者が一度だけ）https://api.slack.com/apps で「Create New App」→「From scratch」でアプリを作成する
 2. 左メニュー「OAuth & Permissions」→「Redirect URLs」に `https://<デプロイ先ドメイン>/admin/oauth/slack/callback` を追加する（例: `https://rag-poc.<アカウント名>.workers.dev/admin/oauth/slack/callback`）
@@ -456,7 +456,7 @@ npx wrangler secret put SLACK_OAUTH_CLIENT_ID
 npx wrangler secret put SLACK_OAUTH_CLIENT_SECRET
 ```
 
-5. 以後は管理タブの「連携」タブから「Slackワークスペースに追加」→ 通知先チャンネルを選んで許可、で接続完了
+5. 以後は管理タブの「ナレッジ登録」タブ下部「同期・通知の設定」から「Slackワークスペースに追加」→ 通知先チャンネルを選んで許可、で接続完了
 
 **従来方式（Incoming Webhook URLを手動発行、技術者向け）**: OAuthアプリを登録せずに使う場合はこちら。
 
