@@ -65,7 +65,7 @@ export async function answerWithMcpTools(
   image?: { mimeType: string; data: string },
   fetchImpl: FetchLike = fetch,
 ): Promise<McpAnswerResult | null> {
-  const available = await chatTools(env, fetchImpl);
+  const available = await chatTools(env, fetchImpl, userId);
   if (available.length === 0) return null;
 
   const taken = new Set<string>();
@@ -140,7 +140,7 @@ export async function answerWithMcpTools(
         const log: McpToolCallLog = { providerId: entry.providerId, providerLabel: entry.providerLabel, tool: entry.tool.name, ok: true };
         try {
           const args = hasProperties(entry.tool.inputSchema) ? (functionCall.args ?? {}) : {};
-          const result = await callTool(env, userId, entry.providerId, entry.tool.name, args, { readOnlyOnly: true }, fetchImpl);
+          const result = await callTool(env, userId, entry.providerId, entry.tool.name, args, { readOnlyOnly: true, ownerId: entry.ownerId }, fetchImpl);
           if (result.isError) {
             log.ok = false;
             log.error = result.text.slice(0, 200);

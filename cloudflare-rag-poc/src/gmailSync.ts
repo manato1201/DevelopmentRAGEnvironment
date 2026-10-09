@@ -1,10 +1,10 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
-import { requireKnowledgeEditor } from "./auth";
 import { resolveGoogleOAuthAccessToken } from "./googleOAuth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
+import { authorizeSync, previewBody, PREVIEW_LIMIT, scopeFor, type SyncScope } from "./syncTargets";
 
 // Gmailのメールをナレッジ登録元にする（2026-10-09追加）。読み取り専用スコープ
 // （gmail.readonly）のOAuth接続（googleOAuth.ts）で、namespaceごとに指定した検索式に
@@ -25,9 +25,15 @@ interface MailDoc {
   text: string;
 }
 
-async function resolveGmailToken(env: Env): Promise<string> {
-  const token = await resolveGoogleOAuthAccessToken(env, "gmail");
-  if (!token) throw new Error("Gmailが未接続です。管理画面のナレッジ登録タブ「連携するシステムを追加」からGmailを接続してください");
+async function resolveGmailToken(env: Env, ownerId = ""): Promise<string> {
+  const token = await resolveGoogleOAuthAccessToken(env, "gmail", ownerId);
+  if (!token) {
+    throw new Error(
+      ownerId
+        ? "あなたのGmailが未接続です。「自分用」の連携からGmailを接続してください"
+        : "Gmailが未接続です。管理画面のナレッジ登録タブ「連携するシステムを追加」からGmailを接続してください",
+    );
+  }
   return token;
 }
 
@@ -213,17 +219,16 @@ async function processMailBatch(
 // POST /admin/sync/gmail — namespaceに設定した検索式に合うメールを一括登録する。
 // body: { namespace, startIndex?（省略時0）, batchSize?（省略時10）, opId?（継続呼び出し時に指定）, notifyOnErrorOnly? }
 export async function handleSyncGmail(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as { namespace?: string; startIndex?: number; batchSize?: number; opId?: string; notifyOnErrorOnly?: boolean };
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
 
   let ids: string[];
   let token: string;
   try {
     const query = await resolveGmailQuery(env, namespace);
-    token = await resolveGmailToken(env);
+    token = await resolveGmailToken(env, scope.ownerId);
     ids = await listMessageIds(token, query);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
@@ -257,13 +262,12 @@ export async function handleSyncGmail(req: Request, env: Env, user: AuthedUser):
 // POST /admin/sync/gmail/retry-failed — 直近の同期（opId）で失敗したメールだけを再実行する。
 // ファイル名の末尾の「#<メッセージID>」から対象を復元するので、検索式を引き直す必要はない。
 export async function handleRetryFailedGmail(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as { namespace?: string; opId?: string };
   const namespace = (body.namespace || "").trim();
   const sourceOpId = (body.opId || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
   if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
 
   const failedRows = await env.DB.prepare(
     "SELECT DISTINCT file FROM kb_log WHERE op_id = ? AND namespace_id = ? AND source = 'gmail' AND status = 'error'",
@@ -281,7 +285,7 @@ export async function handleRetryFailedGmail(req: Request, env: Env, user: Authe
 
   let token: string;
   try {
-    token = await resolveGmailToken(env);
+    token = await resolveGmailToken(env, scope.ownerId);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -310,9 +314,10 @@ export async function handleRetryFailedGmail(req: Request, env: Env, user: Authe
 
 // POST /admin/gmail/list-labels — 接続したアカウントのラベル一覧（検索式を作る手がかり）。
 export async function handleListGmailLabels(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
+  const body = (await req.json().catch(() => ({}))) as { mine?: boolean };
+  const scope = scopeFor(user, body.mine);
   try {
-    const token = await resolveGmailToken(env);
+    const token = await resolveGmailToken(env, scope.ownerId);
     const res = await fetch(`${GMAIL_API}/labels`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return jsonResponse(400, { error: `ラベル一覧取得エラー (${res.status}): ${await res.text()}` });
     const data = (await res.json()) as { labels?: Array<{ id: string; name: string; type?: string }> };
@@ -328,13 +333,13 @@ export async function handleListGmailLabels(req: Request, env: Env, user: Authed
 
 // POST /admin/kb/test-connection/gmail — 接続と検索式の確認（取り込みは行わない）。
 export async function handleTestGmailConnection(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
   const body = (await req.json()) as { namespace?: string };
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
   try {
     const query = await resolveGmailQuery(env, namespace);
-    const token = await resolveGmailToken(env);
+    const token = await resolveGmailToken(env, scope.ownerId);
     const url = new URL(`${GMAIL_API}/messages`);
     url.searchParams.set("q", query);
     url.searchParams.set("maxResults", "1");
@@ -342,6 +347,48 @@ export async function handleTestGmailConnection(req: Request, env: Env, user: Au
     if (!res.ok) return jsonResponse(400, { error: `Gmail接続エラー (${res.status}): ${await res.text()}` });
     const data = (await res.json()) as { resultSizeEstimate?: number };
     return jsonResponse(200, { status: "ok", message: `接続成功（検索式「${query}」に合うメールは約${data.resultSizeEstimate ?? 0}件）` });
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// メール1通の概要（件名・差出人・日時だけ。本文は取らない）。プレビュー用。
+async function fetchMailSummary(token: string, id: string): Promise<{ title: string; detail: string }> {
+  const url = new URL(`${GMAIL_API}/messages/${encodeURIComponent(id)}`);
+  url.searchParams.set("format", "metadata");
+  for (const h of ["Subject", "From", "Date"]) url.searchParams.append("metadataHeaders", h);
+  const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`Gmail message取得エラー (${res.status})`);
+  const msg = (await res.json()) as { internalDate?: string; payload?: { headers?: Array<{ name: string; value: string }> } };
+  const subject = headerValue(msg.payload?.headers, "Subject") || "(件名なし)";
+  const from = headerValue(msg.payload?.headers, "From");
+  const date = formatDate(msg.internalDate ? Number(msg.internalDate) : null, headerValue(msg.payload?.headers, "Date"));
+  return { title: subject, detail: [date, from].filter(Boolean).join(" ・ ") };
+}
+
+// POST /admin/sync/gmail/preview — 同期するとどのメールが登録されるかの一覧（書き込みはしない）。
+// body: { namespace }
+export async function handlePreviewGmail(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = (await req.json()) as { namespace?: string };
+  const namespace = (body.namespace || "").trim();
+  if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope: SyncScope = await authorizeSync(env, user, namespace);
+  try {
+    const query = await resolveGmailQuery(env, namespace);
+    const token = await resolveGmailToken(env, scope.ownerId);
+    const ids = await listMessageIds(token, query);
+    const items = [];
+    for (const id of ids.slice(0, PREVIEW_LIMIT)) {
+      try {
+        items.push(await fetchMailSummary(token, id));
+      } catch {
+        items.push({ title: `(取得できませんでした) #${id}`, detail: "" });
+      }
+    }
+    return jsonResponse(
+      200,
+      previewBody(namespace, scope, ids.length, items, `検索式「${query}」に合うメール。本文・添付ファイルはこの画面には出しません`),
+    );
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }

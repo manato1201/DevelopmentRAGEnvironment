@@ -77,6 +77,12 @@ export async function ingestDocument(
 
   const ingestedAt = Math.floor(Date.now() / 1000);
   const size = fullText.length;
+  // 個人用namespace（personal:<user_id>）は、共有の索引ではなく個人用の索引へ、持ち主つきで書く
+  // （2026-10-09追加。本人専用の連携の同期先。他のユーザーからは検索できない）。
+  const isPersonal = namespaceId.startsWith("personal:");
+  const ownerUserId = isPersonal ? namespaceId.slice("personal:".length) : null;
+  const scope = isPersonal ? "personal" : "shared";
+  const targetIndex = isPersonal ? env.VEC_PERSONAL : env.VEC_SHARED;
 
   // 埋め込みはEMBED_BATCH_SIZE件ずつbatchEmbedContentsでまとめて呼び出し、さらに
   // EMBED_BATCH_CONCURRENCY個のバッチを同時発行する（D1書き込みは各バッチの埋め込みが
@@ -104,7 +110,8 @@ export async function ingestDocument(
         const metadata: ChunkMetadata = {
           file,
           namespace: namespaceId,
-          scope: "shared",
+          scope,
+          owner_user_id: ownerUserId ?? undefined,
           chunk_index: i,
           text: chunks[i],
           source,
@@ -117,9 +124,9 @@ export async function ingestDocument(
           .bind(chunkId)
           .run();
         await env.DB.prepare(
-          "INSERT INTO chunks_fts (chunk_id, file, namespace, scope, owner_user_id, difficulty, body) VALUES (?, ?, ?, ?, NULL, NULL, ?)",
+          "INSERT INTO chunks_fts (chunk_id, file, namespace, scope, owner_user_id, difficulty, body) VALUES (?, ?, ?, ?, ?, NULL, ?)",
         )
-          .bind(chunkId, file, namespaceId, "shared", chunks[i])
+          .bind(chunkId, file, namespaceId, scope, ownerUserId, chunks[i])
           .run();
 
         // グラフビュー用の軽量インデックス（migrations/0008_kb_documents.sql参照）。
@@ -128,9 +135,9 @@ export async function ingestDocument(
         // スキャン）を毎回スキャンせずに済むようにする。
         if (i === 0) {
           await env.DB.prepare(
-            "INSERT OR REPLACE INTO kb_documents (chunk_id, file, namespace, scope, owner_user_id) VALUES (?, ?, ?, ?, NULL)",
+            "INSERT OR REPLACE INTO kb_documents (chunk_id, file, namespace, scope, owner_user_id) VALUES (?, ?, ?, ?, ?)",
           )
-            .bind(chunkId, file, namespaceId, "shared")
+            .bind(chunkId, file, namespaceId, scope, ownerUserId)
             .run();
         }
       }),
@@ -169,12 +176,12 @@ export async function ingestDocument(
   for (let i = 0; i < vectors.length; i += UPSERT_CHUNK) {
     const batch = vectors.slice(i, i + UPSERT_CHUNK);
     try {
-      await env.VEC_SHARED.upsert(batch.map(toVectorizeFormat));
+      await targetIndex.upsert(batch.map(toVectorizeFormat));
     } catch (batchErr) {
       // バッチ全体が失敗した場合、原因の1件を特定するために1件ずつ再試行する
       for (const v of batch) {
         try {
-          await env.VEC_SHARED.upsert([toVectorizeFormat(v)]);
+          await targetIndex.upsert([toVectorizeFormat(v)]);
         } catch (singleErr) {
           const detail =
             singleErr instanceof Error ? singleErr.message : String(singleErr);

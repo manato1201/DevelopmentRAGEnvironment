@@ -10,6 +10,7 @@ import {
   oauthRedirectUri,
 } from "./oauthConnections";
 import { requireKnowledgeEditor } from "./auth";
+import { scopeFor, startOwner } from "./syncTargets";
 
 // Backlog（Nulab）OAuth 2.0、公式ドキュメント通りの実装（2026-09-22追加）。
 // BacklogのOAuthは「スペースごと」（認可URL自体がスペースのサブドメインを含む）のため、
@@ -37,20 +38,17 @@ export async function handleBacklogOAuthStart(req: Request, env: Env): Promise<R
   if (!env.BACKLOG_OAUTH_CLIENT_ID) {
     return oauthResultPage(false, "Backlog OAuthアプリが未設定です（BACKLOG_OAUTH_CLIENT_IDをsecretで設定してください）");
   }
-  const user = await authenticateFromQueryKey(req, env);
-  if (!user) return oauthResultPage(false, "認証に失敗しました。管理画面からやり直してください。");
-  try {
-    requireKnowledgeEditor(user);
-  } catch {
-    return oauthResultPage(false, "この操作にはナレッジ登録権限が必要です。");
-  }
+  // 接続の持ち主: ?owner=me なら本人専用の接続、無ければデプロイ全体で共有する接続（ナレッジ登録権限が必要）。
+  const who = await startOwner(req, env);
+  if (!who.ok) return oauthResultPage(false, who.message);
+  const ownerId = who.ownerId;
 
   const spaceUrl = normalizeSpaceUrl(new URL(req.url).searchParams.get("space") || "");
   if (!spaceUrl) {
     return oauthResultPage(false, "Backlogのスペース名・URLを入力してください（例: yourspace.backlog.com）。");
   }
 
-  const state = await createPendingState(env, "backlog", { spaceUrl });
+  const state = await createPendingState(env, "backlog", { spaceUrl, owner_id: ownerId });
   const url = new URL(`${spaceUrl}/OAuth2AccessRequest.action`);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", env.BACKLOG_OAUTH_CLIENT_ID);
@@ -94,6 +92,7 @@ export async function handleBacklogOAuthCallback(req: Request, env: Env): Promis
     const tokenData = (await tokenRes.json()) as { access_token: string; refresh_token?: string; expires_in: number };
 
     await saveConnection(env, "backlog", {
+      ownerId: String(pending.owner_id ?? ""),
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       expiresAt: Math.floor(Date.now() / 1000) + tokenData.expires_in,
@@ -106,8 +105,9 @@ export async function handleBacklogOAuthCallback(req: Request, env: Env): Promis
 }
 
 export async function handleBacklogOAuthDisconnect(req: Request, env: Env, user: import("./types").AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-  await clearConnection(env, "backlog");
+  const body = (await req.json().catch(() => ({}))) as { mine?: boolean };
+  const { ownerId } = scopeFor(user, body.mine);
+  await clearConnection(env, "backlog", ownerId);
   return jsonResponse(200, { status: "ok" });
 }
 
@@ -130,8 +130,8 @@ const REFRESH_MARGIN_SEC = 300;
 
 // backlogSync.tsが実際のAPI呼び出し前に呼ぶ。OAuth接続があれば（必要なら自動更新して）
 // それを返し、無ければnullを返して従来のBACKLOG_SPACE_URL/?apiKey=方式へフォールバックさせる。
-export async function resolveBacklogOAuthContext(env: Env): Promise<BacklogAuth | null> {
-  const conn = await getConnection(env, "backlog");
+export async function resolveBacklogOAuthContext(env: Env, ownerId = ""): Promise<BacklogAuth | null> {
+  const conn = await getConnection(env, "backlog", ownerId);
   if (!conn || !conn.accessToken) return null;
   const spaceUrl = conn.extra.spaceUrl as string | undefined;
   if (!spaceUrl) return null;
@@ -153,6 +153,7 @@ export async function resolveBacklogOAuthContext(env: Env): Promise<BacklogAuth 
       const data = (await res.json()) as { access_token: string; refresh_token?: string; expires_in: number };
       accessToken = data.access_token;
       await saveConnection(env, "backlog", {
+        ownerId,
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
         expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,

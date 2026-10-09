@@ -10,6 +10,7 @@ import {
   oauthRedirectUri,
 } from "./oauthConnections";
 import { requireKnowledgeEditor } from "./auth";
+import { scopeFor, startOwner } from "./syncTargets";
 
 // Jira OAuth 2.0 (3LO)、Atlassianの公式ドキュメント通りの実装
 // （2026-09-22追加、「wrangler secret putでAPIトークン発行」を「接続するボタンを押すだけ」
@@ -36,15 +37,12 @@ export async function handleJiraOAuthStart(req: Request, env: Env): Promise<Resp
   if (!env.JIRA_OAUTH_CLIENT_ID) {
     return oauthResultPage(false, "Jira OAuthアプリが未設定です（JIRA_OAUTH_CLIENT_IDをsecretで設定してください）");
   }
-  const user = await authenticateFromQueryKey(req, env);
-  if (!user) return oauthResultPage(false, "認証に失敗しました。管理画面からやり直してください。");
-  try {
-    requireKnowledgeEditor(user);
-  } catch {
-    return oauthResultPage(false, "この操作にはナレッジ登録権限が必要です。");
-  }
+  // 接続の持ち主: ?owner=me なら本人専用の接続、無ければデプロイ全体で共有する接続（ナレッジ登録権限が必要）。
+  const who = await startOwner(req, env);
+  if (!who.ok) return oauthResultPage(false, who.message);
+  const ownerId = who.ownerId;
 
-  const state = await createPendingState(env, "jira", {});
+  const state = await createPendingState(env, "jira", { owner_id: ownerId });
   const url = new URL(JIRA_AUTHORIZE_URL);
   url.searchParams.set("audience", "api.atlassian.com");
   url.searchParams.set("client_id", env.JIRA_OAUTH_CLIENT_ID);
@@ -113,6 +111,7 @@ export async function handleJiraOAuthCallback(req: Request, env: Env): Promise<R
     const site = resources[0];
 
     await saveConnection(env, "jira", {
+      ownerId: String(pending.owner_id ?? ""),
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       expiresAt: Math.floor(Date.now() / 1000) + tokenData.expires_in,
@@ -130,8 +129,9 @@ export async function handleJiraOAuthCallback(req: Request, env: Env): Promise<R
 // POST /admin/kb/oauth/jira/disconnect — 通常の管理画面API呼び出し（Authorizationヘッダー
 // 経由）で接続を解除する。以後jiraSync.tsはJIRA_BASE_URL等の従来方式にフォールバックする。
 export async function handleJiraOAuthDisconnect(req: Request, env: Env, user: import("./types").AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-  await clearConnection(env, "jira");
+  const body = (await req.json().catch(() => ({}))) as { mine?: boolean };
+  const { ownerId } = scopeFor(user, body.mine);
+  await clearConnection(env, "jira", ownerId);
   return jsonResponse(200, { status: "ok" });
 }
 
@@ -156,8 +156,8 @@ const REFRESH_MARGIN_SEC = 300;
 // jiraSync.tsが実際のAPI呼び出し前に呼ぶ、認証コンテキストの解決関数。
 // OAuth接続があればそれを（期限が近ければ自動更新してから）優先し、無ければnullを返して
 // 呼び出し元に従来のJIRA_BASE_URL/Basic認証へフォールバックさせる。
-export async function resolveJiraOAuthContext(env: Env): Promise<JiraAuthContext | null> {
-  const conn = await getConnection(env, "jira");
+export async function resolveJiraOAuthContext(env: Env, ownerId = ""): Promise<JiraAuthContext | null> {
+  const conn = await getConnection(env, "jira", ownerId);
   if (!conn || !conn.accessToken) return null;
 
   let accessToken = conn.accessToken;
@@ -177,6 +177,7 @@ export async function resolveJiraOAuthContext(env: Env): Promise<JiraAuthContext
       const data = (await res.json()) as { access_token: string; refresh_token?: string; expires_in: number };
       accessToken = data.access_token;
       await saveConnection(env, "jira", {
+        ownerId,
         accessToken: data.access_token,
         refreshToken: data.refresh_token, // Atlassianはローテーションする場合があるため更新分を保存
         expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
