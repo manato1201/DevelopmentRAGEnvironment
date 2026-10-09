@@ -376,7 +376,7 @@ export function chatUiHtml(): string {
   .method-card { text-align: left; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: .8rem; cursor: pointer; color: var(--text); font-family: inherit; display: flex; flex-direction: column; gap: .25rem; }
   .method-card:hover { border-color: var(--muted); }
   .method-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-  .method-card .icon { font-size: 1.4rem; }
+  .method-card .method-icon { font-size: 1.4rem; line-height: 1; }
   .method-card small { color: var(--muted); font-size: .76rem; }
   .modal-grid { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 1rem; }
   @media (max-width: 720px) { .modal-grid { grid-template-columns: 1fr; } }
@@ -455,7 +455,10 @@ export function chatUiHtml(): string {
   .modal-step.active { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text); }
   .modal-step.done { background: color-mix(in srgb, var(--teal) 16%, transparent); }
   .method-card { align-items: center; text-align: center; padding: 1rem .8rem; }
-  .method-card .icon { font-size: 1.7rem; }
+  .method-card .method-icon { font-size: 1.7rem; }
+  .row-icon { margin-right: .4rem; color: var(--muted); }
+  .modal-close .icon, .icon-btn .icon { width: 1.1em; height: 1.1em; }
+  .sys-icon .icon { width: 1em; height: 1em; }
   .method-card strong { font-size: .95rem; }
   .modal-tips ul { padding-left: 0; list-style: none; }
   .modal-tips li { display: flex; gap: .45rem; }
@@ -523,7 +526,7 @@ export function chatUiHtml(): string {
     <div id="imageAttachPreview" class="attach-preview" style="display:none;"></div>
     <label id="mcpToggleWrap" class="attach-preview" style="display:none; cursor:pointer;" title="検索結果で足りないとき、接続済みの外部サービス（公式MCP）の読み取り専用ツールで調べます。回答に、使ったサービスが表示されます"><input type="checkbox" id="mcpToggle"> <span id="mcpToggleLabel">外部サービスも使う</span></label>
     <div class="composer-row">
-      <label class="attach-btn" title="画像を添付する（VLM入力。8MBまで、検索には使わず最終回答生成時にだけ渡す）">📎<input type="file" id="imageAttachInput" accept="image/*" style="display:none;"></label>
+      <label class="attach-btn" title="画像を添付する（VLM入力。8MBまで、検索には使わず最終回答生成時にだけ渡す）"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M11 5L6 10a1.5 1.5 0 002 2l5-5a3 3 0 00-4.5-4L4 8a4.5 4.5 0 006.5 6"/></svg><input type="file" id="imageAttachInput" accept="image/*" style="display:none;"></label>
       <textarea id="input" placeholder="質問を入力（Enterで送信、Shift+Enterで改行）" rows="1"></textarea>
       <button id="send">送信</button>
     </div>
@@ -677,12 +680,12 @@ export function chatUiHtml(): string {
     <div class="admin-subpanel" data-subtab="knowledge">
       <div class="section kb-toolbar">
         <button class="btn primary" id="openKnowledgeModalBtn">＋ ナレッジを追加</button>
-        <button class="btn outline" id="openSystemsModalBtn">🔗 ＋ 連携するシステムを追加</button>
+        <button class="btn outline" id="openSystemsModalBtn">＋ 連携するシステムを追加</button>
       </div>
 
       <div class="section card" id="kbListCard">
         <div class="card-head">
-          <h2>📖 登録済みナレッジ</h2>
+          <h2>登録済みナレッジ</h2>
           <select id="kbListNs" aria-label="namespace"></select>
           <input type="search" id="kbListSearch" placeholder="ナレッジを検索…">
           <button class="btn" id="kbListRefresh">更新</button>
@@ -697,7 +700,7 @@ export function chatUiHtml(): string {
       </div>
 
       <div class="section card" id="connectedSystemsCard">
-        <div class="card-head"><h2>🧩 連携中のシステム</h2></div>
+        <div class="card-head"><h2>連携中のシステム</h2></div>
         <ul class="conn-list" id="connectedSystemsList"><li class="conn-empty">確認中…</li></ul>
         <p class="hint">※ 連携はこの管理画面（デプロイ全体）で共有されます。チャットから使えるのは、管理者が「チャットで使う」を許可した公式MCPの読み取り専用ツールだけです。</p>
       </div>
@@ -746,7 +749,7 @@ export function chatUiHtml(): string {
         <h2>Jira</h2>
         <p class="hint">プロジェクトの課題（要約・説明・種別・ステータス）をnamespaceへ一括登録します。設定済みのプロジェクトは毎日自動で差分同期されます（更新された課題だけを追加登録。初回の全件取り込みは下の「Jira同期を実行」で行ってください）。</p>
         <div id="jiraOAuthStatus" class="hint">確認中…</div>
-        <button class="btn primary" id="jiraConnectBtn">🔗 Jiraと接続する</button>
+        <button class="btn primary" id="jiraConnectBtn">Jiraと接続する</button>
         <button class="btn danger" id="jiraDisconnectBtn" style="display:none;">接続を解除</button>
         <p class="hint" style="margin-top:.4rem;">上のボタンでブラウザ認証するだけで接続できます（推奨）。技術者向けに、APIトークンをJIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKENとしてsecret登録する方式も引き続き使えます（README参照）。</p>
         <div class="field-row"><label>namespace</label><input type="text" id="jiraNamespace" placeholder="例: shared:project_x"></div>
@@ -767,7 +770,7 @@ export function chatUiHtml(): string {
         <p class="hint">プロジェクトの課題（要約・説明・種別・ステータス）をnamespaceへ一括登録します。設定済みのプロジェクトは毎日自動で差分同期されます（Jiraと同様、初回の全件取り込みは手動で行ってください）。</p>
         <div id="backlogOAuthStatus" class="hint">確認中…</div>
         <div class="field-row"><label>スペースURL</label><input type="text" id="backlogSpaceInput" placeholder="例: yourspace.backlog.com"></div>
-        <button class="btn primary" id="backlogConnectBtn">🔗 Backlogと接続する</button>
+        <button class="btn primary" id="backlogConnectBtn">Backlogと接続する</button>
         <button class="btn danger" id="backlogDisconnectBtn" style="display:none;">接続を解除</button>
         <p class="hint" style="margin-top:.4rem;">上のスペースURLを入力してボタンを押すだけで接続できます（推奨）。技術者向けに、APIキーをBACKLOG_SPACE_URL/BACKLOG_API_KEYとしてsecret登録する方式も引き続き使えます（README参照）。</p>
         <div class="field-row"><label>namespace</label><input type="text" id="backlogNamespace" placeholder="例: shared:project_x"></div>
@@ -787,7 +790,7 @@ export function chatUiHtml(): string {
         <h2>Googleカレンダー</h2>
         <p class="hint">予定（タイトル・日時・場所・説明）を過去7日〜未来90日分登録します。設定済みのカレンダーは毎日自動で同期されます。</p>
         <div id="calendarOAuthStatus" class="hint">確認中…</div>
-        <button class="btn primary" id="calendarConnectBtn">🔗 Googleと接続する</button>
+        <button class="btn primary" id="calendarConnectBtn">Googleと接続する</button>
         <button class="btn danger" id="calendarDisconnectBtn" style="display:none;">接続を解除</button>
         <p class="hint" style="margin-top:.4rem;">上のボタンでご自身のGoogleアカウントを認証するだけで、そのアカウントが見えるカレンダーを連携できます（推奨）。技術者向けに、対象カレンダーをサービスアカウント（GOOGLE_SERVICE_ACCOUNT_JSONのclient_email）へ「閲覧者」共有する従来方式も引き続き使えます（README参照）。</p>
         <div class="field-row"><label>namespace</label><input type="text" id="calendarNamespace" placeholder="例: shared:team_schedule"></div>
@@ -832,7 +835,7 @@ export function chatUiHtml(): string {
         <h2>通知連携（Slack / Gmail）</h2>
         <p class="hint">管理者向けの通知・アラート先です。</p>
         <div id="slackOAuthStatus" class="hint">確認中…</div>
-        <button class="btn primary" id="slackConnectBtn">🔗 Slackワークスペースに追加</button>
+        <button class="btn primary" id="slackConnectBtn">Slackワークスペースに追加</button>
         <button class="btn danger" id="slackDisconnectBtn" style="display:none;">接続を解除</button>
         <p class="hint" style="margin-top:.4rem;">上のボタンで通知先チャンネルを選ぶだけで接続できます（推奨）。技術者向けに、Incoming Webhook URLをSLACK_WEBHOOK_URLとしてsecret登録する従来方式も引き続き使えます。Gmail（サービスアカウント経由）は引き続きシークレット設定が必要です（README参照）。</p>
         <button class="btn" id="integrationsTestAlertBtn" style="margin-top:.6rem;">テスト通知を送信</button>
@@ -1243,7 +1246,7 @@ export function chatUiHtml(): string {
   // 自動作成される「自分専用」namespaceで、生のハッシュ値を出しても意味が無いため
   // 固定ラベルにする（実際に生ハッシュがそのまま表示されて分かりにくいと指摘を受けて修正）。
   function namespaceLabel(ns) {
-    if (ns.startsWith("personal:")) return "🔒 個人用（自分専用）";
+    if (ns.startsWith("personal:")) return "個人用（自分専用）";
     const idx = ns.indexOf(":");
     return idx === -1 ? ns : ns.slice(idx + 1);
   }
@@ -1547,7 +1550,31 @@ export function chatUiHtml(): string {
     check: "M3.5 8.5l3 3 6-7",
     star: "M8 2l1.8 3.7 4 .6-2.9 2.8.7 4L8 11.2 4.4 13.1l.7-4L2.2 6.3l4-.6z",
     sources: "M3 4h10M3 8h10M3 12h6",
+    close: "M4 4l8 8M12 4l-8 8",
+    plus: "M8 3v10M3 8h10",
+    file: "M4 2h5l3 3v9H4zM9 2v3h3",
+    globe: "M8 2a6 6 0 100 12A6 6 0 008 2zM2 8h12M8 2c2.2 2 2.2 10 0 12M8 2c-2.2 2-2.2 10 0 12",
+    help: "M6 6a2 2 0 114 0c0 1.5-2 1.5-2 3M8 12v.5",
+    table: "M2 3h12v10H2zM2 7h12M2 10h12M6 3v10",
+    crawl: "M6 2h4v3H6zM1.5 11h4v3h-4zM10.5 11h4v3h-4zM8 5v3M3.5 11V8h9v3",
+    user: "M8 8a3 3 0 100-6 3 3 0 000 6zM2.5 14c0-3 2.5-4.5 5.5-4.5s5.5 1.5 5.5 4.5",
+    link: "M7 9a2.5 2.5 0 003.5 0l2-2a2.5 2.5 0 00-3.5-3.5l-.7.7M9 7a2.5 2.5 0 00-3.5 0l-2 2A2.5 2.5 0 007 12.5l.7-.7",
+    lock: "M4 7h8v6H4zM5.5 7V5a2.5 2.5 0 015 0v2",
+    shield: "M8 2l5 2v4c0 3-2.5 5-5 6-2.5-1-5-3-5-6V4z",
+    note: "M3 2h10v12H3zM6 5h4M6 8h4M6 11h2",
+    compass: "M8 2a6 6 0 100 12A6 6 0 008 2zM10.5 5.5L9 9 5.5 10.5 7 7z",
+    ticket: "M2 5h12v2a1.5 1.5 0 000 3v2H2v-2a1.5 1.5 0 000-3z",
+    folder: "M2 4h4l1.5 2H14v7H2z",
+    calendar: "M2 4h12v10H2zM2 7h12M5 2v3M11 2v3",
+    chat: "M2 3h12v8H7l-3 3v-3H2z",
   };
+  // アイコンを包む<span>。絵文字の代わりに使う（固定パスのみ）。
+  function iconSpan(cls, name) {
+    const span = document.createElement("span");
+    span.className = cls;
+    span.appendChild(iconEl(name));
+    return span;
+  }
   function iconEl(name) {
     const NS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(NS, "svg");
@@ -1912,10 +1939,11 @@ export function chatUiHtml(): string {
     pendingImage = { mimeType: file.type || "image/png", data };
     imageAttachPreview.style.display = "flex";
     imageAttachPreview.innerHTML = "";
-    imageAttachPreview.appendChild(document.createTextNode("📎 " + file.name + " を添付中"));
+    imageAttachPreview.appendChild(document.createTextNode("添付中: " + file.name));
     const clearBtn = document.createElement("button");
     clearBtn.type = "button";
-    clearBtn.textContent = "✕";
+    clearBtn.setAttribute("aria-label", "添付を外す");
+    clearBtn.appendChild(iconEl("close"));
     clearBtn.addEventListener("click", clearPendingImage);
     imageAttachPreview.appendChild(clearBtn);
   });
@@ -1942,7 +1970,7 @@ export function chatUiHtml(): string {
         // 使った外部サービスのツールを回答の下に出す（textContentのみ）
         const note = document.createElement("div");
         note.className = "tool-calls";
-        note.textContent = "🔧 使った外部サービス: " + data.toolCalls.map((c) => c.providerLabel + "「" + c.tool + "」" + (c.ok ? "" : "（失敗）")).join(" / ");
+        note.textContent = "使った外部サービス: " + data.toolCalls.map((c) => c.providerLabel + "「" + c.tool + "」" + (c.ok ? "" : "（失敗）")).join(" / ");
         const last = messagesEl.lastElementChild;
         if (last) last.appendChild(note);
       }
@@ -3077,7 +3105,7 @@ export function chatUiHtml(): string {
         (data.results || []).forEach((r) => { if (r.status === "error") errorCount++; });
         const total = data.totalPages ?? data.totalFiles ?? "?";
         const last = data.results && data.results.length > 0 ? data.results[data.results.length - 1] : null;
-        const lastMark = last ? (last.status === "ok" ? "✅" : last.status === "skipped" ? "⏭️" : "⚠️") : "";
+        const lastMark = last ? (last.status === "ok" ? "完了" : last.status === "skipped" ? "スキップ" : "要確認") : "";
         const lastLine = last ? "\\n直前: " + lastMark + " " + last.file + "（" + last.detail + "）" : "";
         progressEl.textContent = "進捗: " + data.processedRange[1] + "/" + total + "（累計 " + totalDocs + "件・" + totalChunks + "チャンク）" + lastLine;
         if (data.nextIndex === null || data.nextIndex === undefined) break;
@@ -3146,7 +3174,7 @@ export function chatUiHtml(): string {
         (data.results || []).forEach((r) => { if (r.status === "error") errorCount++; });
         const total = data.totalPages ?? data.totalFiles ?? data.totalIssues ?? data.totalEvents ?? "?";
         const last = data.results && data.results.length > 0 ? data.results[data.results.length - 1] : null;
-        const lastMark = last ? (last.status === "ok" ? "✅" : last.status === "skipped" ? "⏭️" : "⚠️") : "";
+        const lastMark = last ? (last.status === "ok" ? "完了" : last.status === "skipped" ? "スキップ" : "要確認") : "";
         const lastLine = last ? "\\n直前: " + lastMark + " " + last.file + "（" + last.detail + "）" : "";
         progressEl.textContent = "進捗: " + data.processedRange[1] + "/" + total + "（累計 " + totalDocs + "件・" + totalChunks + "チャンク）" + lastLine;
         if (data.nextIndex === null || data.nextIndex === undefined) break;
@@ -3391,7 +3419,7 @@ export function chatUiHtml(): string {
         const disconnectBtn = $(s.disconnectId);
         if (!statusEl) return; // 念のためのnullガード（通常はどのロールでもDOM自体は常に存在する）
         if (info && info.connected) {
-          statusEl.textContent = "✅ 接続済み" + (info.label ? "（" + info.label + "）" : "");
+          statusEl.textContent = "接続済み" + (info.label ? "（" + info.label + "）" : "");
           statusEl.style.color = "#15846e";
           if (connectBtn) connectBtn.style.display = "none";
           if (disconnectBtn) disconnectBtn.style.display = "";
@@ -3717,7 +3745,8 @@ export function chatUiHtml(): string {
     sub.style.margin = "0";
     titles.appendChild(heading);
     titles.appendChild(sub);
-    const closeBtn = mk("button", "modal-close", "✕");
+    const closeBtn = mk("button", "modal-close");
+    closeBtn.appendChild(iconEl("close"));
     closeBtn.type = "button";
     closeBtn.setAttribute("aria-label", "閉じる");
     header.appendChild(titles);
@@ -3786,9 +3815,9 @@ export function chatUiHtml(): string {
   // namespaceは選択式にした。複数ファイル・複数URL・複数Q&Aをまとめて登録でき、結果は1件ずつ表示する。
   const KB_NS_STORAGE = "ragPocKbNamespace";
   const KB_METHODS = [
-    { key: "file", icon: "📄", title: "ファイル", description: "PDF・Word・PowerPoint・音声・動画" },
-    { key: "url", icon: "🌐", title: "URL", description: "Webページ・サイト配下・YouTube" },
-    { key: "qa", icon: "❓", title: "Q&A", description: "質問と回答を入力、またはCSV" },
+    { key: "file", icon: "file", title: "ファイル", description: "PDF・Word・PowerPoint・音声・動画" },
+    { key: "url", icon: "globe", title: "URL", description: "Webページ・サイト配下・YouTube" },
+    { key: "qa", icon: "help", title: "Q&A", description: "質問と回答を入力、またはCSV" },
   ];
   const KB_TIPS = {
     file: [
@@ -3949,21 +3978,21 @@ export function chatUiHtml(): string {
       return false;
     }
     function buildItems() {
-      if (S.method === "file") return S.files.map((file) => ({ kind: "file", icon: "📄", label: file.name + "（" + kbFormatSize(file.size) + "）", file }));
+      if (S.method === "file") return S.files.map((file) => ({ kind: "file", icon: "file", label: file.name + "（" + kbFormatSize(file.size) + "）", file }));
       if (S.method === "url") {
         const lines = urlLines();
         return lines.map((url) => {
           const title = lines.length === 1 ? S.urlTitle.trim() : "";
           if (kbIsYoutube(url)) return { kind: "youtube", icon: "▶️", label: url, url, title };
           if (S.crawl) {
-            return { kind: "crawl", icon: "🕸️", label: url + "（配下ページも含む・最大" + S.maxPages + "ページ）", url,
+            return { kind: "crawl", icon: "crawl", label: url + "（配下ページも含む・最大" + S.maxPages + "ページ）", url,
               options: { depth: S.depth, maxPages: S.maxPages, pathPrefix: S.pathPrefix.trim(), excludePatterns: S.exclude.trim(), skipExisting: S.skipExisting } };
           }
-          return { kind: "url", icon: "🌐", label: url, url, title };
+          return { kind: "url", icon: "globe", label: url, url, title };
         });
       }
-      const items = validPairs().map((p) => ({ kind: "faq", icon: "❓", label: p.question.trim(), question: p.question.trim(), answer: p.answer.trim(), alsoNotion: S.alsoNotion }));
-      if (S.csvText.trim()) items.push({ kind: "csv", icon: "📊", label: (S.csvName || "貼り付けたCSV") + "（約" + S.csvRows + "行）", csvText: S.csvText });
+      const items = validPairs().map((p) => ({ kind: "faq", icon: "help", label: p.question.trim(), question: p.question.trim(), answer: p.answer.trim(), alsoNotion: S.alsoNotion }));
+      if (S.csvText.trim()) items.push({ kind: "csv", icon: "table", label: (S.csvName || "貼り付けたCSV") + "（約" + S.csvRows + "行）", csvText: S.csvText });
       return items;
     }
 
@@ -4064,10 +4093,11 @@ export function chatUiHtml(): string {
         const list = mk("ul", "file-list");
         S.files.forEach((file, index) => {
           const li = mk("li", "file-row");
-          li.appendChild(mk("span", "", "📄"));
+          li.appendChild(iconSpan("", "file"));
           li.appendChild(mk("span", "name", file.name));
           li.appendChild(mk("span", "size", kbFormatSize(file.size)));
-          const remove = mk("button", "icon-btn", "✕");
+          const remove = mk("button", "icon-btn");
+          remove.appendChild(iconEl("close"));
           remove.type = "button";
           remove.setAttribute("aria-label", "削除");
           remove.addEventListener("click", () => { S.files.splice(index, 1); render(); });
@@ -4174,7 +4204,9 @@ export function chatUiHtml(): string {
         const head = mk("div", "head");
         head.appendChild(mk("strong", "", "Q&A " + (index + 1)));
         if (S.pairs.length > 1) {
-          const remove = mk("button", "icon-btn", "✕");
+          const remove = mk("button", "icon-btn");
+          remove.appendChild(iconEl("close"));
+          remove.setAttribute("aria-label", "削除");
           remove.type = "button";
           remove.addEventListener("click", () => { S.pairs.splice(index, 1); render(); });
           head.appendChild(remove);
@@ -4253,7 +4285,7 @@ export function chatUiHtml(): string {
       S.items.forEach((item, index) => {
         const li = mk("li", "file-row vertical");
         const line = mk("div", "line");
-        line.appendChild(mk("span", "", item.icon));
+        line.appendChild(iconSpan("", item.icon));
         line.appendChild(mk("span", "name", item.label));
         if (showStatus) {
           const status = S.status[index];
@@ -4312,7 +4344,7 @@ export function chatUiHtml(): string {
         KB_METHODS.forEach((method) => {
           const card = mk("button", "method-card" + (S.method === method.key ? " selected" : ""));
           card.type = "button";
-          card.appendChild(mk("span", "icon", method.icon));
+          card.appendChild(iconSpan("method-icon", method.icon));
           card.appendChild(mk("strong", "", method.title));
           card.appendChild(mk("small", "", method.description));
           card.addEventListener("click", () => { S.method = method.key; S.error = ""; render(); });
@@ -4329,7 +4361,7 @@ export function chatUiHtml(): string {
           const tips = mk("aside", "modal-tips");
           tips.appendChild(mk("h4", "", "ⓘ 登録のポイント"));
           const ul = mk("ul");
-          KB_TIPS[S.method].forEach((tip) => { const li = mk("li"); li.appendChild(mk("span", "tip-check", "✓")); li.appendChild(mk("span", "", tip)); ul.appendChild(li); });
+          KB_TIPS[S.method].forEach((tip) => { const li = mk("li"); li.appendChild(iconSpan("tip-check", "check")); li.appendChild(mk("span", "", tip)); ul.appendChild(li); });
           tips.appendChild(ul);
           grid.appendChild(tips);
           body.appendChild(grid);
@@ -4374,25 +4406,25 @@ export function chatUiHtml(): string {
   // 公式MCP（Notion・Atlassian）と、ナレッジ同期用のOAuth接続（Jira・Backlog・Googleカレンダー・Slack）を
   // 同じ入口から選べる。同期するプロジェクト等の細かい設定は、従来どおり「連携」タブで行う。
   const SYSTEM_DEFS = [
-    { id: "mcp:notion", kind: "mcp", provider: "notion", name: "Notion", brand: "Notion", icon: "📓",
+    { id: "mcp:notion", kind: "mcp", provider: "notion", name: "Notion", brand: "Notion", icon: "note",
       description: "ページの検索・閲覧（公式MCP）",
       access: "Notionのページ・データベースを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、書き込みを行うツールは使われません。" },
-    { id: "mcp:atlassian", kind: "mcp", provider: "atlassian", name: "Atlassian（Jira / Confluence）", brand: "Atlassian", icon: "🧭",
+    { id: "mcp:atlassian", kind: "mcp", provider: "atlassian", name: "Atlassian（Jira / Confluence）", brand: "Atlassian", icon: "compass",
       description: "課題・ページの検索と閲覧（公式MCP）",
       access: "Jiraの課題・Confluenceのページを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新を行うツールは使われません。" },
-    { id: "oauth:jira", kind: "oauth", service: "jira", name: "Jira（課題の同期）", brand: "Atlassian", icon: "🎫",
+    { id: "oauth:jira", kind: "oauth", service: "jira", name: "Jira（課題の同期）", brand: "Atlassian", icon: "ticket",
       description: "課題をナレッジとして毎日同期",
       access: "Jiraのプロジェクトの課題（要約・説明・種別・ステータス）を読み取り、ナレッジとして登録します。読み取り専用（read:jira-work）です。" },
-    { id: "oauth:backlog", kind: "oauth", service: "backlog", needsSpace: true, name: "Backlog（課題の同期）", brand: "Backlog", icon: "🗂",
+    { id: "oauth:backlog", kind: "oauth", service: "backlog", needsSpace: true, name: "Backlog（課題の同期）", brand: "Backlog", icon: "folder",
       description: "課題をナレッジとして毎日同期",
       access: "Backlogのプロジェクトの課題を読み取り、ナレッジとして登録します。認証の前に、スペースURL（例: yourspace.backlog.com）を入力してください。" },
-    { id: "oauth:google_calendar", kind: "oauth", service: "google_calendar", name: "Google カレンダー", brand: "Google", icon: "📅",
+    { id: "oauth:google_calendar", kind: "oauth", service: "google_calendar", name: "Google カレンダー", brand: "Google", icon: "calendar",
       description: "予定をナレッジとして毎日同期",
       access: "選んだカレンダーの予定（タイトル・日時・場所・説明）を、過去7日〜未来90日分、読み取って登録します。" },
-    { id: "oauth:slack", kind: "oauth", service: "slack", adminOnly: true, name: "Slack（通知）", brand: "Slack", icon: "💬",
+    { id: "oauth:slack", kind: "oauth", service: "slack", adminOnly: true, name: "Slack（通知）", brand: "Slack", icon: "chat",
       description: "ヘルスチェック・アラートの通知先",
       access: "選んだチャンネルへ、ヘルスチェックのアラートなどの通知を送ります（管理者のみ）。" },
-    { id: "plan", kind: "plan", name: "その他のシステム", brand: "", icon: "➕",
+    { id: "plan", kind: "plan", name: "その他のシステム", brand: "", icon: "plus",
       description: "GitHub・Zoom・Google公式MCPなど（準備中）", access: "" },
   ];
 
@@ -4472,7 +4504,7 @@ export function chatUiHtml(): string {
         const info = systemInfo(def, state);
         const card = mk("button", "sys-card");
         card.type = "button";
-        card.appendChild(mk("span", "sys-icon", def.icon));
+        card.appendChild(iconSpan("sys-icon", def.icon));
         const text = mk("span", "sys-text");
         const title = mk("strong", "", def.name);
         const badge = statusBadge(info);
@@ -4490,7 +4522,10 @@ export function chatUiHtml(): string {
 
     function detailRow(icon, label, value) {
       const row = mk("div", "sys-row");
-      row.appendChild(mk("span", "sys-row-label", icon + " " + label));
+      const labelEl = mk("span", "sys-row-label");
+      labelEl.appendChild(iconSpan("row-icon", icon));
+      labelEl.appendChild(document.createTextNode(label));
+      row.appendChild(labelEl);
       row.appendChild(mk("span", "sys-val", value));
       return row;
     }
@@ -4514,7 +4549,7 @@ export function chatUiHtml(): string {
       modal.setSubtitle(def.name + "をこのシステムに連携します。認証後、許可した情報を検索・同期に利用できるようになります。");
 
       const hero = mk("div", "sys-hero");
-      hero.appendChild(mk("span", "sys-icon big", def.icon));
+      hero.appendChild(iconSpan("sys-icon big", def.icon));
       const heroText = mk("div");
       const heroTitle = mk("h4", "", def.name);
       const badge = statusBadge(info);
@@ -4527,10 +4562,10 @@ export function chatUiHtml(): string {
       if (info.reauth) modal.body.appendChild(mk("p", "modal-error", "連携の有効期限が切れたか、取り消されました。もう一度認証してください。"));
 
       const rows = mk("div", "sys-rows");
-      rows.appendChild(detailRow("👤", "対象", "この管理画面（デプロイ全体）。連携した方の権限で動きます"));
-      rows.appendChild(detailRow("🔗", "連携サービス", def.name));
-      rows.appendChild(detailRow("🔒", "アクセス範囲", def.access));
-      rows.appendChild(detailRow("🛡", "セキュリティ", "認証は" + def.brand + "側で行われ、パスワードはこのシステムには渡りません。許可した内容はいつでも解除できます。"));
+      rows.appendChild(detailRow("user", "対象", "この管理画面（デプロイ全体）。連携した方の権限で動きます"));
+      rows.appendChild(detailRow("link", "連携サービス", def.name));
+      rows.appendChild(detailRow("lock", "アクセス範囲", def.access));
+      rows.appendChild(detailRow("shield", "セキュリティ", "認証は" + def.brand + "側で行われ、パスワードはこのシステムには渡りません。許可した内容はいつでも解除できます。"));
       modal.body.appendChild(rows);
 
       const canOperate = def.kind === "mcp" ? isAdmin : (def.adminOnly ? isAdmin : true);
@@ -4736,7 +4771,7 @@ export function chatUiHtml(): string {
     slice.forEach((item) => {
       const tr = document.createElement("tr");
       const name = mk("td", "kb-name");
-      name.appendChild(mk("span", "kb-doc-icon", "📄"));
+      name.appendChild(iconSpan("kb-doc-icon", "file"));
       name.appendChild(document.createTextNode(item.file));
       name.title = item.file;
       tr.appendChild(name);
