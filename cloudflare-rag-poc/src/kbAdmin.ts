@@ -8,6 +8,7 @@ interface KbSourceRow {
   jira_project_key: string | null;
   backlog_project_id: string | null;
   calendar_id: string | null;
+  gmail_query: string | null;
   jira_extra_jql: string | null;
   backlog_keyword_filter: string | null;
 }
@@ -40,6 +41,7 @@ export async function handleSetKbSource(req: Request, env: Env, user: AuthedUser
     jiraProjectKey?: string;
     backlogProjectId?: string;
     calendarId?: string;
+    gmailQuery?: string;
     jiraExtraJql?: string;
     backlogKeywordFilter?: string;
     clearNotion?: boolean;
@@ -47,6 +49,7 @@ export async function handleSetKbSource(req: Request, env: Env, user: AuthedUser
     clearJira?: boolean;
     clearBacklog?: boolean;
     clearCalendar?: boolean;
+    clearGmail?: boolean;
     clearJiraExtraJql?: boolean;
     clearBacklogKeywordFilter?: boolean;
   };
@@ -57,7 +60,7 @@ export async function handleSetKbSource(req: Request, env: Env, user: AuthedUser
   if (!ns) return jsonResponse(400, { error: `namespace(${namespace})が存在しません。先にnamespacesテーブルへ登録してください` });
 
   const existing = await env.DB.prepare(
-    "SELECT notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, jira_extra_jql, backlog_keyword_filter FROM kb_sources WHERE namespace_id = ?",
+    "SELECT notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, gmail_query, jira_extra_jql, backlog_keyword_filter FROM kb_sources WHERE namespace_id = ?",
   )
     .bind(namespace)
     .first<KbSourceRow>();
@@ -67,23 +70,25 @@ export async function handleSetKbSource(req: Request, env: Env, user: AuthedUser
   const jiraProjectKey = resolveSourceField(body.clearJira, body.jiraProjectKey, existing?.jira_project_key);
   const backlogProjectId = resolveSourceField(body.clearBacklog, body.backlogProjectId, existing?.backlog_project_id);
   const calendarId = resolveSourceField(body.clearCalendar, body.calendarId, existing?.calendar_id);
+  const gmailQuery = resolveSourceField(body.clearGmail, body.gmailQuery, existing?.gmail_query);
   const jiraExtraJql = resolveSourceField(body.clearJiraExtraJql, body.jiraExtraJql, existing?.jira_extra_jql);
   const backlogKeywordFilter = resolveSourceField(body.clearBacklogKeywordFilter, body.backlogKeywordFilter, existing?.backlog_keyword_filter);
 
   await env.DB.prepare(
     `INSERT INTO kb_sources
-       (namespace_id, notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, jira_extra_jql, backlog_keyword_filter)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       (namespace_id, notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, gmail_query, jira_extra_jql, backlog_keyword_filter)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(namespace_id) DO UPDATE SET
        notion_database_id = excluded.notion_database_id,
        drive_folder_id = excluded.drive_folder_id,
        jira_project_key = excluded.jira_project_key,
        backlog_project_id = excluded.backlog_project_id,
        calendar_id = excluded.calendar_id,
+       gmail_query = excluded.gmail_query,
        jira_extra_jql = excluded.jira_extra_jql,
        backlog_keyword_filter = excluded.backlog_keyword_filter`
   )
-    .bind(namespace, notionDatabaseId, driveFolderId, jiraProjectKey, backlogProjectId, calendarId, jiraExtraJql, backlogKeywordFilter)
+    .bind(namespace, notionDatabaseId, driveFolderId, jiraProjectKey, backlogProjectId, calendarId, gmailQuery, jiraExtraJql, backlogKeywordFilter)
     .run();
 
   return jsonResponse(200, { status: "ok" });
@@ -125,7 +130,7 @@ export async function handleKbOverview(req: Request, env: Env, user: AuthedUser)
       "SELECT namespace_id, MAX(created_at) AS lastUpdated FROM kb_log WHERE status = 'ok' GROUP BY namespace_id",
     ).all<{ namespace_id: string; lastUpdated: number }>(),
     env.DB.prepare(
-      "SELECT namespace_id, notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id FROM kb_sources",
+      "SELECT namespace_id, notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, gmail_query FROM kb_sources",
     ).all<{
       namespace_id: string;
       notion_database_id: string | null;
@@ -133,6 +138,7 @@ export async function handleKbOverview(req: Request, env: Env, user: AuthedUser)
       jira_project_key: string | null;
       backlog_project_id: string | null;
       calendar_id: string | null;
+      gmail_query: string | null;
     }>(),
   ]);
 
@@ -151,6 +157,7 @@ export async function handleKbOverview(req: Request, env: Env, user: AuthedUser)
       hasJiraSource: !!source?.jira_project_key,
       hasBacklogSource: !!source?.backlog_project_id,
       hasCalendarSource: !!source?.calendar_id,
+      hasGmailSource: !!source?.gmail_query,
     };
   });
   namespaces.sort((a, b) => b.chunkCount - a.chunkCount);

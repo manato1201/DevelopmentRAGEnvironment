@@ -2,6 +2,7 @@ import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
 import { requireKnowledgeEditor } from "./auth";
 import { getGoogleAccessToken, requireGoogleServiceAccountConfig } from "./googleAuth";
+import { resolveGoogleOAuthAccessToken } from "./googleOAuth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
@@ -71,6 +72,16 @@ async function readBodyWithLimit(res: Response, maxBytes: number): Promise<Array
 }
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+
+// Driveのアクセストークンを解決する（2026-10-09追加）。OAuth接続（管理画面の「連携するシステム
+// を追加」→ Google Drive）があればそれを優先し、無ければ従来のサービスアカウント方式
+// （GOOGLE_SERVICE_ACCOUNT_JSON、フォルダをサービスアカウントへ共有する必要がある）にフォールバックする。
+async function resolveDriveAccessToken(env: Env): Promise<string> {
+  const oauthToken = await resolveGoogleOAuthAccessToken(env, "google_drive");
+  if (oauthToken) return oauthToken;
+  requireGoogleServiceAccountConfig(env);
+  return getGoogleAccessToken(env, DRIVE_SCOPE);
+}
 // Notion同期と同じ理由（Cloudflareのサブリクエスト数上限対策）でバッチ処理にしている。
 const DEFAULT_BATCH_SIZE = 5;
 
@@ -287,7 +298,7 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
 
   try {
-    requireGoogleServiceAccountConfig(env);
+    await resolveDriveAccessToken(env);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -303,7 +314,7 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
   const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
   const opId = body.opId || newOpId();
 
-  const token = await getGoogleAccessToken(env, DRIVE_SCOPE);
+  const token = await resolveDriveAccessToken(env);
   const files = await listDriveFiles(token, folderId);
   const batch = files.slice(startIndex, startIndex + batchSize);
 
@@ -342,7 +353,7 @@ export async function handleRetryFailedDrive(req: Request, env: Env, user: Authe
   if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
 
   try {
-    requireGoogleServiceAccountConfig(env);
+    await resolveDriveAccessToken(env);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -374,7 +385,7 @@ export async function handleRetryFailedDrive(req: Request, env: Env, user: Authe
     } satisfies KbSyncResult & { totalFiles: number; processedRange: [number, number]; nextIndex: number | null });
   }
 
-  const token = await getGoogleAccessToken(env, DRIVE_SCOPE);
+  const token = await resolveDriveAccessToken(env);
   const allFiles = await listDriveFiles(token, folderId);
   // 既知の制約: kb_logはファイル名のみ記録しGoogle DriveのファイルID自体は持たないため、
   // 同一フォルダに同名ファイルが複数存在する場合（Driveでは許容される）、片方だけが

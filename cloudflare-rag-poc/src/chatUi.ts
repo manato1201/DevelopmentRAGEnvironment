@@ -848,6 +848,32 @@ export function chatUiHtml(): string {
       </div>
 
       <div class="section">
+        <h2>Google Drive</h2>
+        <p class="hint">フォルダ内のドキュメントを登録します。上の「Drive同期」（フォルダIDの設定と同期の実行）と組み合わせて使います。ボタン一つで認証するだけで、そのアカウントが見えるフォルダを同期できます（読み取り専用）。従来のサービスアカウント方式（フォルダをサービスアカウントへ共有）もそのまま使えます。</p>
+        <div id="driveOAuthStatus" class="hint">確認中…</div>
+        <button class="btn primary" id="driveConnectBtn">Googleと接続する</button>
+        <button class="btn danger" id="driveDisconnectBtn" style="display:none;">接続を解除</button>
+      </div>
+
+      <div class="section">
+        <h2>Gmail</h2>
+        <p class="hint">検索式（例: label:project-x newer_than:30d）に合うメールの件名・差出人・日時・本文を登録します（読み取り専用。添付ファイルは取り込みません）。検索式が空のnamespaceは同期されません。登録したメールは、そのnamespaceにアクセスできる全員が検索できるため、共有してよいラベルだけに絞るか、個人用namespaceへ入れてください。1回の同期は最大500通です。</p>
+        <div id="gmailOAuthStatus" class="hint">確認中…</div>
+        <button class="btn primary" id="gmailConnectBtn">Googleと接続する</button>
+        <button class="btn danger" id="gmailDisconnectBtn" style="display:none;">接続を解除</button>
+        <div class="field-row"><label>namespace</label><input type="text" id="gmailNamespace" placeholder="例: personal:me"></div>
+        <div class="field-row"><label>検索式</label><input type="text" id="gmailQuery" placeholder="例: label:project-x newer_than:30d"> <button class="btn danger" id="gmailClearBtn" title="連携を解除">解除</button></div>
+        <div class="field-row"><label>ラベルから選ぶ</label><select id="gmailPicker"><option value="">（「ラベルを取得」を押してください）</option></select> <button class="btn" id="gmailLoadLabelsBtn">ラベルを取得</button></div>
+        <button class="btn" id="gmailSetSourceBtn">同期元を設定</button>
+        <button class="btn" id="gmailTestConnectionBtn">接続テスト</button>
+        <div style="margin-top:.6rem;">
+          <button class="btn primary" id="gmailSyncBtn">Gmail同期を実行</button>
+          <button class="btn" id="gmailRetryFailedBtn" disabled>失敗メールだけ再同期</button>
+        </div>
+        <div id="gmailSyncProgress" class="hint" style="white-space:pre-line;"></div>
+      </div>
+
+      <div class="section">
         <h2>Googleマップ</h2>
         <p class="hint">場所名・住所で検索し、住所・電話番号・営業時間などをnamespaceへ登録します（継続同期ではなく単発登録）。事前にGOOGLE_MAPS_API_KEYのsecret設定が必要です。</p>
         <button class="btn" id="mapsTestConnectionBtn">接続テスト</button>
@@ -1603,6 +1629,9 @@ export function chatUiHtml(): string {
     folder: "M2 4h4l1.5 2H14v7H2z",
     calendar: "M2 4h12v10H2zM2 7h12M5 2v3M11 2v3",
     chat: "M2 3h12v8H7l-3 3v-3H2z",
+    mail: "M2 4h12v8H2zM2 4.5l6 4.5 6-4.5",
+    drive: "M6 2h4l5 9-2 3H3l-2-3z",
+    pin: "M8 14s5-4.5 5-8a5 5 0 00-10 0c0 3.5 5 8 5 8zM8 7.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z",
   };
   // アイコンを包む<span>。絵文字の代わりに使う（固定パスのみ）。
   function iconSpan(cls, name) {
@@ -3285,7 +3314,7 @@ export function chatUiHtml(): string {
         totalDocs += data.documents;
         totalChunks += data.chunks;
         (data.results || []).forEach((r) => { if (r.status === "error") errorCount++; });
-        const total = data.totalPages ?? data.totalFiles ?? data.totalIssues ?? data.totalEvents ?? "?";
+        const total = data.totalPages ?? data.totalFiles ?? data.totalIssues ?? data.totalEvents ?? data.totalMessages ?? "?";
         const last = data.results && data.results.length > 0 ? data.results[data.results.length - 1] : null;
         const lastMark = last ? (last.status === "ok" ? "完了" : last.status === "skipped" ? "スキップ" : "要確認") : "";
         const lastLine = last ? "\\n直前: " + lastMark + " " + last.file + "（" + last.detail + "）" : "";
@@ -3446,6 +3475,24 @@ export function chatUiHtml(): string {
   $("calendarSyncBtn").addEventListener("click", async () => { lastCalendarOpId = await runIntegrationSync(calendarOpts); });
   $("calendarRetryFailedBtn").addEventListener("click", () => runIntegrationRetry(calendarOpts, lastCalendarOpId));
 
+  wireResourcePicker("gmailLoadLabelsBtn", "gmailPicker", "gmailQuery", "/admin/gmail/list-labels",
+    (data) => data.labels.map((l) => ({ value: l.query, label: l.summary + " (" + l.query + ")" })));
+  $("gmailSetSourceBtn").addEventListener("click", async () => {
+    try {
+      await api("/admin/kb/set-source", {
+        namespace: $("gmailNamespace").value.trim(),
+        gmailQuery: $("gmailQuery").value.trim() || undefined,
+      });
+      showToast("同期元を設定しました", "success");
+    } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
+  });
+  wireClearSourceBtn("gmailClearBtn", "gmailNamespace", "gmailQuery", "clearGmail");
+  wireTestConnectionBtn("gmailTestConnectionBtn", "gmailSyncProgress", "/admin/kb/test-connection/gmail", () => ({ namespace: $("gmailNamespace").value.trim() }));
+  let lastGmailOpId = null;
+  const gmailOpts = { namespaceId: "gmailNamespace", progressId: "gmailSyncProgress", retryBtnId: "gmailRetryFailedBtn", endpoint: "/admin/sync/gmail", retryEndpoint: "/admin/sync/gmail/retry-failed", batchSize: 10 };
+  $("gmailSyncBtn").addEventListener("click", async () => { lastGmailOpId = await runIntegrationSync(gmailOpts); });
+  $("gmailRetryFailedBtn").addEventListener("click", () => runIntegrationRetry(gmailOpts, lastGmailOpId));
+
   wireTestConnectionBtn("mapsTestConnectionBtn", "mapsTestConnectionResult", "/admin/kb/test-connection/maps");
 
   $("mapsImportBtn").addEventListener("click", async () => {
@@ -3521,6 +3568,8 @@ export function chatUiHtml(): string {
       { key: "jira", statusId: "jiraOAuthStatus", connectId: "jiraConnectBtn", disconnectId: "jiraDisconnectBtn" },
       { key: "backlog", statusId: "backlogOAuthStatus", connectId: "backlogConnectBtn", disconnectId: "backlogDisconnectBtn" },
       { key: "google_calendar", statusId: "calendarOAuthStatus", connectId: "calendarConnectBtn", disconnectId: "calendarDisconnectBtn" },
+      { key: "google_drive", statusId: "driveOAuthStatus", connectId: "driveConnectBtn", disconnectId: "driveDisconnectBtn" },
+      { key: "gmail", statusId: "gmailOAuthStatus", connectId: "gmailConnectBtn", disconnectId: "gmailDisconnectBtn" },
       { key: "slack", statusId: "slackOAuthStatus", connectId: "slackConnectBtn", disconnectId: "slackDisconnectBtn" },
     ];
     try {
@@ -3571,6 +3620,15 @@ export function chatUiHtml(): string {
     if (!confirm("Googleカレンダーとの接続を解除しますか？")) return;
     try { await api("/admin/oauth/google_calendar/disconnect", {}); showToast("解除しました", "success"); loadOAuthStatus(); }
     catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
+  });
+
+  [["drive", "google_drive", "Google Drive"], ["gmail", "gmail", "Gmail"]].forEach(([prefix, service, name]) => {
+    $(prefix + "ConnectBtn").addEventListener("click", () => startOAuthConnect(service));
+    $(prefix + "DisconnectBtn").addEventListener("click", async () => {
+      if (!confirm(name + "との接続を解除しますか？")) return;
+      try { await api("/admin/oauth/" + service + "/disconnect", {}); showToast("解除しました", "success"); loadOAuthStatus(); }
+      catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
+    });
   });
 
   $("slackConnectBtn").addEventListener("click", () => startOAuthConnect("slack"));
@@ -4609,9 +4667,18 @@ export function chatUiHtml(): string {
     { id: "oauth:backlog", kind: "oauth", service: "backlog", needsSpace: true, name: "Backlog（課題の同期）", brand: "Backlog", icon: "folder",
       description: "課題をナレッジとして毎日同期",
       access: "Backlogのプロジェクトの課題を読み取り、ナレッジとして登録します。認証の前に、スペースURL（例: yourspace.backlog.com）を入力してください。" },
+    { id: "oauth:google_drive", kind: "oauth", service: "google_drive", name: "Google Drive", brand: "Google", icon: "drive",
+      description: "フォルダ内のドキュメントをナレッジとして同期",
+      access: "選んだフォルダ内のファイル（Googleドキュメント・PDFなど）を読み取って登録します。読み取り専用（drive.readonly）で、接続したアカウントが見えるフォルダが対象です。" },
+    { id: "oauth:gmail", kind: "oauth", service: "gmail", name: "Gmail（メールの同期）", brand: "Google", icon: "mail",
+      description: "検索式に合うメールをナレッジとして同期",
+      access: "検索式（例: ラベル）に合うメールの件名・差出人・日時・本文を読み取って登録します。読み取り専用（gmail.readonly）で、添付ファイルは取り込みません。登録したメールは、そのnamespaceにアクセスできる全員が検索できます。" },
     { id: "oauth:google_calendar", kind: "oauth", service: "google_calendar", name: "Google カレンダー", brand: "Google", icon: "calendar",
       description: "予定をナレッジとして毎日同期",
       access: "選んだカレンダーの予定（タイトル・日時・場所・説明）を、過去7日〜未来90日分、読み取って登録します。" },
+    { id: "key:google_maps", kind: "key", service: "google_maps", name: "Google マップ", brand: "Google", icon: "pin",
+      description: "場所の情報（住所・電話番号・営業時間）を登録",
+      access: "場所名・住所で検索し、住所・電話番号・営業時間などをナレッジとして登録します（単発の登録で、継続同期ではありません）。認証ではなくAPIキーを使い、管理者がWorkerのsecret（GOOGLE_MAPS_API_KEY）として設定します。" },
     { id: "oauth:slack", kind: "oauth", service: "slack", adminOnly: true, name: "Slack（通知）", brand: "Slack", icon: "chat",
       description: "ヘルスチェック・アラートの通知先",
       access: "選んだチャンネルへ、ヘルスチェックのアラートなどの通知を送ります（管理者のみ）。" },
@@ -4634,7 +4701,7 @@ export function chatUiHtml(): string {
       if (!p) return { connected: false, reauth: false, chip: "", chatEnabled: false };
       return { connected: p.connected, reauth: p.status === "reauth_required", chip: "", chatEnabled: p.chatEnabled };
     }
-    if (def.kind === "oauth") {
+    if (def.kind === "oauth" || def.kind === "key") {
       const o = state.oauth[def.service];
       return { connected: !!(o && o.connected), reauth: false, chip: o && o.connected ? (o.label || "") : "", chatEnabled: false };
     }
@@ -4737,7 +4804,7 @@ export function chatUiHtml(): string {
         return;
       }
       modal.setTitle(def.name + "と連携");
-      modal.setSubtitle(def.name + "をこのシステムに連携します。認証後、許可した情報を検索・同期に利用できるようになります。");
+      modal.setSubtitle(def.kind === "key" ? def.name + "は、APIキーで場所の情報を取得して登録します。" : def.name + "をこのシステムに連携します。認証後、許可した情報を検索・同期に利用できるようになります。");
 
       const hero = mk("div", "sys-hero");
       hero.appendChild(iconSpan("sys-icon big", def.icon));
@@ -4756,7 +4823,7 @@ export function chatUiHtml(): string {
       rows.appendChild(detailRow("user", "対象", "この管理画面（デプロイ全体）。連携した方の権限で動きます"));
       rows.appendChild(detailRow("link", "連携サービス", def.name));
       rows.appendChild(detailRow("lock", "アクセス範囲", def.access));
-      rows.appendChild(detailRow("shield", "セキュリティ", "認証は" + def.brand + "側で行われ、パスワードはこのシステムには渡りません。許可した内容はいつでも解除できます。"));
+      rows.appendChild(detailRow("shield", "セキュリティ", def.kind === "key" ? "APIキーはWorkerのsecretとして保管され、画面には表示されません。変更・削除は管理者がsecretで行います。" : "認証は" + def.brand + "側で行われ、パスワードはこのシステムには渡りません。許可した内容はいつでも解除できます。"));
       modal.body.appendChild(rows);
 
       const canOperate = def.kind === "mcp" ? isAdmin : (def.adminOnly ? isAdmin : true);
@@ -4795,16 +4862,16 @@ export function chatUiHtml(): string {
         modal.body.appendChild(panel);
         loadSystemTools(def, toolsBox, false);
       }
-      if (def.kind === "oauth") {
+      if (def.kind === "oauth" || def.kind === "key") {
         const panel = mk("div", "sys-panel");
         panel.appendChild(mk("h4", "", "同期の設定"));
-        panel.appendChild(mk("p", "modal-note", "同期するプロジェクト・カレンダー・通知先などは、ナレッジ登録タブの「同期・通知の設定」で設定します。"));
+        panel.appendChild(mk("p", "modal-note", def.kind === "key" ? "場所の登録は、ナレッジ登録タブの「同期・通知の設定」にある「Googleマップ」で行います。" : "同期するプロジェクト・カレンダー・通知先などは、ナレッジ登録タブの「同期・通知の設定」で設定します。"));
         panel.appendChild(modalButton("同期・通知の設定を開く", "", () => { modal.close(); const tab = document.querySelector('button[data-subtab="knowledge"]'); if (tab) tab.click(); const d = $("syncSettings"); if (d) { d.open = true; d.scrollIntoView({ behavior: "smooth", block: "start" }); } }));
         modal.body.appendChild(panel);
       }
 
       modal.footer.appendChild(modalButton("キャンセル", "", () => { selected = null; renderGrid(); }));
-      if (canOperate) {
+      if (canOperate && def.kind !== "key") {
         const disconnectable = def.kind === "mcp" ? (info.connected || info.reauth) : info.connected;
         if (disconnectable) {
           modal.footer.appendChild(modalButton("連携を解除", "danger", async () => {

@@ -13,7 +13,7 @@ export async function notifySyncComplete(
   env: Env,
   opId: string,
   namespace: string,
-  source: "drive" | "notion" | "jira" | "backlog" | "google_calendar",
+  source: "drive" | "notion" | "jira" | "backlog" | "google_calendar" | "gmail",
   notifyOnErrorOnly = false,
 ): Promise<void> {
   if (!env.SLACK_WEBHOOK_URL) return; // Slack未設定の環境では何もしない（既存のsendSlackAlertと同じ方針）
@@ -40,6 +40,7 @@ export async function notifySyncComplete(
     jira: "Jira",
     backlog: "Backlog",
     google_calendar: "Googleカレンダー",
+    gmail: "Gmail",
   };
   const sourceLabel = sourceLabels[source];
 
