@@ -40,7 +40,7 @@ export class McpSession {
 
   private headers(): Record<string, string> {
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.accessToken}`,
+      ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
       Accept: "application/json, text/event-stream",
       "Content-Type": "application/json",
     };

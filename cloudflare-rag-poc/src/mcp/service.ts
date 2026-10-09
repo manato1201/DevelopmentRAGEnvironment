@@ -16,12 +16,14 @@ import {
 import { openSession, type McpCallResult, type McpSession } from "./protocol";
 import {
   McpAuthError,
+  McpConfigError,
   McpError,
   McpNotConnectedError,
   McpToolNotAllowed,
   getProvider,
   providerIds,
   MCP_PROVIDERS,
+  setupFor,
   type McpProvider,
 } from "./providers";
 
@@ -179,6 +181,26 @@ export async function audit(
 
 // ── 接続・解除・状態 ─────────────────────────────────────────────────────────
 
+// 認証が要らない公開サーバーの「接続」。トークンは持たず、有効化の記録だけを残す。
+export async function connectPublic(env: Env, providerId: string, userId: string): Promise<McpProvider> {
+  const provider = getProvider(providerId);
+  if (provider.auth !== "none") throw new McpConfigError("このサービスは認証が必要です");
+  const previous = await getConnection(env, provider.id);
+  await saveConnection(env, {
+    providerId: provider.id,
+    credential: { accessToken: "", refreshToken: "", expiresAt: null, resourceUrl: provider.url, tokenEndpoint: "", client: { client_id: "" } },
+    status: "connected",
+    lastError: "",
+    enabledTools: previous?.enabledTools ?? null,
+    chatEnabled: previous?.chatEnabled ?? false,
+    connectedAt: Math.floor(Date.now() / 1000),
+    connectedBy: userId,
+  });
+  clearToolsCache(provider.id);
+  await audit(env, { providerId: provider.id, userId, action: "connect" });
+  return provider;
+}
+
 export async function startAuthorization(
   env: Env,
   providerId: string,
@@ -255,6 +277,9 @@ export interface ProviderStatus {
   chatEnabled: boolean;
   enabledToolCount: number | null; // null = 全ツール
   connectedAt: number | null;
+  setupRequired: boolean; // 接続の前に管理者のsecret設定が要る
+  setupHint: string;
+  noAuth: boolean; // 認証が要らない公開サーバー
 }
 
 export async function statuses(env: Env): Promise<ProviderStatus[]> {
@@ -278,6 +303,9 @@ export async function statuses(env: Env): Promise<ProviderStatus[]> {
         ? connection.enabledTools.length
         : null,
       connectedAt: connection?.connectedAt ?? null,
+      setupRequired: setupFor(env, provider).needed,
+      setupHint: setupFor(env, provider).hint,
+      noAuth: provider.auth === "none",
     };
   });
 }
@@ -326,6 +354,7 @@ async function open(
       connection.credential = await auth.refresh(
         connection.credential,
         fetchImpl,
+        provider.sendResource !== false,
       );
     } catch (err) {
       if (err instanceof McpAuthError) await markReauth(env, connection, err);

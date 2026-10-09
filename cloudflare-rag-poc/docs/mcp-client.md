@@ -5,7 +5,7 @@ RAGチャットから使えるようにした。
 
 ## 何ができるか
 
-- 管理画面「ナレッジ登録」タブの「連携するシステムを追加」から、Notion・Atlassian（Jira / Confluence）の公式MCPサーバーへ接続する。
+- 管理画面「ナレッジ登録」タブの「連携するシステムを追加」から、公式MCPサーバー（Notion・Atlassian・GitHub・Slack・Google・Linear・Sentry・Figma・Microsoft Learn・Cloudflare Docs）へ接続する。
 - 認証は**OAuth 2.1**。探索（RFC 9728 / 8414）、**クライアントの自動登録（RFC 7591）**、PKCE（S256）、リソース指定（RFC 8707）を
   Worker側で行うので、こちらでOAuthアプリを作る・secretを設定する必要は無い。
 - 接続したら、使うツールを選ぶ（未選択のツールは使われない）。「RAGチャットで使う」をオンにすると、チャット画面に
@@ -23,6 +23,30 @@ RAGチャットから使えるようにした。
   気づくのは実行時になることがある。
 - 実際の同意画面を通す接続・ツール実行は、ブラウザでの操作が要るため自動テストでは行っていない（偽のOAuth/MCPサーバーで
   全工程を確認済み）。
+
+## 接続できるサーバー一覧（2026-10-09、公開メタデータの確認）
+
+認証の方式で3種類に分かれる。接続先の一覧は `src/mcp/providers.ts` にあるURLだけ。
+
+| 種類 | サーバー | 準備 |
+|---|---|---|
+| 自動登録に対応（secret不要） | Notion、Atlassian（Jira / Confluence）、Linear（`mcp.linear.app`）、Sentry（`mcp.sentry.dev`）、Figma（`mcp.figma.com`） | 不要。「認証する」を押すだけ |
+| 認証なしの公開サーバー | Microsoft Learn（`learn.microsoft.com/api/mcp`）、Cloudflare Docs（`docs.mcp.cloudflare.com`） | 不要。「有効にする」を押すだけ（トークンは持たない） |
+| 自動登録に**対応しない** | GitHub（`api.githubcopilot.com/mcp/`）、Slack（`mcp.slack.com/mcp`）、Google Gmail / Drive / カレンダー（`*mcp.googleapis.com/mcp/v1`） | 事前にOAuthアプリを作り、Client ID/Secretをsecretに登録する（下記） |
+
+### 自動登録に対応しないサーバーの準備
+
+どれも、承認済みリダイレクトURIに `https://<このWorkerのドメイン>/admin/oauth/mcp/callback` を登録する。secretが無い間は、管理画面に「接続の前に準備が必要です」と手順が出て、接続ボタンは出ない。
+
+| サービス | secret | 備考 |
+|---|---|---|
+| GitHub | `MCP_GITHUB_CLIENT_ID` / `MCP_GITHUB_CLIENT_SECRET` | Settings → Developer settings → OAuth Apps。クラシックのスコープ（`repo`）は書き込みも含むが、チャットが使うのは読み取り専用ツールだけ |
+| Slack | `MCP_SLACK_CLIENT_ID` / `MCP_SLACK_CLIENT_SECRET`（無ければ通知用の `SLACK_OAUTH_CLIENT_ID` / `SLACK_OAUTH_CLIENT_SECRET`） | 自分のワークスペースのアプリで、MCPを有効にする。ディレクトリ公開済みまたは社内アプリのみ利用可 |
+| Google（Gmail / Drive / カレンダー） | 既存の `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` を共用 | 各MCP API（`gmailmcp.googleapis.com` など）を有効化。**Google Workspace Developer Previewへの参加が必要**。読み取り専用スコープだけを要求する |
+
+- GitHub・Slack・Googleは、RFC 8707 の `resource` を送らない（対応していないため）。Googleにはリフレッシュトークンを得るため `access_type=offline` と `prompt=consent` を付ける。
+- 未確認: これらは公開メタデータと公式ドキュメントで確認したもので、実アカウントでの通しは行っていない（偽サーバーでの認可URL・トークン交換・ヘッダーの確認のみ）。
+- **Backlog**: Nulabの公式MCPサーバー（`nulab/backlog-mcp-server`）は、利用者が自分で動かす方式で、公式のホスト型エンドポイントは無い（`mcp.backlog.com` は存在しない）。そのためこの一覧には入れていない。Backlogは従来のOAuth同期（課題をナレッジに登録）で連携できる。自分でホストするなら、そのURLを登録簿に足せば同じ仕組みで使える。
 
 ## 構成
 
@@ -188,7 +212,7 @@ stateDiagram-v2
 
 - 接続の単位: デプロイ単位（`oauth_connections`と同じ）。エージェント（namespace）単位にはしていない。
 - 書き込みツール: チャットからは使わない（上記）。
-- 取り入れなかった: ユーザー単位のGoogle連携、Google公式MCP（Developer Preview参加が必要）、
+- 取り入れなかった: ユーザー単位のGoogle連携、Asana（自動登録に非対応でsecretが要るため見送り）、
   トークンの暗号化（D1に平文。PoC水準）。
 
 ## テスト

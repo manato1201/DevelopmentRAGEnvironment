@@ -8,7 +8,7 @@
 import type { Env } from "../types";
 import { consumePendingState, createPendingState } from "../oauthConnections";
 import { CLIENT_NAME } from "./protocol";
-import { McpAuthError, McpError, type McpProvider } from "./providers";
+import { McpAuthError, McpError, staticClientFor, type McpProvider } from "./providers";
 
 const TIMEOUT_MS = 30_000;
 
@@ -112,7 +112,13 @@ export async function discover(serverUrl: string, fetchImpl: FetchLike = fetch):
 
 // このWorkerが認可サーバーに登録したOAuthクライアント。キャッシュする（ボタンを押すたびに
 // 登録すると、認可サーバー側にクライアントが増え続けるため）。
-async function clientFor(env: Env, metadata: AuthServerMetadata, callback: string, fetchImpl: FetchLike): Promise<OAuthClient> {
+async function clientFor(env: Env, provider: McpProvider, metadata: AuthServerMetadata, callback: string, fetchImpl: FetchLike): Promise<OAuthClient> {
+  // 自動登録に対応しないサーバー（GitHub・Slack・Google）は、事前に作ったOAuthアプリのsecretを使う。
+  if (provider.staticClient) {
+    const fixed = staticClientFor(env, provider);
+    if (!fixed) throw new McpError("このサービスはOAuthアプリの準備が必要です。" + provider.staticClient.setupHint);
+    return fixed;
+  }
   const cacheKey = `${metadata.issuer ?? metadata.token_endpoint}|${callback}`;
   const cached = await env.DB.prepare("SELECT client_json FROM mcp_clients WHERE cache_key = ?")
     .bind(cacheKey)
@@ -165,7 +171,7 @@ export async function buildAuthorizeUrl(
 ): Promise<string> {
   const metadata = await discover(provider.url, fetchImpl);
   const callback = redirectUri(origin);
-  const client = await clientFor(env, metadata, callback, fetchImpl);
+  const client = await clientFor(env, provider, metadata, callback, fetchImpl);
   const { verifier, challenge } = await pkce();
   const state = await createPendingState(env, "mcp", {
     provider_id: provider.id,
@@ -182,7 +188,8 @@ export async function buildAuthorizeUrl(
   url.searchParams.set("state", state);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
-  url.searchParams.set("resource", provider.url);
+  if (provider.sendResource !== false) url.searchParams.set("resource", provider.url);
+  for (const [key, value] of Object.entries(provider.authParams ?? {})) url.searchParams.set(key, value);
   const scopes = provider.scopes.length > 0 ? provider.scopes : metadata.resource_scopes;
   if (scopes.length > 0) url.searchParams.set("scope", scopes.join(" "));
   return url.toString();
@@ -239,7 +246,7 @@ export async function exchangeCode(code: string, payload: Record<string, unknown
       code,
       redirect_uri: String(payload.redirect_uri),
       code_verifier: String(payload.code_verifier),
-      resource: provider.url,
+      ...(provider.sendResource !== false ? { resource: provider.url } : {}),
     },
     fetchImpl,
   );
@@ -252,13 +259,13 @@ export function expiring(credential: Credential, now = Math.floor(Date.now() / 1
   return credential.expiresAt !== null && credential.expiresAt - 60 <= now;
 }
 
-export async function refresh(credential: Credential, fetchImpl: FetchLike = fetch): Promise<Credential> {
+export async function refresh(credential: Credential, fetchImpl: FetchLike = fetch, sendResource = true): Promise<Credential> {
   if (!credential.refreshToken) throw new McpAuthError("接続の有効期限が切れました。もう一度連携してください");
   try {
     const token = await tokenRequest(
       credential.tokenEndpoint,
       credential.client,
-      { grant_type: "refresh_token", refresh_token: credential.refreshToken, resource: credential.resourceUrl },
+      { grant_type: "refresh_token", refresh_token: credential.refreshToken, ...(sendResource ? { resource: credential.resourceUrl } : {}) },
       fetchImpl,
     );
     return credentialFromToken(token, credential);

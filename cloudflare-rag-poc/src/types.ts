@@ -18,6 +18,11 @@ export interface Env {
   // Gmail送信は個人アカウントのOAuthリフレッシュトークン方式（Domain-Wide Delegationは
   // Google Workspace限定のため、個人のgmail.comアカウントでは使えなかった。src/gmailOAuth.ts参照）
   GMAIL_OAUTH_CLIENT_ID?: string;
+  // 公式MCP（自動登録に対応しないサーバー）用のOAuthアプリ。src/mcp/providers.ts の staticClient 参照。
+  MCP_GITHUB_CLIENT_ID?: string;
+  MCP_GITHUB_CLIENT_SECRET?: string;
+  MCP_SLACK_CLIENT_ID?: string;
+  MCP_SLACK_CLIENT_SECRET?: string;
   GMAIL_OAUTH_CLIENT_SECRET?: string;
   GMAIL_OAUTH_REFRESH_TOKEN?: string;
   GMAIL_ALERT_TO?: string; // アラートの送信先メールアドレス

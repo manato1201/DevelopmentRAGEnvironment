@@ -505,6 +505,8 @@ export function chatUiHtml(): string {
   .tip-check { color: var(--teal); font-weight: 700; }
   /* 連携するシステム：選択グリッド */
   .sys-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .7rem; }
+  .sys-group-title { margin: 1rem 0 .5rem; font-size: .8rem; color: var(--muted); font-weight: 700; }
+  .sys-group-title:first-child { margin-top: 0; }
   .sys-card { display: flex; align-items: center; gap: .8rem; text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1rem; cursor: pointer; color: var(--text); font-family: inherit; }
   .sys-card:hover, .sys-card:focus-visible { border-color: var(--accent); outline: none; }
   .sys-icon { font-size: 1.4rem; width: 2.4rem; height: 2.4rem; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; background: var(--panel); flex: none; }
@@ -1631,6 +1633,10 @@ export function chatUiHtml(): string {
     chat: "M2 3h12v8H7l-3 3v-3H2z",
     mail: "M2 4h12v8H2zM2 4.5l6 4.5 6-4.5",
     drive: "M6 2h4l5 9-2 3H3l-2-3z",
+    branch: "M5 2v8M5 10a2 2 0 100 4 2 2 0 000-4zM11 2a2 2 0 100 4 2 2 0 000-4zM11 6c0 3-6 2-6 4",
+    warn: "M8 2l6.5 11.5h-13zM8 6.5v3M8 11.5v.5",
+    pen: "M3 13l1-3 7-7 2 2-7 7zM10 4l2 2",
+    book: "M2 3h5a1 1 0 011 1v9a1 1 0 00-1-1H2zM14 3H9a1 1 0 00-1 1v9a1 1 0 011-1h5z",
     pin: "M8 14s5-4.5 5-8a5 5 0 00-10 0c0 3.5 5 8 5 8zM8 7.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z",
   };
   // アイコンを包む<span>。絵文字の代わりに使う（固定パスのみ）。
@@ -4655,34 +4661,64 @@ export function chatUiHtml(): string {
   // 公式MCP（Notion・Atlassian）と、ナレッジ同期用のOAuth接続（Jira・Backlog・Googleカレンダー・Slack）を
   // 同じ入口から選べる。同期するプロジェクト等の細かい設定は、従来どおり「連携」タブで行う。
   const SYSTEM_DEFS = [
-    { id: "mcp:notion", kind: "mcp", provider: "notion", name: "Notion", brand: "Notion", icon: "note",
+    { id: "mcp:notion", kind: "mcp", group: "mcp", provider: "notion", name: "Notion", brand: "Notion", icon: "note",
       description: "ページの検索・閲覧（公式MCP）",
       access: "Notionのページ・データベースを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、書き込みを行うツールは使われません。" },
-    { id: "mcp:atlassian", kind: "mcp", provider: "atlassian", name: "Atlassian（Jira / Confluence）", brand: "Atlassian", icon: "compass",
+    { id: "mcp:atlassian", kind: "mcp", group: "mcp", provider: "atlassian", name: "Atlassian（Jira / Confluence）", brand: "Atlassian", icon: "compass",
       description: "課題・ページの検索と閲覧（公式MCP）",
       access: "Jiraの課題・Confluenceのページを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新を行うツールは使われません。" },
-    { id: "oauth:jira", kind: "oauth", service: "jira", name: "Jira（課題の同期）", brand: "Atlassian", icon: "ticket",
+    { id: "mcp:github", kind: "mcp", group: "mcp", provider: "github", name: "GitHub", brand: "GitHub", icon: "branch",
+      description: "リポジトリ・課題・プルリクエストの検索と閲覧（公式MCP）",
+      access: "リポジトリのコード・課題・プルリクエストを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。事前にGitHubのOAuthアプリを作り、Client ID/Secretをsecretに登録する必要があります。" },
+    { id: "mcp:slack", kind: "mcp", group: "mcp", provider: "slack", name: "Slack（公式MCP）", brand: "Slack", icon: "chat",
+      description: "メッセージ・チャンネル・キャンバスの検索と閲覧（公式MCP）",
+      access: "自分が見られるチャンネルのメッセージとキャンバスを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。事前にSlackアプリでMCPを有効にし、Client ID/Secretをsecretに登録する必要があります。" },
+    { id: "mcp:gmail", kind: "mcp", group: "mcp", provider: "gmail", name: "Gmail（公式MCP）", brand: "Google", icon: "mail",
+      description: "メールの検索と閲覧（Google公式MCP・Developer Preview）",
+      access: "接続したアカウントのメールを検索・閲覧できます（gmail.readonly）。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。Google Workspace Developer Previewへの参加が必要です。" },
+    { id: "mcp:gdrive", kind: "mcp", group: "mcp", provider: "gdrive", name: "Google Drive（公式MCP）", brand: "Google", icon: "drive",
+      description: "ファイルの検索と閲覧（Google公式MCP・Developer Preview）",
+      access: "接続したアカウントのDriveのファイルを検索・閲覧できます（drive.readonly）。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。Google Workspace Developer Previewへの参加が必要です。" },
+    { id: "mcp:gcalendar", kind: "mcp", group: "mcp", provider: "gcalendar", name: "Google カレンダー（公式MCP）", brand: "Google", icon: "calendar",
+      description: "予定の検索と空き時間の確認（Google公式MCP・Developer Preview）",
+      access: "予定の検索と空き時間の確認ができます（読み取り専用）。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。Google Workspace Developer Previewへの参加が必要です。" },
+    { id: "mcp:linear", kind: "mcp", group: "mcp", provider: "linear", name: "Linear", brand: "Linear", icon: "ticket",
+      description: "課題・プロジェクトの検索と閲覧（公式MCP）",
+      access: "Linearの課題・プロジェクト・ドキュメントを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。" },
+    { id: "mcp:sentry", kind: "mcp", group: "mcp", provider: "sentry", name: "Sentry", brand: "Sentry", icon: "warn",
+      description: "エラー・課題の検索と閲覧（公式MCP）",
+      access: "Sentryのエラー・課題・リリース情報を検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。" },
+    { id: "mcp:figma", kind: "mcp", group: "mcp", provider: "figma", name: "Figma", brand: "Figma", icon: "pen",
+      description: "デザインファイルの内容の閲覧（公式MCP）",
+      access: "Figmaのデザインファイルの構造・コンポーネント情報を閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。" },
+    { id: "mcp:mslearn", kind: "mcp", group: "mcp", provider: "mslearn", name: "Microsoft Learn", brand: "Microsoft", icon: "book",
+      description: "Microsoft公式ドキュメントの検索（公式MCP・認証なし）",
+      access: ".NET・C#・Azureなど、Microsoftが公開している公式ドキュメントを検索します。認証は不要で、公開情報だけを扱います。" },
+    { id: "mcp:cfdocs", kind: "mcp", group: "mcp", provider: "cfdocs", name: "Cloudflare Docs", brand: "Cloudflare", icon: "book",
+      description: "Cloudflare公式ドキュメントの検索（公式MCP・認証なし）",
+      access: "Workers・D1・Vectorizeなど、Cloudflareの公式ドキュメントを検索します。このシステム自身の基盤の資料に当たれます。認証は不要で、公開情報だけを扱います。" },
+    { id: "oauth:jira", kind: "oauth", group: "sync", service: "jira", name: "Jira（課題の同期）", brand: "Atlassian", icon: "ticket",
       description: "課題をナレッジとして毎日同期",
       access: "Jiraのプロジェクトの課題（要約・説明・種別・ステータス）を読み取り、ナレッジとして登録します。読み取り専用（read:jira-work）です。" },
-    { id: "oauth:backlog", kind: "oauth", service: "backlog", needsSpace: true, name: "Backlog（課題の同期）", brand: "Backlog", icon: "folder",
+    { id: "oauth:backlog", kind: "oauth", group: "sync", service: "backlog", needsSpace: true, name: "Backlog（課題の同期）", brand: "Backlog", icon: "folder",
       description: "課題をナレッジとして毎日同期",
       access: "Backlogのプロジェクトの課題を読み取り、ナレッジとして登録します。認証の前に、スペースURL（例: yourspace.backlog.com）を入力してください。" },
-    { id: "oauth:google_drive", kind: "oauth", service: "google_drive", name: "Google Drive", brand: "Google", icon: "drive",
+    { id: "oauth:google_drive", kind: "oauth", group: "sync", service: "google_drive", name: "Google Drive", brand: "Google", icon: "drive",
       description: "フォルダ内のドキュメントをナレッジとして同期",
       access: "選んだフォルダ内のファイル（Googleドキュメント・PDFなど）を読み取って登録します。読み取り専用（drive.readonly）で、接続したアカウントが見えるフォルダが対象です。" },
-    { id: "oauth:gmail", kind: "oauth", service: "gmail", name: "Gmail（メールの同期）", brand: "Google", icon: "mail",
+    { id: "oauth:gmail", kind: "oauth", group: "sync", service: "gmail", name: "Gmail（メールの同期）", brand: "Google", icon: "mail",
       description: "検索式に合うメールをナレッジとして同期",
       access: "検索式（例: ラベル）に合うメールの件名・差出人・日時・本文を読み取って登録します。読み取り専用（gmail.readonly）で、添付ファイルは取り込みません。登録したメールは、そのnamespaceにアクセスできる全員が検索できます。" },
-    { id: "oauth:google_calendar", kind: "oauth", service: "google_calendar", name: "Google カレンダー", brand: "Google", icon: "calendar",
+    { id: "oauth:google_calendar", kind: "oauth", group: "sync", service: "google_calendar", name: "Google カレンダー", brand: "Google", icon: "calendar",
       description: "予定をナレッジとして毎日同期",
       access: "選んだカレンダーの予定（タイトル・日時・場所・説明）を、過去7日〜未来90日分、読み取って登録します。" },
-    { id: "key:google_maps", kind: "key", service: "google_maps", name: "Google マップ", brand: "Google", icon: "pin",
+    { id: "key:google_maps", kind: "key", group: "sync", service: "google_maps", name: "Google マップ", brand: "Google", icon: "pin",
       description: "場所の情報（住所・電話番号・営業時間）を登録",
       access: "場所名・住所で検索し、住所・電話番号・営業時間などをナレッジとして登録します（単発の登録で、継続同期ではありません）。認証ではなくAPIキーを使い、管理者がWorkerのsecret（GOOGLE_MAPS_API_KEY）として設定します。" },
-    { id: "oauth:slack", kind: "oauth", service: "slack", adminOnly: true, name: "Slack（通知）", brand: "Slack", icon: "chat",
+    { id: "oauth:slack", kind: "oauth", group: "sync", service: "slack", adminOnly: true, name: "Slack（通知）", brand: "Slack", icon: "chat",
       description: "ヘルスチェック・アラートの通知先",
       access: "選んだチャンネルへ、ヘルスチェックのアラートなどの通知を送ります（管理者のみ）。" },
-    { id: "plan", kind: "plan", name: "その他のシステム", brand: "", icon: "plus",
+    { id: "plan", kind: "plan", group: "other", name: "その他のシステム", brand: "", icon: "plus",
       description: "GitHub・Zoom・Google公式MCPなど（準備中）", access: "" },
   ];
 
@@ -4699,7 +4735,7 @@ export function chatUiHtml(): string {
     if (def.kind === "mcp") {
       const p = state.mcp[def.provider];
       if (!p) return { connected: false, reauth: false, chip: "", chatEnabled: false };
-      return { connected: p.connected, reauth: p.status === "reauth_required", chip: "", chatEnabled: p.chatEnabled };
+      return { connected: p.connected, reauth: p.status === "reauth_required", chip: "", chatEnabled: p.chatEnabled, setupRequired: !!p.setupRequired, setupHint: p.setupHint || "", noAuth: !!p.noAuth };
     }
     if (def.kind === "oauth" || def.kind === "key") {
       const o = state.oauth[def.service];
@@ -4757,8 +4793,13 @@ export function chatUiHtml(): string {
       modal.setSubtitle("連携したいシステムを選択してください。選択後、各サービスの認証画面に移行します。");
       modal.body.innerHTML = "";
       modal.footer.innerHTML = "";
+      const GROUPS = [["mcp", "公式MCPサーバー（チャットから使う）"], ["sync", "ナレッジの同期（毎日・手動）"], ["other", "その他"]];
+      GROUPS.forEach(([groupKey, groupTitle]) => {
+      const defs = SYSTEM_DEFS.filter((d) => d.group === groupKey);
+      if (defs.length === 0) return;
+      modal.body.appendChild(mk("h4", "sys-group-title", groupTitle));
       const grid = mk("div", "sys-grid");
-      SYSTEM_DEFS.forEach((def) => {
+      defs.forEach((def) => {
         const info = systemInfo(def, state);
         const card = mk("button", "sys-card");
         card.type = "button";
@@ -4775,6 +4816,7 @@ export function chatUiHtml(): string {
         grid.appendChild(card);
       });
       modal.body.appendChild(grid);
+      });
       modal.footer.appendChild(modalButton("キャンセル", "", () => modal.close()));
     }
 
@@ -4804,7 +4846,7 @@ export function chatUiHtml(): string {
         return;
       }
       modal.setTitle(def.name + "と連携");
-      modal.setSubtitle(def.kind === "key" ? def.name + "は、APIキーで場所の情報を取得して登録します。" : def.name + "をこのシステムに連携します。認証後、許可した情報を検索・同期に利用できるようになります。");
+      modal.setSubtitle(def.kind === "key" ? def.name + "は、APIキーで場所の情報を取得して登録します。" : info.noAuth ? def.name + "は認証なしで使えます。有効にすると、チャットから検索できるようになります。" : def.name + "をこのシステムに連携します。認証後、許可した情報を検索・同期に利用できるようになります。");
 
       const hero = mk("div", "sys-hero");
       hero.appendChild(iconSpan("sys-icon big", def.icon));
@@ -4823,7 +4865,7 @@ export function chatUiHtml(): string {
       rows.appendChild(detailRow("user", "対象", "この管理画面（デプロイ全体）。連携した方の権限で動きます"));
       rows.appendChild(detailRow("link", "連携サービス", def.name));
       rows.appendChild(detailRow("lock", "アクセス範囲", def.access));
-      rows.appendChild(detailRow("shield", "セキュリティ", def.kind === "key" ? "APIキーはWorkerのsecretとして保管され、画面には表示されません。変更・削除は管理者がsecretで行います。" : "認証は" + def.brand + "側で行われ、パスワードはこのシステムには渡りません。許可した内容はいつでも解除できます。"));
+      rows.appendChild(detailRow("shield", "セキュリティ", def.kind === "key" ? "APIキーはWorkerのsecretとして保管され、画面には表示されません。変更・削除は管理者がsecretで行います。" : info.noAuth ? "認証情報は扱いません。公開されているドキュメントだけを検索し、質問文の一部が検索語として送られます。" : "認証は" + def.brand + "側で行われ、パスワードはこのシステムには渡りません。許可した内容はいつでも解除できます。"));
       modal.body.appendChild(rows);
 
       const canOperate = def.kind === "mcp" ? isAdmin : (def.adminOnly ? isAdmin : true);
@@ -4862,6 +4904,12 @@ export function chatUiHtml(): string {
         modal.body.appendChild(panel);
         loadSystemTools(def, toolsBox, false);
       }
+      if (def.kind === "mcp" && info.setupRequired) {
+        const panel = mk("div", "sys-panel");
+        panel.appendChild(mk("h4", "", "接続の前に準備が必要です"));
+        panel.appendChild(mk("p", "modal-note", info.setupHint));
+        modal.body.appendChild(panel);
+      }
       if (def.kind === "oauth" || def.kind === "key") {
         const panel = mk("div", "sys-panel");
         panel.appendChild(mk("h4", "", "同期の設定"));
@@ -4871,7 +4919,7 @@ export function chatUiHtml(): string {
       }
 
       modal.footer.appendChild(modalButton("キャンセル", "", () => { selected = null; renderGrid(); }));
-      if (canOperate && def.kind !== "key") {
+      if (canOperate && def.kind !== "key" && !(def.kind === "mcp" && info.setupRequired && !info.connected && !info.reauth)) {
         const disconnectable = def.kind === "mcp" ? (info.connected || info.reauth) : info.connected;
         if (disconnectable) {
           modal.footer.appendChild(modalButton("連携を解除", "danger", async () => {
@@ -4884,8 +4932,8 @@ export function chatUiHtml(): string {
             } catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
           }));
         }
-        const label = info.connected || info.reauth ? "再認証する" : def.brand + "で認証する" + (def.kind === "mcp" ? "（公式MCP）" : "");
-        modal.footer.appendChild(modalButton(label, "primary", () => {
+        const label = info.noAuth ? "有効にする（認証不要）" : info.connected || info.reauth ? "再認証する" : def.brand + "で認証する" + (def.kind === "mcp" ? "（公式MCP）" : "");
+        if (!(info.noAuth && info.connected)) modal.footer.appendChild(modalButton(label, "primary", () => {
           if (def.kind === "mcp") { startOAuthConnect("mcp/" + def.provider); return; }
           if (def.needsSpace) {
             const space = spaceInput ? spaceInput.value.trim() : "";
