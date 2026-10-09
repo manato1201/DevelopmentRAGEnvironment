@@ -10,6 +10,7 @@ export type OAuthService = "jira" | "backlog" | "google_calendar" | "google_driv
 
 export interface OAuthConnection {
   service: OAuthService;
+  ownerId: string; // ''=デプロイ全体で共有する接続、ユーザーID=そのユーザー専用の接続（migrations/0021）
   accessToken: string | null;
   refreshToken: string | null;
   expiresAt: number | null; // unix秒。nullなら失効しない
@@ -19,6 +20,7 @@ export interface OAuthConnection {
 
 interface OAuthConnectionRow {
   service: OAuthService;
+  owner_id: string;
   access_token: string | null;
   refresh_token: string | null;
   expires_at: number | null;
@@ -37,6 +39,7 @@ function rowToConnection(row: OAuthConnectionRow): OAuthConnection {
   }
   return {
     service: row.service,
+    ownerId: row.owner_id ?? "",
     accessToken: row.access_token,
     refreshToken: row.refresh_token,
     expiresAt: row.expires_at,
@@ -48,11 +51,12 @@ function rowToConnection(row: OAuthConnectionRow): OAuthConnection {
 export async function getConnection(
   env: Env,
   service: OAuthService,
+  ownerId = "",
 ): Promise<OAuthConnection | null> {
   const row = await env.DB.prepare(
-    "SELECT * FROM oauth_connections WHERE service = ?",
+    "SELECT * FROM oauth_connections WHERE service = ? AND owner_id = ?",
   )
-    .bind(service)
+    .bind(service, ownerId)
     .first<OAuthConnectionRow>();
   return row ? rowToConnection(row) : null;
 }
@@ -66,6 +70,7 @@ export async function saveConnection(
     expiresAt?: number | null;
     extra?: Record<string, unknown>;
     connectedBy?: string;
+    ownerId?: string; // 省略時は共有の接続
   },
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
@@ -73,9 +78,9 @@ export async function saveConnection(
   // 既存のrefresh_tokenを消さないようCOALESCEする。extraも同様（cloudId等は初回接続時
   // にしか分からない情報のため、後続のトークン更新で上書き消去しないようにする）。
   await env.DB.prepare(
-    `INSERT INTO oauth_connections (service, access_token, refresh_token, expires_at, extra_json, connected_at, connected_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(service) DO UPDATE SET
+    `INSERT INTO oauth_connections (service, owner_id, access_token, refresh_token, expires_at, extra_json, connected_at, connected_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(service, owner_id) DO UPDATE SET
        access_token = excluded.access_token,
        refresh_token = COALESCE(excluded.refresh_token, oauth_connections.refresh_token),
        expires_at = excluded.expires_at,
@@ -83,6 +88,7 @@ export async function saveConnection(
   )
     .bind(
       service,
+      data.ownerId ?? "",
       data.accessToken,
       data.refreshToken ?? null,
       data.expiresAt ?? null,
@@ -96,9 +102,10 @@ export async function saveConnection(
 export async function clearConnection(
   env: Env,
   service: OAuthService,
+  ownerId = "",
 ): Promise<void> {
-  await env.DB.prepare("DELETE FROM oauth_connections WHERE service = ?")
-    .bind(service)
+  await env.DB.prepare("DELETE FROM oauth_connections WHERE service = ? AND owner_id = ?")
+    .bind(service, ownerId)
     .run();
 }
 

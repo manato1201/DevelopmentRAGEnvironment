@@ -4,17 +4,19 @@ import { handleSearch } from "./search";
 import { handleQuery } from "./query";
 import { handleIngest } from "./ingest";
 import { handleMemoryList, handleMemoryRate, handleMemoryPin, handlePinnedList } from "./memory";
-import { handleSyncNotion, handleRetryFailedNotion } from "./notionSync";
-import { handleSyncDrive, handleRetryFailedDrive } from "./driveSync";
-import { handleSyncJira, handleRetryFailedJira, handleTestJiraConnection, handleListJiraProjects, runScheduledJiraSync } from "./jiraSync";
-import { handleSyncBacklog, handleRetryFailedBacklog, handleTestBacklogConnection, handleListBacklogProjects, runScheduledBacklogSync } from "./backlogSync";
-import { handleSyncCalendar, handleRetryFailedCalendar, handleTestCalendarConnection, handleListCalendars, runScheduledCalendarSync } from "./calendarSync";
+import { handleSyncNotion, handleRetryFailedNotion, handlePreviewNotion } from "./notionSync";
+import { handleSyncDrive, handleRetryFailedDrive, handlePreviewDrive } from "./driveSync";
+import { handleSyncJira, handleRetryFailedJira, handleTestJiraConnection, handleListJiraProjects, runScheduledJiraSync, handlePreviewJira } from "./jiraSync";
+import { handleSyncBacklog, handleRetryFailedBacklog, handleTestBacklogConnection, handleListBacklogProjects, runScheduledBacklogSync, handlePreviewBacklog } from "./backlogSync";
+import { handleSyncCalendar, handleRetryFailedCalendar, handleTestCalendarConnection, handleListCalendars, runScheduledCalendarSync, handlePreviewCalendar } from "./calendarSync";
 import { handleImportPlace, handleImportPlacesCsv, handleTestMapsConnection } from "./mapsImport";
 import { handleJiraOAuthStart, handleJiraOAuthCallback, handleJiraOAuthDisconnect } from "./jiraOAuth";
 import { handleBacklogOAuthStart, handleBacklogOAuthCallback, handleBacklogOAuthDisconnect } from "./backlogOAuth";
 import { handleCalendarOAuthStart, handleCalendarOAuthCallback, handleCalendarOAuthDisconnect } from "./calendarOAuth";
+import { handleListSyncTargets, handleAddSyncTarget, handleRemoveSyncTarget } from "./syncTargets";
+import { handleMyConnections } from "./myConnections";
 import { handleGoogleOAuthStart, handleGoogleOAuthCallback, handleGoogleOAuthDisconnect, googleOAuthStatus } from "./googleOAuth";
-import { handleSyncGmail, handleRetryFailedGmail, handleListGmailLabels, handleTestGmailConnection } from "./gmailSync";
+import { handleSyncGmail, handleRetryFailedGmail, handleListGmailLabels, handleTestGmailConnection, handlePreviewGmail } from "./gmailSync";
 import { handleSlackOAuthStart, handleSlackOAuthCallback, handleSlackOAuthDisconnect } from "./slackOAuth";
 import { getConnection } from "./oauthConnections";
 import { oauthResultPage } from "./http";
@@ -180,6 +182,24 @@ export default {
           return await handleRetryFailedCalendar(req, env, user);
         case "/admin/sync/gmail":
           return await handleSyncGmail(req, env, user);
+        case "/admin/sync/gmail/preview":
+          return await handlePreviewGmail(req, env, user);
+        case "/admin/sync/calendar/preview":
+          return await handlePreviewCalendar(req, env, user);
+        case "/admin/sync/drive/preview":
+          return await handlePreviewDrive(req, env, user);
+        case "/admin/sync/notion/preview":
+          return await handlePreviewNotion(req, env, user);
+        case "/admin/sync/jira/preview":
+          return await handlePreviewJira(req, env, user);
+        case "/admin/sync/backlog/preview":
+          return await handlePreviewBacklog(req, env, user);
+        case "/admin/sync-targets/list":
+          return await handleListSyncTargets(req, env, user);
+        case "/admin/sync-targets/add":
+          return await handleAddSyncTarget(req, env, user);
+        case "/admin/sync-targets/remove":
+          return await handleRemoveSyncTarget(req, env, user);
         case "/admin/sync/gmail/retry-failed":
           return await handleRetryFailedGmail(req, env, user);
         case "/admin/gmail/list-labels":
@@ -211,9 +231,9 @@ export default {
         case "/admin/oauth/google_calendar/disconnect":
           return await handleCalendarOAuthDisconnect(req, env, user);
         case "/admin/oauth/google_drive/disconnect":
-          return await handleGoogleOAuthDisconnect(env, user, "google_drive");
+          return await handleGoogleOAuthDisconnect(req, env, user, "google_drive");
         case "/admin/oauth/gmail/disconnect":
-          return await handleGoogleOAuthDisconnect(env, user, "gmail");
+          return await handleGoogleOAuthDisconnect(req, env, user, "gmail");
         case "/admin/oauth/slack/disconnect":
           return await handleSlackOAuthDisconnect(req, env, user);
         case "/admin/oauth/status": {
@@ -339,6 +359,8 @@ export default {
           return await handleTutorialFeedbackList(req, env, user);
         case "/admin/tutorial-feedback/stats":
           return await handleTutorialFeedbackStats(req, env, user);
+        case "/me/connections":
+          return await handleMyConnections(req, env, user);
         case "/me/namespaces":
           return await handleMyNamespaces(req, env, user);
         case "/me/budget":

@@ -1,6 +1,6 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
-import { requireKnowledgeEditor } from "./auth";
+import { authorizeSync, cronMayWrite, ownerOfNamespace, previewBody, scopeForRequest } from "./syncTargets";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
@@ -29,9 +29,11 @@ interface BacklogAuth {
 // 実際にBacklog APIを呼ぶ前に、認証方式を解決する（2026-09-22追加、backlogOAuth.ts参照）。
 // OAuth接続（管理画面の「接続する」ボタン）があればそれを優先し、無ければ従来の
 // BACKLOG_SPACE_URL + ?apiKey=方式にフォールバックする。
-async function resolveBacklogAuth(env: Env): Promise<BacklogAuth> {
-  const oauth = await resolveBacklogOAuthContext(env);
+async function resolveBacklogAuth(env: Env, ownerId = ""): Promise<BacklogAuth> {
+  const oauth = await resolveBacklogOAuthContext(env, ownerId);
   if (oauth) return { spaceUrl: oauth.spaceUrl, headers: oauth.headers, apiKey: null };
+  // 本人専用の接続は、共有のAPIキーにフォールバックしない（他人の権限で動かないため）。
+  if (ownerId) throw new Error("あなたのBacklogが未接続です。「自分用」の連携から接続してください");
   requireBacklogConfig(env);
   return { spaceUrl: env.BACKLOG_SPACE_URL as string, headers: {}, apiKey: env.BACKLOG_API_KEY as string };
 }
@@ -186,15 +188,14 @@ async function resolveBacklogProjectKey(env: Env, namespace: string): Promise<Ba
 // POST /admin/sync/backlog — namespaceに紐づくBacklogプロジェクトの課題を一括登録する。
 // body: { namespace, startIndex?（省略時0）, batchSize?（省略時10）, opId?（継続呼び出し時に指定） }
 export async function handleSyncBacklog(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as { namespace?: string; startIndex?: number; batchSize?: number; opId?: string; notifyOnErrorOnly?: boolean };
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
 
   let auth: BacklogAuth;
   try {
-    auth = await resolveBacklogAuth(env);
+    auth = await resolveBacklogAuth(env, scope.ownerId);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -242,17 +243,16 @@ export async function handleSyncBacklog(req: Request, env: Env, user: AuthedUser
 // POST /admin/sync/backlog/retry-failed — 直近の同期（opId）で失敗(error)した課題だけを再実行する。
 // body: { namespace, opId }
 export async function handleRetryFailedBacklog(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as { namespace?: string; opId?: string };
   const namespace = (body.namespace || "").trim();
   const sourceOpId = (body.opId || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
   if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
 
   let auth: BacklogAuth;
   try {
-    auth = await resolveBacklogAuth(env);
+    auth = await resolveBacklogAuth(env, scope.ownerId);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -320,14 +320,9 @@ export async function handleRetryFailedBacklog(req: Request, env: Env, user: Aut
 // Cron Trigger（index.tsのscheduled()）から呼ばれる、Backlog連携済み全namespaceの差分同期。
 // Jira側のrunScheduledJiraSyncと同じ設計・同じ理由（2026-09-19追加）。
 export async function runScheduledBacklogSync(env: Env): Promise<void> {
-  try {
-    await resolveBacklogAuth(env); // OAuth未接続かつ従来のsecretも未設定なら、ここで例外になる
-  } catch {
-    return; // 何も設定されていない環境では何もしない
-  }
-
+  // 「毎日自動で同期する」を明示的にオンにしたnamespaceだけが対象（2026-10-09〜、既定はオフ）。
   const rows = await env.DB.prepare(
-    "SELECT namespace_id, backlog_project_id, backlog_keyword_filter, backlog_last_synced_at FROM kb_sources WHERE backlog_project_id IS NOT NULL",
+    "SELECT namespace_id, backlog_project_id, backlog_keyword_filter, backlog_last_synced_at FROM kb_sources WHERE backlog_project_id IS NOT NULL AND auto_backlog = 1",
   ).all<{ namespace_id: string; backlog_project_id: string; backlog_keyword_filter: string | null; backlog_last_synced_at: number | null }>();
 
   for (const row of rows.results ?? []) {
@@ -335,7 +330,8 @@ export async function runScheduledBacklogSync(env: Env): Promise<void> {
     try {
       // namespaceごとに解決し直す（Jira側のrunScheduledJiraSyncと同じ理由。トークンの
       // 途中失効を避ける、2026-09-22）。
-      const auth = await resolveBacklogAuth(env);
+      if (!(await cronMayWrite(env, row.namespace_id))) continue; // 許可リスト外の共有namespaceには書かない
+      const auth = await resolveBacklogAuth(env, ownerOfNamespace(row.namespace_id));
       // 初回（backlog_last_synced_atが未設定）は「過去24時間分」だけを対象にする
       // （jiraSync.tsのrunScheduledJiraSyncと同じ方針。全件の初回取り込みは手動同期で行う）。
       const sinceUpdatedAtMs = row.backlog_last_synced_at ? row.backlog_last_synced_at * 1000 : runStartedAtMs - 86400_000;
@@ -363,10 +359,11 @@ export async function runScheduledBacklogSync(env: Env): Promise<void> {
 // POST /admin/backlog/list-projects — 接続済みの認証（OAuth・従来方式いずれか）で見える
 // プロジェクト一覧を取得する（2026-09-23追加、jiraSync.tsのhandleListJiraProjectsと同じ狙い）。
 export async function handleListBacklogProjects(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
+  const body = (await req.json().catch(() => ({}))) as { namespace?: string; mine?: boolean };
+  const scope = await scopeForRequest(env, user, body);
   let auth: BacklogAuth;
   try {
-    auth = await resolveBacklogAuth(env);
+    auth = await resolveBacklogAuth(env, scope.ownerId);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -384,10 +381,11 @@ export async function handleListBacklogProjects(req: Request, env: Env, user: Au
 // （実際の登録は行わない）。「連携」タブで設定ミスに同期実行前に気づけるようにするため
 // （2026-09-19追加）。
 export async function handleTestBacklogConnection(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
+  const body = (await req.json().catch(() => ({}))) as { namespace?: string; mine?: boolean };
+  const scope = await scopeForRequest(env, user, body);
   let auth: BacklogAuth;
   try {
-    auth = await resolveBacklogAuth(env);
+    auth = await resolveBacklogAuth(env, scope.ownerId);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -396,6 +394,27 @@ export async function handleTestBacklogConnection(req: Request, env: Env, user: 
     if (!res.ok) return jsonResponse(400, { error: `Backlog接続エラー (${res.status}): ${await res.text()}` });
     const space = (await res.json()) as { name?: string };
     return jsonResponse(200, { status: "ok", message: `接続成功（スペース「${space.name ?? "?"}」に認証済み）` });
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// POST /admin/sync/backlog/preview — 同期するとどの課題が登録されるかの一覧（書き込みはしない）。
+// body: { namespace }
+export async function handlePreviewBacklog(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = (await req.json()) as { namespace?: string };
+  const namespace = (body.namespace || "").trim();
+  if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
+  try {
+    const auth = await resolveBacklogAuth(env, scope.ownerId);
+    const config = await resolveBacklogProjectKey(env, namespace);
+    const projectId = await resolveBacklogProjectId(auth, config.projectIdOrKey);
+    const issues = await listBacklogIssues(auth, projectId, { keyword: config.keyword });
+    return jsonResponse(
+      200,
+      previewBody(namespace, scope, issues.length, issues.map((i) => ({ title: i.title })), `プロジェクト ${config.projectIdOrKey}${config.keyword ? "（キーワード絞り込みあり）" : ""}の課題`),
+    );
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }

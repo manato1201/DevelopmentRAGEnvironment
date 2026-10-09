@@ -3,6 +3,7 @@ import { jsonResponse } from "./http";
 import { requireKnowledgeEditor } from "./auth";
 import { getGoogleAccessToken, requireGoogleServiceAccountConfig } from "./googleAuth";
 import { resolveGoogleOAuthAccessToken } from "./googleOAuth";
+import { authorizeSync, previewBody } from "./syncTargets";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
@@ -76,9 +77,11 @@ const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 // Driveのアクセストークンを解決する（2026-10-09追加）。OAuth接続（管理画面の「連携するシステム
 // を追加」→ Google Drive）があればそれを優先し、無ければ従来のサービスアカウント方式
 // （GOOGLE_SERVICE_ACCOUNT_JSON、フォルダをサービスアカウントへ共有する必要がある）にフォールバックする。
-async function resolveDriveAccessToken(env: Env): Promise<string> {
-  const oauthToken = await resolveGoogleOAuthAccessToken(env, "google_drive");
+async function resolveDriveAccessToken(env: Env, ownerId = ""): Promise<string> {
+  const oauthToken = await resolveGoogleOAuthAccessToken(env, "google_drive", ownerId);
   if (oauthToken) return oauthToken;
+  // 本人専用の接続は、サービスアカウントにフォールバックしない（他人のフォルダを使わないため）。
+  if (ownerId) throw new Error("あなたのGoogle Driveが未接続です。「自分用」の連携から接続してください");
   requireGoogleServiceAccountConfig(env);
   return getGoogleAccessToken(env, DRIVE_SCOPE);
 }
@@ -291,14 +294,13 @@ async function resolveDriveFolder(env: Env, namespace: string): Promise<string> 
 // Notion同期と同じバッチ処理方式。
 // body: { namespace, startIndex?（省略時0）, batchSize?（省略時5）, opId?（継続呼び出し時に指定） }
 export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as { namespace?: string; startIndex?: number; batchSize?: number; opId?: string; notifyOnErrorOnly?: boolean };
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
 
   try {
-    await resolveDriveAccessToken(env);
+    await resolveDriveAccessToken(env, scope.ownerId);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -314,7 +316,7 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
   const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
   const opId = body.opId || newOpId();
 
-  const token = await resolveDriveAccessToken(env);
+  const token = await resolveDriveAccessToken(env, scope.ownerId);
   const files = await listDriveFiles(token, folderId);
   const batch = files.slice(startIndex, startIndex + batchSize);
 
@@ -344,16 +346,15 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
 // ため対象外にし、errorのみを対象にする。
 // body: { namespace, opId }
 export async function handleRetryFailedDrive(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as { namespace?: string; opId?: string };
   const namespace = (body.namespace || "").trim();
   const sourceOpId = (body.opId || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
   if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
 
   try {
-    await resolveDriveAccessToken(env);
+    await resolveDriveAccessToken(env, scope.ownerId);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -385,7 +386,7 @@ export async function handleRetryFailedDrive(req: Request, env: Env, user: Authe
     } satisfies KbSyncResult & { totalFiles: number; processedRange: [number, number]; nextIndex: number | null });
   }
 
-  const token = await resolveDriveAccessToken(env);
+  const token = await resolveDriveAccessToken(env, scope.ownerId);
   const allFiles = await listDriveFiles(token, folderId);
   // 既知の制約: kb_logはファイル名のみ記録しGoogle DriveのファイルID自体は持たないため、
   // 同一フォルダに同名ファイルが複数存在する場合（Driveでは許容される）、片方だけが
@@ -421,4 +422,30 @@ export async function handleRetryFailedDrive(req: Request, env: Env, user: Authe
     processedRange: [0, targets.length],
     nextIndex: null,
   } satisfies KbSyncResult & { totalFiles: number; processedRange: [number, number]; nextIndex: number | null });
+}
+
+// POST /admin/sync/drive/preview — 同期するとどのファイルが登録されるかの一覧（書き込みはしない）。
+// body: { namespace }
+export async function handlePreviewDrive(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = (await req.json()) as { namespace?: string };
+  const namespace = (body.namespace || "").trim();
+  if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
+  try {
+    const folderId = await resolveDriveFolder(env, namespace);
+    const token = await resolveDriveAccessToken(env, scope.ownerId);
+    const files = await listDriveFiles(token, folderId);
+    return jsonResponse(
+      200,
+      previewBody(
+        namespace,
+        scope,
+        files.length,
+        files.map((f) => ({ title: f.name, detail: f.size ? `${Math.round(Number(f.size) / 1024)}KB` : f.mimeType.replace("application/vnd.google-apps.", "Google ") })),
+        "フォルダ直下のファイル（サブフォルダの扱いは同期処理と同じ）",
+      ),
+    );
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
 }

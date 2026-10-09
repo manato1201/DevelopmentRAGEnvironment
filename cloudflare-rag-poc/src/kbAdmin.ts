@@ -1,5 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { requireKnowledgeEditor } from "./auth";
+import { authorizeSync } from "./syncTargets";
 import { jsonResponse } from "./http";
 
 interface KbSourceRow {
@@ -9,6 +10,9 @@ interface KbSourceRow {
   backlog_project_id: string | null;
   calendar_id: string | null;
   gmail_query: string | null;
+  auto_jira: number;
+  auto_backlog: number;
+  auto_calendar: number;
   jira_extra_jql: string | null;
   backlog_keyword_filter: string | null;
 }
@@ -32,8 +36,6 @@ function resolveSourceField(clear: boolean | undefined, incoming: string | undef
 // 各フィールドは「省略＝変更しない」「値を送る＝更新」「clearXxx: true＝解除（NULLに戻す）」
 // の3パターンを取れる。
 export async function handleSetKbSource(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as {
     namespace?: string;
     notionDatabaseId?: string;
@@ -50,17 +52,23 @@ export async function handleSetKbSource(req: Request, env: Env, user: AuthedUser
     clearBacklog?: boolean;
     clearCalendar?: boolean;
     clearGmail?: boolean;
+    // 毎日の自動同期（明示的にオンにしたものだけ動く。既定はオフ）
+    autoJira?: boolean;
+    autoBacklog?: boolean;
+    autoCalendar?: boolean;
     clearJiraExtraJql?: boolean;
     clearBacklogKeywordFilter?: boolean;
   };
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  // 同期元を設定してよいnamespaceか（共有は管理者が許可したものだけ、個人用は本人だけ）
+  await authorizeSync(env, user, namespace);
 
   const ns = await env.DB.prepare("SELECT namespace_id FROM namespaces WHERE namespace_id = ?").bind(namespace).first();
   if (!ns) return jsonResponse(400, { error: `namespace(${namespace})が存在しません。先にnamespacesテーブルへ登録してください` });
 
   const existing = await env.DB.prepare(
-    "SELECT notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, gmail_query, jira_extra_jql, backlog_keyword_filter FROM kb_sources WHERE namespace_id = ?",
+    "SELECT notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, gmail_query, auto_jira, auto_backlog, auto_calendar, jira_extra_jql, backlog_keyword_filter FROM kb_sources WHERE namespace_id = ?",
   )
     .bind(namespace)
     .first<KbSourceRow>();
@@ -71,13 +79,19 @@ export async function handleSetKbSource(req: Request, env: Env, user: AuthedUser
   const backlogProjectId = resolveSourceField(body.clearBacklog, body.backlogProjectId, existing?.backlog_project_id);
   const calendarId = resolveSourceField(body.clearCalendar, body.calendarId, existing?.calendar_id);
   const gmailQuery = resolveSourceField(body.clearGmail, body.gmailQuery, existing?.gmail_query);
+  // 自動同期のフラグ: 指定があればそれ、無ければ既存のまま。同期元を解除したら、その自動同期もオフに戻す。
+  const flag = (cleared: boolean | undefined, value: boolean | undefined, previous: number | undefined): number =>
+    cleared ? 0 : value === undefined ? (previous ?? 0) : value ? 1 : 0;
+  const autoJira = flag(body.clearJira, body.autoJira, existing?.auto_jira);
+  const autoBacklog = flag(body.clearBacklog, body.autoBacklog, existing?.auto_backlog);
+  const autoCalendar = flag(body.clearCalendar, body.autoCalendar, existing?.auto_calendar);
   const jiraExtraJql = resolveSourceField(body.clearJiraExtraJql, body.jiraExtraJql, existing?.jira_extra_jql);
   const backlogKeywordFilter = resolveSourceField(body.clearBacklogKeywordFilter, body.backlogKeywordFilter, existing?.backlog_keyword_filter);
 
   await env.DB.prepare(
     `INSERT INTO kb_sources
-       (namespace_id, notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, gmail_query, jira_extra_jql, backlog_keyword_filter)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (namespace_id, notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, gmail_query, auto_jira, auto_backlog, auto_calendar, jira_extra_jql, backlog_keyword_filter)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(namespace_id) DO UPDATE SET
        notion_database_id = excluded.notion_database_id,
        drive_folder_id = excluded.drive_folder_id,
@@ -85,10 +99,13 @@ export async function handleSetKbSource(req: Request, env: Env, user: AuthedUser
        backlog_project_id = excluded.backlog_project_id,
        calendar_id = excluded.calendar_id,
        gmail_query = excluded.gmail_query,
+       auto_jira = excluded.auto_jira,
+       auto_backlog = excluded.auto_backlog,
+       auto_calendar = excluded.auto_calendar,
        jira_extra_jql = excluded.jira_extra_jql,
        backlog_keyword_filter = excluded.backlog_keyword_filter`
   )
-    .bind(namespace, notionDatabaseId, driveFolderId, jiraProjectKey, backlogProjectId, calendarId, gmailQuery, jiraExtraJql, backlogKeywordFilter)
+    .bind(namespace, notionDatabaseId, driveFolderId, jiraProjectKey, backlogProjectId, calendarId, gmailQuery, autoJira, autoBacklog, autoCalendar, jiraExtraJql, backlogKeywordFilter)
     .run();
 
   return jsonResponse(200, { status: "ok" });
@@ -130,7 +147,7 @@ export async function handleKbOverview(req: Request, env: Env, user: AuthedUser)
       "SELECT namespace_id, MAX(created_at) AS lastUpdated FROM kb_log WHERE status = 'ok' GROUP BY namespace_id",
     ).all<{ namespace_id: string; lastUpdated: number }>(),
     env.DB.prepare(
-      "SELECT namespace_id, notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, gmail_query FROM kb_sources",
+      "SELECT namespace_id, notion_database_id, drive_folder_id, jira_project_key, backlog_project_id, calendar_id, gmail_query, auto_jira, auto_backlog, auto_calendar FROM kb_sources",
     ).all<{
       namespace_id: string;
       notion_database_id: string | null;
@@ -139,6 +156,9 @@ export async function handleKbOverview(req: Request, env: Env, user: AuthedUser)
       backlog_project_id: string | null;
       calendar_id: string | null;
       gmail_query: string | null;
+      auto_jira: number;
+      auto_backlog: number;
+      auto_calendar: number;
     }>(),
   ]);
 
@@ -158,6 +178,7 @@ export async function handleKbOverview(req: Request, env: Env, user: AuthedUser)
       hasBacklogSource: !!source?.backlog_project_id,
       hasCalendarSource: !!source?.calendar_id,
       hasGmailSource: !!source?.gmail_query,
+      autoSync: [source?.auto_jira ? "jira" : "", source?.auto_backlog ? "backlog" : "", source?.auto_calendar ? "calendar" : ""].filter(Boolean),
     };
   });
   namespaces.sort((a, b) => b.chunkCount - a.chunkCount);

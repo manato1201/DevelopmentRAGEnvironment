@@ -1,8 +1,21 @@
 import type { AuthedUser, ChunkMetadata, Env } from "./types";
-import { requireKnowledgeEditor } from "./auth";
+import { ForbiddenError, requireKnowledgeEditor } from "./auth";
 import { jsonResponse } from "./http";
 
 const DELETE_CHUNK = 20; // getByIds()の1回あたり上限（20件）に合わせた保守的な値。deleteByIds()の実際の上限は未確認のため同じ値を流用する
+
+// 登録済みドキュメントの閲覧・削除の権限（2026-10-09）。個人用namespace（personal:<user_id>）は本人だけ
+// （連携で個人用の索引に入れたものを、本人が確認・削除できるようにするため）。共有namespaceは従来どおり
+// ナレッジ登録権限者。
+function authorizeDocumentAccess(user: AuthedUser, namespace: string): void {
+  if (namespace.startsWith("personal:")) {
+    if (user.role === "guest" || namespace !== `personal:${user.userId}`) {
+      throw new ForbiddenError("他のユーザーの個人用namespaceは操作できません");
+    }
+    return;
+  }
+  requireKnowledgeEditor(user);
+}
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -23,8 +36,9 @@ export async function deleteDocumentChunks(env: Env, namespace: string, file: st
   const ids = (chunkRes.results ?? []).map((r) => r.chunk_id);
   if (ids.length === 0) return 0;
 
+  const index = namespace.startsWith("personal:") ? env.VEC_PERSONAL : env.VEC_SHARED;
   for (const idsChunk of chunk(ids, DELETE_CHUNK)) {
-    await env.VEC_SHARED.deleteByIds(idsChunk);
+    await index.deleteByIds(idsChunk);
   }
   await env.DB.prepare("DELETE FROM chunks_fts WHERE namespace = ? AND file = ?").bind(namespace, file).run();
   await env.DB.prepare("DELETE FROM kb_documents WHERE namespace = ? AND file = ?").bind(namespace, file).run();
@@ -37,10 +51,10 @@ export async function deleteDocumentChunks(env: Env, namespace: string, file: st
 // 使うことで、D1 FreeプランのRows read日次上限を消費する全チャンクスキャンを避ける。
 // body: { namespace }
 export async function handleListDocuments(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
   const body = (await req.json()) as { namespace?: string };
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  authorizeDocumentAccess(user, namespace);
 
   const res = await env.DB.prepare("SELECT file FROM kb_documents WHERE namespace = ? ORDER BY file")
     .bind(namespace)
@@ -69,10 +83,10 @@ export async function handleListDocuments(req: Request, env: Env, user: AuthedUs
 // まとめて登録した複数ページのうち1件だけを取り消したい場合に使う（2026-09-13追加）。
 // body: { namespace, file }
 export async function handleDeleteDocument(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
   const body = (await req.json()) as { namespace?: string; file?: string };
   const namespace = (body.namespace || "").trim();
   const file = (body.file || "").trim();
+  if (namespace) authorizeDocumentAccess(user, namespace);
   if (!namespace || !file) return jsonResponse(400, { error: "namespace と file は必須です" });
 
   const deletedChunks = await deleteDocumentChunks(env, namespace, file);

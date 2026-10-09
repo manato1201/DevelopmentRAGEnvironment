@@ -9,7 +9,7 @@ import {
   clearConnection,
   oauthRedirectUri,
 } from "./oauthConnections";
-import { requireKnowledgeEditor } from "./auth";
+import { scopeFor, startOwner } from "./syncTargets";
 
 // Google DriveとGmailのOAuth 2.0クリック接続（2026-10-09追加）。Googleカレンダー
 // （calendarOAuth.ts）と同じ作り方で、OAuthクライアントはGmail送信用に登録済みのもの
@@ -51,15 +51,12 @@ export async function handleGoogleOAuthStart(req: Request, env: Env, service: Go
   if (!env.GMAIL_OAUTH_CLIENT_ID) {
     return oauthResultPage(false, "Google OAuthアプリが未設定です（GMAIL_OAUTH_CLIENT_IDをsecretで設定してください。Gmail送信・カレンダー連携と共用します）");
   }
-  const user = await authenticateFromQueryKey(req, env);
-  if (!user) return oauthResultPage(false, "認証に失敗しました。管理画面からやり直してください。");
-  try {
-    requireKnowledgeEditor(user);
-  } catch {
-    return oauthResultPage(false, "この操作にはナレッジ登録権限が必要です。");
-  }
+  // 接続の持ち主: ?owner=me なら本人専用の接続、無ければデプロイ全体で共有する接続（ナレッジ登録権限が必要）。
+  const who = await startOwner(req, env);
+  if (!who.ok) return oauthResultPage(false, who.message);
+  const ownerId = who.ownerId;
 
-  const state = await createPendingState(env, service, {});
+  const state = await createPendingState(env, service, { owner_id: ownerId });
   const url = new URL(GOOGLE_AUTHORIZE_URL);
   url.searchParams.set("client_id", env.GMAIL_OAUTH_CLIENT_ID);
   url.searchParams.set("redirect_uri", oauthRedirectUri(req, service));
@@ -121,6 +118,7 @@ export async function handleGoogleOAuthCallback(req: Request, env: Env, service:
     }
 
     await saveConnection(env, service, {
+      ownerId: String(pending.owner_id ?? ""),
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       expiresAt: Math.floor(Date.now() / 1000) + tokenData.expires_in,
@@ -132,14 +130,15 @@ export async function handleGoogleOAuthCallback(req: Request, env: Env, service:
   }
 }
 
-export async function handleGoogleOAuthDisconnect(env: Env, user: AuthedUser, service: GoogleOAuthService): Promise<Response> {
-  requireKnowledgeEditor(user);
-  await clearConnection(env, service);
+export async function handleGoogleOAuthDisconnect(req: Request, env: Env, user: AuthedUser, service: GoogleOAuthService): Promise<Response> {
+  const body = (await req.json().catch(() => ({}))) as { mine?: boolean };
+  const { ownerId } = scopeFor(user, body.mine);
+  await clearConnection(env, service, ownerId);
   return jsonResponse(200, { status: "ok" });
 }
 
-export async function googleOAuthStatus(env: Env, service: GoogleOAuthService): Promise<{ connected: boolean; label?: string }> {
-  const conn = await getConnection(env, service);
+export async function googleOAuthStatus(env: Env, service: GoogleOAuthService, ownerId = ""): Promise<{ connected: boolean; label?: string }> {
+  const conn = await getConnection(env, service, ownerId);
   if (!conn) return { connected: false };
   const account = typeof conn.extra.account === "string" ? conn.extra.account : "";
   return { connected: true, label: account || SERVICES[service].label };
@@ -147,8 +146,8 @@ export async function googleOAuthStatus(env: Env, service: GoogleOAuthService): 
 
 // 同期処理が実際のAPI呼び出し前に呼ぶ。OAuth接続があれば（必要なら自動更新して）アクセス
 // トークンを返し、無ければnullを返す（Driveは従来のサービスアカウント方式へフォールバックする）。
-export async function resolveGoogleOAuthAccessToken(env: Env, service: GoogleOAuthService): Promise<string | null> {
-  const conn = await getConnection(env, service);
+export async function resolveGoogleOAuthAccessToken(env: Env, service: GoogleOAuthService, ownerId = ""): Promise<string | null> {
+  const conn = await getConnection(env, service, ownerId);
   if (!conn || !conn.accessToken) return null;
 
   const needsRefresh = conn.expiresAt !== null && conn.expiresAt < Math.floor(Date.now() / 1000) + REFRESH_MARGIN_SEC;
@@ -166,6 +165,7 @@ export async function resolveGoogleOAuthAccessToken(env: Env, service: GoogleOAu
     if (res.ok) {
       const data = (await res.json()) as { access_token: string; expires_in: number };
       await saveConnection(env, service, {
+        ownerId,
         accessToken: data.access_token,
         expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
       });

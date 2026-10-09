@@ -65,7 +65,8 @@ export function chatUiHtml(): string {
   .empty-dots i:nth-child(2) { animation-delay: .4s; } .empty-dots i:nth-child(3) { animation-delay: .8s; }
   @keyframes drift { 0%,100% { transform: translateY(0); opacity: .4; } 50% { transform: translateY(-5px); opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .empty-dots i { animation: none; } }
-  #themeToggle { white-space: nowrap; }
+  #themeToggle, #myConnBtn { white-space: nowrap; }
+  #myConnBtn.hidden { display: none; }
   * { box-sizing: border-box; }
   html, body { overflow-x: hidden; max-width: 100%; }
   body {
@@ -505,6 +506,13 @@ export function chatUiHtml(): string {
   .tip-check { color: var(--teal); font-weight: 700; }
   /* 連携するシステム：選択グリッド */
   .sys-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .7rem; }
+  .inline-check { display: flex; align-items: center; gap: .4rem; margin: .5rem 0; font-size: .85rem; color: var(--muted2); }
+  .inline-check input { width: auto; }
+  .mine-block { border: 1px solid var(--border); border-radius: 10px; padding: .8rem 1rem; margin-bottom: .8rem; }
+  .mine-block h4 { margin: 0 0 .4rem; font-size: .95rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .mine-block .field-row { margin: .4rem 0; }
+  .mine-actions { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
+  .mine-progress { white-space: pre-line; font-size: .8rem; color: var(--muted); margin-top: .4rem; }
   .sys-group-title { margin: 1rem 0 .5rem; font-size: .8rem; color: var(--muted); font-weight: 700; }
   .sys-group-title:first-child { margin-top: 0; }
   .sys-card { display: flex; align-items: center; gap: .8rem; text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1rem; cursor: pointer; color: var(--text); font-family: inherit; }
@@ -545,6 +553,7 @@ export function chatUiHtml(): string {
       <option value="advanced">advanced</option>
     </select>
     <span id="myBudget" class="hint" title="自分のAPIキーのトークン予算残量"></span>
+    <button type="button" id="myConnBtn" class="hidden" title="自分専用の連携（Gmail・Drive・カレンダー・Jira・Backlog・公式MCP）。他の人からは見えません">自分用の連携</button>
     <button type="button" id="themeToggle" title="テーマ切替（自動 / ライト / ダーク）">テーマ: 自動</button>
   </div>
   <nav class="tabs">
@@ -773,6 +782,8 @@ export function chatUiHtml(): string {
         <button class="btn" id="kbSetSourceBtn">同期元を設定</button>
         <div class="field-row"><label><input type="checkbox" id="kbNotifyErrorOnly" style="width:auto;"> Slack通知はエラーがあった時だけ</label></div>
         <div style="margin-top:.8rem;">
+          <button class="btn" id="kbPreviewNotionBtn">Notionをプレビュー</button>
+          <button class="btn" id="kbPreviewDriveBtn">Driveをプレビュー</button>
           <button class="btn primary" id="kbSyncNotionBtn">Notion同期を実行</button>
           <button class="btn primary" id="kbSyncDriveBtn">Drive同期を実行</button>
           <button class="btn" id="kbRetryFailedBtn" disabled>失敗ファイルだけ再同期</button>
@@ -788,6 +799,12 @@ export function chatUiHtml(): string {
     
       <details class="sync-settings" id="syncSettings">
         <summary>同期・通知の設定（Jira / Backlog / カレンダー / マップ / Slack）</summary>
+      <div class="section" id="syncTargetsCard">
+        <h2>連携の同期先（許可リスト）</h2>
+        <p class="hint">Jira・Backlog・カレンダー・Drive・Gmail・Notionの同期は、ここに入っている共有namespaceにだけ書き込めます（不要なデータで知識ベースが汚れるのを防ぐため）。各自の個人用namespace（personal:…）は対象外で、本人専用の接続から本人専用の索引にだけ取り込みます（右上の「自分用の連携」）。追加・削除は管理者だけです。外すと、そのnamespaceの自動同期もオフに戻ります。</p>
+        <ul class="conn-list" id="syncTargetList"><li class="conn-empty">確認中…</li></ul>
+        <div class="field-row admin-only-section"><label>追加</label><select id="syncTargetSelect"></select> <button class="btn" id="syncTargetAddBtn">許可する</button></div>
+      </div>
       <div class="section">
         <h2>Jira</h2>
         <p class="hint">プロジェクトの課題（要約・説明・種別・ステータス）をnamespaceへ一括登録します。設定済みのプロジェクトは毎日自動で差分同期されます（更新された課題だけを追加登録。初回の全件取り込みは下の「Jira同期を実行」で行ってください）。</p>
@@ -799,7 +816,9 @@ export function chatUiHtml(): string {
         <div class="field-row"><label>プロジェクトキー</label><input type="text" id="jiraProjectKey" placeholder="例: PROJ"> <button class="btn danger" id="jiraClearBtn" title="連携を解除">解除</button></div>
         <div class="field-row"><label>候補から選ぶ</label><select id="jiraProjectPicker"><option value="">（「候補を取得」を押してください）</option></select> <button class="btn" id="jiraLoadProjectsBtn">候補を取得</button></div>
         <div class="field-row"><label>絞り込み条件（任意）</label><input type="text" id="jiraExtraJql" placeholder='例: status = "Done"（JQL形式）'></div>
+        <label class="inline-check"><input type="checkbox" id="jiraAuto"> 毎日自動で同期する（このnamespaceだけ。既定はオフ）</label>
         <button class="btn" id="jiraSetSourceBtn">同期元を設定</button>
+        <button class="btn" id="jiraPreviewBtn">プレビュー</button>
         <button class="btn" id="jiraTestConnectionBtn">接続テスト</button>
         <div style="margin-top:.6rem;">
           <button class="btn primary" id="jiraSyncBtn">Jira同期を実行</button>
@@ -820,7 +839,9 @@ export function chatUiHtml(): string {
         <div class="field-row"><label>プロジェクトキー/ID</label><input type="text" id="backlogProjectId" placeholder="例: PROJ"> <button class="btn danger" id="backlogClearBtn" title="連携を解除">解除</button></div>
         <div class="field-row"><label>候補から選ぶ</label><select id="backlogProjectPicker"><option value="">（「候補を取得」を押してください）</option></select> <button class="btn" id="backlogLoadProjectsBtn">候補を取得</button></div>
         <div class="field-row"><label>絞り込みキーワード（任意）</label><input type="text" id="backlogKeywordFilter" placeholder="要約・説明の部分一致"></div>
+        <label class="inline-check"><input type="checkbox" id="backlogAuto"> 毎日自動で同期する（このnamespaceだけ。既定はオフ）</label>
         <button class="btn" id="backlogSetSourceBtn">同期元を設定</button>
+        <button class="btn" id="backlogPreviewBtn">プレビュー</button>
         <button class="btn" id="backlogTestConnectionBtn">接続テスト</button>
         <div style="margin-top:.6rem;">
           <button class="btn primary" id="backlogSyncBtn">Backlog同期を実行</button>
@@ -840,7 +861,9 @@ export function chatUiHtml(): string {
         <div class="field-row"><label>カレンダーID</label><input type="text" id="calendarId" placeholder="例: xxxx@group.calendar.google.com"> <button class="btn danger" id="calendarClearBtn" title="連携を解除">解除</button></div>
         <div class="field-row"><label>候補から選ぶ</label><select id="calendarPicker"><option value="">（「候補を取得」を押してください）</option></select> <button class="btn" id="calendarLoadListBtn">候補を取得</button></div>
         <p class="hint">従来方式（サービスアカウント共有）の場合、共有した覚えのあるカレンダーでも候補に出てこないことがあります。その場合はIDを直接入力してください。</p>
+        <label class="inline-check"><input type="checkbox" id="calendarAuto"> 毎日自動で同期する（このnamespaceだけ。既定はオフ）</label>
         <button class="btn" id="calendarSetSourceBtn">同期元を設定</button>
+        <button class="btn" id="calendarPreviewBtn">プレビュー</button>
         <button class="btn" id="calendarTestConnectionBtn">接続テスト</button>
         <div style="margin-top:.6rem;">
           <button class="btn primary" id="calendarSyncBtn">カレンダー同期を実行</button>
@@ -859,7 +882,7 @@ export function chatUiHtml(): string {
 
       <div class="section">
         <h2>Gmail</h2>
-        <p class="hint">検索式（例: label:project-x newer_than:30d）に合うメールの件名・差出人・日時・本文を登録します（読み取り専用。添付ファイルは取り込みません）。検索式が空のnamespaceは同期されません。登録したメールは、そのnamespaceにアクセスできる全員が検索できるため、共有してよいラベルだけに絞るか、個人用namespaceへ入れてください。1回の同期は最大500通です。</p>
+        <p class="hint">検索式（例: label:project-x newer_than:30d）に合うメールの件名・差出人・日時・本文を登録します（読み取り専用。添付ファイルは取り込みません）。検索式が空のnamespaceは同期されません。登録したメールは、そのnamespaceにアクセスできる全員が検索できるため、共有してよいラベルだけに絞るか、右上の「自分用の連携」から自分専用に取り込んでください。同期の前に、登録される件名の一覧（プレビュー）で確認できます。1回の同期は最大500通です。</p>
         <div id="gmailOAuthStatus" class="hint">確認中…</div>
         <button class="btn primary" id="gmailConnectBtn">Googleと接続する</button>
         <button class="btn danger" id="gmailDisconnectBtn" style="display:none;">接続を解除</button>
@@ -867,6 +890,7 @@ export function chatUiHtml(): string {
         <div class="field-row"><label>検索式</label><input type="text" id="gmailQuery" placeholder="例: label:project-x newer_than:30d"> <button class="btn danger" id="gmailClearBtn" title="連携を解除">解除</button></div>
         <div class="field-row"><label>ラベルから選ぶ</label><select id="gmailPicker"><option value="">（「ラベルを取得」を押してください）</option></select> <button class="btn" id="gmailLoadLabelsBtn">ラベルを取得</button></div>
         <button class="btn" id="gmailSetSourceBtn">同期元を設定</button>
+        <button class="btn" id="gmailPreviewBtn">プレビュー</button>
         <button class="btn" id="gmailTestConnectionBtn">接続テスト</button>
         <div style="margin-top:.6rem;">
           <button class="btn primary" id="gmailSyncBtn">Gmail同期を実行</button>
@@ -1232,6 +1256,8 @@ export function chatUiHtml(): string {
       const gate = document.getElementById("authGate");
       if (gate) gate.textContent = message;
     }
+    const myConn = document.getElementById("myConnBtn");
+    if (myConn) myConn.classList.toggle("hidden", !(role === "admin" || role === "editor" || role === "member"));
     const adminBtn = document.querySelector('nav.tabs button[data-tab="admin"]');
     if (!adminBtn) return;
     // editor（ナレッジ登録権限者）も管理タブ自体は開けるが、admin-only-sectionは
@@ -1455,7 +1481,7 @@ export function chatUiHtml(): string {
       document.querySelector('.admin-subpanel[data-subtab="' + btn.dataset.subtab + '"]').classList.add("active");
       // 「連携」タブを開くたびに接続状況を再確認する（OAuth接続直後の戻り先でもあるため、
       // 2026-09-22追加）。
-      if (btn.dataset.subtab === "knowledge") { initKbList(); refreshConnectedSystems(); loadOAuthStatus(); }
+      if (btn.dataset.subtab === "knowledge") { initKbList(); refreshConnectedSystems(); loadOAuthStatus(); loadSyncTargets(); }
     });
   });
 
@@ -3239,6 +3265,12 @@ export function chatUiHtml(): string {
     const source = endpoint.indexOf("notion") !== -1 ? "notion" : "drive";
     const progressEl = $("kbSyncProgress");
     const retryBtn = $("kbRetryFailedBtn");
+    try {
+      if (!(await confirmAfterPreview(endpoint + "/preview", namespace, progressEl))) return;
+    } catch (e) {
+      progressEl.textContent = "エラー: " + e.message;
+      return;
+    }
     retryBtn.disabled = true;
     let opId = null, startIndex = 0, totalDocs = 0, totalChunks = 0, errorCount = 0;
     progressEl.textContent = "同期中…";
@@ -3308,6 +3340,15 @@ export function chatUiHtml(): string {
     if (!namespace) { showToast("namespaceを入力してください", "error"); return; }
     const progressEl = $(opts.progressId);
     const retryBtn = opts.retryBtnId ? $(opts.retryBtnId) : null;
+    // 同期の前にプレビュー（登録される項目の一覧）を出し、確認が取れたときだけ進める。
+    if (opts.previewEndpoint) {
+      try {
+        if (!(await confirmAfterPreview(opts.previewEndpoint, namespace, progressEl))) return;
+      } catch (e) {
+        progressEl.textContent = "エラー: " + e.message;
+        return;
+      }
+    }
     if (retryBtn) retryBtn.disabled = true;
     let opId = null, startIndex = 0, totalDocs = 0, totalChunks = 0, errorCount = 0;
     progressEl.textContent = "同期中…";
@@ -3437,6 +3478,7 @@ export function chatUiHtml(): string {
         namespace: $("jiraNamespace").value.trim(),
         jiraProjectKey: $("jiraProjectKey").value.trim() || undefined,
         jiraExtraJql: $("jiraExtraJql").value.trim() || undefined,
+        autoJira: $("jiraAuto").checked,
       });
       showToast("同期元を設定しました", "success");
     } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
@@ -3444,7 +3486,7 @@ export function chatUiHtml(): string {
   wireClearSourceBtn("jiraClearBtn", "jiraNamespace", "jiraProjectKey", "clearJira");
   wireTestConnectionBtn("jiraTestConnectionBtn", "jiraSyncProgress", "/admin/kb/test-connection/jira");
   let lastJiraOpId = null;
-  const jiraOpts = { namespaceId: "jiraNamespace", progressId: "jiraSyncProgress", retryBtnId: "jiraRetryFailedBtn", endpoint: "/admin/sync/jira", retryEndpoint: "/admin/sync/jira/retry-failed", batchSize: 10 };
+  const jiraOpts = { namespaceId: "jiraNamespace", progressId: "jiraSyncProgress", retryBtnId: "jiraRetryFailedBtn", previewEndpoint: "/admin/sync/jira/preview", endpoint: "/admin/sync/jira", retryEndpoint: "/admin/sync/jira/retry-failed", batchSize: 10 };
   $("jiraSyncBtn").addEventListener("click", async () => { lastJiraOpId = await runIntegrationSync(jiraOpts); });
   $("jiraRetryFailedBtn").addEventListener("click", () => runIntegrationRetry(jiraOpts, lastJiraOpId));
 
@@ -3454,6 +3496,7 @@ export function chatUiHtml(): string {
         namespace: $("backlogNamespace").value.trim(),
         backlogProjectId: $("backlogProjectId").value.trim() || undefined,
         backlogKeywordFilter: $("backlogKeywordFilter").value.trim() || undefined,
+        autoBacklog: $("backlogAuto").checked,
       });
       showToast("同期元を設定しました", "success");
     } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
@@ -3461,7 +3504,7 @@ export function chatUiHtml(): string {
   wireClearSourceBtn("backlogClearBtn", "backlogNamespace", "backlogProjectId", "clearBacklog");
   wireTestConnectionBtn("backlogTestConnectionBtn", "backlogSyncProgress", "/admin/kb/test-connection/backlog");
   let lastBacklogOpId = null;
-  const backlogOpts = { namespaceId: "backlogNamespace", progressId: "backlogSyncProgress", retryBtnId: "backlogRetryFailedBtn", endpoint: "/admin/sync/backlog", retryEndpoint: "/admin/sync/backlog/retry-failed", batchSize: 10 };
+  const backlogOpts = { namespaceId: "backlogNamespace", progressId: "backlogSyncProgress", retryBtnId: "backlogRetryFailedBtn", previewEndpoint: "/admin/sync/backlog/preview", endpoint: "/admin/sync/backlog", retryEndpoint: "/admin/sync/backlog/retry-failed", batchSize: 10 };
   $("backlogSyncBtn").addEventListener("click", async () => { lastBacklogOpId = await runIntegrationSync(backlogOpts); });
   $("backlogRetryFailedBtn").addEventListener("click", () => runIntegrationRetry(backlogOpts, lastBacklogOpId));
 
@@ -3470,6 +3513,7 @@ export function chatUiHtml(): string {
       await api("/admin/kb/set-source", {
         namespace: $("calendarNamespace").value.trim(),
         calendarId: $("calendarId").value.trim() || undefined,
+        autoCalendar: $("calendarAuto").checked,
       });
       showToast("同期元を設定しました", "success");
     } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
@@ -3477,7 +3521,7 @@ export function chatUiHtml(): string {
   wireClearSourceBtn("calendarClearBtn", "calendarNamespace", "calendarId", "clearCalendar");
   wireTestConnectionBtn("calendarTestConnectionBtn", "calendarSyncProgress", "/admin/kb/test-connection/calendar", () => ({ namespace: $("calendarNamespace").value.trim() }));
   let lastCalendarOpId = null;
-  const calendarOpts = { namespaceId: "calendarNamespace", progressId: "calendarSyncProgress", retryBtnId: "calendarRetryFailedBtn", endpoint: "/admin/sync/calendar", retryEndpoint: "/admin/sync/calendar/retry-failed", batchSize: 10 };
+  const calendarOpts = { namespaceId: "calendarNamespace", progressId: "calendarSyncProgress", retryBtnId: "calendarRetryFailedBtn", previewEndpoint: "/admin/sync/calendar/preview", endpoint: "/admin/sync/calendar", retryEndpoint: "/admin/sync/calendar/retry-failed", batchSize: 10 };
   $("calendarSyncBtn").addEventListener("click", async () => { lastCalendarOpId = await runIntegrationSync(calendarOpts); });
   $("calendarRetryFailedBtn").addEventListener("click", () => runIntegrationRetry(calendarOpts, lastCalendarOpId));
 
@@ -3495,7 +3539,7 @@ export function chatUiHtml(): string {
   wireClearSourceBtn("gmailClearBtn", "gmailNamespace", "gmailQuery", "clearGmail");
   wireTestConnectionBtn("gmailTestConnectionBtn", "gmailSyncProgress", "/admin/kb/test-connection/gmail", () => ({ namespace: $("gmailNamespace").value.trim() }));
   let lastGmailOpId = null;
-  const gmailOpts = { namespaceId: "gmailNamespace", progressId: "gmailSyncProgress", retryBtnId: "gmailRetryFailedBtn", endpoint: "/admin/sync/gmail", retryEndpoint: "/admin/sync/gmail/retry-failed", batchSize: 10 };
+  const gmailOpts = { namespaceId: "gmailNamespace", progressId: "gmailSyncProgress", retryBtnId: "gmailRetryFailedBtn", previewEndpoint: "/admin/sync/gmail/preview", endpoint: "/admin/sync/gmail", retryEndpoint: "/admin/sync/gmail/retry-failed", batchSize: 10 };
   $("gmailSyncBtn").addEventListener("click", async () => { lastGmailOpId = await runIntegrationSync(gmailOpts); });
   $("gmailRetryFailedBtn").addEventListener("click", () => runIntegrationRetry(gmailOpts, lastGmailOpId));
 
@@ -3559,6 +3603,253 @@ export function chatUiHtml(): string {
   // 遷移してコールバック後に自動で戻ってくる）で叩く必要があり、fetch()のような
   // Authorizationヘッダー付き呼び出しができない。そのため、既にlocalStorageに保存済みの
   // APIキーをこの一回だけクエリパラメータとして渡す（oauthConnections.ts参照）。
+  // ---------- 連携の統制（2026-10-09追加）：同期前のプレビュー・同期先の許可リスト・自動同期のオプトイン・自分用の連携 ----------
+  const NL = String.fromCharCode(10);
+  let overviewCache = null;
+
+  // 同期するとどの項目が登録されるかの一覧（書き込みはしない）。結果は進捗欄に出し、データを返す。
+  async function previewSync(previewEndpoint, namespace, progressEl) {
+    progressEl.textContent = "プレビューを取得中…";
+    const data = await api(previewEndpoint, { namespace });
+    const lines = data.items.map((i) => "・" + i.title + (i.detail ? "（" + i.detail + "）" : ""));
+    const more = data.truncated ? NL + "…ほか " + (data.total - data.items.length) + "件" : "";
+    progressEl.textContent = "プレビュー: " + data.total + "件が「" + namespace + "」に登録されます" + (data.personal ? "（自分専用）" : "")
+      + (data.note ? NL + data.note : "") + (lines.length ? NL + lines.join(NL) : "") + more + NL + "（まだ何も登録していません）";
+    return data;
+  }
+
+  // 同期の前にプレビューを出し、確認が取れたときだけtrueを返す。
+  async function confirmAfterPreview(previewEndpoint, namespace, progressEl) {
+    const data = await previewSync(previewEndpoint, namespace, progressEl);
+    if (data.total === 0) { progressEl.textContent += NL + "登録する項目がありません。"; return false; }
+    const head = data.items.slice(0, 5).map((i) => "・" + i.title).join(NL);
+    const ok = confirm(data.total + "件を「" + namespace + "」に登録します。よろしいですか？" + NL + NL + head + (data.total > 5 ? NL + "…ほか " + (data.total - 5) + "件" : ""));
+    if (!ok) progressEl.textContent += NL + "（キャンセルしました）";
+    return ok;
+  }
+
+  function wirePreviewBtn(btnId, namespaceId, progressId, endpoint) {
+    $(btnId).addEventListener("click", async () => {
+      const namespace = $(namespaceId).value.trim();
+      if (!namespace) { showToast("namespaceを入力してください", "error"); return; }
+      try { await previewSync(endpoint, namespace, $(progressId)); }
+      catch (e) { $(progressId).textContent = "エラー: " + e.message; }
+    });
+  }
+  wirePreviewBtn("jiraPreviewBtn", "jiraNamespace", "jiraSyncProgress", "/admin/sync/jira/preview");
+  wirePreviewBtn("backlogPreviewBtn", "backlogNamespace", "backlogSyncProgress", "/admin/sync/backlog/preview");
+  wirePreviewBtn("calendarPreviewBtn", "calendarNamespace", "calendarSyncProgress", "/admin/sync/calendar/preview");
+  wirePreviewBtn("gmailPreviewBtn", "gmailNamespace", "gmailSyncProgress", "/admin/sync/gmail/preview");
+  wirePreviewBtn("kbPreviewNotionBtn", "kbNamespace", "kbSyncProgress", "/admin/sync/notion/preview");
+  wirePreviewBtn("kbPreviewDriveBtn", "kbNamespace", "kbSyncProgress", "/admin/sync/drive/preview");
+
+  // namespaceを入力（変更）したとき、そのnamespaceの自動同期の設定をチェックに反映する。
+  function wireAutoCheckbox(namespaceId, boxId, key) {
+    $(namespaceId).addEventListener("change", () => {
+      const namespace = $(namespaceId).value.trim();
+      const row = (overviewCache || []).find((n) => n.namespace === namespace);
+      $(boxId).checked = !!(row && row.autoSync && row.autoSync.includes(key));
+    });
+  }
+  wireAutoCheckbox("jiraNamespace", "jiraAuto", "jira");
+  wireAutoCheckbox("backlogNamespace", "backlogAuto", "backlog");
+  wireAutoCheckbox("calendarNamespace", "calendarAuto", "calendar");
+
+  // 連携の同期先（許可リスト）
+  async function loadSyncTargets() {
+    const list = $("syncTargetList");
+    if (!list) return;
+    try {
+      const data = await api("/admin/sync-targets/list", {});
+      list.innerHTML = "";
+      if (data.allowed.length === 0) list.appendChild(mk("li", "conn-empty", "許可されたnamespaceはまだありません。連携の同期は、管理者が追加するまで共有namespaceへは書き込めません。"));
+      data.allowed.forEach((row) => {
+        const li = mk("li", "conn-row");
+        li.appendChild(mk("strong", "", row.namespace_id));
+        if (currentUserRole === "admin") {
+          const remove = mk("button", "btn danger", "外す");
+          remove.type = "button";
+          remove.addEventListener("click", async () => {
+            if (!confirm(row.namespace_id + "を許可リストから外しますか？（このnamespaceの自動同期もオフに戻ります）")) return;
+            try { await api("/admin/sync-targets/remove", { namespace: row.namespace_id }); showToast("外しました", "success"); loadSyncTargets(); }
+            catch (e) { showToast("失敗しました: " + e.message, "error"); }
+          });
+          li.appendChild(remove);
+        }
+        list.appendChild(li);
+      });
+      const select = $("syncTargetSelect");
+      select.innerHTML = "";
+      data.candidates.forEach((id) => { const opt = document.createElement("option"); opt.value = id; opt.textContent = id; select.appendChild(opt); });
+    } catch (e) {
+      list.innerHTML = "";
+      list.appendChild(mk("li", "conn-empty", "取得に失敗しました: " + e.message));
+    }
+  }
+  $("syncTargetAddBtn").addEventListener("click", async () => {
+    const namespace = $("syncTargetSelect").value;
+    if (!namespace) { showToast("追加できるnamespaceがありません", "error"); return; }
+    try { await api("/admin/sync-targets/add", { namespace }); showToast("許可しました", "success"); loadSyncTargets(); }
+    catch (e) { showToast("失敗しました: " + e.message, "error"); }
+  });
+
+  // ---- 自分用の連携（ユーザーごとの接続）----
+  const MINE_SERVICES = [
+    { key: "gmail", service: "gmail", name: "Gmail", note: "検索式に合うメールの件名・差出人・日時・本文だけを、自分専用のナレッジに取り込みます（添付は取り込みません）。",
+      field: { label: "検索式", ph: "例: label:project-x newer_than:30d", setKey: "gmailQuery", clearKey: "clearGmail", srcKey: "gmail_query" },
+      sync: "/admin/sync/gmail", batch: 10 },
+    { key: "google_drive", service: "google_drive", name: "Google Drive", note: "指定したフォルダ内のファイルを、自分専用のナレッジに取り込みます。",
+      field: { label: "フォルダID", ph: "DriveのフォルダURL末尾のID", setKey: "driveFolderId", clearKey: "clearDrive", srcKey: "drive_folder_id" },
+      sync: "/admin/sync/drive", batch: 1 },
+    { key: "google_calendar", service: "google_calendar", name: "Google カレンダー", note: "予定（過去7日〜未来90日）を、自分専用のナレッジに取り込みます。",
+      field: { label: "カレンダーID", ph: "例: you@example.com", setKey: "calendarId", clearKey: "clearCalendar", srcKey: "calendar_id" },
+      auto: { setKey: "autoCalendar", srcKey: "auto_calendar" }, sync: "/admin/sync/calendar", batch: 10 },
+    { key: "jira", service: "jira", name: "Jira", note: "プロジェクトの課題を、自分専用のナレッジに取り込みます。",
+      field: { label: "プロジェクトキー", ph: "例: PROJ", setKey: "jiraProjectKey", clearKey: "clearJira", srcKey: "jira_project_key" },
+      auto: { setKey: "autoJira", srcKey: "auto_jira" }, sync: "/admin/sync/jira", batch: 10 },
+    { key: "backlog", service: "backlog", name: "Backlog", note: "プロジェクトの課題を、自分専用のナレッジに取り込みます。", needsSpace: true,
+      field: { label: "プロジェクトキー/ID", ph: "例: PROJ", setKey: "backlogProjectId", clearKey: "clearBacklog", srcKey: "backlog_project_id" },
+      auto: { setKey: "autoBacklog", srcKey: "auto_backlog" }, sync: "/admin/sync/backlog", batch: 10 },
+  ];
+
+  function renderMineService(def, info, namespace, source) {
+    const block = mk("div", "mine-block");
+    const conn = (info.connections || {})[def.service] || { connected: false };
+    const title = mk("h4", "", def.name);
+    const badge = mk("span", conn.connected ? "badge ok" : "badge", conn.connected ? "接続済み" + (conn.label ? "（" + conn.label + "）" : "") : "未接続");
+    title.appendChild(badge);
+    block.appendChild(title);
+    block.appendChild(mk("p", "modal-note", def.note));
+
+    const actions = mk("div", "mine-actions");
+    let spaceInput = null;
+    if (def.needsSpace) {
+      spaceInput = mk("input");
+      spaceInput.type = "text";
+      spaceInput.placeholder = "スペースURL（例: yourspace.backlog.com）";
+      actions.appendChild(spaceInput);
+    }
+    const connectBtn = modalButton(conn.connected ? "再接続" : "自分のアカウントで接続", "primary", () => {
+      const params = { owner: "me" };
+      if (def.needsSpace) {
+        const space = spaceInput.value.trim();
+        if (!space) { showToast("スペースURLを入力してください", "error"); return; }
+        params.space = space;
+      }
+      startOAuthConnect(def.service, params);
+    });
+    const disconnectBtn = modalButton("接続を解除", "danger", async () => {
+      if (!confirm(def.name + "との自分用の接続を解除しますか？")) return;
+      try {
+        await api("/admin/oauth/" + def.service + "/disconnect", { mine: true });
+        showToast("解除しました", "success");
+        badge.className = "badge";
+        badge.textContent = "未接続";
+        disconnectBtn.style.display = "none";
+      } catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
+    });
+    if (!conn.connected) disconnectBtn.style.display = "none";
+    actions.appendChild(connectBtn);
+    actions.appendChild(disconnectBtn);
+    block.appendChild(actions);
+
+    const row = mk("div", "field-row");
+    row.appendChild(mk("label", "", def.field.label));
+    const input = mk("input");
+    input.type = "text";
+    input.placeholder = def.field.ph;
+    input.value = source[def.field.srcKey] || "";
+    row.appendChild(input);
+    block.appendChild(row);
+
+    let autoBox = null;
+    if (def.auto) {
+      const label = mk("label", "inline-check");
+      autoBox = mk("input");
+      autoBox.type = "checkbox";
+      autoBox.checked = Number(source[def.auto.srcKey] || 0) === 1;
+      label.appendChild(autoBox);
+      label.appendChild(document.createTextNode(" 毎日自動で同期する（既定はオフ）"));
+      block.appendChild(label);
+    }
+
+    const progress = mk("div", "mine-progress");
+    progress.id = "mineProgress_" + def.key;
+    const buttons = mk("div", "mine-actions");
+    buttons.appendChild(modalButton("設定を保存", "", async () => {
+      const body = { namespace };
+      const value = input.value.trim();
+      if (value) body[def.field.setKey] = value; else body[def.field.clearKey] = true;
+      if (autoBox) body[def.auto.setKey] = autoBox.checked;
+      try { await api("/admin/kb/set-source", body); showToast("保存しました", "success"); }
+      catch (e) { showToast("保存に失敗しました: " + e.message, "error"); }
+    }));
+    buttons.appendChild(modalButton("プレビュー", "", async () => {
+      try { await previewSync(def.sync + "/preview", namespace, progress); }
+      catch (e) { progress.textContent = "エラー: " + e.message; }
+    }));
+    buttons.appendChild(modalButton("同期を実行", "primary", () => {
+      runIntegrationSync({ namespaceId: "mineNamespace", progressId: progress.id, retryBtnId: null, previewEndpoint: def.sync + "/preview", endpoint: def.sync, batchSize: def.batch });
+    }));
+    block.appendChild(buttons);
+    block.appendChild(progress);
+    return block;
+  }
+
+  async function openMyConnectionsModal() {
+    const modal = openModal({ title: "自分用の連携", subtitle: "自分のアカウントだけで接続し、自分専用のナレッジに取り込みます（他の人からは検索できません）", wide: true });
+    let info;
+    try {
+      info = await api("/me/connections", {});
+    } catch (e) {
+      modal.body.appendChild(mk("p", "modal-error", "読み込みに失敗しました: " + e.message));
+      modal.footer.appendChild(modalButton("閉じる", "", () => modal.close()));
+      return;
+    }
+    const namespace = info.personalNamespace;
+    const hidden = mk("input");
+    hidden.type = "hidden";
+    hidden.id = "mineNamespace";
+    hidden.value = namespace;
+    modal.body.appendChild(hidden);
+    modal.body.appendChild(mk("p", "modal-note", "ここでの接続は、あなた専用です。取り込んだ内容は、あなたの個人用namespace（" + namespace + "）にだけ入り、共有の知識ベースには入りません。同期の前に、必ず登録される項目の一覧（プレビュー）を確認できます。"));
+    MINE_SERVICES.forEach((def) => modal.body.appendChild(renderMineService(def, info, namespace, info.source || {})));
+
+    const mcp = mk("div", "mine-block");
+    mcp.appendChild(mk("h4", "", "公式MCPサーバー（自分のチャットで使う）"));
+    mcp.appendChild(mk("p", "modal-note", "Notion・GitHub・Slack・Linearなどを自分のアカウントで接続すると、あなたのチャットだけでそのツール（読み取り専用）を使えます。"));
+    mcp.appendChild(modalButton("公式MCPを管理…", "primary", () => { openSystemsModal(null, true); }));
+    modal.body.appendChild(mcp);
+
+    const docs = mk("div", "mine-block");
+    docs.appendChild(mk("h4", "", "取り込んだ自分用ナレッジ"));
+    const docsList = mk("ul", "conn-list");
+    docs.appendChild(docsList);
+    docs.appendChild(modalButton("一覧を表示", "", async () => {
+      docsList.innerHTML = "";
+      try {
+        const data = await api("/admin/kb/list-documents", { namespace });
+        if (data.files.length === 0) docsList.appendChild(mk("li", "conn-empty", "まだ取り込んでいません"));
+        data.files.forEach((file) => {
+          const li = mk("li", "conn-row");
+          li.appendChild(mk("span", "kb-name", file));
+          const del = mk("button", "btn danger", "削除");
+          del.type = "button";
+          del.addEventListener("click", async () => {
+            if (!confirm("「" + file + "」を削除しますか？")) return;
+            try { await api("/admin/kb/delete-document", { namespace, file }); li.remove(); showToast("削除しました", "success"); }
+            catch (e) { showToast("削除に失敗しました: " + e.message, "error"); }
+          });
+          li.appendChild(del);
+          docsList.appendChild(li);
+        });
+      } catch (e) { docsList.appendChild(mk("li", "conn-empty", "取得に失敗しました: " + e.message)); }
+    }));
+    modal.body.appendChild(docs);
+    modal.footer.appendChild(modalButton("閉じる", "", () => modal.close()));
+  }
+  $("myConnBtn").addEventListener("click", openMyConnectionsModal);
+
   function startOAuthConnect(service, extraParams) {
     const key = (apiKeyEl.value || localStorage.getItem("ragPocApiKey") || "").trim();
     if (!key) { showToast("先にAPIキーを入力してください", "error"); return; }
@@ -3669,6 +3960,7 @@ export function chatUiHtml(): string {
     tbody.innerHTML = "<tr><td colspan=5>読み込み中…</td></tr>";
     try {
       const data = await api("/admin/kb/overview", {});
+      overviewCache = data.namespaces;
       tbody.innerHTML = "";
       if (data.namespaces.length === 0) {
         tbody.innerHTML = '<tr><td colspan=5>登録されたナレッジがありません</td></tr>';
@@ -4719,12 +5011,16 @@ export function chatUiHtml(): string {
       description: "ヘルスチェック・アラートの通知先",
       access: "選んだチャンネルへ、ヘルスチェックのアラートなどの通知を送ります（管理者のみ）。" },
     { id: "plan", kind: "plan", group: "other", name: "その他のシステム", brand: "", icon: "plus",
-      description: "GitHub・Zoom・Google公式MCPなど（準備中）", access: "" },
+      description: "Zoom・Asanaなど（準備中）", access: "" },
   ];
+
+  // true の間は「自分用」（ユーザーごとの接続）として公式MCPを扱う（openSystemsModal(null, true)）。
+  let systemsMine = false;
+  const mineScope = () => (systemsMine ? { scope: "user" } : {});
 
   async function loadSystemStates() {
     const state = { mcp: {}, oauth: {} };
-    const [mcpRes, oauthRes] = await Promise.allSettled([api("/admin/mcp/status", {}), api("/admin/oauth/status", {})]);
+    const [mcpRes, oauthRes] = await Promise.allSettled([api("/admin/mcp/status", mineScope()), systemsMine ? Promise.resolve({}) : api("/admin/oauth/status", {})]);
     if (mcpRes.status === "fulfilled") mcpRes.value.providers.forEach((p) => { state.mcp[p.id] = p; });
     if (oauthRes.status === "fulfilled") state.oauth = oauthRes.value;
     return state;
@@ -4781,21 +5077,23 @@ export function chatUiHtml(): string {
     }
   }
 
-  async function openSystemsModal(focusId) {
-    const isAdmin = currentUserRole === "admin";
-    const modal = openModal({ title: "連携するシステムを追加", subtitle: "連携したいシステムを選択してください。選択後、各サービスの認証画面に移行します。", wide: true,
-      onClose: () => { refreshConnectedSystems(); loadMcpStatus(); loadOAuthStatus(); } });
+  async function openSystemsModal(focusId, mine) {
+    systemsMine = !!mine;
+    const isAdmin = currentUserRole === "admin" || systemsMine;
+    const modal = openModal({ title: systemsMine ? "自分用の公式MCP" : "連携するシステムを追加", subtitle: "連携したいシステムを選択してください。選択後、各サービスの認証画面に移行します。", wide: true,
+      onClose: () => { const wasMine = systemsMine; systemsMine = false; if (!wasMine) { refreshConnectedSystems(); loadMcpStatus(); loadOAuthStatus(); } } });
     let state = await loadSystemStates();
-    let selected = SYSTEM_DEFS.find((d) => d.id === focusId) || null;
+    const DEFS = systemsMine ? SYSTEM_DEFS.filter((d) => d.kind === "mcp") : SYSTEM_DEFS;
+    let selected = DEFS.find((d) => d.id === focusId) || null;
 
     function renderGrid() {
-      modal.setTitle("連携するシステムを追加");
-      modal.setSubtitle("連携したいシステムを選択してください。選択後、各サービスの認証画面に移行します。");
+      modal.setTitle(systemsMine ? "自分用の公式MCP" : "連携するシステムを追加");
+      modal.setSubtitle(systemsMine ? "自分のアカウントで接続すると、自分のチャットだけでそのツール（読み取り専用）を使えます。" : "連携したいシステムを選択してください。選択後、各サービスの認証画面に移行します。");
       modal.body.innerHTML = "";
       modal.footer.innerHTML = "";
       const GROUPS = [["mcp", "公式MCPサーバー（チャットから使う）"], ["sync", "ナレッジの同期（毎日・手動）"], ["other", "その他"]];
       GROUPS.forEach(([groupKey, groupTitle]) => {
-      const defs = SYSTEM_DEFS.filter((d) => d.group === groupKey);
+      const defs = DEFS.filter((d) => d.group === groupKey);
       if (defs.length === 0) return;
       modal.body.appendChild(mk("h4", "sys-group-title", groupTitle));
       const grid = mk("div", "sys-grid");
@@ -4839,7 +5137,7 @@ export function chatUiHtml(): string {
         modal.setTitle("その他のシステム");
         modal.setSubtitle("今後対応を予定しているシステムです。");
         const list = mk("ul", "modal-note");
-        ["GitHub・Zoom など、他社の公式MCPサーバー（自動登録に対応しているもの）", "Google公式MCP（Gmail・Calendar・Drive。Developer Previewへの参加が必要）", "書き込みを行うツールのチャット利用（実行前の確認ダイアログが必要）"].forEach((text) => list.appendChild(mk("li", "", text)));
+        ["Zoom・Asana など、他社の公式MCPサーバー（OAuthアプリの準備が要るもの）", "Backlogの公式MCP（自分でホストする方式のため、公式のホスト先ができたら対応）"].forEach((text) => list.appendChild(mk("li", "", text)));
         modal.body.appendChild(list);
         modal.body.appendChild(mk("p", "modal-note", "サービスを足すには、src/mcp/providers.ts に公式MCPサーバーのURLを1件登録します（詳しくは docs/mcp-client.md）。"));
         modal.footer.appendChild(modalButton("← 一覧へ", "", () => { selected = null; renderGrid(); }));
@@ -4892,7 +5190,7 @@ export function chatUiHtml(): string {
         toggle.type = "checkbox";
         toggle.checked = info.chatEnabled;
         toggle.addEventListener("change", async () => {
-          try { await api("/admin/mcp/set-chat", { provider: def.provider, enabled: toggle.checked }); showToast(toggle.checked ? "チャットで使うようにしました" : "チャットでは使わないようにしました", "success"); state = await loadSystemStates(); }
+          try { await api("/admin/mcp/set-chat", { provider: def.provider, enabled: toggle.checked, ...mineScope() }); showToast(toggle.checked ? "チャットで使うようにしました" : "チャットでは使わないようにしました", "success"); state = await loadSystemStates(); }
           catch (e) { toggle.checked = !toggle.checked; showToast("変更に失敗しました: " + e.message, "error"); }
         });
         row.appendChild(toggle);
@@ -4925,7 +5223,7 @@ export function chatUiHtml(): string {
           modal.footer.appendChild(modalButton("連携を解除", "danger", async () => {
             if (!confirm(def.name + "との連携を解除しますか？")) return;
             try {
-              await api(def.kind === "mcp" ? "/admin/mcp/disconnect" : "/admin/oauth/" + def.service + "/disconnect", def.kind === "mcp" ? { provider: def.provider } : {});
+              await api(def.kind === "mcp" ? "/admin/mcp/disconnect" : "/admin/oauth/" + def.service + "/disconnect", def.kind === "mcp" ? { provider: def.provider, ...mineScope() } : {});
               showToast("解除しました", "success");
               state = await loadSystemStates();
               renderDetail();
@@ -4934,7 +5232,7 @@ export function chatUiHtml(): string {
         }
         const label = info.noAuth ? "有効にする（認証不要）" : info.connected || info.reauth ? "再認証する" : def.brand + "で認証する" + (def.kind === "mcp" ? "（公式MCP）" : "");
         if (!(info.noAuth && info.connected)) modal.footer.appendChild(modalButton(label, "primary", () => {
-          if (def.kind === "mcp") { startOAuthConnect("mcp/" + def.provider); return; }
+          if (def.kind === "mcp") { startOAuthConnect("mcp/" + def.provider, systemsMine ? { owner: "me" } : undefined); return; }
           if (def.needsSpace) {
             const space = spaceInput ? spaceInput.value.trim() : "";
             if (!space) { showToast("スペースURLを入力してください", "error"); return; }
@@ -4951,7 +5249,7 @@ export function chatUiHtml(): string {
 
   async function loadSystemTools(def, box, refresh) {
     try {
-      const data = await api("/admin/mcp/tools", { provider: def.provider, refresh });
+      const data = await api("/admin/mcp/tools", { provider: def.provider, refresh, ...mineScope() });
       box.innerHTML = "";
       box.appendChild(mk("p", "modal-note", "使うツールを選びます（未選択のものは使われません）。モデルに見せるツールは少ないほど選びやすくなります。"));
       const list = mk("ul", "mcp-tools");
@@ -4979,7 +5277,7 @@ export function chatUiHtml(): string {
       actions.style.display = "flex";
       actions.style.gap = ".5rem";
       actions.appendChild(modalButton("ツールの選択を保存", "primary", async () => {
-        try { await api("/admin/mcp/set-tools", { provider: def.provider, tools: checks.filter((c) => c[1].checked).map((c) => c[0]) }); showToast("保存しました", "success"); }
+        try { await api("/admin/mcp/set-tools", { provider: def.provider, tools: checks.filter((c) => c[1].checked).map((c) => c[0]), ...mineScope() }); showToast("保存しました", "success"); }
         catch (e) { showToast("保存に失敗しました: " + e.message, "error"); }
       }));
       actions.appendChild(modalButton("一覧を再取得", "", () => { box.innerHTML = ""; box.appendChild(mk("p", "modal-note", "取得しています…")); loadSystemTools(def, box, true); }));

@@ -1,6 +1,7 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
-import { requireKnowledgeEditor } from "./auth";
+import { ForbiddenError } from "./auth";
+import { authorizeSync, previewBody } from "./syncTargets";
 import { listNotionPages, getPageText } from "./notion";
 import type { NotionPageSummary } from "./notion";
 import { ingestDocument, logKb } from "./kbIngest";
@@ -98,11 +99,12 @@ async function resolveNotionDatabase(env: Env, namespace: string): Promise<strin
 // body: { namespace, startIndex?（省略時0）, batchSize?（省略時5）, opId?（継続呼び出し時に指定） }
 // レスポンスの nextIndex が null なら完了、数値ならその値をstartIndexにして再度呼び出すこと。
 export async function handleSyncNotion(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as { namespace?: string; startIndex?: number; batchSize?: number; opId?: string; notifyOnErrorOnly?: boolean };
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
+  // Notionはデプロイ共通のトークンで読むため、個人用namespaceへは同期できない（本人専用のNotion接続は未対応）。
+  if (scope.ownerId) throw new ForbiddenError("Notionの同期は共有namespaceだけで使えます（個人用のNotionは、公式MCPの「自分用」から読み取れます）");
 
   let databaseId: string;
   try {
@@ -142,13 +144,14 @@ export async function handleSyncNotion(req: Request, env: Env, user: AuthedUser)
 // 対象に再実行する（2026-09-04追加。Drive側のhandleRetryFailedDriveと同じ設計）。
 // body: { namespace, opId }
 export async function handleRetryFailedNotion(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as { namespace?: string; opId?: string };
   const namespace = (body.namespace || "").trim();
   const sourceOpId = (body.opId || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
   if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
+  // Notionはデプロイ共通のトークンで読むため、個人用namespaceへは同期できない（本人専用のNotion接続は未対応）。
+  if (scope.ownerId) throw new ForbiddenError("Notionの同期は共有namespaceだけで使えます（個人用のNotionは、公式MCPの「自分用」から読み取れます）");
 
   let databaseId: string;
   try {
@@ -206,4 +209,22 @@ export async function handleRetryFailedNotion(req: Request, env: Env, user: Auth
     processedRange: [0, targets.length],
     nextIndex: null,
   } satisfies KbSyncResult & { totalPages: number; processedRange: [number, number]; nextIndex: number | null });
+}
+
+// POST /admin/sync/notion/preview — 同期するとどのページが登録されるかの一覧（書き込みはしない）。
+// body: { namespace }
+export async function handlePreviewNotion(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = (await req.json()) as { namespace?: string };
+  const namespace = (body.namespace || "").trim();
+  if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
+  // Notionはデプロイ共通のトークンで読むため、個人用namespaceへは同期できない（本人専用のNotion接続は未対応）。
+  if (scope.ownerId) throw new ForbiddenError("Notionの同期は共有namespaceだけで使えます（個人用のNotionは、公式MCPの「自分用」から読み取れます）");
+  try {
+    const databaseId = await resolveNotionDatabase(env, namespace);
+    const pages = await listNotionPages(env, databaseId);
+    return jsonResponse(200, previewBody(namespace, scope, pages.length, pages.map((pg) => ({ title: pg.title, detail: pg.lastEditedTime.slice(0, 10) })), "データベース内のページ"));
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
 }

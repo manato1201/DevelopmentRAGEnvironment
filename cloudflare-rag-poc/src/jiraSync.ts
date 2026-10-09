@@ -1,6 +1,6 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
-import { requireKnowledgeEditor } from "./auth";
+import { authorizeSync, cronMayWrite, ownerOfNamespace, previewBody, scopeForRequest } from "./syncTargets";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
@@ -38,9 +38,11 @@ interface JiraAuth {
 // OAuth接続（管理画面の「接続する」ボタン）があればそれを優先し、無ければ従来の
 // JIRA_BASE_URL + Basic認証（メール+APIトークン）にフォールバックする。どちらも
 // 無ければ、OAuth接続を促すメッセージ付きでエラーにする。
-async function resolveJiraAuth(env: Env): Promise<JiraAuth> {
-  const oauth = await resolveJiraOAuthContext(env);
+async function resolveJiraAuth(env: Env, ownerId = ""): Promise<JiraAuth> {
+  const oauth = await resolveJiraOAuthContext(env, ownerId);
   if (oauth) return oauth;
+  // 本人専用の接続は、共有のBasic認証にフォールバックしない（他人の権限で動かないため）。
+  if (ownerId) throw new Error("あなたのJiraが未接続です。「自分用」の連携から接続してください");
   requireJiraConfig(env);
   return { baseUrl: env.JIRA_BASE_URL as string, headers: jiraHeaders(env) };
 }
@@ -208,15 +210,14 @@ async function resolveJiraProject(env: Env, namespace: string): Promise<JiraSour
 // Notion/Drive同期と同じバッチ処理方式。
 // body: { namespace, startIndex?（省略時0）, batchSize?（省略時10）, opId?（継続呼び出し時に指定） }
 export async function handleSyncJira(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as { namespace?: string; startIndex?: number; batchSize?: number; opId?: string; notifyOnErrorOnly?: boolean };
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
 
   let auth: JiraAuth;
   try {
-    auth = await resolveJiraAuth(env);
+    auth = await resolveJiraAuth(env, scope.ownerId);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -259,17 +260,16 @@ export async function handleSyncJira(req: Request, env: Env, user: AuthedUser): 
 // （Drive/Notion側のhandleRetryFailedDrive/Notionと同じ設計）。
 // body: { namespace, opId }
 export async function handleRetryFailedJira(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as { namespace?: string; opId?: string };
   const namespace = (body.namespace || "").trim();
   const sourceOpId = (body.opId || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
   if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
 
   let auth: JiraAuth;
   try {
-    auth = await resolveJiraAuth(env);
+    auth = await resolveJiraAuth(env, scope.ownerId);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -338,14 +338,9 @@ const CRON_SAFETY_MARGIN_MS = 24 * 3600_000;
 // 1 namespaceの失敗（Jira側の一時的なエラー等）が他のnamespaceの同期を止めないよう、
 // namespaceごとにcatchして続行する（2026-09-19追加）。
 export async function runScheduledJiraSync(env: Env): Promise<void> {
-  try {
-    await resolveJiraAuth(env); // OAuth未接続かつ従来のsecretも未設定なら、ここで例外になる
-  } catch {
-    return; // 何も設定されていない環境では何もしない
-  }
-
+  // 「毎日自動で同期する」を明示的にオンにしたnamespaceだけが対象（2026-10-09〜、既定はオフ）。
   const rows = await env.DB.prepare(
-    "SELECT namespace_id, jira_project_key, jira_extra_jql, jira_last_synced_at FROM kb_sources WHERE jira_project_key IS NOT NULL",
+    "SELECT namespace_id, jira_project_key, jira_extra_jql, jira_last_synced_at FROM kb_sources WHERE jira_project_key IS NOT NULL AND auto_jira = 1",
   ).all<{ namespace_id: string; jira_project_key: string; jira_extra_jql: string | null; jira_last_synced_at: number | null }>();
 
   for (const row of rows.results ?? []) {
@@ -355,7 +350,8 @@ export async function runScheduledJiraSync(env: Env): Promise<void> {
       // 場合、resolveJiraAuth()内で自動更新させるため。cron 1回の実行でnamespace数が
       // 多いと処理時間が延び、最初に解決したトークンが後半で失効する恐れがあるため
       // 使い回さない、2026-09-22）。
-      const auth = await resolveJiraAuth(env);
+      if (!(await cronMayWrite(env, row.namespace_id))) continue; // 許可リスト外の共有namespaceには書かない
+      const auth = await resolveJiraAuth(env, ownerOfNamespace(row.namespace_id));
       // 初回（jira_last_synced_atが未設定）は「過去24時間分」だけを対象にする。
       // プロジェクト全件の初回取り込みは、管理タブの手動同期ボタン（handleSyncJira）で
       // 行う想定（Cronは日々の差分キャッチアップ専用、README参照）。
@@ -392,10 +388,11 @@ export async function runScheduledJiraSync(env: Env): Promise<void> {
 // プロジェクト一覧を取得する。管理タブの「連携」でプロジェクトキーを手入力する代わりに、
 // ドロップダウンから選べるようにするため（2026-09-23追加）。
 export async function handleListJiraProjects(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
+  const body = (await req.json().catch(() => ({}))) as { namespace?: string; mine?: boolean };
+  const scope = await scopeForRequest(env, user, body);
   let auth: JiraAuth;
   try {
-    auth = await resolveJiraAuth(env);
+    auth = await resolveJiraAuth(env, scope.ownerId);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -426,10 +423,11 @@ export async function handleListJiraProjects(req: Request, env: Env, user: Authe
 // POST /admin/kb/test-connection/jira — secretと設定値だけで接続確認する（実際の登録は
 // 行わない）。「連携」タブで設定ミスに同期実行前に気づけるようにするため（2026-09-19追加）。
 export async function handleTestJiraConnection(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
+  const body = (await req.json().catch(() => ({}))) as { namespace?: string; mine?: boolean };
+  const scope = await scopeForRequest(env, user, body);
   let auth: JiraAuth;
   try {
-    auth = await resolveJiraAuth(env);
+    auth = await resolveJiraAuth(env, scope.ownerId);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
@@ -438,6 +436,26 @@ export async function handleTestJiraConnection(req: Request, env: Env, user: Aut
     if (!res.ok) return jsonResponse(400, { error: `Jira接続エラー (${res.status}): ${await res.text()}` });
     const me = (await res.json()) as { displayName?: string };
     return jsonResponse(200, { status: "ok", message: `接続成功（${me.displayName ?? "認証済みユーザー"}として認証）` });
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// POST /admin/sync/jira/preview — 同期するとどの課題が登録されるかの一覧（書き込みはしない）。
+// body: { namespace }
+export async function handlePreviewJira(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = (await req.json()) as { namespace?: string };
+  const namespace = (body.namespace || "").trim();
+  if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
+  try {
+    const auth = await resolveJiraAuth(env, scope.ownerId);
+    const config = await resolveJiraProject(env, namespace);
+    const issues = await listJiraIssues(auth, config.projectKey, { extraJql: config.extraJql });
+    return jsonResponse(
+      200,
+      previewBody(namespace, scope, issues.length, issues.map((i) => ({ title: i.title })), `プロジェクト ${config.projectKey}${config.extraJql ? "（絞り込み条件あり）" : ""}の課題`),
+    );
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
