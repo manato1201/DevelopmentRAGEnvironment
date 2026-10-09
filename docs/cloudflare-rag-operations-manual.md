@@ -94,7 +94,7 @@ PDF・音声・動画ファイルはGeminiに実データを渡す必要があ�
 
 ### 2.4 再帰URLクローラー
 
-`POST /admin/kb/crawl-url`（管理タブ「連携」→「URL」）で、起点URLから同一オリジン配下のリンクを辿って複数ページをまとめて登録できる。`depth`（辿る階層数）・`maxPages`・`pathPrefix`（パス接頭辞での絞り込み）・`excludePatterns`（除外パターン、単純な部分一致）・`skipExisting`（同名ファイルが既にあればスキップ）を指定できる。§2.2と同じバッチ処理パターンのため、`batchSize`を大きくしすぎるとタイムアウトしやすい点は同様（既定1）。クロールの継続状態は`crawl_jobs`テーブルに保存され、完了時に自動削除される。
+`POST /admin/kb/crawl-url`（管理タブ「ナレッジ登録」→「ナレッジを追加」→「URL」）で、起点URLから同一オリジン配下のリンクを辿って複数ページをまとめて登録できる。`depth`（辿る階層数）・`maxPages`・`pathPrefix`（パス接頭辞での絞り込み）・`excludePatterns`（除外パターン、単純な部分一致）・`skipExisting`（同名ファイルが既にあればスキップ）を指定できる。§2.2と同じバッチ処理パターンのため、`batchSize`を大きくしすぎるとタイムアウトしやすい点は同様（既定1）。クロールの継続状態は`crawl_jobs`テーブルに保存され、完了時に自動削除される。
 
 ### 2.5 Jira / Backlog / Googleカレンダー / Googleマップ連携
 
@@ -109,7 +109,7 @@ PDF・音声・動画ファイルはGeminiに実データを渡す必要があ�
 
 ### 2.6 OAuth接続の管理
 
-- **接続状況の確認**：管理タブの「連携」タブを開くと自動的に`POST /admin/oauth/status`が呼ばれ、各サービスの接続状況が表示される
+- **接続状況の確認**：管理タブの「ナレッジ登録」タブを開くと自動的に`POST /admin/oauth/status`が呼ばれ、各サービスの接続状況が表示される
 - **接続の解除**：各サービスの「接続を解除」ボタン、または`POST /admin/oauth/<service>/disconnect`（`jira`/`backlog`/`google_calendar`/`slack`）。解除してもnamespaceとの紐付け設定（プロジェクトキー等）は残るため、再接続すれば同じ設定のまま同期を再開できる
 - **トラブル時の直接確認**：`wrangler d1 execute rag-poc-db --remote --command "SELECT service, expires_at, connected_at FROM oauth_connections;"`で、どのサービスがいつ接続され、アクセストークンがいつ失効するかを確認できる（[§6.3](#63-d1データを直接確認する)参照）
 
