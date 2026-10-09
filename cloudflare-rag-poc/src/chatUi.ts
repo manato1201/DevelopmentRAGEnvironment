@@ -279,6 +279,16 @@ export function chatUiHtml(): string {
   }
   .admin-subnav button.active { color: var(--accent); border-left-color: var(--accent); background: var(--panel); border-radius: 0 8px 8px 0; }
   .admin-content { flex: 1; min-width: 0; }
+  /* U3: 管理タブの右サマリ（予算・ナレッジ量・連携）。広い画面でだけ出す。状態は色だけでなく文字でも示す。 */
+  .admin-summary { display: none; width: 260px; flex: none; border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1rem; position: sticky; top: .5rem; }
+  .admin-summary h3 { margin: 0 0 .5rem; font-size: .85rem; }
+  .admin-summary section { margin-bottom: 1rem; }
+  .admin-summary section:last-child { margin-bottom: 0; }
+  .sum-row { display: flex; justify-content: space-between; gap: .5rem; font-size: .78rem; color: var(--muted); margin-bottom: .2rem; font-variant-numeric: var(--font-num); }
+  .sum-bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--border); margin-bottom: .5rem; }
+  .sum-bar span { height: 100%; }
+  .sum-note { font-size: .74rem; color: var(--row-sub); }
+  @media (min-width: 1250px) { .admin-summary { display: block; } }
   .admin-subpanel { display: none; }
   .admin-subpanel.active { display: block; }
   .autorefresh-box { display: flex; flex-direction: column; gap: .4rem; margin-top: 1rem; padding-top: .8rem; border-top: 1px solid var(--border); border-right: 1px solid var(--border); padding-right: 1rem; font-size: .8rem; color: var(--muted2); }
@@ -354,6 +364,33 @@ export function chatUiHtml(): string {
   #chatHero { flex: 1; display: none; min-height: 0; width: 100%; }
   #tab-chat.chat-empty #chatHero { display: block; }
   #tab-chat.chat-empty #messages { display: none; }
+  #tab-chat.chat-empty #chatBody { display: none; }
+
+  /* U2: 会話（中央）＋出典パネル（右）。出典パネルは広い画面でだけ出し、狭い画面では従来の
+     「参照した情報源」折りたたみを使う。行 = 記号（namespace色の丸）+ 文書名 + 副題 + 関連度（右揃え）。 */
+  #chatBody { display: flex; flex: 1; min-height: 0; }
+  #chatBody #messages { flex: 1; min-width: 0; }
+  #sourcePanel { display: none; width: 300px; flex: none; border-left: 1px solid var(--border); overflow-y: auto; padding: 1rem; }
+  #sourcePanel h3 { margin: 0 0 .5rem; font-size: .85rem; }
+  .src-sort { display: flex; gap: .4rem; margin-bottom: .6rem; }
+  .src-sort button { background: none; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-family: inherit; font-size: .72rem; padding: .1rem .6rem; cursor: pointer; }
+  .src-sort button.active { color: var(--accent); border-color: var(--accent); }
+  .src-row { display: grid; grid-template-columns: .7rem 1fr auto; gap: .5rem; align-items: start; padding: .5rem .3rem; border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 6px; }
+  .src-row:hover { background: var(--panel); }
+  .src-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: .35rem; }
+  .src-name { font-size: .82rem; word-break: break-all; }
+  .src-sub { font-size: .72rem; color: var(--row-sub); }
+  .rarity { display: inline-block; margin-right: .35rem; padding: 0 .35rem; border: 1px solid var(--border); border-radius: 4px; font-size: .66rem; font-weight: 700; color: var(--muted); }
+  .rarity.sr { color: var(--highlight); border-color: var(--highlight); }
+  .rate-btn { position: relative; }
+  .rate-btn.pulse::after { content: ""; position: absolute; inset: -2px; border-radius: 999px; border: 2px solid currentColor; opacity: 0; animation: ratePulse .6s ease-out; pointer-events: none; }
+  @keyframes ratePulse { from { opacity: .7; transform: scale(.8); } to { opacity: 0; transform: scale(1.5); } }
+  @media (prefers-reduced-motion: reduce) { .rate-btn.pulse::after { animation: none; } }
+  .src-score { font-size: .78rem; color: var(--muted); font-variant-numeric: var(--font-num); text-align: right; }
+  @media (min-width: 1000px) {
+    #chatBody.has-sources #sourcePanel { display: block; }
+    #chatBody.has-sources details.sources { display: none; }
+  }
 
   /* ---------- ポップアップ（モーダル、2026-10-08追加。別プロジェクトのAddKnowledgeModal等を参考） ---------- */
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.62); z-index: 900; display: flex; align-items: center; justify-content: center; padding: 1rem; }
@@ -520,7 +557,10 @@ export function chatUiHtml(): string {
 <div class="tabpanel active" id="tab-chat">
   <div class="graph-toolbar"><button class="btn" id="exportSessionBtn">会話全体をエクスポート</button></div>
   <canvas id="chatHero"></canvas>
-  <div id="messages"></div>
+  <div id="chatBody">
+    <div id="messages"></div>
+    <aside id="sourcePanel" aria-label="出典パネル"></aside>
+  </div>
   <div id="status"></div>
   <div id="composer">
     <div id="imageAttachPreview" class="attach-preview" style="display:none;"></div>
@@ -1039,6 +1079,12 @@ export function chatUiHtml(): string {
     <!-- システム: admin専用 -->
     <div class="admin-subpanel admin-only-section" data-subtab="system">
       <div class="section">
+        <h2>データモデル</h2>
+        <p class="hint">D1の主なテーブルの関係です。概念図は「誰が・どのnamespaceの・どの文書を使えるか」だけ、ER図はテーブルと主な列を示します（マイグレーションから手で維持）。</p>
+        <div class="src-sort" id="dataModelToggle"><button type="button" data-view="concept" class="active">概念図</button><button type="button" data-view="er">ER図</button></div>
+        <div class="table-scroll"><svg id="dataModelSvg" viewBox="0 0 900 440" width="900" height="440" role="img" aria-label="データモデル"></svg></div>
+      </div>
+      <div class="section">
         <h2>設定バックアップ</h2>
         <p class="hint">APIキー・namespace・KB同期元設定・トークン予算のスナップショットをJSONでダウンロードします（チャット履歴本文やベクトルデータは含みません。実データはD1の自動バックアップに任せています）。</p>
         <button class="btn" id="backupExportBtn">エクスポート</button>
@@ -1062,6 +1108,7 @@ export function chatUiHtml(): string {
       </div>
     </div>
     </div><!-- /.admin-content -->
+    <aside class="admin-summary" id="adminSummary" aria-label="サマリ"></aside>
     </div><!-- /.admin-layout -->
   </div>
 </div>
@@ -1358,7 +1405,7 @@ export function chatUiHtml(): string {
         // ナレッジ登録系（同期履歴）はeditorロールでも見えるセクションなので常に読み込む。
         // それ以外は管理者専用セクション（CSS側でeditorには非表示）のため、editorキーで
         // 呼んでも403になるだけの無駄なリクエストを避ける（権限の詳細化、2026-09-10）。
-        loadKbHistory(); loadKbOverview();
+        loadKbHistory(); loadKbOverview(); refreshAdminSummary();
         if (currentUserRole === "admin") {
           loadAdminOverview();
           loadNamespaceChecks();
@@ -1478,6 +1525,7 @@ export function chatUiHtml(): string {
       // 内のresize()はgetBoundingClientRect()でサイズを取るため、display:noneのままだと
       // 0x0で確定してしまい何も描画されない不具合があった。2026-09-04修正）。
       $("tab-chat").classList.add("chat-empty");
+      showSourcePanel(null);
       startHeroAnimation(data.nodes);
     } catch {
       // 背景演出はあくまで付加価値なので、失敗しても機能には影響させない
@@ -1667,6 +1715,70 @@ export function chatUiHtml(): string {
     return md;
   }
 
+  // U2: 出典パネル。最後に表示した回答の出典を、関連度順 / 出典番号順で並べて出す。
+  let panelSort = "score";
+  let panelState = null;
+  function renderSourcePanel() {
+    const panel = $("sourcePanel");
+    const body = $("chatBody");
+    panel.textContent = "";
+    if (!panelState) { body.classList.remove("has-sources"); return; }
+    body.classList.add("has-sources");
+    panel.appendChild(Object.assign(document.createElement("h3"), { textContent: "出典（" + panelState.sources.length + "件）" }));
+    const sort = document.createElement("div");
+    sort.className = "src-sort";
+    [["score", "関連度順"], ["index", "出典番号順"]].forEach(([key, label]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.className = panelSort === key ? "active" : "";
+      b.addEventListener("click", () => { panelSort = key; renderSourcePanel(); });
+      sort.appendChild(b);
+    });
+    panel.appendChild(sort);
+    const rows = panelState.sources.map((s, i) => ({ s, i }));
+    if (panelSort === "score") rows.sort((a, b) => (b.s.score || 0) - (a.s.score || 0));
+    rows.forEach(({ s, i }) => {
+      const row = document.createElement("div");
+      row.className = "src-row";
+      const dot = document.createElement("span");
+      dot.className = "src-dot";
+      dot.style.background = nsColor(s.namespace);
+      row.appendChild(dot);
+      const text = document.createElement("div");
+      const name = document.createElement("div");
+      name.className = "src-name";
+      name.textContent = "[" + (i + 1) + "] " + s.file;
+      const sub = document.createElement("div");
+      sub.className = "src-sub";
+      sub.textContent = s.namespace + (s.cited ? "・引用あり" : "・未引用");
+      text.appendChild(name);
+      text.appendChild(sub);
+      row.appendChild(text);
+      const score = document.createElement("span");
+      score.className = "src-score";
+      if (s.score != null) {
+        // 関連度が90%以上のものを SR、それ以外を R として示す（数値の意味づけを一目で分かるようにする小さな遊び）
+        const rarity = document.createElement("span");
+        rarity.className = "rarity" + (s.score >= 90 ? " sr" : "");
+        rarity.textContent = s.score >= 90 ? "SR" : "R";
+        score.appendChild(rarity);
+        score.appendChild(document.createTextNode(s.score + "%"));
+      }
+      row.appendChild(score);
+      row.addEventListener("click", () => {
+        row.classList.add("citation-highlight");
+        setTimeout(() => row.classList.remove("citation-highlight"), 1500);
+      });
+      panelState.rowRefs[i] = row;
+      panel.appendChild(row);
+    });
+  }
+  function showSourcePanel(sources) {
+    panelState = sources && sources.length > 0 ? { sources, rowRefs: [] } : null;
+    renderSourcePanel();
+  }
+
   function renderAssistantMessage(container, question, answer, sources, extractionRate, extractionDetail, memoryId, existingRating, existingPinned) {
     const wrap = document.createElement("div");
     wrap.className = "msg assistant";
@@ -1676,6 +1788,14 @@ export function chatUiHtml(): string {
     let sourcesDetailsEl = null;
     const sourceLiRefs = [];
     function jumpToSource(n) {
+      const panelEl = $("sourcePanel");
+      if (panelEl && panelEl.offsetParent !== null && panelState && panelState.sources === sources && panelState.rowRefs[n - 1]) {
+        const row = panelState.rowRefs[n - 1];
+        row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        row.classList.add("citation-highlight");
+        setTimeout(() => row.classList.remove("citation-highlight"), 1500);
+        return;
+      }
       const li = sourceLiRefs[n - 1];
       if (!li) return;
       if (sourcesDetailsEl) sourcesDetailsEl.open = true;
@@ -1877,6 +1997,7 @@ export function chatUiHtml(): string {
       wrap.appendChild(empty);
     }
     container.appendChild(wrap);
+    if (container === messagesEl) showSourcePanel(sources);
   }
 
   function renderUserMessage(container, text) {
@@ -1894,6 +2015,10 @@ export function chatUiHtml(): string {
       await api("/memory/rate", { id: memoryId, rating: value });
       upBtn.classList.toggle("active-up", value === 1);
       downBtn.classList.toggle("active-down", value === -1);
+      const tapped = value === 1 ? upBtn : downBtn;
+      tapped.classList.remove("pulse");
+      void tapped.offsetWidth; // アニメーションを毎回やり直す
+      tapped.classList.add("pulse");
     } catch (e) {
       showToast("評価の送信に失敗しました: " + e.message, "error");
     }
@@ -3514,6 +3639,142 @@ export function chatUiHtml(): string {
   }
   $("refreshKbOverview").addEventListener("click", loadKbOverview);
 
+  // R7: データモデルの概念図 / ER図（手で維持する静的データ。固定文字列だけをSVGに入れる）
+  const ER_TABLES = [
+    { id: "users", x: 20, y: 20, cols: ["user_id (PK)", "display_name", "role"] },
+    { id: "namespaces", x: 330, y: 20, cols: ["namespace_id (PK)", "scope", "owner_user_id (FK)"] },
+    { id: "key_namespace_grants", x: 20, y: 160, cols: ["user_id (FK)", "namespace_id (FK)"] },
+    { id: "token_budgets", x: 20, y: 270, cols: ["user_id (FK)", "budget_type", "limit_tokens / used_tokens"] },
+    { id: "kb_documents", x: 330, y: 160, cols: ["chunk_id (PK)", "file", "namespace"] },
+    { id: "kb_log", x: 330, y: 270, cols: ["op_id", "namespace_id", "status"] },
+    { id: "kb_sources", x: 640, y: 20, cols: ["namespace_id (PK/FK)", "notion_database_id", "drive_folder_id"] },
+    { id: "memory", x: 640, y: 160, cols: ["id (PK)", "user_id (FK)", "rating"] },
+    { id: "audit_log", x: 640, y: 270, cols: ["user_id", "namespace_id", "latency_ms"] },
+    { id: "oauth_connections / mcp_connections", x: 330, y: 360, cols: ["service / provider_id (PK)", "token (暗号化なし・PoC)"], wide: true },
+  ];
+  const ER_LINKS = [["namespaces", "users"], ["key_namespace_grants", "users"], ["key_namespace_grants", "namespaces"], ["token_budgets", "users"], ["kb_sources", "namespaces"], ["memory", "users"], ["kb_documents", "namespaces"], ["kb_log", "namespaces"], ["audit_log", "users"]];
+  const CONCEPT_BOXES = [
+    { id: "user", x: 30, y: 150, w: 170, label: "ユーザー（APIキー）", sub: "役割: admin / editor / member" },
+    { id: "grant", x: 270, y: 150, w: 170, label: "アクセス許可", sub: "どのnamespaceを使えるか" },
+    { id: "ns", x: 510, y: 150, w: 170, label: "namespace", sub: "shared / personal" },
+    { id: "doc", x: 730, y: 150, w: 150, label: "文書・チャンク", sub: "検索の対象" },
+    { id: "budget", x: 30, y: 300, w: 170, label: "トークン予算", sub: "RAG / Claude" },
+    { id: "mem", x: 270, y: 300, w: 170, label: "履歴・評価", sub: "質問・回答・役に立った" },
+    { id: "conn", x: 510, y: 300, w: 170, label: "外部連携", sub: "OAuth / 公式MCP" },
+  ];
+  const CONCEPT_LINKS = [["user", "grant"], ["grant", "ns"], ["ns", "doc"], ["user", "budget"], ["user", "mem"], ["ns", "conn"]];
+  function drawDataModel(view) {
+    const NSVG = "http://www.w3.org/2000/svg";
+    const svg = $("dataModelSvg");
+    svg.textContent = "";
+    function el(tag, attrs, text) {
+      const e = document.createElementNS(NSVG, tag);
+      Object.keys(attrs).forEach((k) => e.setAttribute(k, attrs[k]));
+      if (text) e.textContent = text;
+      return e;
+    }
+    const boxes = view === "er"
+      ? ER_TABLES.map((tb) => ({ id: tb.id, x: tb.x, y: tb.y, w: tb.wide ? 300 : 250, h: 28 + tb.cols.length * 18, title: tb.id, lines: tb.cols }))
+      : CONCEPT_BOXES.map((b) => ({ id: b.id, x: b.x, y: b.y, w: b.w, h: 56, title: b.label, lines: [b.sub] }));
+    const links = view === "er" ? ER_LINKS : CONCEPT_LINKS;
+    const byId = {};
+    boxes.forEach((b) => { byId[b.id] = b; });
+    links.forEach(([a, b]) => {
+      const A = byId[a];
+      const B = byId[b];
+      if (!A || !B) return;
+      svg.appendChild(el("line", { x1: A.x + A.w / 2, y1: A.y + A.h / 2, x2: B.x + B.w / 2, y2: B.y + B.h / 2, style: "stroke: var(--muted); stroke-width: 1.2;" }));
+    });
+    boxes.forEach((b) => {
+      svg.appendChild(el("rect", { x: b.x, y: b.y, width: b.w, height: b.h, rx: 8, style: "fill: var(--panel); stroke: var(--border); stroke-width: 1.2;" }));
+      svg.appendChild(el("text", { x: b.x + 10, y: b.y + 19, style: "fill: var(--text); font-size: 13px; font-weight: 700;" }, b.title));
+      b.lines.forEach((ln, i) => svg.appendChild(el("text", { x: b.x + 10, y: b.y + 38 + i * 18, style: "fill: var(--muted); font-size: 11.5px;" }, ln)));
+    });
+  }
+  $("dataModelToggle").querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      $("dataModelToggle").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+      drawDataModel(btn.dataset.view);
+    });
+  });
+  drawDataModel("concept");
+
+  // U3: 管理タブの右サマリ。予算（RAG/Claude）、namespace別のナレッジ量、連携中のシステムを1か所にまとめる。
+  async function refreshAdminSummary() {
+    const box = $("adminSummary");
+    if (!box || box.offsetParent === null) return; // 狭い画面では出さないので取得もしない
+    function section(title) {
+      const sec = document.createElement("section");
+      const h = document.createElement("h3");
+      h.textContent = title;
+      sec.appendChild(h);
+      return sec;
+    }
+    function row(left, right) {
+      const r = document.createElement("div");
+      r.className = "sum-row";
+      const a = document.createElement("span");
+      a.textContent = left;
+      const b = document.createElement("span");
+      b.textContent = right;
+      r.appendChild(a);
+      r.appendChild(b);
+      return r;
+    }
+    const [budgetRes, overviewRes, statesRes] = await Promise.allSettled([api("/me/budget", {}), api("/admin/kb/overview", {}), loadSystemStates()]);
+    box.textContent = "";
+
+    const budget = section("トークン予算");
+    if (budgetRes.status === "fulfilled") {
+      [["RAG", budgetRes.value.rag], ["Claude", budgetRes.value.claude]].forEach(([label, b]) => {
+        if (!b || b.limit == null) { budget.appendChild(row(label, "上限なし")); return; }
+        const pct = b.limit > 0 ? Math.round((100 * b.used) / b.limit) : 0;
+        budget.appendChild(row(label, "使用 " + pct + "%（" + b.used.toLocaleString() + " / " + b.limit.toLocaleString() + "）"));
+        const bar = document.createElement("div");
+        bar.className = "sum-bar";
+        const fill = document.createElement("span");
+        fill.style.width = Math.min(100, pct) + "%";
+        fill.style.background = pct >= 90 ? "var(--bad)" : "var(--accent)";
+        bar.appendChild(fill);
+        budget.appendChild(bar);
+        if (pct >= 90) budget.appendChild(Object.assign(document.createElement("div"), { className: "sum-note", textContent: "残りわずかです" }));
+      });
+    } else {
+      budget.appendChild(Object.assign(document.createElement("div"), { className: "sum-note", textContent: "取得できませんでした" }));
+    }
+    box.appendChild(budget);
+
+    const kb = section("ナレッジ量（チャンク数）");
+    if (overviewRes.status === "fulfilled" && overviewRes.value.namespaces.length > 0) {
+      const list = overviewRes.value.namespaces.slice().sort((a, b) => b.chunkCount - a.chunkCount);
+      const total = list.reduce((sum, n) => sum + n.chunkCount, 0) || 1;
+      const bar = document.createElement("div");
+      bar.className = "sum-bar";
+      list.forEach((n) => {
+        const seg = document.createElement("span");
+        seg.style.width = (100 * n.chunkCount / total) + "%";
+        seg.style.background = nsColor(n.namespace);
+        bar.appendChild(seg);
+      });
+      kb.appendChild(bar);
+      list.slice(0, 6).forEach((n) => kb.appendChild(row(n.namespace, n.chunkCount.toLocaleString())));
+      if (list.length > 6) kb.appendChild(Object.assign(document.createElement("div"), { className: "sum-note", textContent: "ほか " + (list.length - 6) + " 件" }));
+    } else {
+      kb.appendChild(Object.assign(document.createElement("div"), { className: "sum-note", textContent: "登録されたナレッジがありません" }));
+    }
+    box.appendChild(kb);
+
+    const sys = section("連携の状態");
+    if (statesRes.status === "fulfilled") {
+      const connected = SYSTEM_DEFS.filter((d) => d.kind !== "plan").map((d) => ({ d, info: systemInfo(d, statesRes.value) }));
+      connected.forEach(({ d, info }) => sys.appendChild(row(d.name, info.reauth ? "要再認証" : info.connected ? "連携済み" : "未連携")));
+    } else {
+      sys.appendChild(Object.assign(document.createElement("div"), { className: "sum-note", textContent: "取得できませんでした" }));
+    }
+    box.appendChild(sys);
+  }
+  window.addEventListener("resize", () => { const b = $("adminSummary"); if (b && b.offsetParent !== null && !b.firstChild) refreshAdminSummary(); });
+
   // ---------- 管理タブ：重複コンテンツの確認・削除（2026-09-15追加） ----------
   async function checkDuplicateDocs() {
     const namespace = $("dupCheckNamespace").value.trim();
@@ -4396,6 +4657,7 @@ export function chatUiHtml(): string {
       loadKbOverview();
       if (kbList.ready) loadKbList();
       refreshConnectedSystems();
+      refreshAdminSummary();
     }
     render();
   }
