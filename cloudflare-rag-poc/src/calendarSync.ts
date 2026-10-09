@@ -1,11 +1,11 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
-import { requireKnowledgeEditor } from "./auth";
 import { getGoogleAccessToken, requireGoogleServiceAccountConfig } from "./googleAuth";
 import { resolveCalendarOAuthAccessToken } from "./calendarOAuth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
+import { authorizeSync, cronMayWrite, ownerOfNamespace, previewBody, scopeFor } from "./syncTargets";
 
 // Googleカレンダーの予定をナレッジ登録元にする（2026-09-17追加、管理タブ「連携」
 // サブタブ）。Drive同期と同じサービスアカウント方式（GOOGLE_SERVICE_ACCOUNT_JSON流用、
@@ -26,9 +26,11 @@ const DEFAULT_TIME_MAX_DAYS = 90;
 // calendarOAuth.ts参照）。OAuth接続（管理画面の「接続する」ボタン）があればそれを
 // 優先し、無ければ従来のサービスアカウント方式（GOOGLE_SERVICE_ACCOUNT_JSON、
 // カレンダーをサービスアカウントのメールアドレスへ共有する必要がある）にフォールバックする。
-async function resolveCalendarAccessToken(env: Env): Promise<string> {
-  const oauthToken = await resolveCalendarOAuthAccessToken(env);
+async function resolveCalendarAccessToken(env: Env, ownerId = ""): Promise<string> {
+  const oauthToken = await resolveCalendarOAuthAccessToken(env, ownerId);
   if (oauthToken) return oauthToken;
+  // 本人専用の接続は、サービスアカウントにフォールバックしない（他人のカレンダーを使わないため）。
+  if (ownerId) throw new Error("あなたのGoogleカレンダーが未接続です。「自分用」の連携から接続してください");
   requireGoogleServiceAccountConfig(env);
   return getGoogleAccessToken(env, CALENDAR_SCOPE);
 }
@@ -167,8 +169,6 @@ async function resolveCalendarId(env: Env, namespace: string): Promise<string> {
 // body: { namespace, startIndex?（省略時0）, batchSize?（省略時10）, opId?（継続呼び出し時に指定）,
 //         timeMinDays?（省略時7、過去何日分から）, timeMaxDays?（省略時90、未来何日分まで） }
 export async function handleSyncCalendar(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as {
     namespace?: string;
     startIndex?: number;
@@ -180,6 +180,7 @@ export async function handleSyncCalendar(req: Request, env: Env, user: AuthedUse
   };
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
 
   let calendarId: string;
   try {
@@ -196,7 +197,7 @@ export async function handleSyncCalendar(req: Request, env: Env, user: AuthedUse
 
   let events: CalendarEventSummary[];
   try {
-    const token = await resolveCalendarAccessToken(env);
+    const token = await resolveCalendarAccessToken(env, scope.ownerId);
     events = await listCalendarEvents(token, calendarId, timeMinDays, timeMaxDays);
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
@@ -230,13 +231,12 @@ export async function handleSyncCalendar(req: Request, env: Env, user: AuthedUse
 // なり、Jira/Backlog/Drive/Notionとの一貫性を欠いていたため追加した）。
 // body: { namespace, opId, timeMinDays?, timeMaxDays?（初回同期時と同じ値を指定すること） }
 export async function handleRetryFailedCalendar(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-
   const body = (await req.json()) as { namespace?: string; opId?: string; timeMinDays?: number; timeMaxDays?: number };
   const namespace = (body.namespace || "").trim();
   const sourceOpId = (body.opId || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
   if (!sourceOpId) return jsonResponse(400, { error: "opId は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
 
   let calendarId: string;
   try {
@@ -267,7 +267,7 @@ export async function handleRetryFailedCalendar(req: Request, env: Env, user: Au
 
   let allEvents: CalendarEventSummary[];
   try {
-    const token = await resolveCalendarAccessToken(env);
+    const token = await resolveCalendarAccessToken(env, scope.ownerId);
     allEvents = await listCalendarEvents(
       token,
       calendarId,
@@ -310,21 +310,17 @@ export async function handleRetryFailedCalendar(req: Request, env: Env, user: Au
 // 起きない）。同じ内容の再埋め込みが多少発生するが、ingestDocument側が同じfile名を
 // 上書きするだけなので実害はない。
 export async function runScheduledCalendarSync(env: Env): Promise<void> {
-  try {
-    await resolveCalendarAccessToken(env);
-  } catch {
-    return; // OAuth未接続かつサービスアカウントも未設定の環境では何もしない
-  }
-
-  const rows = await env.DB.prepare("SELECT namespace_id, calendar_id FROM kb_sources WHERE calendar_id IS NOT NULL").all<{
+  // 「毎日自動で同期する」を明示的にオンにしたnamespaceだけが対象（2026-10-09〜、既定はオフ）。
+  const rows = await env.DB.prepare("SELECT namespace_id, calendar_id FROM kb_sources WHERE calendar_id IS NOT NULL AND auto_calendar = 1").all<{
     namespace_id: string;
     calendar_id: string;
   }>();
 
   for (const row of rows.results ?? []) {
     try {
+      if (!(await cronMayWrite(env, row.namespace_id))) continue; // 許可リスト外の共有namespaceには書かない
       // namespaceごとに解決し直す（Jira/Backlog側と同じ理由。トークンの途中失効を避ける）。
-      const token = await resolveCalendarAccessToken(env);
+      const token = await resolveCalendarAccessToken(env, ownerOfNamespace(row.namespace_id));
       const events = await listCalendarEvents(token, row.calendar_id, DEFAULT_TIME_MIN_DAYS, DEFAULT_TIME_MAX_DAYS);
       if (events.length === 0) continue;
       const opId = newOpId();
@@ -344,9 +340,10 @@ export async function runScheduledCalendarSync(env: Env): Promise<void> {
 // カレンダーの一覧であり、共有＝自動追加ではないため）。その場合は空配列になりうるので、
 // 呼び出し元（chatUi.ts）はIDの手入力フォールバックを必ず残すこと。
 export async function handleListCalendars(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
+  const body = (await req.json().catch(() => ({}))) as { mine?: boolean };
+  const scope = scopeFor(user, body.mine);
   try {
-    const token = await resolveCalendarAccessToken(env);
+    const token = await resolveCalendarAccessToken(env, scope.ownerId);
     const calendars: Array<{ id: string; summary: string }> = [];
     let pageToken: string | undefined;
     do {
@@ -368,10 +365,10 @@ export async function handleListCalendars(req: Request, env: Env, user: AuthedUs
 // POST /admin/kb/test-connection/calendar — secretと設定値だけで接続確認する
 // （実際の登録は行わない、2026-09-19追加）。
 export async function handleTestCalendarConnection(req: Request, env: Env, user: AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
   const body = (await req.json()) as { namespace?: string };
   const namespace = (body.namespace || "").trim();
   if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
 
   let calendarId: string;
   try {
@@ -380,13 +377,35 @@ export async function handleTestCalendarConnection(req: Request, env: Env, user:
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }
   try {
-    const token = await resolveCalendarAccessToken(env);
+    const token = await resolveCalendarAccessToken(env, scope.ownerId);
     const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return jsonResponse(400, { error: `Calendar接続エラー (${res.status}): ${await res.text()}` });
     const cal = (await res.json()) as { summary?: string };
     return jsonResponse(200, { status: "ok", message: `接続成功（カレンダー「${cal.summary ?? calendarId}」を確認）` });
+  } catch (err) {
+    return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// POST /admin/sync/calendar/preview — 同期するとどの予定が登録されるかの一覧（書き込みはしない）。
+// body: { namespace, timeMinDays?, timeMaxDays? }
+export async function handlePreviewCalendar(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = (await req.json()) as { namespace?: string; timeMinDays?: number; timeMaxDays?: number };
+  const namespace = (body.namespace || "").trim();
+  if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  const scope = await authorizeSync(env, user, namespace);
+  try {
+    const calendarId = await resolveCalendarId(env, namespace);
+    const token = await resolveCalendarAccessToken(env, scope.ownerId);
+    const minDays = body.timeMinDays ?? DEFAULT_TIME_MIN_DAYS;
+    const maxDays = body.timeMaxDays ?? DEFAULT_TIME_MAX_DAYS;
+    const events = await listCalendarEvents(token, calendarId, minDays, maxDays);
+    return jsonResponse(
+      200,
+      previewBody(namespace, scope, events.length, events.map((e) => ({ title: e.title })), `過去${minDays}日〜未来${maxDays}日の予定`),
+    );
   } catch (err) {
     return jsonResponse(400, { error: err instanceof Error ? err.message : String(err) });
   }

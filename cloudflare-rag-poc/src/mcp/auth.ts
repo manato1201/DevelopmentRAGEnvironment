@@ -168,6 +168,7 @@ export async function buildAuthorizeUrl(
   origin: string,
   connectedBy: string,
   fetchImpl: FetchLike = fetch,
+  ownerId = "",
 ): Promise<string> {
   const metadata = await discover(provider.url, fetchImpl);
   const callback = redirectUri(origin);
@@ -180,6 +181,7 @@ export async function buildAuthorizeUrl(
     client,
     token_endpoint: metadata.token_endpoint,
     connected_by: connectedBy,
+    owner_id: ownerId,
   });
   const url = new URL(metadata.authorization_endpoint);
   url.searchParams.set("response_type", "code");

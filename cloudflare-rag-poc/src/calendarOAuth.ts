@@ -10,6 +10,7 @@ import {
   oauthRedirectUri,
 } from "./oauthConnections";
 import { requireKnowledgeEditor } from "./auth";
+import { scopeFor, startOwner } from "./syncTargets";
 
 // GoogleカレンダーのOAuth 2.0クリック接続（2026-09-22追加）。既存のDrive同期は
 // サービスアカウント方式（GOOGLE_SERVICE_ACCOUNT_JSON、対象カレンダー/フォルダを
@@ -28,15 +29,12 @@ export async function handleCalendarOAuthStart(req: Request, env: Env): Promise<
   if (!env.GMAIL_OAUTH_CLIENT_ID) {
     return oauthResultPage(false, "Google OAuthアプリが未設定です（GMAIL_OAUTH_CLIENT_IDをsecretで設定してください。Gmail連携と共用します）");
   }
-  const user = await authenticateFromQueryKey(req, env);
-  if (!user) return oauthResultPage(false, "認証に失敗しました。管理画面からやり直してください。");
-  try {
-    requireKnowledgeEditor(user);
-  } catch {
-    return oauthResultPage(false, "この操作にはナレッジ登録権限が必要です。");
-  }
+  // 接続の持ち主: ?owner=me なら本人専用の接続、無ければデプロイ全体で共有する接続（ナレッジ登録権限が必要）。
+  const who = await startOwner(req, env);
+  if (!who.ok) return oauthResultPage(false, who.message);
+  const ownerId = who.ownerId;
 
-  const state = await createPendingState(env, "google_calendar", {});
+  const state = await createPendingState(env, "google_calendar", { owner_id: ownerId });
   const url = new URL(GOOGLE_AUTHORIZE_URL);
   url.searchParams.set("client_id", env.GMAIL_OAUTH_CLIENT_ID);
   url.searchParams.set("redirect_uri", oauthRedirectUri(req, "google_calendar"));
@@ -92,20 +90,22 @@ export async function handleCalendarOAuthCallback(req: Request, env: Env): Promi
     }
 
     await saveConnection(env, "google_calendar", {
+      ownerId: String(pending.owner_id ?? ""),
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       expiresAt: Math.floor(Date.now() / 1000) + tokenData.expires_in,
       extra: {},
     });
-    return oauthResultPage(true, "Googleカレンダーと接続しました。カレンダーIDの設定は引き続き「連携」タブで行ってください。");
+    return oauthResultPage(true, "Googleカレンダーと接続しました。カレンダーIDの設定は、管理画面のナレッジ登録タブ（「同期・通知の設定」）で行ってください。");
   } catch (err) {
     return oauthResultPage(false, `接続中にエラーが発生しました: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
 export async function handleCalendarOAuthDisconnect(req: Request, env: Env, user: import("./types").AuthedUser): Promise<Response> {
-  requireKnowledgeEditor(user);
-  await clearConnection(env, "google_calendar");
+  const body = (await req.json().catch(() => ({}))) as { mine?: boolean };
+  const { ownerId } = scopeFor(user, body.mine);
+  await clearConnection(env, "google_calendar", ownerId);
   return jsonResponse(200, { status: "ok" });
 }
 
@@ -120,8 +120,8 @@ const REFRESH_MARGIN_SEC = 300;
 // calendarSync.tsが実際のAPI呼び出し前に呼ぶ。OAuth接続があれば（必要なら自動更新して）
 // そのアクセストークンを返し、無ければnullを返して従来のサービスアカウント方式へ
 // フォールバックさせる（getGoogleAccessToken、googleAuth.ts参照）。
-export async function resolveCalendarOAuthAccessToken(env: Env): Promise<string | null> {
-  const conn = await getConnection(env, "google_calendar");
+export async function resolveCalendarOAuthAccessToken(env: Env, ownerId = ""): Promise<string | null> {
+  const conn = await getConnection(env, "google_calendar", ownerId);
   if (!conn || !conn.accessToken) return null;
 
   const needsRefresh = conn.expiresAt !== null && conn.expiresAt < Math.floor(Date.now() / 1000) + REFRESH_MARGIN_SEC;
@@ -139,6 +139,7 @@ export async function resolveCalendarOAuthAccessToken(env: Env): Promise<string 
     if (res.ok) {
       const data = (await res.json()) as { access_token: string; expires_in: number };
       await saveConnection(env, "google_calendar", {
+        ownerId,
         accessToken: data.access_token,
         expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
       });
