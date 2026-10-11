@@ -61,10 +61,38 @@ export function chatUiHtml(): string {
   .answer-foot { font-size: .74rem; color: var(--row-sub); margin-top: .3rem; }
   .empty-state { text-align: center; color: var(--muted); font-size: .88rem; padding: 1.2rem .5rem; }
   .empty-dots { display: inline-flex; gap: 6px; margin-top: .6rem; }
-  .empty-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: drift 2.4s ease-in-out infinite; }
-  .empty-dots i:nth-child(2) { animation-delay: .4s; } .empty-dots i:nth-child(3) { animation-delay: .8s; }
+  .empty-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
   @keyframes drift { 0%,100% { transform: translateY(0); opacity: .4; } 50% { transform: translateY(-5px); opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .empty-dots i { animation: none; } }
+  /* ---- UIパーツ・動き（2026-10-11、IMPROVEMENT_DESIGN_2026-10.md 追補）。1画面の動きは2種類まで:
+     チャット = タイプライター + ドロワーの出入り。管理 = スクロールスパイ。すべて prefers-reduced-motion で止める。 ---- */
+  .ns-chips { display: flex; gap: .4rem; flex-wrap: wrap; padding: .5rem 1.2rem 0; }
+  .ns-chip { background: none; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-family: inherit; font-size: .78rem; padding: .15rem .7rem; cursor: pointer; }
+  .ns-chip[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  #namespaceFocus { display: none; }
+  .count-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.15rem; height: 1.15rem; padding: 0 .3rem; margin-left: .4rem; border-radius: 999px; background: var(--bad); color: #fff; font-size: .68rem; font-weight: 700; font-variant-numeric: var(--font-num); }
+  .msg.skeleton { max-width: 70%; }
+  .msg.skeleton i { display: block; height: .7rem; border-radius: 6px; background: var(--panel); margin: .55rem 0; }
+  .msg.skeleton i:nth-child(1) { width: 90%; } .msg.skeleton i:nth-child(2) { width: 75%; } .msg.skeleton i:nth-child(3) { width: 55%; }
+  #drawerBackdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 880; display: none; }
+  #drawerBackdrop.open { display: block; }
+  #sourceDrawer { position: fixed; top: 0; right: 0; height: 100%; width: min(420px, 100vw); background: var(--bg); border-left: 1px solid var(--border); z-index: 890; display: flex; flex-direction: column; transform: translateX(100%); transition: transform .18s ease-out; visibility: hidden; }
+  #sourceDrawer.open { transform: translateX(0); visibility: visible; }
+  .drawer-head { display: flex; align-items: flex-start; gap: .6rem; padding: 1rem 1.1rem .6rem; border-bottom: 1px solid var(--border); }
+  .drawer-head h3 { margin: 0; flex: 1; font-size: .95rem; word-break: break-all; }
+  .drawer-head button { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1.1rem; }
+  #sourceDrawerBody { padding: 1rem 1.1rem; overflow-y: auto; flex: 1; }
+  .drawer-meta { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: .8rem; font-size: .78rem; color: var(--muted); font-variant-numeric: var(--font-num); }
+  .drawer-excerpt { white-space: pre-wrap; font-size: .85rem; line-height: 1.7; background: var(--panel); border-radius: 10px; padding: .8rem 1rem; margin: 0; }
+  @media (max-width: 720px) {
+    #sourceDrawer { top: auto; bottom: 0; width: 100%; height: 70vh; border-left: none; border-top: 1px solid var(--border); border-radius: 14px 14px 0 0; transform: translateY(100%); }
+    #sourceDrawer.open { transform: translateY(0); }
+  }
+  .admin-toc { margin-top: 1rem; padding-top: .8rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: .1rem; }
+  .admin-toc .toc-title { font-size: .72rem; color: var(--muted); margin-bottom: .3rem; }
+  .admin-toc a { color: var(--muted); font-size: .78rem; text-decoration: none; padding: .2rem .5rem; border-left: 2px solid transparent; cursor: pointer; }
+  .admin-toc a.current { color: var(--accent); border-left-color: var(--accent); }
+  @media (max-width: 720px) { .admin-toc { display: none; } }
+  @media (prefers-reduced-motion: reduce) { #sourceDrawer { transition: none; } }
   #themeToggle, #myConnBtn { white-space: nowrap; }
   #myConnBtn.hidden { display: none; }
   * { box-sizing: border-box; }
@@ -386,10 +414,6 @@ export function chatUiHtml(): string {
   .src-sub { font-size: .72rem; color: var(--row-sub); }
   .rarity { display: inline-block; margin-right: .35rem; padding: 0 .35rem; border: 1px solid var(--border); border-radius: 4px; font-size: .66rem; font-weight: 700; color: var(--muted); }
   .rarity.sr { color: var(--highlight); border-color: var(--highlight); }
-  .rate-btn { position: relative; }
-  .rate-btn.pulse::after { content: ""; position: absolute; inset: -2px; border-radius: 999px; border: 2px solid currentColor; opacity: 0; animation: ratePulse .6s ease-out; pointer-events: none; }
-  @keyframes ratePulse { from { opacity: .7; transform: scale(.8); } to { opacity: 0; transform: scale(1.5); } }
-  @media (prefers-reduced-motion: reduce) { .rate-btn.pulse::after { animation: none; } }
   .src-score { font-size: .78rem; color: var(--muted); font-variant-numeric: var(--font-num); text-align: right; }
   @media (min-width: 1000px) {
     #chatBody.has-sources #sourcePanel { display: block; }
@@ -569,6 +593,7 @@ export function chatUiHtml(): string {
 
 <!-- チャットタブ -->
 <div class="tabpanel active" id="tab-chat">
+  <div id="nsChips" class="ns-chips" aria-label="検索対象のnamespace"></div>
   <div class="graph-toolbar"><button class="btn" id="exportSessionBtn">会話全体をエクスポート</button></div>
   <canvas id="chatHero"></canvas>
   <div id="chatBody">
@@ -667,6 +692,7 @@ export function chatUiHtml(): string {
          2026-09-13: .admin-subnavと同じ.admin-sidebar内に入れ、サイドバーとして
          1カラムにまとまるよう修正（元は.admin-layoutの直接の子で、意図せず
          コンテンツ側の幅を圧迫する独立カラムになっていた）。 -->
+    <nav class="admin-toc" id="adminToc" aria-label="このページの内容"></nav>
     <div class="admin-only-section autorefresh-box">
       <label><input type="checkbox" id="autoRefreshToggle"> 自動更新</label>
       <select id="autoRefreshInterval" class="role-select">
@@ -1154,6 +1180,11 @@ export function chatUiHtml(): string {
   </div>
 </div>
 
+<div id="drawerBackdrop"></div>
+<aside id="sourceDrawer" role="dialog" aria-modal="false" aria-labelledby="sourceDrawerTitle" aria-hidden="true">
+  <div class="drawer-head"><h3 id="sourceDrawerTitle"></h3><button type="button" id="sourceDrawerClose" aria-label="閉じる"></button></div>
+  <div id="sourceDrawerBody"></div>
+</aside>
 <div id="toastStack"></div>
 
 <script>
@@ -1216,6 +1247,8 @@ export function chatUiHtml(): string {
   const apiKeyEl = $("apiKey");
   const levelEl = $("level");
   const namespaceFocusEl = $("namespaceFocus");
+  const selectedNs = new Set(); // 検索対象に選んだnamespace（チップ）。空 = 全DB横断
+  let revealNext = false; // 次に描画する回答を、タイプライターで表示する
 
   apiKeyEl.value = localStorage.getItem("ragPocApiKey") || "";
   // "change"（フォーカスが外れて初めて発火）→"input"（キー入力・貼り付けで発火）と
@@ -1340,6 +1373,26 @@ export function chatUiHtml(): string {
     const idx = ns.indexOf(":");
     return idx === -1 ? ns : ns.slice(idx + 1);
   }
+  // 検索対象のnamespaceを、押して付け外しできるチップにする（0個 = 全DB横断検索）。
+  function renderNsChips(namespaces) {
+    const box = $("nsChips");
+    box.textContent = "";
+    [...selectedNs].forEach((ns) => { if (!namespaces.includes(ns)) selectedNs.delete(ns); });
+    namespaces.forEach((ns) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "ns-chip";
+      chip.textContent = namespaceLabel(ns);
+      chip.title = ns;
+      chip.setAttribute("aria-pressed", selectedNs.has(ns) ? "true" : "false");
+      chip.addEventListener("click", () => {
+        if (selectedNs.has(ns)) selectedNs.delete(ns); else selectedNs.add(ns);
+        chip.setAttribute("aria-pressed", selectedNs.has(ns) ? "true" : "false");
+      });
+      box.appendChild(chip);
+    });
+  }
+
   async function loadNamespaceFocus() {
     if (!apiKeyEl.value.trim()) { setAuthGate(false, null, "APIキーを入力してください"); return; }
     setAuthGate(false, null, "APIキーを確認中…");
@@ -1355,6 +1408,8 @@ export function chatUiHtml(): string {
         namespaceFocusEl.appendChild(opt);
       });
       if (data.namespaces.includes(prevValue)) namespaceFocusEl.value = prevValue;
+      renderNsChips(data.namespaces.slice().sort());
+      loadKbErrorBadge();
       loadMyBudget();
       refreshMcpAvailability();
       loadChatHero();
@@ -1445,6 +1500,7 @@ export function chatUiHtml(): string {
       if (btn.dataset.tab === "pinned") loadPinned();
       if (btn.dataset.tab === "graph") loadGraph();
       if (btn.dataset.tab === "admin") {
+        setTimeout(buildAdminToc, 0);
         // ナレッジ登録系（同期履歴）はeditorロールでも見えるセクションなので常に読み込む。
         // それ以外は管理者専用セクション（CSS側でeditorには非表示）のため、editorキーで
         // 呼んでも403になるだけの無駄なリクエストを避ける（権限の詳細化、2026-09-10）。
@@ -1467,6 +1523,48 @@ export function chatUiHtml(): string {
     });
   });
 
+  // スクロールスパイ: 表示中のページ（サブタブ）の見出しを左に並べ、いま見ている位置をハイライトする。
+  let tocObserver = null;
+  function buildAdminToc() {
+    const toc = $("adminToc");
+    if (!toc) return;
+    toc.textContent = "";
+    if (tocObserver) { tocObserver.disconnect(); tocObserver = null; }
+    const panel = document.querySelector(".admin-subpanel.active");
+    if (!panel) return;
+    const heads = [...panel.querySelectorAll("h2")].filter((h) => {
+      const closed = h.closest("details");
+      return h.offsetParent !== null && h.textContent.trim() && !(closed && !closed.open);
+    });
+    if (heads.length < 2) return;
+    const title = document.createElement("div");
+    title.className = "toc-title";
+    title.textContent = "このページの内容";
+    toc.appendChild(title);
+    const links = new Map();
+    heads.forEach((h) => {
+      const a = document.createElement("a");
+      a.textContent = h.textContent.trim();
+      a.tabIndex = 0;
+      const go = () => h.scrollIntoView({ behavior: "auto", block: "start" });
+      a.addEventListener("click", go);
+      a.addEventListener("keydown", (event) => { if (event.key === "Enter") go(); });
+      toc.appendChild(a);
+      links.set(h, a);
+    });
+    if (!("IntersectionObserver" in window)) return;
+    const root = document.querySelector(".admin-pane-scroll");
+    tocObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        links.forEach((a) => a.classList.remove("current"));
+        const a = links.get(entry.target);
+        if (a) a.classList.add("current");
+      });
+    }, { root, rootMargin: "0px 0px -70% 0px" });
+    heads.forEach((h) => tocObserver.observe(h));
+  }
+
   // 管理タブのサブナビ（2026-09-10追加）。トップレベルのnav.tabsと全く同じ操作感
   // （クリックでactiveクラスを付け替えるだけ）にしている。表示/非表示の権限判定は
   // 各ボタン・パネルに付いたadmin-only-sectionクラス（CSS側）に任せているため、
@@ -1482,6 +1580,7 @@ export function chatUiHtml(): string {
       // 「連携」タブを開くたびに接続状況を再確認する（OAuth接続直後の戻り先でもあるため、
       // 2026-09-22追加）。
       if (btn.dataset.subtab === "knowledge") { initKbList(); refreshConnectedSystems(); loadOAuthStatus(); loadSyncTargets(); }
+      setTimeout(buildAdminToc, 0);
     });
   });
 
@@ -1764,6 +1863,78 @@ export function chatUiHtml(): string {
     return md;
   }
 
+  // タイプライター: 新しく生成した回答の文字を、短い時間で順に表示する（ストリーミングではなく、
+  // 受け取った回答の表示演出）。上限は1.5秒。prefers-reduced-motion のときは何もしない。
+  function typewriter(bubble) {
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const nodes = [];
+    const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    const fulls = nodes.map((n) => n.nodeValue);
+    const total = fulls.reduce((sum, s) => sum + s.length, 0);
+    if (total === 0 || total > 4000) return; // 長い回答は待たせない
+    nodes.forEach((n) => { n.nodeValue = ""; });
+    const durationMs = Math.min(1500, Math.max(300, total * 8));
+    const start = performance.now();
+    function frame(now) {
+      if (!bubble.isConnected) return;
+      const shown = Math.min(total, Math.ceil(total * Math.min(1, (now - start) / durationMs)));
+      let remaining = shown;
+      for (let i = 0; i < nodes.length; i++) {
+        const take = Math.min(fulls[i].length, remaining);
+        nodes[i].nodeValue = fulls[i].slice(0, take);
+        remaining -= take;
+      }
+      if (shown < total) {
+        requestAnimationFrame(frame);
+      } else {
+        nodes.forEach((n, i) => { n.nodeValue = fulls[i]; });
+      }
+      if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120) messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ドロワー: 出典の詳細（本文の抜粋）を右から出す。狭い画面では下から出るボトムシート（CSS側で切替）。
+  let drawerReturnFocus = null;
+  function openSourceDrawer(source, index, opener) {
+    drawerReturnFocus = opener || document.activeElement;
+    $("sourceDrawerTitle").textContent = "[" + (index + 1) + "] " + source.file;
+    const body = $("sourceDrawerBody");
+    body.textContent = "";
+    const meta = document.createElement("div");
+    meta.className = "drawer-meta";
+    const pill = document.createElement("span");
+    pill.className = "ns-pill";
+    pill.style.background = nsColor(source.namespace);
+    pill.textContent = source.namespace;
+    meta.appendChild(pill);
+    if (source.score != null) meta.appendChild(document.createTextNode("関連度 " + source.score + "%"));
+    meta.appendChild(document.createTextNode(source.cited ? "引用 " + (source.citationCount || 1) + "回" : "未引用"));
+    body.appendChild(meta);
+    const excerpt = document.createElement("pre");
+    excerpt.className = "drawer-excerpt";
+    excerpt.textContent = source.excerpt || "この回答には本文の抜粋が含まれていません（古い履歴など）。";
+    body.appendChild(excerpt);
+    $("sourceDrawer").classList.add("open");
+    $("sourceDrawer").setAttribute("aria-hidden", "false");
+    $("drawerBackdrop").classList.add("open");
+    $("sourceDrawerClose").focus();
+  }
+  function closeSourceDrawer() {
+    $("sourceDrawer").classList.remove("open");
+    $("sourceDrawer").setAttribute("aria-hidden", "true");
+    $("drawerBackdrop").classList.remove("open");
+    if (drawerReturnFocus && drawerReturnFocus.focus) drawerReturnFocus.focus();
+    drawerReturnFocus = null;
+  }
+  $("sourceDrawerClose").appendChild(iconEl("close"));
+  $("sourceDrawerClose").addEventListener("click", closeSourceDrawer);
+  $("drawerBackdrop").addEventListener("click", closeSourceDrawer);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && $("sourceDrawer").classList.contains("open") && !document.querySelector(".modal-backdrop")) closeSourceDrawer();
+  });
+
   // U2: 出典パネル。最後に表示した回答の出典を、関連度順 / 出典番号順で並べて出す。
   let panelSort = "score";
   let panelState = null;
@@ -1815,10 +1986,10 @@ export function chatUiHtml(): string {
         score.appendChild(document.createTextNode(s.score + "%"));
       }
       row.appendChild(score);
-      row.addEventListener("click", () => {
-        row.classList.add("citation-highlight");
-        setTimeout(() => row.classList.remove("citation-highlight"), 1500);
-      });
+      row.tabIndex = 0;
+      const open = () => openSourceDrawer(s, i, row);
+      row.addEventListener("click", open);
+      row.addEventListener("keydown", (event) => { if (event.key === "Enter") open(); });
       panelState.rowRefs[i] = row;
       panel.appendChild(row);
     });
@@ -1877,6 +2048,8 @@ export function chatUiHtml(): string {
     }
     bubble.appendChild(document.createTextNode(answer.slice(lastIndex)));
     wrap.appendChild(bubble);
+    const reveal = revealNext && container === messagesEl;
+    revealNext = false;
 
     const meta = document.createElement("div");
     meta.className = "meta";
@@ -1913,11 +2086,10 @@ export function chatUiHtml(): string {
     exportBtn.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(buildMarkdownExport(question, answer, sources));
-        exportBtn.textContent = "コピーしました";
+        showToast("Markdownをコピーしました", "success");
       } catch {
-        exportBtn.textContent = "コピー失敗";
+        showToast("コピーに失敗しました", "error");
       }
-      setTimeout(() => { exportBtn.textContent = "Markdownコピー"; }, 2000);
     });
     meta.appendChild(exportBtn);
     wrap.appendChild(meta);
@@ -2022,6 +2194,8 @@ export function chatUiHtml(): string {
         citedBadge.appendChild(document.createTextNode(s.cited ? "引用" : "未引用"));
         li.appendChild(citedBadge);
         sourceLiRefs[i] = li;
+        li.style.cursor = "pointer";
+        li.addEventListener("click", () => openSourceDrawer(s, i, li));
         ul.appendChild(li);
       });
       details.appendChild(ul);
@@ -2047,6 +2221,7 @@ export function chatUiHtml(): string {
     }
     container.appendChild(wrap);
     if (container === messagesEl) showSourcePanel(sources);
+    if (reveal) typewriter(bubble);
   }
 
   function renderUserMessage(container, text) {
@@ -2064,10 +2239,7 @@ export function chatUiHtml(): string {
       await api("/memory/rate", { id: memoryId, rating: value });
       upBtn.classList.toggle("active-up", value === 1);
       downBtn.classList.toggle("active-down", value === -1);
-      const tapped = value === 1 ? upBtn : downBtn;
-      tapped.classList.remove("pulse");
-      void tapped.offsetWidth; // アニメーションを毎回やり直す
-      tapped.classList.add("pulse");
+      showToast(value === 1 ? "「役に立った」を送りました" : "「役に立たなかった」を送りました", "success");
     } catch (e) {
       showToast("評価の送信に失敗しました: " + e.message, "error");
     }
@@ -2084,6 +2256,7 @@ export function chatUiHtml(): string {
       await api("/memory/pin", { id: memoryId, pinned });
       btn.classList.toggle("active-pin", pinned);
       setPinLabel(btn, pinned);
+      showToast(pinned ? "お気に入りに登録しました" : "お気に入りから外しました", "success");
     } catch (e) {
       showToast("お気に入り登録に失敗しました: " + e.message, "error");
     }
@@ -2135,10 +2308,20 @@ export function chatUiHtml(): string {
     messagesEl.scrollTop = messagesEl.scrollHeight;
     sendBtn.disabled = true;
     setStatus("検索・回答生成中…");
+    // 回答の形の灰色の枠（スケルトン）。動かさない（動きは増やさない）。
+    const skeleton = document.createElement("div");
+    skeleton.className = "msg assistant skeleton";
+    skeleton.setAttribute("aria-hidden", "true");
+    for (let i = 0; i < 3; i++) skeleton.appendChild(document.createElement("i"));
+    messagesEl.appendChild(skeleton);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
     try {
+      const picked = [...selectedNs];
       const focusNs = namespaceFocusEl.value;
       const useMcp = $("mcpToggle") && $("mcpToggle").checked && $("mcpToggleWrap").style.display !== "none";
-      const data = await api("/query", { query: text, limit: 5, level: levelEl.value, namespaces: focusNs ? [focusNs] : undefined, image: imageToSend || undefined, useMcp: useMcp || undefined });
+      const data = await api("/query", { query: text, limit: 5, level: levelEl.value, namespaces: picked.length > 0 ? picked : (focusNs ? [focusNs] : undefined), image: imageToSend || undefined, useMcp: useMcp || undefined });
+      skeleton.remove();
+      revealNext = true;
       renderAssistantMessage(messagesEl, text, data.answer, data.sources, data.extractionRate, data.extractionDetail, data.memoryId, null, false);
       if (data.toolCalls && data.toolCalls.length > 0) {
         // 使った外部サービスのツールを回答の下に出す（textContentのみ）
@@ -2152,8 +2335,10 @@ export function chatUiHtml(): string {
       messagesEl.scrollTop = messagesEl.scrollHeight;
       setStatus("");
     } catch (e) {
+      skeleton.remove();
       setStatus("エラー: " + e.message, true);
     } finally {
+      skeleton.remove();
       sendBtn.disabled = false;
       inputEl.focus();
     }
@@ -2180,6 +2365,26 @@ export function chatUiHtml(): string {
   });
 
   // ---------- 履歴タブ ----------
+  // エンプティステート: 何も無いときに、次の行動を案内する（動きは付けない）。
+  function renderEmptyState(pane, message, actionLabel) {
+    pane.textContent = "";
+    const box = document.createElement("div");
+    box.className = "empty-state";
+    box.appendChild(document.createTextNode(message));
+    if (actionLabel) {
+      const br = document.createElement("div");
+      br.style.marginTop = ".8rem";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn";
+      btn.textContent = actionLabel;
+      btn.addEventListener("click", () => { const chat = document.querySelector('nav.tabs button[data-tab="chat"]'); if (chat) chat.click(); });
+      br.appendChild(btn);
+      box.appendChild(br);
+    }
+    pane.appendChild(box);
+  }
+
   async function loadHistory() {
     const pane = $("historyPane");
     if (!apiKeyEl.value.trim()) { pane.innerHTML = '<p class="hint error">APIキーを入力してください</p>'; return; }
@@ -2187,7 +2392,7 @@ export function chatUiHtml(): string {
     try {
       const data = await api("/memory/list", { limit: 30 });
       pane.innerHTML = "";
-      if (data.entries.length === 0) { pane.innerHTML = '<p class="hint">履歴はまだありません</p>'; return; }
+      if (data.entries.length === 0) { renderEmptyState(pane, "まだ質問していません。チャットで質問すると、回答と出典がここに残ります。", "チャットへ"); return; }
       data.entries.forEach((entry) => {
         renderUserMessage(pane, entry.query);
         const ext = computeExtraction(entry.sources);
@@ -2206,7 +2411,7 @@ export function chatUiHtml(): string {
     try {
       const data = await api("/memory/pinned", {});
       pane.innerHTML = "";
-      if (data.entries.length === 0) { pane.innerHTML = '<p class="hint">お気に入り登録した回答はまだありません</p>'; return; }
+      if (data.entries.length === 0) { renderEmptyState(pane, "お気に入りはまだありません。回答の「お気に入り」を押すと、ここに集まります。", "チャットへ"); return; }
       data.entries.forEach((entry) => {
         renderUserMessage(pane, entry.query);
         const ext = computeExtraction(entry.sources);
@@ -3296,8 +3501,10 @@ export function chatUiHtml(): string {
       lastSyncOpId = opId;
       lastSyncSource = source;
       retryBtn.disabled = errorCount === 0;
+      showToast("同期が完了しました（" + totalDocs + "件" + (errorCount > 0 ? "・失敗 " + errorCount + "件" : "") + "）", errorCount > 0 ? "error" : "success");
       loadKbHistory(); loadKbOverview();
     } catch (e) {
+      showToast("同期に失敗しました: " + e.message, "error");
       progressEl.textContent = "エラー: " + e.message;
       lastSyncOpId = opId;
       lastSyncSource = source;
@@ -3372,9 +3579,11 @@ export function chatUiHtml(): string {
       const failNote = errorCount > 0 ? "（失敗 " + errorCount + "件）" : "";
       progressEl.textContent = "完了: " + totalDocs + "件・" + totalChunks + "チャンク登録" + failNote;
       if (retryBtn) retryBtn.disabled = errorCount === 0;
+      showToast("同期が完了しました（" + totalDocs + "件" + (errorCount > 0 ? "・失敗 " + errorCount + "件" : "") + "）", errorCount > 0 ? "error" : "success");
       loadKbOverview();
       return opId;
     } catch (e) {
+      showToast("同期に失敗しました: " + e.message, "error");
       progressEl.textContent = "エラー: " + e.message;
       if (retryBtn) retryBtn.disabled = !opId;
       return opId;
@@ -3935,11 +4144,39 @@ export function chatUiHtml(): string {
     catch (e) { showToast("解除に失敗しました: " + e.message, "error"); }
   });
 
+  // バッジ: 直近7日の同期の失敗件数を、管理タブとナレッジ登録の左メニューに小さな丸で出す。
+  function setCountBadge(host, count, label) {
+    if (!host) return;
+    const old = host.querySelector(".count-badge");
+    if (old) old.remove();
+    if (count <= 0) return;
+    const badge = document.createElement("span");
+    badge.className = "count-badge";
+    badge.textContent = count > 99 ? "99+" : String(count);
+    badge.title = label;
+    host.appendChild(badge);
+  }
+  function applyKbErrorBadge(entries) {
+    const since = Math.floor(Date.now() / 1000) - 7 * 86400;
+    const failed = entries.filter((e) => e.status === "error" && e.created_at >= since).length;
+    const label = "直近7日の同期の失敗 " + failed + "件（同期履歴で確認できます）";
+    setCountBadge(document.querySelector('nav.tabs button[data-tab="admin"]'), failed, label);
+    setCountBadge(document.querySelector('.admin-subnav button[data-subtab="knowledge"]'), failed, label);
+  }
+  async function loadKbErrorBadge() {
+    if (currentUserRole !== "admin" && currentUserRole !== "editor") return;
+    try {
+      const data = await api("/admin/kb/history", { limit: 50 });
+      applyKbErrorBadge(data.entries);
+    } catch { /* バッジは補助表示なので失敗しても何もしない */ }
+  }
+
   async function loadKbHistory() {
     const tbody = $("kbHistoryTable").querySelector("tbody");
     tbody.innerHTML = "<tr><td colspan=7>読み込み中…</td></tr>";
     try {
       const data = await api("/admin/kb/history", { limit: 30 });
+      applyKbErrorBadge(data.entries);
       tbody.innerHTML = "";
       data.entries.forEach((e) => {
         const when = new Date(e.created_at * 1000).toLocaleString();
