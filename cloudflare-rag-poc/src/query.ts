@@ -85,7 +85,12 @@ export async function handleQuery(req: Request, env: Env, user: AuthedUser): Pro
     if (mcpResult) toolCalls = mcpResult.toolCalls;
     const parsed = parseExtractionRate(answerResult.text, sources.length);
     cited = parsed.cited;
-    sourcesWithCitation = sources.map((s, i) => ({ ...s, cited: parsed.citationCounts[i] > 0, citationCount: parsed.citationCounts[i] }));
+    sourcesWithCitation = sources.map((s, i) => ({
+      ...s,
+      cited: parsed.citationCounts[i] > 0,
+      citationCount: parsed.citationCounts[i],
+      excerpt: (ranked[i]?.metadata.text ?? "").slice(0, 400),
+    }));
     extractionRate = sources.length > 0 ? Math.round((cited / sources.length) * 100) : 0;
     sourcesLength = sources.length;
     answerText = answerResult.text;
