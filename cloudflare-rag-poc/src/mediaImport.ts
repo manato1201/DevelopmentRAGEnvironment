@@ -1,5 +1,5 @@
 import type { AuthedUser, Env } from "./types";
-import { requireKnowledgeEditor } from "./auth";
+import { requireKnowledgeEditor, assertOwnNamespaceOrShared } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { extractTextFromPdf, extractTextFromDocx, extractTextFromPptx } from "./docExtract";
@@ -22,6 +22,7 @@ export async function handleImportYoutube(req: Request, env: Env, user: AuthedUs
   requireKnowledgeEditor(user);
   const body = (await req.json()) as { namespace?: string; youtubeUrl?: string; title?: string };
   const namespace = (body.namespace || "").trim();
+  assertOwnNamespaceOrShared(user, namespace);
   const youtubeUrl = (body.youtubeUrl || "").trim();
   if (!namespace || !youtubeUrl) return jsonResponse(400, { error: "namespace と youtubeUrl は必須です" });
 
@@ -44,6 +45,7 @@ export async function handleUploadDoc(req: Request, env: Env, user: AuthedUser):
   requireKnowledgeEditor(user);
   const body = (await req.json()) as { namespace?: string; fileBase64?: string; mimeType?: string; fileName?: string };
   const namespace = (body.namespace || "").trim();
+  assertOwnNamespaceOrShared(user, namespace);
   const fileBase64 = body.fileBase64 || "";
   const mimeType = (body.mimeType || "").trim();
   const fileName = (body.fileName || "").trim();

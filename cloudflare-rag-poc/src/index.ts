@@ -36,7 +36,7 @@ import { handleAddFaq } from "./faqAdd";
 import { handleCreateNamespace, handleListNamespaces, handleDeleteNamespace, handleSetNamespaceLimit, handleSetNamespaceBudget, handleNamespaceUsage } from "./namespaceAdmin";
 import { handleGraph } from "./graph";
 import { handleUsageStats, handleRatingStats, handleClaudeCostStats, handleGeminiCostStats, handleAuditLogList } from "./usageStats";
-import { handleImportUrl, handleCrawlUrl } from "./urlImport";
+import { handleImportUrl, handleCrawlUrl, handleListCrawlJobs, handleDiscardCrawlJob } from "./urlImport";
 import { handleListDocuments, handleDeleteDocument, handleFindDuplicateDocuments } from "./kbDocuments";
 import { handleImportQaCsv } from "./qaImport";
 import { handleKbRollback } from "./kbRollback";
@@ -311,6 +311,10 @@ export default {
           return await handleAuditLogList(req, env, user);
         case "/admin/kb/import-url":
           return await handleImportUrl(req, env, user);
+        case "/admin/kb/crawl-jobs":
+          return await handleListCrawlJobs(req, env, user);
+        case "/admin/kb/crawl-jobs/discard":
+          return await handleDiscardCrawlJob(req, env, user);
         case "/admin/kb/crawl-url":
           return await handleCrawlUrl(req, env, user);
         case "/admin/kb/list-documents":

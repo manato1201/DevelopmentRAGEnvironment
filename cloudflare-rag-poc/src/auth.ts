@@ -68,6 +68,16 @@ export function requireAdmin(user: AuthedUser): void {
   }
 }
 
+// 手動の取り込み（URL・クロール・YouTube・ファイル・FAQ・QA・マップ）の書き込み先の確認（2026-10-14追加）。
+// 個人用namespace（personal:<user_id>）は、その本人の索引に書き込まれるため、他人のものは拒否する
+// （そうしないと、ナレッジ登録権限者が他のユーザーの個人用ナレッジへ文書を混ぜられてしまう）。
+// 共有namespaceは従来どおり（ナレッジ登録権限者）。
+export function assertOwnNamespaceOrShared(user: AuthedUser, namespace: string): void {
+  if (namespace.startsWith("personal:") && namespace !== `personal:${user.userId}`) {
+    throw new ForbiddenError("他のユーザーの個人用namespaceには登録できません");
+  }
+}
+
 // ナレッジ登録・KB同期のみを扱うoperation用のゲート（2026-09-10追加、権限の詳細化）。
 // admin/editorどちらも通す。editor（ナレッジ登録権限者）はFAQ/QA/URL/YouTube/文書登録と
 // Drive/Notion同期の実行・履歴閲覧のみ許可し、キー/namespace管理・バックアップ・

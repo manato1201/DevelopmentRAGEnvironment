@@ -1,7 +1,6 @@
 import type { Env } from "./types";
 import { oauthResultPage, jsonResponse } from "./http";
 import {
-  authenticateFromQueryKey,
   createPendingState,
   consumePendingState,
   getConnection,
@@ -9,7 +8,6 @@ import {
   clearConnection,
   oauthRedirectUri,
 } from "./oauthConnections";
-import { requireKnowledgeEditor } from "./auth";
 import { scopeFor, startOwner } from "./syncTargets";
 
 // Jira OAuth 2.0 (3LO)、Atlassianの公式ドキュメント通りの実装

@@ -778,6 +778,13 @@ export function chatUiHtml(): string {
         <p class="hint">登録時のopId単位でまとめて取り消す場合は、システムタブの「KBロールバック」を使います。</p>
       </div>
 
+      <div class="section card" id="crawlJobsCard" style="display:none;">
+        <div class="card-head"><h2>中断したクロール</h2><button class="btn" id="crawlJobsRefresh">更新</button></div>
+        <p class="hint">通信が切れるなどして途中で止まったクロールです。「続きから再開」で、登録済みのページは飛ばして続きを実行します。</p>
+        <ul class="conn-list" id="crawlJobsList"></ul>
+        <div id="crawlJobsProgress" class="hint"></div>
+      </div>
+
       <div class="section card" id="connectedSystemsCard">
         <div class="card-head"><h2>連携中のシステム</h2></div>
         <ul class="conn-list" id="connectedSystemsList"><li class="conn-empty">確認中…</li></ul>
@@ -1579,7 +1586,7 @@ export function chatUiHtml(): string {
       document.querySelector('.admin-subpanel[data-subtab="' + btn.dataset.subtab + '"]').classList.add("active");
       // 「連携」タブを開くたびに接続状況を再確認する（OAuth接続直後の戻り先でもあるため、
       // 2026-09-22追加）。
-      if (btn.dataset.subtab === "knowledge") { initKbList(); refreshConnectedSystems(); loadOAuthStatus(); loadSyncTargets(); }
+      if (btn.dataset.subtab === "knowledge") { initKbList(); refreshConnectedSystems(); loadOAuthStatus(); loadSyncTargets(); loadCrawlJobs(); }
       setTimeout(buildAdminToc, 0);
     });
   });
@@ -1756,6 +1763,7 @@ export function chatUiHtml(): string {
     folder: "M2 4h4l1.5 2H14v7H2z",
     calendar: "M2 4h12v10H2zM2 7h12M5 2v3M11 2v3",
     chat: "M2 3h12v8H7l-3 3v-3H2z",
+    play: "M5 3l8 5-8 5z",
     mail: "M2 4h12v8H2zM2 4.5l6 4.5 6-4.5",
     drive: "M6 2h4l5 9-2 3H3l-2-3z",
     branch: "M5 2v8M5 10a2 2 0 100 4 2 2 0 000-4zM11 2a2 2 0 100 4 2 2 0 000-4zM11 6c0 3-6 2-6 4",
@@ -1778,7 +1786,7 @@ export function chatUiHtml(): string {
     svg.setAttribute("class", "icon");
     svg.setAttribute("aria-hidden", "true");
     const path = document.createElementNS(NS, "path");
-    path.setAttribute("d", ICON_PATHS[name]);
+    path.setAttribute("d", ICON_PATHS[name] || ICON_PATHS.file);
     svg.appendChild(path);
     return svg;
   }
@@ -2525,6 +2533,7 @@ export function chatUiHtml(): string {
     rebuildEdgeGeometry();
   }
 
+  let gTotals = new Map(); // namespaceごとの全文書数（上限で抜き出したときの凡例用）
   function renderLegend() {
     const counts = new Map();
     gNodes.forEach((n) => counts.set(n.namespace, (counts.get(n.namespace) || 0) + 1));
@@ -2540,7 +2549,9 @@ export function chatUiHtml(): string {
       label.textContent = ns;
       const count = document.createElement("span");
       count.className = "ns-count";
-      count.textContent = String(counts.get(ns));
+      // 抜き出して表示している場合は「表示数 / 全体」で出す
+      const total = gTotals.get(ns);
+      count.textContent = total && total > counts.get(ns) ? counts.get(ns) + " / " + total : String(counts.get(ns));
       const cb = document.createElement("input");
       cb.type = "checkbox";
       cb.checked = gVisibleNs.has(ns);
@@ -2611,8 +2622,10 @@ export function chatUiHtml(): string {
     if (!apiKeyEl.value.trim()) { $("graphStats").textContent = "APIキーを入力してください"; return; }
     if (typeof THREE === "undefined") { $("graphStats").textContent = "3D描画ライブラリの読み込みに失敗しました"; return; }
     try {
-      const data = await api("/graph", { maxNodes: 1000 });
-      $("graphStats").textContent = data.nodes.length + " ノード / " + data.edges.length + " エッジ" + (data.truncated ? "（上限により一部省略）" : "");
+      const data = await api("/graph", { maxNodes: 500 });
+      gTotals = new Map((data.totals || []).map((x) => [x.namespace, x.total]));
+      $("graphStats").textContent = data.nodes.length + " ノード / " + data.edges.length + " エッジ"
+        + (data.truncated ? "（全 " + data.totalNodes + " 件から、namespaceごとの文書数の比率に合わせて抜き出して表示）" : "");
       if (data.nodes.length === 0) return;
 
       disposeGraph();
@@ -3902,6 +3915,54 @@ export function chatUiHtml(): string {
     catch (e) { showToast("失敗しました: " + e.message, "error"); }
   });
 
+  // ---- 中断したクロールの一覧と再開 ----
+  async function loadCrawlJobs() {
+    const card = $("crawlJobsCard");
+    if (!card) return;
+    try {
+      const data = await api("/admin/kb/crawl-jobs", {});
+      const list = $("crawlJobsList");
+      list.innerHTML = "";
+      card.style.display = data.jobs.length > 0 ? "" : "none";
+      data.jobs.forEach((job) => {
+        const li = mk("li", "conn-row");
+        li.appendChild(mk("strong", "", job.origin));
+        li.appendChild(mk("span", "chip", job.namespace));
+        li.appendChild(mk("span", "conn-desc", job.processedCount + "/" + job.maxPages + "ページ処理済み・残り" + job.queued + "件・" + new Date(job.updatedAt * 1000).toLocaleString()));
+        const resume = mk("button", "btn primary", "続きから再開");
+        resume.type = "button";
+        resume.addEventListener("click", async () => {
+          const progress = $("crawlJobsProgress");
+          resume.disabled = true;
+          try {
+            const r = await runCrawlLoop({ opId: job.opId, namespace: job.namespace, options: { maxPages: job.maxPages }, onProgress: (text) => { progress.textContent = text; } });
+            progress.textContent = "完了: " + r.processed + "ページ処理・" + r.chunks + "チャンク登録" + (r.unchanged ? "・変更なし" + r.unchanged + "件" : "") + (r.errors ? "・" + r.errors + "件エラー" : "");
+            showToast("クロールが完了しました（" + r.chunks + "チャンク登録）", r.errors ? "error" : "success");
+          } catch (e) {
+            progress.textContent = "エラー: " + e.message;
+            showToast("クロールの再開に失敗しました: " + e.message, "error");
+          }
+          resume.disabled = false;
+          loadCrawlJobs();
+          loadKbOverview();
+        });
+        const discard = mk("button", "btn danger", "破棄");
+        discard.type = "button";
+        discard.addEventListener("click", async () => {
+          if (!confirm("このクロールの続きを破棄しますか？（登録済みのページは残ります）")) return;
+          try { await api("/admin/kb/crawl-jobs/discard", { opId: job.opId }); loadCrawlJobs(); }
+          catch (e) { showToast("破棄に失敗しました: " + e.message, "error"); }
+        });
+        li.appendChild(resume);
+        li.appendChild(discard);
+        list.appendChild(li);
+      });
+    } catch {
+      card.style.display = "none";
+    }
+  }
+  $("crawlJobsRefresh").addEventListener("click", loadCrawlJobs);
+
   // ---- 自分用の連携（ユーザーごとの接続）----
   const MINE_SERVICES = [
     { key: "gmail", service: "gmail", name: "Gmail", note: "検索式に合うメールの件名・差出人・日時・本文だけを、自分専用のナレッジに取り込みます（添付は取り込みません）。",
@@ -4653,6 +4714,57 @@ export function chatUiHtml(): string {
     }
   }
 
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // クロールの実行ループ（2026-10-14）。1回の通信が失敗しても、同じopIdで最大3回まで自動で再試行する。
+  // それでも失敗したら、途中までの登録は残したまま例外にする（opIdはonOpIdで渡してあるので、続きから再開できる）。
+  async function runCrawlLoop(opts) {
+    let opId = opts.opId || null;
+    let processed = 0, chunks = 0, errors = 0, skipped = 0, unchanged = 0, maxPages = (opts.options && opts.options.maxPages) || 0, stopped = "";
+    while (true) {
+      const body = opId ? { opId } : {
+        namespace: opts.namespace, url: opts.url, depth: opts.options.depth, maxPages: opts.options.maxPages,
+        pathPrefix: opts.options.pathPrefix || undefined, excludePatterns: opts.options.excludePatterns || undefined,
+        skipExisting: opts.options.skipExisting,
+      };
+      let data = null;
+      let restart = false;
+      for (let attempt = 1; data === null && !restart; attempt++) {
+        try {
+          data = await api("/admin/kb/crawl-url", body);
+        } catch (e) {
+          if (opId && /見つかりません/.test(e.message)) {
+            // 続きの記録が無い（完了済み・期限切れ）。最初から新しく実行する。
+            opts.onProgress("前回の続きが見つからないため、最初から実行します…");
+            opId = null;
+            if (opts.onOpId) opts.onOpId(null);
+            restart = true;
+          } else if (attempt >= 3) {
+            throw new Error(e.message + (opId ? "（途中までの登録は残っています。同じ操作をやり直すと、続きから再開します）" : ""));
+          } else {
+            opts.onProgress("通信に失敗しました。再試行します（" + attempt + "/2）…");
+            await sleep(1500 * attempt);
+          }
+        }
+      }
+      if (restart) continue;
+      opId = data.opId;
+      if (opts.onOpId) opts.onOpId(opId);
+      processed = data.processedCount;
+      maxPages = data.maxPages;
+      if (data.stoppedEarly) stopped = data.stoppedEarly;
+      data.results.forEach((r) => {
+        chunks += r.chunks;
+        if (r.status === "error") errors++;
+        if (r.status === "skipped_existing") skipped++;
+        if (r.status === "unchanged") unchanged++;
+      });
+      opts.onProgress("取得中… " + processed + "/" + maxPages + "ページ（" + chunks + "チャンク登録" + (unchanged ? "・変更なし" + unchanged : "") + "）");
+      if (data.done) break;
+    }
+    return { opId, processed, chunks, errors, skipped, unchanged, stopped, maxPages };
+  }
+
   // 1件の登録を実行して、画面に出す詳細文字列を返す。失敗は例外。
   async function kbRunItem(item, namespace, setDetail) {
     if (item.kind === "file") {
@@ -4672,30 +4784,16 @@ export function chatUiHtml(): string {
       return data.chunks + "チャンク登録" + (data.skipped > 0 ? "（" + data.skipped + "件スキップ）" : "");
     }
     if (item.kind === "crawl") {
-      // サーバーが1リクエストで少数ページずつ処理するので、opIdで続きを呼び直す（Workers Freeプランの制限対策）
-      let opId = null;
-      let processed = 0, chunks = 0, errors = 0, skipped = 0, maxPages = item.options.maxPages, stopped = "";
-      while (true) {
-        const body = opId ? { opId } : {
-          namespace, url: item.url, depth: item.options.depth, maxPages: item.options.maxPages,
-          pathPrefix: item.options.pathPrefix || undefined, excludePatterns: item.options.excludePatterns || undefined,
-          skipExisting: item.options.skipExisting,
-        };
-        const data = await api("/admin/kb/crawl-url", body);
-        opId = data.opId;
-        processed = data.processedCount;
-        maxPages = data.maxPages;
-        if (data.stoppedEarly) stopped = data.stoppedEarly;
-        data.results.forEach((r) => {
-          chunks += r.chunks;
-          if (r.status === "error") errors++;
-          if (r.status === "skipped_existing") skipped++;
-        });
-        setDetail("取得中… " + processed + "/" + maxPages + "ページ（" + chunks + "チャンク登録）");
-        if (data.done) break;
-      }
-      const summary = processed + "ページ処理・" + chunks + "チャンク登録" + (skipped ? "・" + skipped + "件スキップ" : "") + (errors ? "・" + errors + "件エラー" : "") + "（opId: " + opId + "）" + (stopped ? " ※ " + stopped : "");
-      if (processed > 0 && errors === processed) throw new Error("全ページの取得に失敗しました。" + summary);
+      // サーバーが1リクエストで少数ページずつ処理するので、opIdで続きを呼び直す（Workers Freeプランの制限対策）。
+      // 通信が途切れても、同じopIdで続きから再開できる（item.crawlOpIdに残す）。
+      const r = await runCrawlLoop({
+        namespace, url: item.url, options: item.options, opId: item.crawlOpId || null,
+        onOpId: (id) => { item.crawlOpId = id; },
+        onProgress: setDetail,
+      });
+      item.crawlOpId = null;
+      const summary = r.processed + "ページ処理・" + r.chunks + "チャンク登録" + (r.unchanged ? "・変更なし" + r.unchanged + "件" : "") + (r.skipped ? "・" + r.skipped + "件スキップ" : "") + (r.errors ? "・" + r.errors + "件エラー" : "") + "（opId: " + r.opId + "）" + (r.stopped ? " " + r.stopped : "");
+      if (r.processed > 0 && r.errors === r.processed) throw new Error("全ページの取得に失敗しました。" + summary);
       return summary;
     }
     if (item.kind === "faq") {
@@ -4766,7 +4864,7 @@ export function chatUiHtml(): string {
         const lines = urlLines();
         return lines.map((url) => {
           const title = lines.length === 1 ? S.urlTitle.trim() : "";
-          if (kbIsYoutube(url)) return { kind: "youtube", icon: "▶️", label: url, url, title };
+          if (kbIsYoutube(url)) return { kind: "youtube", icon: "play", label: url, url, title };
           if (S.crawl) {
             return { kind: "crawl", icon: "crawl", label: url + "（配下ページも含む・最大" + S.maxPages + "ページ）", url,
               options: { depth: S.depth, maxPages: S.maxPages, pathPrefix: S.pathPrefix.trim(), excludePatterns: S.exclude.trim(), skipExisting: S.skipExisting } };

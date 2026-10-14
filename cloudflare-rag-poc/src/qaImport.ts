@@ -1,5 +1,5 @@
 import type { AuthedUser, Env } from "./types";
-import { requireKnowledgeEditor } from "./auth";
+import { requireKnowledgeEditor, assertOwnNamespaceOrShared } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { jsonResponse } from "./http";
@@ -62,6 +62,7 @@ export async function handleImportQaCsv(req: Request, env: Env, user: AuthedUser
     opId?: string;
   };
   const namespace = (body.namespace || "").trim();
+  assertOwnNamespaceOrShared(user, namespace);
   const csvText = body.csvText || "";
   if (!namespace || !csvText.trim()) {
     return jsonResponse(400, { error: "namespace と csvText は必須です" });

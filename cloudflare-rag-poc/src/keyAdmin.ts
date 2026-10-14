@@ -197,6 +197,7 @@ export async function handleDeleteKey(req: Request, env: Env, user: AuthedUser):
     env.DB.prepare("DELETE FROM kb_documents WHERE namespace = ?").bind(personalNs),
     env.DB.prepare("DELETE FROM kb_sources WHERE namespace_id = ?").bind(personalNs),
     env.DB.prepare("DELETE FROM kb_log WHERE namespace_id = ?").bind(personalNs),
+    env.DB.prepare("DELETE FROM crawl_page_hashes WHERE namespace_id = ?").bind(personalNs),
     env.DB.prepare("DELETE FROM memory WHERE user_id = ?").bind(userId),
     // 本人専用の連携（OAuth・公式MCP）の接続も消す（migrations/0021、キーを失効したら他人が使えない）
     env.DB.prepare("DELETE FROM oauth_connections WHERE owner_id = ?").bind(userId),
