@@ -1,7 +1,6 @@
 import type { Env } from "./types";
 import { oauthResultPage, jsonResponse } from "./http";
 import {
-  authenticateFromQueryKey,
   createPendingState,
   consumePendingState,
   getConnection,
@@ -9,7 +8,6 @@ import {
   clearConnection,
   oauthRedirectUri,
 } from "./oauthConnections";
-import { requireKnowledgeEditor } from "./auth";
 import { scopeFor, startOwner } from "./syncTargets";
 
 // Backlog（Nulab）OAuth 2.0、公式ドキュメント通りの実装（2026-09-22追加）。

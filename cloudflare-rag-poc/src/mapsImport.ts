@@ -1,5 +1,5 @@
 import type { AuthedUser, Env } from "./types";
-import { requireKnowledgeEditor } from "./auth";
+import { requireKnowledgeEditor, assertOwnNamespaceOrShared } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { jsonResponse } from "./http";
@@ -89,6 +89,7 @@ export async function handleImportPlace(req: Request, env: Env, user: AuthedUser
 
   const body = (await req.json()) as { namespace?: string; query?: string };
   const namespace = (body.namespace || "").trim();
+  assertOwnNamespaceOrShared(user, namespace);
   const query = (body.query || "").trim();
   if (!namespace || !query) return jsonResponse(400, { error: "namespace と query（場所名・住所）は必須です" });
 
@@ -134,6 +135,7 @@ export async function handleImportPlacesCsv(req: Request, env: Env, user: Authed
     opId?: string;
   };
   const namespace = (body.namespace || "").trim();
+  assertOwnNamespaceOrShared(user, namespace);
   const queries = (body.queriesText || "")
     .split(/\r?\n/)
     .map((line) => line.trim())

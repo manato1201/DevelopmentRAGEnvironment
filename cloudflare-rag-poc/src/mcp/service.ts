@@ -490,7 +490,7 @@ export async function chatTools(
   const rows = await env.DB.prepare(
     "SELECT provider_id, owner_id FROM mcp_connections WHERE chat_enabled = 1 AND status = 'connected' AND (owner_id = '' OR owner_id = ?)",
   )
-    .bind(userId || "\u0000-none")
+    .bind(userId || "__no_user__")
     .all<{ provider_id: string; owner_id: string }>();
   const ownProviders = new Set((rows.results ?? []).filter((r) => r.owner_id !== "").map((r) => r.provider_id));
   const result: ChatTool[] = [];

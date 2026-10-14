@@ -1,5 +1,5 @@
 import type { AuthedUser, Env } from "./types";
-import { requireKnowledgeEditor } from "./auth";
+import { requireKnowledgeEditor, assertOwnNamespaceOrShared } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { createNotionPage } from "./notion";
@@ -21,6 +21,7 @@ export async function handleAddFaq(req: Request, env: Env, user: AuthedUser): Pr
     alsoWriteToNotion?: boolean;
   };
   const namespace = (body.namespace || "").trim();
+  assertOwnNamespaceOrShared(user, namespace);
   const question = (body.question || "").trim();
   const answer = (body.answer || "").trim();
   if (!namespace || !question || !answer) {
