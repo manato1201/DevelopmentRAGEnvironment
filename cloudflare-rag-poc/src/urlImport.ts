@@ -1,7 +1,8 @@
 import type { AuthedUser, Env } from "./types";
-import { requireKnowledgeEditor } from "./auth";
+import { requireKnowledgeEditor, assertOwnNamespaceOrShared } from "./auth";
 import { ingestDocument, logKb } from "./kbIngest";
-import { newOpId } from "./chunking";
+import { newOpId, withAbortTimeout } from "./chunking";
+import { sha256Hex } from "./embeddings";
 import { jsonResponse, clampInt } from "./http";
 
 // HTMLから本文テキストを抽出する（Workers組み込みのHTMLRewriterを使用。DOMパーサ相当の
@@ -43,6 +44,7 @@ export async function handleImportUrl(req: Request, env: Env, user: AuthedUser):
   requireKnowledgeEditor(user);
   const body = (await req.json()) as { namespace?: string; url?: string; title?: string };
   const namespace = (body.namespace || "").trim();
+  assertOwnNamespaceOrShared(user, namespace);
   const url = (body.url || "").trim();
   if (!namespace || !url) return jsonResponse(400, { error: "namespace と url は必須です" });
 
@@ -94,8 +96,15 @@ const CRAWL_HARD_MAX_DEPTH = 3;
 // のも driveSync.ts/notionSync.ts と同じ理由（実機の連続タイムアウト経験に基づく）。
 const CRAWL_DEFAULT_BATCH_SIZE = 1;
 const CRAWL_MAX_BATCH_SIZE = 5;
+// 1ページごとの上限（2026-10-14追加）。遅いページ1つでリクエスト全体が止まり、登録が途中で
+// 停止していたため、取得と登録にそれぞれ時間の上限を設け、超えたらそのページだけを「エラー」
+// として次へ進む（進行状態は保存されるので、後から同じopIdで続きを実行できる）。
+const CRAWL_FETCH_TIMEOUT_MS = 20_000;
+const CRAWL_PER_PAGE_TIMEOUT_MS = 60_000;
+// 1リクエストの目安の時間。batchSizeが残っていても、これを超えたら残りは次のリクエストへ回す。
+const CRAWL_REQUEST_BUDGET_MS = 25_000;
 
-type CrawlResultStatus = "ok" | "error" | "skipped_existing";
+type CrawlResultStatus = "ok" | "error" | "skipped_existing" | "unchanged";
 
 interface CrawlPageResult {
   url: string;
@@ -197,6 +206,23 @@ function parseExcludePatterns(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
+// 前回登録したときの本文ハッシュ（再クロールで変更の無いページを飛ばすため。migrations/0022）。
+async function getStoredPage(env: Env, namespace: string, url: string): Promise<{ hash: string; chunkCount: number } | null> {
+  const row = await env.DB.prepare("SELECT content_hash, chunk_count FROM crawl_page_hashes WHERE namespace_id = ? AND url = ?")
+    .bind(namespace, url)
+    .first<{ content_hash: string; chunk_count: number }>();
+  return row ? { hash: row.content_hash, chunkCount: row.chunk_count } : null;
+}
+
+async function storePage(env: Env, namespace: string, url: string, hash: string, chunkCount: number): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO crawl_page_hashes (namespace_id, url, content_hash, chunk_count, updated_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(namespace_id, url) DO UPDATE SET content_hash = excluded.content_hash, chunk_count = excluded.chunk_count, updated_at = excluded.updated_at`,
+  )
+    .bind(namespace, url, hash, chunkCount, Math.floor(Date.now() / 1000))
+    .run();
+}
+
 // 既にnamespace内に同名file（タイトル）で登録済みかどうかを確認する（重複URLスキップ用）。
 // タイトルはページを実際に取得しないと分からないため「事前にfetchをスキップ」はできない
 // が、HTMLRewriterでのfetch＋パース自体は軽く、コストが大きいのはGemini埋め込み呼び出し
@@ -247,6 +273,7 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
     isNewJob = false;
   } else {
     const namespace = (body.namespace || "").trim();
+    assertOwnNamespaceOrShared(user, namespace);
     const seedUrl = (body.url || "").trim();
     if (!namespace || !seedUrl) return jsonResponse(400, { error: "namespace と url は必須です" });
 
@@ -281,7 +308,10 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
   const results: CrawlPageResult[] = [];
   let processedThisBatch = 0;
 
+  const startedAt = Date.now();
   while (job.queue.length > 0 && job.processedCount < job.maxPages && processedThisBatch < batchSize) {
+    // 1回目のページは必ず処理し、2ページ目以降は時間の目安を超えていたら次のリクエストへ回す
+    if (processedThisBatch > 0 && Date.now() - startedAt > CRAWL_REQUEST_BUDGET_MS) break;
     const current = job.queue.shift()!;
     if (visited.has(current.url)) continue;
     visited.add(current.url);
@@ -291,7 +321,10 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
     let html: string;
     let finalUrl = current.url;
     try {
-      const res = await fetch(current.url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; RAGImportBot/1.0)" } });
+      const res = await fetch(current.url, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; RAGImportBot/1.0)" },
+        signal: AbortSignal.timeout(CRAWL_FETCH_TIMEOUT_MS),
+      });
       if (!res.ok) {
         results.push({ url: current.url, title: current.url, chunks: 0, skipped: 0, status: "error", error: `HTTP ${res.status}` });
         continue;
@@ -324,10 +357,31 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
     } else if (job.skipExisting && (await documentAlreadyExists(env, job.namespace, title))) {
       results.push({ url: current.url, title, chunks: 0, skipped: 0, status: "skipped_existing" });
     } else {
-      const result = await ingestDocument(env, job.namespace, title, text, "manual");
-      const skipNote = result.skippedVectors.length > 0 ? `（${result.skippedVectors.length}チャンクは登録失敗のためスキップ）` : "";
-      await logKb(env, opId, job.namespace, "manual", title, "ok", `クロール登録: ${result.chunks}チャンク登録${skipNote}（${current.url}）`);
-      results.push({ url: current.url, title, chunks: result.chunks, skipped: result.skippedVectors.length, status: "ok" });
+      const contentHash = await sha256Hex(text);
+      const stored = await getStoredPage(env, job.namespace, current.url);
+      const unchanged = stored !== null && stored.hash === contentHash && (await documentAlreadyExists(env, job.namespace, title));
+      if (unchanged) {
+        // 前回登録したときから本文が変わっていないページは、埋め込み・登録を飛ばす（再クロールの高速化）
+        results.push({ url: current.url, title, chunks: 0, skipped: 0, status: "unchanged" });
+      } else {
+        try {
+          const result = await withAbortTimeout(
+            (signal) => ingestDocument(env, job.namespace, title, text, "manual", signal, stored?.chunkCount),
+            CRAWL_PER_PAGE_TIMEOUT_MS,
+            `「${title}」の登録`,
+          );
+          const skipNote = result.skippedVectors.length > 0 ? `（${result.skippedVectors.length}チャンクは登録失敗のためスキップ）` : "";
+          await logKb(env, opId, job.namespace, "manual", title, "ok", `クロール登録: ${result.chunks}チャンク登録${skipNote}（${current.url}）`);
+          // 一部のチャンクが登録できなかったページは、次回の再クロールで登録し直せるよう、ハッシュを残さない
+          if (result.skippedVectors.length === 0) await storePage(env, job.namespace, current.url, contentHash, result.chunks);
+          results.push({ url: current.url, title, chunks: result.chunks, skipped: result.skippedVectors.length, status: "ok" });
+        } catch (err) {
+          // 1ページの失敗（タイムアウト・埋め込みの失敗）でリクエスト全体を落とさない。
+          const message = err instanceof Error ? err.message : String(err);
+          await logKb(env, opId, job.namespace, "manual", title, "error", `クロール登録に失敗: ${message}（${current.url}）`);
+          results.push({ url: current.url, title, chunks: 0, skipped: 0, status: "error", error: message });
+        }
+      }
     }
 
     if (current.depth < job.maxDepth) {
@@ -377,7 +431,42 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
     results,
     processedCount: job.processedCount,
     maxPages: job.maxPages,
+    queued: job.queue.length,
     done,
     stoppedEarly: stoppedEarly || undefined,
   });
+}
+
+// ---- 中断したクロールの一覧・破棄（2026-10-14追加。画面を閉じても、同じopIdで続きから再開できる） ----
+
+// POST /admin/kb/crawl-jobs — 完了していないクロールジョブの一覧。
+export async function handleListCrawlJobs(_req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  requireKnowledgeEditor(user);
+  const res = await env.DB.prepare(
+    `SELECT op_id, namespace_id, origin_for_link_filter, processed_count, max_pages, updated_at,
+            json_array_length(queue_json) AS queued
+       FROM crawl_jobs ORDER BY updated_at DESC LIMIT 50`,
+  ).all<{ op_id: string; namespace_id: string; origin_for_link_filter: string; processed_count: number; max_pages: number; updated_at: number; queued: number }>();
+  return jsonResponse(200, {
+    status: "ok",
+    jobs: (res.results ?? []).map((r) => ({
+      opId: r.op_id,
+      namespace: r.namespace_id,
+      origin: r.origin_for_link_filter,
+      processedCount: r.processed_count,
+      maxPages: r.max_pages,
+      queued: r.queued,
+      updatedAt: r.updated_at,
+    })),
+  });
+}
+
+// POST /admin/kb/crawl-jobs/discard — 途中のクロールジョブを破棄する（登録済みのページは残る）。body: { opId }
+export async function handleDiscardCrawlJob(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  requireKnowledgeEditor(user);
+  const body = (await req.json().catch(() => ({}))) as { opId?: string };
+  const opId = (body.opId || "").trim();
+  if (!opId) return jsonResponse(400, { error: "opId は必須です" });
+  await deleteCrawlJob(env, opId);
+  return jsonResponse(200, { status: "ok" });
 }

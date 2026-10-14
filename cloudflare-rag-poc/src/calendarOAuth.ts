@@ -1,7 +1,6 @@
 import type { Env } from "./types";
 import { oauthResultPage, jsonResponse } from "./http";
 import {
-  authenticateFromQueryKey,
   createPendingState,
   consumePendingState,
   getConnection,
@@ -9,7 +8,6 @@ import {
   clearConnection,
   oauthRedirectUri,
 } from "./oauthConnections";
-import { requireKnowledgeEditor } from "./auth";
 import { scopeFor, startOwner } from "./syncTargets";
 
 // GoogleカレンダーのOAuth 2.0クリック接続（2026-09-22追加）。既存のDrive同期は

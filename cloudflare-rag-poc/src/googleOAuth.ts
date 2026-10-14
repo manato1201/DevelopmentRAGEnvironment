@@ -1,7 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { oauthResultPage, jsonResponse } from "./http";
 import {
-  authenticateFromQueryKey,
   createPendingState,
   consumePendingState,
   getConnection,

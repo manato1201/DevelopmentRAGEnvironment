@@ -1,6 +1,5 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
-import { requireKnowledgeEditor } from "./auth";
 import { getGoogleAccessToken, requireGoogleServiceAccountConfig } from "./googleAuth";
 import { resolveGoogleOAuthAccessToken } from "./googleOAuth";
 import { authorizeSync, previewBody } from "./syncTargets";
