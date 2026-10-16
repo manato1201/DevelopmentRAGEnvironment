@@ -1,6 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { requireKnowledgeEditor, assertOwnNamespaceOrShared } from "./auth";
-import { ingestDocument, logKb } from "./kbIngest";
+import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { sha256Hex } from "./embeddings";
 import { jsonResponse, clampInt } from "./http";
@@ -64,6 +64,7 @@ export async function handleImportUrl(req: Request, env: Env, user: AuthedUser):
   const result = await ingestDocument(env, namespace, title, text, "manual");
 
   const opId = newOpId();
+  await recordOp(env, opId, user.userId, "manual", namespace);
   const skipNote = result.skippedVectors.length > 0 ? `（${result.skippedVectors.length}チャンクは登録失敗のためスキップ）` : "";
   await logKb(env, opId, namespace, "manual", title, "ok", `URL登録: ${result.chunks}チャンク登録${skipNote}（${url}）`);
 
@@ -242,20 +243,29 @@ async function documentAlreadyExists(env: Env, namespace: string, file: string):
 // body: 初回 { namespace, url, depth?, maxPages?, pathPrefix?, excludePatterns?,
 //              skipExisting?, batchSize? }
 //       継続呼び出し { opId, batchSize? }（namespace等は初回作成時の値がジョブに保存済み）
+export interface CrawlBody {
+  namespace?: string;
+  url?: string;
+  depth?: number;
+  maxPages?: number;
+  pathPrefix?: string;
+  excludePatterns?: string;
+  skipExisting?: boolean;
+  batchSize?: number;
+  opId?: string;
+}
+
 export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireKnowledgeEditor(user);
-  const body = (await req.json()) as {
-    namespace?: string;
-    url?: string;
-    depth?: number;
-    maxPages?: number;
-    pathPrefix?: string;
-    excludePatterns?: string;
-    skipExisting?: boolean;
-    batchSize?: number;
-    opId?: string;
-  };
+  const body = (await req.json()) as CrawlBody;
+  // 新しいクロールは書き込み先を確認する（継続呼び出しは、作成時に確認済みのジョブ）
+  if (!(body.opId || "").trim()) assertOwnNamespaceOrShared(user, (body.namespace || "").trim());
+  return runCrawlBatch(env, body, user.userId);
+}
 
+// クロールの1バッチ分（権限の確認は呼び出し元で済ませる）。定期の再クロール（crawlSchedules.ts）からも使う。
+// actorは実行者のuser_id。自動実行（Cron）はnull。
+export async function runCrawlBatch(env: Env, body: CrawlBody, actor: string | null): Promise<Response> {
   const batchSize = clampInt(body.batchSize, CRAWL_DEFAULT_BATCH_SIZE, 1, CRAWL_MAX_BATCH_SIZE);
   const requestedOpId = (body.opId || "").trim();
 
@@ -273,7 +283,6 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
     isNewJob = false;
   } else {
     const namespace = (body.namespace || "").trim();
-    assertOwnNamespaceOrShared(user, namespace);
     const seedUrl = (body.url || "").trim();
     if (!namespace || !seedUrl) return jsonResponse(400, { error: "namespace と url は必須です" });
 
@@ -289,6 +298,7 @@ export async function handleCrawlUrl(req: Request, env: Env, user: AuthedUser): 
     }
 
     opId = newOpId();
+    await recordOp(env, opId, actor, "crawl", namespace);
     job = {
       namespace,
       originForLinkFilter: seedOrigin,
