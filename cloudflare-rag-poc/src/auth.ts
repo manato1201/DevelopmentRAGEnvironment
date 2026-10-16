@@ -15,7 +15,12 @@ export async function authenticate(
   if (!apiKey) return null;
 
   const userId = await sha256Hex(apiKey);
+  return loadAuthedUser(env, userId);
+}
 
+// ユーザーIDから、権限（ロール・アクセスできるnamespace）を読み込む。期限切れ・存在しないユーザーはnull。
+// APIキー認証（authenticate）のほか、Slackの紐づけ済みユーザーとして質問するとき（slackBot.ts）にも使う。
+export async function loadAuthedUser(env: Env, userId: string): Promise<AuthedUser | null> {
   const userRow = await env.DB.prepare(
     "SELECT user_id, role, expires_at FROM users WHERE user_id = ?",
   )

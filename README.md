@@ -297,6 +297,7 @@ Notion/Google Drive同期・PDF/DOCX/PPTX/音声動画の変換・ハイブリ�
 | [docs/cloudflare-vs-firebase-comparison.md](docs/cloudflare-vs-firebase-comparison.md) | 同じ構成をFirebaseで作った場合との違いの検証 |
 | [docs/system-guide.html](docs/system-guide.html) | **システムガイド**（2026-10）。構成図・生成の流れ・エージェントのロジック・評価と学習・ナレッジ追加・公式MCP連携・運用を、色分けしたSVGの図でまとめたもの（`scripts/build_system_guide.py`で生成） |
 | [cloudflare-rag-poc/docs/mcp-client.md](cloudflare-rag-poc/docs/mcp-client.md) | 公式MCPサーバー連携（MCPクライアント）の設計・安全設計・使い方 |
+| [cloudflare-rag-poc/docs/usability-features-2026-10.md](cloudflare-rag-poc/docs/usability-features-2026-10.md) | 使いやすさの機能追加（実行者の記録・ステージング・足りない質問の集計・ストリーミング・定期再クロール・鮮度表示・会話スレッド・プリセット・Slackから質問） |
 | [cloudflare-rag-poc/docs/sync-governance.md](cloudflare-rag-poc/docs/sync-governance.md) | 連携の同期の統制（同期前プレビュー・同期先の許可リスト・自動同期のオプトイン・ユーザーごとの接続） |
 | [cloudflare-rag-poc/docs/google-integrations.md](cloudflare-rag-poc/docs/google-integrations.md) | Google連携（Drive・Gmail・カレンダー・マップ）の準備と使い方 |
 | [docs/other-project-rag-integration-plan.md](docs/other-project-rag-integration-plan.md) | 別プロジェクトのRAG環境統合に向けた作業洗い出し |

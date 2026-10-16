@@ -1,7 +1,7 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
 import { resolveGoogleOAuthAccessToken } from "./googleOAuth";
-import { ingestDocument, logKb } from "./kbIngest";
+import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
 import { authorizeSync, previewBody, PREVIEW_LIMIT, scopeFor, type SyncScope } from "./syncTargets";
@@ -237,6 +237,7 @@ export async function handleSyncGmail(req: Request, env: Env, user: AuthedUser):
   const startIndex = body.startIndex ?? 0;
   const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
   const opId = body.opId || newOpId();
+  await recordOp(env, opId, user.userId, "gmail", namespace);
   const batch = ids.slice(startIndex, startIndex + batchSize);
 
   const { documents, chunks, skipped, results } = await processMailBatch(env, token, namespace, opId, batch);

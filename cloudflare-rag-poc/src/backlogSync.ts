@@ -1,7 +1,7 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
 import { authorizeSync, cronMayWrite, ownerOfNamespace, previewBody, scopeForRequest } from "./syncTargets";
-import { ingestDocument, logKb } from "./kbIngest";
+import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
 import { resolveBacklogOAuthContext } from "./backlogOAuth";
@@ -210,6 +210,7 @@ export async function handleSyncBacklog(req: Request, env: Env, user: AuthedUser
   const startIndex = body.startIndex ?? 0;
   const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
   const opId = body.opId || newOpId();
+  await recordOp(env, opId, user.userId, "backlog", namespace);
 
   let issues: BacklogIssueSummary[];
   try {
@@ -344,6 +345,7 @@ export async function runScheduledBacklogSync(env: Env): Promise<void> {
         continue;
       }
       const opId = newOpId();
+      await recordOp(env, opId, null, "backlog", row.namespace_id);
       await processBacklogBatch(env, row.namespace_id, opId, issues);
       await env.DB.prepare("UPDATE kb_sources SET backlog_last_synced_at = ? WHERE namespace_id = ?")
         .bind(Math.floor(runStartedAtMs / 1000), row.namespace_id)

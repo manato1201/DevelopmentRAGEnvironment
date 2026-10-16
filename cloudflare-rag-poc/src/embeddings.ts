@@ -177,6 +177,93 @@ export function buildAnswerPrompt(
   );
 }
 
+// Geminiのストリーミング生成（streamGenerateContent、SSE）。届いた分の本文を onDelta へ順に渡し、
+// 最後に全文とトークン数を返す（2026-10-16追加）。思考（thought）のパートは本文に含めない。
+export async function generateContentStream(
+  env: Env,
+  parts: GeminiPart[],
+  onDelta: (text: string) => void,
+  signal?: AbortSignal,
+): Promise<GenerateResult> {
+  const model = env.GENERATION_MODEL || "gemini-flash-latest";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${env.GEMINI_API_KEY}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ contents: [{ parts }] }),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`Gemini streamGenerateContent APIエラー (${res.status}): ${await res.text()}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let full = "";
+  let promptTokens = 0;
+  let candidateTokens = 0;
+
+  const handleEvent = (raw: string): void => {
+    const dataLines = raw
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim());
+    if (dataLines.length === 0) return;
+    const payload = dataLines.join("");
+    if (!payload || payload === "[DONE]") return;
+    let data: {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>;
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+    };
+    try {
+      data = JSON.parse(payload);
+    } catch {
+      return; // 壊れたイベントは読み飛ばす
+    }
+    if (data.usageMetadata) {
+      promptTokens = data.usageMetadata.promptTokenCount ?? promptTokens;
+      candidateTokens = data.usageMetadata.candidatesTokenCount ?? candidateTokens;
+    }
+    for (const part of data.candidates?.[0]?.content?.parts ?? []) {
+      if (typeof part.text === "string" && !part.thought && part.text.length > 0) {
+        full += part.text;
+        onDelta(part.text);
+      }
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // SSEのイベントは空行（\n\n、または\r\n\r\n）で区切られる
+    buffer = buffer.replace(/\r\n/g, "\n");
+    let idx: number;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      handleEvent(buffer.slice(0, idx));
+      buffer = buffer.slice(idx + 2);
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) handleEvent(buffer);
+  if (full.length === 0) throw new Error("Gemini streamGenerateContent APIから本文を取得できませんでした");
+  return { text: full, promptTokens, candidateTokens };
+}
+
+export async function generateAnswerStream(
+  env: Env,
+  query: string,
+  contextTexts: string[],
+  history: Array<{ role: string; content: string }>,
+  onDelta: (text: string) => void,
+  image?: { mimeType: string; data: string },
+): Promise<GenerateResult> {
+  const prompt = buildAnswerPrompt(query, contextTexts, history);
+  const parts: GeminiPart[] = [{ text: prompt }];
+  if (image) parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
+  return generateContentStream(env, parts, onDelta);
+}
+
 export async function generateAnswer(
   env: Env,
   query: string,

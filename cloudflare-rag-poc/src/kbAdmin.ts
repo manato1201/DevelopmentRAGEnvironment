@@ -117,13 +117,25 @@ export async function handleKbHistory(req: Request, env: Env, user: AuthedUser):
   const body = (await req.json().catch(() => ({}))) as { limit?: number; namespace?: string };
   const limit = body.limit ?? 50;
 
-  const sql = body.namespace
-    ? "SELECT * FROM kb_log WHERE namespace_id = ? ORDER BY created_at DESC LIMIT ?"
-    : "SELECT * FROM kb_log ORDER BY created_at DESC LIMIT ?";
-  const stmt = body.namespace ? env.DB.prepare(sql).bind(body.namespace, limit) : env.DB.prepare(sql).bind(limit);
-
-  const res = await stmt.all();
-  return jsonResponse(200, { entries: res.results ?? [], status: "ok" });
+  // 実行者（kb_ops、migrations/0023）を付ける。ops無し=記録が無い古い履歴（実行者は不明）、
+  // user_idがNULL=自動実行（Cron）。editorは他の人の個人用namespaceの履歴は見られない。
+  const select =
+    "SELECT l.*, o.user_id AS actor_id, o.op_id IS NOT NULL AS has_op, u.display_name AS actor_name FROM kb_log l " +
+    "LEFT JOIN kb_ops o ON o.op_id = l.op_id LEFT JOIN users u ON u.user_id = o.user_id";
+  const where = ["l.namespace_id NOT LIKE 'personal:%'"];
+  const binds: Array<string | number> = [];
+  if (body.namespace) {
+    where.push("l.namespace_id = ?");
+    binds.push(body.namespace);
+  }
+  const res = await env.DB.prepare(`${select} WHERE ${where.join(" AND ")} ORDER BY l.created_at DESC LIMIT ?`)
+    .bind(...binds, limit)
+    .all<Record<string, unknown>>();
+  const entries = (res.results ?? []).map((r) => ({
+    ...r,
+    actor: r.has_op ? (r.actor_id ? String(r.actor_name || String(r.actor_id).slice(0, 8)) : "自動（Cron）") : "不明",
+  }));
+  return jsonResponse(200, { entries, status: "ok" });
 }
 
 // POST /admin/kb/overview — namespaceごとのナレッジ登録状況を一覧表示する（2026-09-10追加。

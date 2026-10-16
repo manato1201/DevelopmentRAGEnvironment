@@ -1,6 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { requireKnowledgeEditor, assertOwnNamespaceOrShared } from "./auth";
-import { ingestDocument, logKb } from "./kbIngest";
+import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { extractTextFromPdf, extractTextFromDocx, extractTextFromPptx } from "./docExtract";
 import { transcribeAudioVideo, transcribeYoutubeUrl } from "./mediaTranscribe";
@@ -32,6 +32,7 @@ export async function handleImportYoutube(req: Request, env: Env, user: AuthedUs
   const title = (body.title || youtubeUrl).trim();
   const result = await ingestDocument(env, namespace, title, text, "manual");
   const opId = newOpId();
+  await recordOp(env, opId, user.userId, "manual", namespace);
   const skipNote = result.skippedVectors.length > 0 ? `（${result.skippedVectors.length}チャンクは登録失敗のためスキップ）` : "";
   await logKb(env, opId, namespace, "manual", title, "ok", `YouTube文字起こし登録: ${result.chunks}チャンク登録${skipNote}（${youtubeUrl}）`);
 
@@ -75,6 +76,7 @@ export async function handleUploadDoc(req: Request, env: Env, user: AuthedUser):
 
   const result = await ingestDocument(env, namespace, fileName, text, "manual");
   const opId = newOpId();
+  await recordOp(env, opId, user.userId, "manual", namespace);
   const skipNote = result.skippedVectors.length > 0 ? `（${result.skippedVectors.length}チャンクは登録失敗のためスキップ）` : "";
   await logKb(env, opId, namespace, "manual", fileName, "ok", `アップロード登録: ${result.chunks}チャンク登録${skipNote}`);
 

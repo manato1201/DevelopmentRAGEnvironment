@@ -19,12 +19,13 @@ export async function saveMemory(
   query: string,
   answer: string,
   sources: SourceEntry[],
-  namespaces: string[]
+  namespaces: string[],
+  threadId: string | null = null,
 ): Promise<number> {
   const res = await env.DB.prepare(
-    "INSERT INTO memory (user_id, query, answer, sources_json, namespaces, rating, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)"
+    "INSERT INTO memory (user_id, query, answer, sources_json, namespaces, rating, created_at, thread_id) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)"
   )
-    .bind(userId, query, answer, JSON.stringify(sources), namespaces.join(","), Math.floor(Date.now() / 1000))
+    .bind(userId, query, answer, JSON.stringify(sources), namespaces.join(","), Math.floor(Date.now() / 1000), threadId)
     .run();
   return res.meta.last_row_id as number;
 }

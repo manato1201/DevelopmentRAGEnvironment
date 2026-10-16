@@ -1,7 +1,7 @@
 import type { Env } from "./types";
 import { authenticate, ForbiddenError, requireKnowledgeEditor } from "./auth";
 import { handleSearch } from "./search";
-import { handleQuery } from "./query";
+import { handleQuery, handleQueryStream } from "./query";
 import { handleIngest } from "./ingest";
 import { handleMemoryList, handleMemoryRate, handleMemoryPin, handlePinnedList } from "./memory";
 import { handleSyncNotion, handleRetryFailedNotion, handlePreviewNotion } from "./notionSync";
@@ -13,6 +13,12 @@ import { handleImportPlace, handleImportPlacesCsv, handleTestMapsConnection } fr
 import { handleJiraOAuthStart, handleJiraOAuthCallback, handleJiraOAuthDisconnect } from "./jiraOAuth";
 import { handleBacklogOAuthStart, handleBacklogOAuthCallback, handleBacklogOAuthDisconnect } from "./backlogOAuth";
 import { handleCalendarOAuthStart, handleCalendarOAuthCallback, handleCalendarOAuthDisconnect } from "./calendarOAuth";
+import { handleListCrawlSchedules, handleSaveCrawlSchedule, handleDeleteCrawlSchedule, runScheduledCrawls } from "./crawlSchedules";
+import { handleSlackCommand, handleSlackLinkCode, handleSlackStatus, handleSlackUnlink } from "./slackBot";
+import { handlePresetList, handlePresetSave, handlePresetDelete } from "./presets";
+import { handleThreadList, handleThreadGet, handleThreadRename, handleThreadDelete } from "./threads";
+import { handleKnowledgeGaps } from "./insights";
+import { handleListStaging, handleSetStaging, handleRemoveStaging, handleStagingDocs, handlePromoteStaging } from "./staging";
 import { handleListSyncTargets, handleAddSyncTarget, handleRemoveSyncTarget } from "./syncTargets";
 import { handleMyConnections } from "./myConnections";
 import { handleGoogleOAuthStart, handleGoogleOAuthCallback, handleGoogleOAuthDisconnect, googleOAuthStatus } from "./googleOAuth";
@@ -61,7 +67,7 @@ const AUDIT_LOG_RETENTION_DAYS = 180;
 const CRAWL_JOB_ABANDONED_DAYS = 1;
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
 
     if (req.method === "GET" && url.pathname === "/health") {
@@ -129,6 +135,15 @@ export default {
     // （そもそも認証できるキーが存在しない、という鶏卵問題への対応。src/keyAdmin.ts参照）。
     // handleBootstrapAdmin自身が「管理者が1人でも存在すれば403」を強制するため、
     // 認証をバイパスしても既存環境を乗っ取れるわけではない。
+    // Slackのスラッシュコマンド。APIキーではなくSlackの署名で確認するため、authenticate()より前に置く。
+    if (url.pathname === "/slack/command") {
+      try {
+        return await handleSlackCommand(req, env, ctx);
+      } catch (err) {
+        return json(500, { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
     if (url.pathname === "/admin/bootstrap") {
       try {
         return await handleBootstrapAdmin(req, env);
@@ -148,8 +163,18 @@ export default {
           return await handleSearch(req, env, user);
         case "/query":
           return await handleQuery(req, env, user);
+        case "/query/stream":
+          return await handleQueryStream(req, env, user, ctx);
         case "/ingest":
           return await handleIngest(req, env, user);
+        case "/threads/list":
+          return await handleThreadList(req, env, user);
+        case "/threads/get":
+          return await handleThreadGet(req, env, user);
+        case "/threads/rename":
+          return await handleThreadRename(req, env, user);
+        case "/threads/delete":
+          return await handleThreadDelete(req, env, user);
         case "/memory/list":
           return await handleMemoryList(req, env, user);
         case "/memory/rate":
@@ -194,6 +219,24 @@ export default {
           return await handlePreviewJira(req, env, user);
         case "/admin/sync/backlog/preview":
           return await handlePreviewBacklog(req, env, user);
+        case "/admin/insights/gaps":
+          return await handleKnowledgeGaps(req, env, user);
+        case "/admin/crawl-schedules/list":
+          return await handleListCrawlSchedules(req, env, user);
+        case "/admin/crawl-schedules/save":
+          return await handleSaveCrawlSchedule(req, env, user);
+        case "/admin/crawl-schedules/delete":
+          return await handleDeleteCrawlSchedule(req, env, user);
+        case "/admin/staging/list":
+          return await handleListStaging(req, env, user);
+        case "/admin/staging/set":
+          return await handleSetStaging(req, env, user);
+        case "/admin/staging/remove":
+          return await handleRemoveStaging(req, env, user);
+        case "/admin/staging/docs":
+          return await handleStagingDocs(req, env, user);
+        case "/admin/staging/promote":
+          return await handlePromoteStaging(req, env, user);
         case "/admin/sync-targets/list":
           return await handleListSyncTargets(req, env, user);
         case "/admin/sync-targets/add":
@@ -363,6 +406,18 @@ export default {
           return await handleTutorialFeedbackList(req, env, user);
         case "/admin/tutorial-feedback/stats":
           return await handleTutorialFeedbackStats(req, env, user);
+        case "/me/slack/link-code":
+          return await handleSlackLinkCode(req, env, user);
+        case "/me/slack/status":
+          return await handleSlackStatus(req, env, user);
+        case "/me/slack/unlink":
+          return await handleSlackUnlink(req, env, user);
+        case "/me/presets/list":
+          return await handlePresetList(req, env, user);
+        case "/me/presets/save":
+          return await handlePresetSave(req, env, user);
+        case "/me/presets/delete":
+          return await handlePresetDelete(req, env, user);
         case "/me/connections":
           return await handleMyConnections(req, env, user);
         case "/me/namespaces":
@@ -396,6 +451,8 @@ export default {
     if (event.cron === "0 3 * * *") {
       const memoryCutoff = Math.floor(Date.now() / 1000) - MEMORY_RETENTION_DAYS * 86400;
       await env.DB.prepare("DELETE FROM memory WHERE created_at < ?").bind(memoryCutoff).run();
+      // 中身の無くなったスレッド（質問がすべて保存期間を過ぎたもの）も消す
+      await env.DB.prepare("DELETE FROM threads WHERE thread_id NOT IN (SELECT DISTINCT thread_id FROM memory WHERE thread_id IS NOT NULL)").run();
       const auditCutoff = Math.floor(Date.now() / 1000) - AUDIT_LOG_RETENTION_DAYS * 86400;
       await env.DB.prepare("DELETE FROM audit_log WHERE created_at < ?").bind(auditCutoff).run();
       await env.DB.prepare("DELETE FROM mcp_audit WHERE created_at < ?").bind(auditCutoff).run();
@@ -412,6 +469,8 @@ export default {
       return;
     }
     await checkHealthAndAlert(env);
+    // 30分ごとに、動かす時刻が来た定期の再クロール（と、途中のもの）を、時間の予算の範囲で進める
+    if (event.cron === "*/30 * * * *") await runScheduledCrawls(env).catch(() => undefined);
   },
 };
 

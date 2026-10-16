@@ -4,7 +4,7 @@ import { ForbiddenError } from "./auth";
 import { authorizeSync, previewBody } from "./syncTargets";
 import { listNotionPages, getPageText } from "./notion";
 import type { NotionPageSummary } from "./notion";
-import { ingestDocument, logKb } from "./kbIngest";
+import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
 
@@ -116,6 +116,7 @@ export async function handleSyncNotion(req: Request, env: Env, user: AuthedUser)
   const startIndex = body.startIndex ?? 0;
   const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
   const opId = body.opId || newOpId();
+  await recordOp(env, opId, user.userId, "notion", namespace);
 
   const pages = await listNotionPages(env, databaseId);
   const batch = pages.slice(startIndex, startIndex + batchSize);

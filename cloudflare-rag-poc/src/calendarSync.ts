@@ -2,7 +2,7 @@ import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
 import { getGoogleAccessToken, requireGoogleServiceAccountConfig } from "./googleAuth";
 import { resolveCalendarOAuthAccessToken } from "./calendarOAuth";
-import { ingestDocument, logKb } from "./kbIngest";
+import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
 import { authorizeSync, cronMayWrite, ownerOfNamespace, previewBody, scopeFor } from "./syncTargets";
@@ -192,6 +192,7 @@ export async function handleSyncCalendar(req: Request, env: Env, user: AuthedUse
   const startIndex = body.startIndex ?? 0;
   const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
   const opId = body.opId || newOpId();
+  await recordOp(env, opId, user.userId, "google_calendar", namespace);
   const timeMinDays = body.timeMinDays ?? DEFAULT_TIME_MIN_DAYS;
   const timeMaxDays = body.timeMaxDays ?? DEFAULT_TIME_MAX_DAYS;
 
@@ -324,6 +325,7 @@ export async function runScheduledCalendarSync(env: Env): Promise<void> {
       const events = await listCalendarEvents(token, row.calendar_id, DEFAULT_TIME_MIN_DAYS, DEFAULT_TIME_MAX_DAYS);
       if (events.length === 0) continue;
       const opId = newOpId();
+      await recordOp(env, opId, null, "google_calendar", row.namespace_id);
       await processCalendarBatch(env, row.namespace_id, opId, events);
       await notifySyncComplete(env, opId, row.namespace_id, "google_calendar", true);
     } catch {

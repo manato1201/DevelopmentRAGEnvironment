@@ -1,6 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { requireKnowledgeEditor, assertOwnNamespaceOrShared } from "./auth";
-import { ingestDocument, logKb } from "./kbIngest";
+import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { jsonResponse } from "./http";
 
@@ -82,6 +82,7 @@ export async function handleImportQaCsv(req: Request, env: Env, user: AuthedUser
   const startIndex = body.startIndex ?? 0;
   const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
   const opId = body.opId || newOpId();
+  await recordOp(env, opId, user.userId, "manual", namespace);
   const batch = dataRows.slice(startIndex, startIndex + batchSize);
 
   let documents = 0;

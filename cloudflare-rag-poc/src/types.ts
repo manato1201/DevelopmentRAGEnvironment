@@ -15,6 +15,9 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   // ヘルスチェックのアラート通知先（2026-08-26追加）。いずれも未設定なら該当チャンネルへは送らない
   SLACK_WEBHOOK_URL?: string;
+  // Slackから質問する（slackBot.ts）。署名の検証用secretと、利用を許可するSlackワークスペースID（カンマ区切り）。
+  SLACK_SIGNING_SECRET?: string;
+  SLACK_TEAM_IDS?: string;
   // Gmail送信は個人アカウントのOAuthリフレッシュトークン方式（Domain-Wide Delegationは
   // Google Workspace限定のため、個人のgmail.comアカウントでは使えなかった。src/gmailOAuth.ts参照）
   GMAIL_OAUTH_CLIENT_ID?: string;
@@ -68,6 +71,8 @@ export interface SourceEntry {
   citationCount?: number;
   // 出典パネルのドロワーに出す本文の抜粋（先頭400文字。/query のレスポンスと履歴だけに付く。/search には付けない）
   excerpt?: string;
+  // この出典を最後に登録した日時（Unix秒）。ナレッジの鮮度の表示に使う（2026-10-16追加）。
+  ingestedAt?: number;
 }
 
 // POST /search レスポンス（既存契約と同一形式：texts/sources/status）
@@ -92,6 +97,8 @@ export interface QueryRequest {
   // 接続済みの公式MCPサーバー（Notion・Atlassian等）の読み取り専用ツールも使って答える（2026-10-08追加、
   // src/mcp/chat.ts）。管理者が「チャットで使う」をオンにしたサービスだけが対象。
   useMcp?: boolean;
+  // 会話のスレッド（クライアントが決めるID。2026-10-16追加、src/threads.ts）。同じIDの質問と回答が1つの会話にまとまる。
+  threadId?: string;
 }
 
 // POST /query レスポンス（既存契約と同一形式。memoryIdはPOC独自追加、チャットUIの評価ボタン用）

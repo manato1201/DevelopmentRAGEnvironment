@@ -65,6 +65,12 @@ export function chatUiHtml(): string {
   @keyframes drift { 0%,100% { transform: translateY(0); opacity: .4; } 50% { transform: translateY(-5px); opacity: 1; } }
   /* ---- UIパーツ・動き（2026-10-11、IMPROVEMENT_DESIGN_2026-10.md 追補）。1画面の動きは2種類まで:
      チャット = タイプライター + ドロワーの出入り。管理 = スクロールスパイ。すべて prefers-reduced-motion で止める。 ---- */
+  .thread-bar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .8rem; }
+  .thread-bar input { flex: 1; min-width: 12rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: .45rem .7rem; font-family: inherit; }
+  .thread-row .thread-title { flex: 1; min-width: 10rem; }
+  .ns-bar { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; padding-right: 1.2rem; }
+  .ns-presets { display: flex; gap: .4rem; padding-top: .5rem; align-items: center; }
+  .ns-presets select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: .25rem .5rem; font-family: inherit; font-size: .8rem; }
   .ns-chips { display: flex; gap: .4rem; flex-wrap: wrap; padding: .5rem 1.2rem 0; }
   .ns-chip { background: none; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-family: inherit; font-size: .78rem; padding: .15rem .7rem; cursor: pointer; }
   .ns-chip[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
@@ -593,8 +599,15 @@ export function chatUiHtml(): string {
 
 <!-- チャットタブ -->
 <div class="tabpanel active" id="tab-chat">
-  <div id="nsChips" class="ns-chips" aria-label="検索対象のnamespace"></div>
-  <div class="graph-toolbar"><button class="btn" id="exportSessionBtn">会話全体をエクスポート</button></div>
+  <div class="ns-bar">
+    <div id="nsChips" class="ns-chips" aria-label="検索対象のnamespace"></div>
+    <div class="ns-presets">
+      <select id="nsPresetSelect" aria-label="検索範囲のプリセット"><option value="">プリセット</option></select>
+      <button type="button" class="btn" id="nsPresetSave" title="いま選んでいる検索範囲に名前を付けて保存します">保存…</button>
+      <button type="button" class="btn danger" id="nsPresetDelete" title="選んでいるプリセットを削除します">削除</button>
+    </div>
+  </div>
+  <div class="graph-toolbar"><button class="btn" id="newThreadBtn" title="いまの会話を履歴に残して、新しい会話を始めます">新しい会話</button><button class="btn" id="exportSessionBtn">会話全体をエクスポート</button></div>
   <canvas id="chatHero"></canvas>
   <div id="chatBody">
     <div id="messages"></div>
@@ -778,6 +791,19 @@ export function chatUiHtml(): string {
         <p class="hint">登録時のopId単位でまとめて取り消す場合は、システムタブの「KBロールバック」を使います。</p>
       </div>
 
+      <div class="section card" id="crawlSchedulesCard">
+        <div class="card-head"><h2>定期の再クロール</h2><button class="btn" id="crawlSchedulesRefresh">更新</button></div>
+        <p class="hint">サイトを毎日・毎週、自動で再クロールします。本文が変わっていないページは飛ばすので、変わったページだけが更新されます。「有効」にしたものだけが動きます（既定は無効）。共有namespaceは、連携の同期先に許可されたものだけです。大きなサイトは30分ごとに少しずつ進みます。</p>
+        <ul class="conn-list" id="crawlSchedulesList"></ul>
+        <div class="field-row"><label>URL</label><input type="text" id="schedUrl" placeholder="例: https://docs.example.com/"></div>
+        <div class="field-row"><label>namespace</label><select id="schedNamespace"></select></div>
+        <div class="field-row"><label>頻度・範囲</label>
+          <select id="schedFrequency" class="role-select"><option value="weekly">毎週</option><option value="daily">毎日</option></select>
+          <select id="schedDepth" class="role-select"><option value="0">起点のみ</option><option value="1" selected>リンク1階層</option><option value="2">リンク2階層</option></select>
+          <input type="number" id="schedMaxPages" value="50" min="1" max="1000" style="width:6rem;"> ページまで</div>
+        <button class="btn primary" id="schedAddBtn">スケジュールを追加（無効の状態で保存）</button>
+      </div>
+
       <div class="section card" id="crawlJobsCard" style="display:none;">
         <div class="card-head"><h2>中断したクロール</h2><button class="btn" id="crawlJobsRefresh">更新</button></div>
         <p class="hint">通信が切れるなどして途中で止まったクロールです。「続きから再開」で、登録済みのページは飛ばして続きを実行します。</p>
@@ -827,11 +853,20 @@ export function chatUiHtml(): string {
       <div class="section">
         <h2>同期履歴</h2>
         <button class="btn" id="refreshKbHistory">再読み込み</button>
-        <div class="table-scroll"><table class="admin-table" id="kbHistoryTable"><thead><tr><th>日時</th><th>opId</th><th>種別</th><th>namespace</th><th>ファイル</th><th>状態</th><th>詳細</th></tr></thead><tbody></tbody></table></div>
+        <select id="kbHistoryActor" class="role-select" aria-label="実行者で絞り込む"><option value="">実行者: すべて</option></select>
+        <select id="kbHistoryStatus" class="role-select" aria-label="状態で絞り込む"><option value="">状態: すべて</option><option value="error">失敗のみ</option><option value="ok">成功のみ</option></select>
+        <div class="table-scroll"><table class="admin-table" id="kbHistoryTable"><thead><tr><th>日時</th><th>実行者</th><th>opId</th><th>種別</th><th>namespace</th><th>ファイル</th><th>状態</th><th>詳細</th></tr></thead><tbody></tbody></table></div>
       </div>
     
       <details class="sync-settings" id="syncSettings">
         <summary>同期・通知の設定（Jira / Backlog / カレンダー / マップ / Slack）</summary>
+      <div class="section" id="stagingCard">
+        <h2>ステージング（受け皿 → 本番）</h2>
+        <p class="hint">連携やクロールの取り込み先を「受け皿」のnamespaceにしておき、内容を確認してから本番のnamespaceへ移します（要らないものは破棄できます）。受け皿は連携の同期先に自動で許可され、本番側を許可リストに入れなければ、連携は本番へ直接書けません。</p>
+        <ul class="conn-list" id="stagingList"><li class="conn-empty">確認中…</li></ul>
+        <div class="field-row admin-only-section"><label>受け皿 → 本番</label><select id="stagingFrom"></select> → <select id="stagingTo"></select> <button class="btn" id="stagingSetBtn">組を登録</button></div>
+      </div>
+
       <div class="section" id="syncTargetsCard">
         <h2>連携の同期先（許可リスト）</h2>
         <p class="hint">Jira・Backlog・カレンダー・Drive・Gmail・Notionの同期は、ここに入っている共有namespaceにだけ書き込めます（不要なデータで知識ベースが汚れるのを防ぐため）。各自の個人用namespace（personal:…）は対象外で、本人専用の接続から本人専用の索引にだけ取り込みます（右上の「自分用の連携」）。追加・削除は管理者だけです。外すと、そのnamespaceの自動同期もオフに戻ります。</p>
@@ -1045,6 +1080,13 @@ export function chatUiHtml(): string {
 
     <!-- 利用状況・コスト: admin専用 -->
     <div class="admin-subpanel admin-only-section" data-subtab="usage">
+      <div class="section">
+        <h2>回答できなかった質問（足りないナレッジ）</h2>
+        <p class="hint">直近の回答のうち、「出典が0件」「出典はあるが、どれも引用されなかった」「役に立たなかったが付いた」ものを、同じ質問ごとにまとめています。何を取り込むとよいかの手がかりです（誰の質問かは表示しません。履歴の保存期間は90日です）。</p>
+        <select id="gapDays" class="role-select" aria-label="期間"><option value="7">直近7日</option><option value="30" selected>直近30日</option><option value="90">直近90日</option></select>
+        <button class="btn" id="gapRefresh">更新</button>
+        <div class="table-scroll"><table class="admin-table" id="gapTable"><thead><tr><th>質問</th><th>回数</th><th>内訳</th><th>最後</th><th>操作</th></tr></thead><tbody></tbody></table></div>
+      </div>
       <div class="section">
         <h2>利用状況（トークン使用量）</h2>
         <div class="field-row">
@@ -1400,6 +1442,49 @@ export function chatUiHtml(): string {
     });
   }
 
+  // 検索範囲のプリセット（名前を付けて保存した、検索対象の組み合わせ）
+  let nsPresets = [];
+  async function loadNsPresets() {
+    try {
+      const data = await api("/me/presets/list", {});
+      nsPresets = data.presets;
+    } catch {
+      nsPresets = []; // ゲストなどは使えない。チップだけで使う
+    }
+    const select = $("nsPresetSelect");
+    select.textContent = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "プリセット";
+    select.appendChild(none);
+    nsPresets.forEach((p) => { const o = document.createElement("option"); o.value = p.name; o.textContent = p.name; select.appendChild(o); });
+  }
+  $("nsPresetSelect").addEventListener("change", () => {
+    const preset = nsPresets.find((p) => p.name === $("nsPresetSelect").value);
+    if (!preset) return;
+    selectedNs.clear();
+    preset.namespaces.forEach((ns) => selectedNs.add(ns));
+    document.querySelectorAll(".ns-chip").forEach((chip) => chip.setAttribute("aria-pressed", selectedNs.has(chip.title) ? "true" : "false"));
+  });
+  $("nsPresetSave").addEventListener("click", async () => {
+    if (selectedNs.size === 0) { showToast("先に、検索対象のnamespaceを1つ以上選んでください", "error"); return; }
+    const name = prompt("プリセットの名前（例: Houdini関連）", $("nsPresetSelect").value || "");
+    if (name === null || !name.trim()) return;
+    try {
+      await api("/me/presets/save", { name: name.trim(), namespaces: [...selectedNs] });
+      await loadNsPresets();
+      $("nsPresetSelect").value = name.trim().slice(0, 30);
+      showToast("プリセットを保存しました", "success");
+    } catch (e) { showToast("保存できませんでした: " + e.message, "error"); }
+  });
+  $("nsPresetDelete").addEventListener("click", async () => {
+    const name = $("nsPresetSelect").value;
+    if (!name) { showToast("削除するプリセットを選んでください", "error"); return; }
+    if (!confirm("プリセット「" + name + "」を削除しますか？")) return;
+    try { await api("/me/presets/delete", { name }); await loadNsPresets(); showToast("削除しました", "success"); }
+    catch (e) { showToast("削除できませんでした: " + e.message, "error"); }
+  });
+
   async function loadNamespaceFocus() {
     if (!apiKeyEl.value.trim()) { setAuthGate(false, null, "APIキーを入力してください"); return; }
     setAuthGate(false, null, "APIキーを確認中…");
@@ -1416,6 +1501,7 @@ export function chatUiHtml(): string {
       });
       if (data.namespaces.includes(prevValue)) namespaceFocusEl.value = prevValue;
       renderNsChips(data.namespaces.slice().sort());
+      loadNsPresets();
       loadKbErrorBadge();
       loadMyBudget();
       refreshMcpAvailability();
@@ -1524,6 +1610,7 @@ export function chatUiHtml(): string {
           loadAuditLog();
           loadRatingStats();
           loadTutorialFeedback();
+          loadKnowledgeGaps();
         }
       }
       else clearNewKey(); // 管理タブを離れたら、発行直後のAPIキー表示が残らないようにする
@@ -1586,7 +1673,7 @@ export function chatUiHtml(): string {
       document.querySelector('.admin-subpanel[data-subtab="' + btn.dataset.subtab + '"]').classList.add("active");
       // 「連携」タブを開くたびに接続状況を再確認する（OAuth接続直後の戻り先でもあるため、
       // 2026-09-22追加）。
-      if (btn.dataset.subtab === "knowledge") { initKbList(); refreshConnectedSystems(); loadOAuthStatus(); loadSyncTargets(); loadCrawlJobs(); }
+      if (btn.dataset.subtab === "knowledge") { initKbList(); refreshConnectedSystems(); loadOAuthStatus(); loadSyncTargets(); loadStaging(); loadCrawlJobs(); loadCrawlSchedules(); }
       setTimeout(buildAdminToc, 0);
     });
   });
@@ -1602,7 +1689,7 @@ export function chatUiHtml(): string {
   function runAutoRefresh() {
     const subtab = currentAdminSubtab();
     if (subtab === "overview") loadAdminOverview();
-    else if (subtab === "usage") { loadUsageStats(); loadClaudeCostStats(); loadGeminiCostStats(); loadAuditLog(); loadRatingStats(); loadTutorialFeedback(); }
+    else if (subtab === "usage") { loadUsageStats(); loadClaudeCostStats(); loadGeminiCostStats(); loadAuditLog(); loadRatingStats(); loadTutorialFeedback(); loadKnowledgeGaps(); }
     else if (subtab === "namespaces") { loadNamespaces(); loadNamespaceUsage(); }
     else if (subtab === "users") loadKeys();
     else if (subtab === "knowledge") { loadKbOverview(); loadKbHistory(); }
@@ -1655,6 +1742,13 @@ export function chatUiHtml(): string {
   // 履歴タブ/お気に入りタブから読み込んだ過去の会話はここには含めない
   // （今このタブで交わした会話をまとめてエクスポートする、という用途のため）。
   const sessionLog = [];
+  // 会話のスレッド（2026-10-16）。同じthreadIdの質問と回答が、履歴タブで1つの会話にまとまる。
+  // history は、続きの質問に添える直近のやり取り（サーバー側でも直近6件・800文字までに絞る）。
+  let currentThread = { id: null, history: [] };
+  function newThreadId() {
+    const raw = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2);
+    return ("t" + raw).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+  }
 
   // ---------- チャット空状態のヒーロービジュアル ----------
   // まだ質問していない間だけ、このユーザーが実際にアクセスできるナレッジベースの
@@ -1871,6 +1965,17 @@ export function chatUiHtml(): string {
     return md;
   }
 
+  // ナレッジの鮮度: 出典を最後に登録した日（ingestedAt、Unix秒）から、日付と「古い可能性」を出す。
+  // 180日以上前のものは、色だけでなく文字でも「古い可能性」と示す。
+  const STALE_DAYS = 180;
+  function freshness(ingestedAt) {
+    if (!ingestedAt) return null;
+    const days = Math.floor((Date.now() / 1000 - ingestedAt) / 86400);
+    const d = new Date(ingestedAt * 1000);
+    const date = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    return { date, days, stale: days >= STALE_DAYS };
+  }
+
   // タイプライター: 新しく生成した回答の文字を、短い時間で順に表示する（ストリーミングではなく、
   // 受け取った回答の表示演出）。上限は1.5秒。prefers-reduced-motion のときは何もしない。
   function typewriter(bubble) {
@@ -1919,6 +2024,8 @@ export function chatUiHtml(): string {
     meta.appendChild(pill);
     if (source.score != null) meta.appendChild(document.createTextNode("関連度 " + source.score + "%"));
     meta.appendChild(document.createTextNode(source.cited ? "引用 " + (source.citationCount || 1) + "回" : "未引用"));
+    const fresh = freshness(source.ingestedAt);
+    if (fresh) meta.appendChild(document.createTextNode("最終登録 " + fresh.date + (fresh.stale ? "（" + fresh.days + "日前・古い可能性）" : "")));
     body.appendChild(meta);
     const excerpt = document.createElement("pre");
     excerpt.className = "drawer-excerpt";
@@ -1979,7 +2086,8 @@ export function chatUiHtml(): string {
       name.textContent = "[" + (i + 1) + "] " + s.file;
       const sub = document.createElement("div");
       sub.className = "src-sub";
-      sub.textContent = s.namespace + (s.cited ? "・引用あり" : "・未引用");
+      const fresh = freshness(s.ingestedAt);
+      sub.textContent = s.namespace + (s.cited ? "・引用あり" : "・未引用") + (fresh ? "・更新 " + fresh.date + (fresh.stale ? "（古い可能性）" : "") : "");
       text.appendChild(name);
       text.appendChild(sub);
       row.appendChild(text);
@@ -2213,7 +2321,8 @@ export function chatUiHtml(): string {
     // U4: 回答の下に、出典件数とAI生成であることを固定表示する。
     const foot = document.createElement("div");
     foot.className = "answer-foot";
-    foot.textContent = "出典 " + (sources ? sources.length : 0) + "件・AIが生成した回答です";
+    const staleCount = (sources || []).filter((s) => { const f = freshness(s.ingestedAt); return f && f.stale; }).length;
+    foot.textContent = "出典 " + (sources ? sources.length : 0) + "件・AIが生成した回答です" + (staleCount > 0 ? "・うち" + staleCount + "件は" + STALE_DAYS + "日以上前の情報です" : "");
     wrap.appendChild(foot);
 
     // U5: 0件ヒット時だけ、小さな空状態を出す（通常画面には遊びを入れない）。
@@ -2303,6 +2412,57 @@ export function chatUiHtml(): string {
     imageAttachPreview.appendChild(clearBtn);
   });
 
+  // 回答のストリーミング受信（/query/stream、Server-Sent Events）。出典が届いたら出典パネルを出し、
+  // 本文が届くたびに途中の回答へ足していく。完成した応答（/queryと同じ形）を返す。
+  // 外部サービスのツールを使うときなど、サーバーが通常のJSONで返す場合は、そのJSONをそのまま返す。
+  let streamUi = null; // send()が渡す { onSources(data), onDelta(text) }
+  async function queryStream(body) {
+    const res = await fetch("/query/stream", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + apiKeyEl.value.trim(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const type = res.headers.get("content-type") || "";
+    if (!type.includes("text/event-stream")) {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+      return data;
+    }
+    if (!res.body) throw new Error("ストリームを読み取れません");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let final = null;
+    function handle(raw) {
+      let event = "message";
+      const dataLines = [];
+      raw.split(NL).forEach((line) => {
+        if (line.indexOf("event:") === 0) event = line.slice(6).trim();
+        else if (line.indexOf("data:") === 0) dataLines.push(line.slice(5).trim());
+      });
+      if (dataLines.length === 0) return;
+      let data;
+      try { data = JSON.parse(dataLines.join("")); } catch { return; }
+      if (event === "sources" && streamUi) streamUi.onSources(data);
+      else if (event === "delta" && streamUi) streamUi.onDelta(data.text || "");
+      else if (event === "done") final = data;
+      else if (event === "error") throw new Error(data.error || "回答の生成に失敗しました");
+    }
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).split(String.fromCharCode(13)).join("");
+      let idx;
+      while ((idx = buffer.indexOf(NL + NL)) !== -1) {
+        handle(buffer.slice(0, idx));
+        buffer = buffer.slice(idx + 2);
+      }
+    }
+    if (buffer.trim()) handle(buffer);
+    if (!final) throw new Error("回答が途中で途切れました。もう一度お試しください");
+    return final;
+  }
+
   async function send() {
     const text = inputEl.value.trim();
     if (!text) return;
@@ -2312,6 +2472,7 @@ export function chatUiHtml(): string {
     inputEl.style.height = "auto";
     clearPendingImage();
     stopChatHero();
+    if (!currentThread.id) currentThread.id = newThreadId();
     renderUserMessage(messagesEl, text);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     sendBtn.disabled = true;
@@ -2327,9 +2488,36 @@ export function chatUiHtml(): string {
       const picked = [...selectedNs];
       const focusNs = namespaceFocusEl.value;
       const useMcp = $("mcpToggle") && $("mcpToggle").checked && $("mcpToggleWrap").style.display !== "none";
-      const data = await api("/query", { query: text, limit: 5, level: levelEl.value, namespaces: picked.length > 0 ? picked : (focusNs ? [focusNs] : undefined), image: imageToSend || undefined, useMcp: useMcp || undefined });
+      let liveBubble = null; // 生成中の回答（届いた分だけ表示）
+      let liveText = null;
+      streamUi = {
+        onSources: (d) => {
+          skeleton.remove();
+          showSourcePanel(d.sources);
+          const wrap = document.createElement("div");
+          wrap.className = "msg assistant";
+          liveBubble = document.createElement("div");
+          liveBubble.className = "bubble";
+          liveText = document.createTextNode("");
+          liveBubble.appendChild(liveText);
+          wrap.appendChild(liveBubble);
+          messagesEl.appendChild(wrap);
+          liveBubble.parentElement.dataset.live = "1";
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        },
+        onDelta: (chunk) => {
+          if (!liveText) return;
+          liveText.nodeValue += chunk;
+          if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 160) messagesEl.scrollTop = messagesEl.scrollHeight;
+        },
+      };
+      const data = await queryStream({ query: text, limit: 5, level: levelEl.value, namespaces: picked.length > 0 ? picked : (focusNs ? [focusNs] : undefined), image: imageToSend || undefined, useMcp: useMcp || undefined, threadId: currentThread.id, history: currentThread.history.slice(-6) });
       skeleton.remove();
-      revealNext = true;
+      // ストリーミングで表示した途中の回答を、出典リンク・評価ボタンつきの完成した表示に置き換える
+      const streamed = !!liveBubble;
+      if (liveBubble) liveBubble.parentElement.remove();
+      streamUi = null;
+      revealNext = !streamed; // 流れて表示済みの回答には、タイプライターは使わない
       renderAssistantMessage(messagesEl, text, data.answer, data.sources, data.extractionRate, data.extractionDetail, data.memoryId, null, false);
       if (data.toolCalls && data.toolCalls.length > 0) {
         // 使った外部サービスのツールを回答の下に出す（textContentのみ）
@@ -2340,10 +2528,14 @@ export function chatUiHtml(): string {
         if (last) last.appendChild(note);
       }
       sessionLog.push({ question: text, answer: data.answer, sources: data.sources });
+      currentThread.history.push({ role: "user", content: text }, { role: "assistant", content: data.answer });
       messagesEl.scrollTop = messagesEl.scrollHeight;
       setStatus("");
     } catch (e) {
       skeleton.remove();
+      streamUi = null;
+      const partial = messagesEl.querySelector('.msg[data-live="1"]');
+      if (partial) partial.remove();
       setStatus("エラー: " + e.message, true);
     } finally {
       skeleton.remove();
@@ -2393,21 +2585,135 @@ export function chatUiHtml(): string {
     pane.appendChild(box);
   }
 
-  async function loadHistory() {
-    const pane = $("historyPane");
-    if (!apiKeyEl.value.trim()) { pane.innerHTML = '<p class="hint error">APIキーを入力してください</p>'; return; }
-    pane.innerHTML = '<p class="hint">読み込み中…</p>';
+  // 新しい会話を始める（いまの会話は履歴に残る）。
+  function resetConversation() {
+    currentThread = { id: null, history: [] };
+    sessionLog.length = 0;
+    messagesEl.textContent = "";
+    showSourcePanel(null);
+    setStatus("");
+    loadChatHero();
+  }
+  $("newThreadBtn").addEventListener("click", resetConversation);
+
+  // 履歴のスレッドを開いて、チャットの続きとして再開する。
+  async function openThread(threadId) {
+    try {
+      const data = await api("/threads/get", { threadId });
+      document.querySelector('nav.tabs button[data-tab="chat"]').click();
+      stopChatHero();
+      messagesEl.textContent = "";
+      sessionLog.length = 0;
+      currentThread = { id: threadId, history: [] };
+      data.entries.forEach((entry) => {
+        renderUserMessage(messagesEl, entry.query);
+        const ext = computeExtraction(entry.sources);
+        renderAssistantMessage(messagesEl, entry.query, entry.answer, entry.sources, ext.rate, ext.detail, entry.id, entry.rating, entry.pinned);
+        sessionLog.push({ question: entry.query, answer: entry.answer, sources: entry.sources });
+        currentThread.history.push({ role: "user", content: entry.query }, { role: "assistant", content: entry.answer });
+      });
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      showToast("「" + data.title + "」の続きから再開できます", "success");
+    } catch (e) {
+      showToast("会話を開けませんでした: " + e.message, "error");
+    }
+  }
+
+  async function loadLegacyHistory(container) {
+    container.textContent = "";
     try {
       const data = await api("/memory/list", { limit: 30 });
-      pane.innerHTML = "";
-      if (data.entries.length === 0) { renderEmptyState(pane, "まだ質問していません。チャットで質問すると、回答と出典がここに残ります。", "チャットへ"); return; }
       data.entries.forEach((entry) => {
-        renderUserMessage(pane, entry.query);
+        renderUserMessage(container, entry.query);
         const ext = computeExtraction(entry.sources);
-        renderAssistantMessage(pane, entry.query, entry.answer, entry.sources, ext.rate, ext.detail, entry.id, entry.rating, entry.pinned);
+        renderAssistantMessage(container, entry.query, entry.answer, entry.sources, ext.rate, ext.detail, entry.id, entry.rating, entry.pinned);
       });
     } catch (e) {
-      pane.innerHTML = '<p class="hint error">読み込みに失敗しました: ' + e.message + '</p>';
+      container.textContent = "読み込みに失敗しました: " + e.message;
+    }
+  }
+
+  async function loadHistory(searchText) {
+    const pane = $("historyPane");
+    if (!apiKeyEl.value.trim()) { pane.innerHTML = '<p class="hint error">APIキーを入力してください</p>'; return; }
+    const query = typeof searchText === "string" ? searchText : "";
+    pane.textContent = "";
+    const bar = document.createElement("div");
+    bar.className = "thread-bar";
+    const search = document.createElement("input");
+    search.type = "search";
+    search.id = "threadSearch";
+    search.placeholder = "会話を検索（題名・質問・回答）";
+    search.value = query;
+    const searchBtn = document.createElement("button");
+    searchBtn.type = "button";
+    searchBtn.className = "btn";
+    searchBtn.textContent = "検索";
+    const newBtn = document.createElement("button");
+    newBtn.type = "button";
+    newBtn.className = "btn primary";
+    newBtn.textContent = "新しい会話";
+    const go = () => loadHistory(search.value.trim());
+    searchBtn.addEventListener("click", go);
+    search.addEventListener("keydown", (event) => { if (event.key === "Enter") go(); });
+    newBtn.addEventListener("click", () => { resetConversation(); document.querySelector('nav.tabs button[data-tab="chat"]').click(); });
+    bar.appendChild(search);
+    bar.appendChild(searchBtn);
+    bar.appendChild(newBtn);
+    pane.appendChild(bar);
+    const list = document.createElement("ul");
+    list.className = "conn-list thread-list";
+    pane.appendChild(list);
+    const legacyBox = document.createElement("div");
+    pane.appendChild(legacyBox);
+    try {
+      const data = await api("/threads/list", { q: query });
+      if (data.threads.length === 0 && data.legacyCount === 0) {
+        renderEmptyState(legacyBox, query ? "該当する会話はありません。" : "まだ質問していません。チャットで質問すると、会話ごとにここへ残ります。", query ? "" : "チャットへ");
+        return;
+      }
+      if (data.threads.length === 0) list.appendChild(mk("li", "conn-empty", query ? "該当する会話はありません。" : "会話のまとまりはまだありません。"));
+      data.threads.forEach((th) => {
+        const li = mk("li", "conn-row thread-row");
+        const title = mk("strong", "thread-title", th.title);
+        li.appendChild(title);
+        li.appendChild(mk("span", "conn-desc", th.turns + "問・" + new Date(th.updatedAt * 1000).toLocaleString()));
+        const open = mk("button", "btn primary", "続きから開く");
+        open.type = "button";
+        open.addEventListener("click", () => openThread(th.threadId));
+        const rename = mk("button", "btn", "名前を変える");
+        rename.type = "button";
+        rename.addEventListener("click", async () => {
+          const next = prompt("会話の名前", th.title);
+          if (next === null || !next.trim()) return;
+          try { await api("/threads/rename", { threadId: th.threadId, title: next.trim() }); loadHistory(query); }
+          catch (e) { showToast("名前を変えられませんでした: " + e.message, "error"); }
+        });
+        const del = mk("button", "btn danger", "削除");
+        del.type = "button";
+        del.addEventListener("click", async () => {
+          if (!confirm("「" + th.title + "」とその回答を削除しますか？")) return;
+          try {
+            await api("/threads/delete", { threadId: th.threadId });
+            if (currentThread.id === th.threadId) resetConversation();
+            showToast("削除しました", "success");
+            loadHistory(query);
+          } catch (e) { showToast("削除できませんでした: " + e.message, "error"); }
+        });
+        li.appendChild(open);
+        li.appendChild(rename);
+        li.appendChild(del);
+        list.appendChild(li);
+      });
+      if (data.legacyCount > 0 && !query) {
+        const legacyBtn = mk("button", "btn", "会話にまとまっていない以前の履歴（" + data.legacyCount + "件）を見る");
+        legacyBtn.type = "button";
+        legacyBtn.style.marginTop = ".8rem";
+        legacyBtn.addEventListener("click", () => { legacyBtn.remove(); loadLegacyHistory(legacyBox); });
+        legacyBox.appendChild(legacyBtn);
+      }
+    } catch (e) {
+      pane.appendChild(mk("p", "hint error", "読み込みに失敗しました: " + e.message));
     }
   }
 
@@ -3877,6 +4183,104 @@ export function chatUiHtml(): string {
   wireAutoCheckbox("backlogNamespace", "backlogAuto", "backlog");
   wireAutoCheckbox("calendarNamespace", "calendarAuto", "calendar");
 
+  // ステージング: 受け皿の内容を確認して、本番へ移す・破棄する
+  async function loadStaging() {
+    const list = $("stagingList");
+    if (!list) return;
+    try {
+      const [data, ns] = await Promise.all([api("/admin/staging/list", {}), kbLoadNamespaces()]);
+      list.innerHTML = "";
+      if (data.pairs.length === 0) list.appendChild(mk("li", "conn-empty", "ステージングの組はまだありません。"));
+      data.pairs.forEach((pair) => {
+        const li = mk("li", "conn-row");
+        li.appendChild(mk("strong", "", pair.staging));
+        li.appendChild(mk("span", "conn-desc", "→"));
+        li.appendChild(mk("strong", "", pair.target));
+        li.appendChild(mk("span", "chip" + (pair.pending > 0 ? " ok" : ""), "確認待ち " + pair.pending + "件"));
+        const open = mk("button", "btn primary", "確認する…");
+        open.type = "button";
+        open.addEventListener("click", () => openStagingModal(pair));
+        li.appendChild(open);
+        if (currentUserRole === "admin") {
+          const remove = mk("button", "btn danger", "解除");
+          remove.type = "button";
+          remove.addEventListener("click", async () => {
+            if (!confirm("この組を解除しますか？（受け皿のドキュメントはそのまま残ります）")) return;
+            try { await api("/admin/staging/remove", { staging: pair.staging }); loadStaging(); }
+            catch (e) { showToast("失敗しました: " + e.message, "error"); }
+          });
+          li.appendChild(remove);
+        }
+        list.appendChild(li);
+      });
+      const shared = ns.filter((id) => id.indexOf("shared:") === 0);
+      [$("stagingFrom"), $("stagingTo")].forEach((select) => {
+        select.innerHTML = "";
+        shared.forEach((id) => { const o = document.createElement("option"); o.value = id; o.textContent = id; select.appendChild(o); });
+      });
+    } catch (e) {
+      list.innerHTML = "";
+      list.appendChild(mk("li", "conn-empty", "取得に失敗しました: " + e.message));
+    }
+  }
+  $("stagingSetBtn").addEventListener("click", async () => {
+    try {
+      const r = await api("/admin/staging/set", { staging: $("stagingFrom").value, target: $("stagingTo").value });
+      showToast(r.targetAllowed ? "登録しました。ただし本番側がまだ連携の許可リストに入っています（外すと、連携は受け皿にだけ書けます）" : "登録しました", r.targetAllowed ? "error" : "success");
+      loadStaging();
+      loadSyncTargets();
+    } catch (e) { showToast("登録に失敗しました: " + e.message, "error"); }
+  });
+
+  async function openStagingModal(pair) {
+    const modal = openModal({ title: "ステージングの確認", subtitle: pair.staging + " → " + pair.target, wide: true, onClose: () => { loadStaging(); loadKbOverview(); } });
+    let data;
+    try { data = await api("/admin/staging/docs", { staging: pair.staging }); }
+    catch (e) { modal.body.appendChild(mk("p", "modal-error", "読み込みに失敗しました: " + e.message)); modal.footer.appendChild(modalButton("閉じる", "", () => modal.close())); return; }
+    if (data.documents.length === 0) modal.body.appendChild(mk("p", "modal-note", "確認待ちのドキュメントはありません。"));
+    const boxes = [];
+    data.documents.forEach((doc) => {
+      const block = mk("div", "mine-block");
+      const label = mk("label", "inline-check");
+      const box = mk("input");
+      box.type = "checkbox";
+      label.appendChild(box);
+      label.appendChild(mk("strong", "", doc.file));
+      if (doc.source) label.appendChild(mk("span", "chip", doc.source));
+      if (doc.updatedAt) label.appendChild(mk("span", "conn-desc", new Date(doc.updatedAt * 1000).toLocaleString()));
+      block.appendChild(label);
+      const excerpt = mk("pre", "drawer-excerpt");
+      excerpt.textContent = doc.excerpt || "（本文の抜粋はありません）";
+      block.appendChild(excerpt);
+      modal.body.appendChild(block);
+      boxes.push([doc.file, box]);
+    });
+    const selected = () => boxes.filter((b) => b[1].checked).map((b) => b[0]);
+    modal.footer.appendChild(modalButton("閉じる", "", () => modal.close()));
+    modal.footer.appendChild(modalButton("選んだものを破棄", "danger", async () => {
+      const files = selected();
+      if (files.length === 0) { showToast("ドキュメントを選んでください", "error"); return; }
+      if (!confirm(files.length + "件を破棄します（受け皿から削除されます）。よろしいですか？")) return;
+      let failed = 0;
+      for (const file of files) {
+        try { await api("/admin/kb/delete-document", { namespace: pair.staging, file }); } catch { failed++; }
+      }
+      showToast(failed ? "破棄できなかったものがあります（" + failed + "件）" : "破棄しました", failed ? "error" : "success");
+      modal.close();
+    }));
+    modal.footer.appendChild(modalButton("選んだものを本番へ移す", "primary", async () => {
+      const files = selected();
+      if (files.length === 0) { showToast("ドキュメントを選んでください", "error"); return; }
+      if (!confirm(files.length + "件を「" + pair.target + "」へ移します。よろしいですか？")) return;
+      try {
+        const r = await api("/admin/staging/promote", { staging: pair.staging, files });
+        const failed = r.results.filter((x) => x.status === "error");
+        showToast(failed.length ? "移せなかったものがあります（" + failed.length + "件: " + failed[0].error + "）" : r.results.length + "件を本番へ移しました", failed.length ? "error" : "success");
+        modal.close();
+      } catch (e) { showToast("移動に失敗しました: " + e.message, "error"); }
+    }));
+  }
+
   // 連携の同期先（許可リスト）
   async function loadSyncTargets() {
     const list = $("syncTargetList");
@@ -3913,6 +4317,66 @@ export function chatUiHtml(): string {
     if (!namespace) { showToast("追加できるnamespaceがありません", "error"); return; }
     try { await api("/admin/sync-targets/add", { namespace }); showToast("許可しました", "success"); loadSyncTargets(); }
     catch (e) { showToast("失敗しました: " + e.message, "error"); }
+  });
+
+  // ---- 定期の再クロール ----
+  async function loadCrawlSchedules() {
+    const list = $("crawlSchedulesList");
+    if (!list) return;
+    try {
+      const [data, ns] = await Promise.all([api("/admin/crawl-schedules/list", {}), kbLoadNamespaces()]);
+      const select = $("schedNamespace");
+      const wanted = select.value;
+      select.innerHTML = "";
+      ns.forEach((id) => { const o = document.createElement("option"); o.value = id; o.textContent = namespaceLabel(id) === "個人用（自分専用）" ? id + "（自分専用）" : id; select.appendChild(o); });
+      if (ns.includes(wanted)) select.value = wanted;
+      list.innerHTML = "";
+      if (data.schedules.length === 0) list.appendChild(mk("li", "conn-empty", "定期の再クロールはまだありません。"));
+      data.schedules.forEach((s) => {
+        const li = mk("li", "conn-row");
+        li.appendChild(mk("strong", "", s.url));
+        li.appendChild(mk("span", "chip", s.namespace));
+        li.appendChild(mk("span", "chip", s.frequency === "daily" ? "毎日" : "毎週"));
+        li.appendChild(mk("span", "conn-desc", "リンク" + s.depth + "階層・最大" + s.maxPages + "ページ・" + (s.running ? "実行中（続きを進めています）" : s.lastRunAt ? "最終 " + new Date(s.lastRunAt * 1000).toLocaleString() : "未実行")));
+        const label = mk("label", "inline-check");
+        const box = mk("input");
+        box.type = "checkbox";
+        box.checked = s.enabled;
+        box.addEventListener("change", async () => {
+          try {
+            await api("/admin/crawl-schedules/save", { id: s.id, namespace: s.namespace, url: s.url, depth: s.depth, maxPages: s.maxPages, pathPrefix: s.pathPrefix, excludePatterns: s.excludePatterns, frequency: s.frequency, enabled: box.checked });
+            showToast(box.checked ? "有効にしました" : "無効にしました", "success");
+          } catch (e) { box.checked = !box.checked; showToast("失敗しました: " + e.message, "error"); }
+        });
+        label.appendChild(box);
+        label.appendChild(document.createTextNode(" 有効"));
+        const del = mk("button", "btn danger", "削除");
+        del.type = "button";
+        del.addEventListener("click", async () => {
+          if (!confirm("このスケジュールを削除しますか？（登録済みのページは残ります）")) return;
+          try { await api("/admin/crawl-schedules/delete", { id: s.id }); loadCrawlSchedules(); }
+          catch (e) { showToast("削除に失敗しました: " + e.message, "error"); }
+        });
+        li.appendChild(label);
+        li.appendChild(del);
+        list.appendChild(li);
+      });
+    } catch (e) {
+      list.innerHTML = "";
+      list.appendChild(mk("li", "conn-empty", "取得に失敗しました: " + e.message));
+    }
+  }
+  $("crawlSchedulesRefresh").addEventListener("click", loadCrawlSchedules);
+  $("schedAddBtn").addEventListener("click", async () => {
+    try {
+      await api("/admin/crawl-schedules/save", {
+        namespace: $("schedNamespace").value, url: $("schedUrl").value.trim(), frequency: $("schedFrequency").value,
+        depth: Number($("schedDepth").value), maxPages: Number($("schedMaxPages").value), enabled: false,
+      });
+      $("schedUrl").value = "";
+      showToast("追加しました。「有効」にすると動き始めます", "success");
+      loadCrawlSchedules();
+    } catch (e) { showToast("追加に失敗しました: " + e.message, "error"); }
   });
 
   // ---- 中断したクロールの一覧と再開 ----
@@ -4091,6 +4555,35 @@ export function chatUiHtml(): string {
     mcp.appendChild(modalButton("公式MCPを管理…", "primary", () => { openSystemsModal(null, true); }));
     modal.body.appendChild(mcp);
 
+    const slack = mk("div", "mine-block");
+    slack.appendChild(mk("h4", "", "Slackから質問する"));
+    slack.appendChild(mk("p", "modal-note", "Slackで「/rag 質問文」と入力すると、あなたの権限でこのシステムに質問できます（答えはあなたにだけ表示されます）。初回は、ここで連携コードを発行し、Slackで「/rag link コード」を実行してひもづけます。"));
+    const slackStatus = mk("p", "modal-note", "確認中…");
+    const slackCode = mk("p", "modal-note");
+    slackCode.style.fontSize = "1.3rem";
+    slackCode.style.letterSpacing = ".25em";
+    slackCode.style.fontVariantNumeric = "tabular-nums";
+    const slackButtons = mk("div", "mine-actions");
+    slackButtons.appendChild(modalButton("連携コードを発行", "primary", async () => {
+      try {
+        const r = await api("/me/slack/link-code", {});
+        slackCode.textContent = r.code;
+        slackStatus.textContent = "Slackで「/rag link " + r.code + "」を実行してください（" + Math.floor(r.expiresInSec / 60) + "分以内・1回だけ使えます）。";
+      } catch (e) { showToast("発行できませんでした: " + e.message, "error"); }
+    }));
+    slackButtons.appendChild(modalButton("Slackとのひもづけを解除", "danger", async () => {
+      if (!confirm("このアカウントにひもづいたSlackユーザーをすべて解除しますか？")) return;
+      try { await api("/me/slack/unlink", {}); slackStatus.textContent = "解除しました。"; slackCode.textContent = ""; }
+      catch (e) { showToast("解除できませんでした: " + e.message, "error"); }
+    }));
+    slack.appendChild(slackStatus);
+    slack.appendChild(slackCode);
+    slack.appendChild(slackButtons);
+    modal.body.appendChild(slack);
+    api("/me/slack/status", {}).then((s) => {
+      slackStatus.textContent = !s.configured ? "Slackからの質問は、まだ設定されていません（管理者が設定します）。" : s.linked > 0 ? "ひもづいているSlackユーザー: " + s.linked + "人" : "まだSlackとひもづいていません。";
+    }).catch(() => { slackStatus.textContent = "状態を取得できませんでした。"; });
+
     const docs = mk("div", "mine-block");
     docs.appendChild(mk("h4", "", "取り込んだ自分用ナレッジ"));
     const docsList = mk("ul", "conn-list");
@@ -4234,22 +4727,43 @@ export function chatUiHtml(): string {
 
   async function loadKbHistory() {
     const tbody = $("kbHistoryTable").querySelector("tbody");
-    tbody.innerHTML = "<tr><td colspan=7>読み込み中…</td></tr>";
+    tbody.innerHTML = "<tr><td colspan=8>読み込み中…</td></tr>";
     try {
-      const data = await api("/admin/kb/history", { limit: 30 });
+      const data = await api("/admin/kb/history", { limit: 100 });
       applyKbErrorBadge(data.entries);
-      tbody.innerHTML = "";
-      data.entries.forEach((e) => {
+      kbHistoryEntries = data.entries;
+      renderKbHistory();
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan=8>取得に失敗しました: ' + e.message + '</td></tr>';
+    }
+  }
+  // 実行者・状態での絞り込み（読み込み済みの履歴の中で行う）
+  let kbHistoryEntries = [];
+  function renderKbHistory() {
+    const tbody = $("kbHistoryTable").querySelector("tbody");
+    const actorSel = $("kbHistoryActor");
+    const actors = Array.from(new Set(kbHistoryEntries.map((e) => e.actor))).sort();
+    const wantedActor = actorSel.value;
+    actorSel.innerHTML = "";
+    const all = document.createElement("option");
+    all.value = "";
+    all.textContent = "実行者: すべて";
+    actorSel.appendChild(all);
+    actors.forEach((a) => { const o = document.createElement("option"); o.value = a; o.textContent = a; actorSel.appendChild(o); });
+    actorSel.value = actors.includes(wantedActor) ? wantedActor : "";
+    const wantedStatus = $("kbHistoryStatus").value;
+    tbody.innerHTML = "";
+    kbHistoryEntries.filter((e) => (!actorSel.value || e.actor === actorSel.value) && (!wantedStatus || e.status === wantedStatus)).forEach((e) => {
         const when = new Date(e.created_at * 1000).toLocaleString();
         // file/detailはDrive/Notion側の実データ（ファイル名・エラー詳細）に由来する未検証の
         // 文字列なので、appendRow経由でtextContent挿入する（2026-09-04、悪意あるHTMLタグを
         // 含むファイル名が管理画面でHTMLとして実行されるstored XSSの可能性を修正）。
-        appendRow(tbody, [when, e.op_id, e.source, e.namespace_id, e.file || "-", e.status, e.detail || ""]);
+        appendRow(tbody, [when, e.actor, e.op_id, e.source, e.namespace_id, e.file || "-", e.status, e.detail || ""]);
       });
-    } catch (e) {
-      tbody.innerHTML = '<tr><td colspan=7>取得に失敗しました: ' + e.message + '</td></tr>';
-    }
+    if (!tbody.firstChild) tbody.innerHTML = "<tr><td colspan=8>該当する履歴はありません</td></tr>";
   }
+  $("kbHistoryActor").addEventListener("change", renderKbHistory);
+  $("kbHistoryStatus").addEventListener("change", renderKbHistory);
   $("refreshKbHistory").addEventListener("click", loadKbHistory);
 
   // ---------- 管理タブ：namespaceごとのナレッジ登録状況（2026-09-10追加） ----------
@@ -4412,6 +4926,39 @@ export function chatUiHtml(): string {
   $("dupCheckBtn").addEventListener("click", checkDuplicateDocs);
 
   // ---------- 管理タブ：評価統計 ----------
+  // ---------- 回答できなかった質問（足りないナレッジ） ----------
+  async function loadKnowledgeGaps() {
+    const tbody = $("gapTable").querySelector("tbody");
+    tbody.innerHTML = "<tr><td colspan=5>読み込み中…</td></tr>";
+    try {
+      const data = await api("/admin/insights/gaps", { days: Number($("gapDays").value) });
+      tbody.innerHTML = "";
+      if (data.gaps.length === 0) { tbody.innerHTML = "<tr><td colspan=5>該当する質問はありません（" + data.scanned + "件を確認）</td></tr>"; return; }
+      data.gaps.forEach((g) => {
+        const tr = document.createElement("tr");
+        const q = document.createElement("td"); q.textContent = g.query; tr.appendChild(q);
+        const c = document.createElement("td"); c.textContent = String(g.count); tr.appendChild(c);
+        const parts = [];
+        if (g.noSources) parts.push("出典なし " + g.noSources);
+        if (g.uncited) parts.push("未引用 " + g.uncited);
+        if (g.disliked) parts.push("低評価 " + g.disliked);
+        const d = document.createElement("td"); d.textContent = parts.join(" / "); tr.appendChild(d);
+        const l = document.createElement("td"); l.textContent = new Date(g.lastAt * 1000).toLocaleDateString(); tr.appendChild(l);
+        const ops = document.createElement("td");
+        const add = document.createElement("button");
+        add.type = "button"; add.className = "btn"; add.textContent = "回答を登録…";
+        add.addEventListener("click", () => openKnowledgeModal({ method: "qa", question: g.query }));
+        ops.appendChild(add);
+        tr.appendChild(ops);
+        tbody.appendChild(tr);
+      });
+    } catch (e) {
+      tbody.innerHTML = "<tr><td colspan=5>取得に失敗しました: " + e.message + "</td></tr>";
+    }
+  }
+  $("gapRefresh").addEventListener("click", loadKnowledgeGaps);
+  $("gapDays").addEventListener("change", loadKnowledgeGaps);
+
   async function loadRatingStats() {
     try {
       const data = await api("/admin/rating-stats", {});
@@ -4819,7 +5366,7 @@ export function chatUiHtml(): string {
     throw new Error("未対応の種類です: " + item.kind);
   }
 
-  async function openKnowledgeModal() {
+  async function openKnowledgeModal(preset) {
     const modal = openModal({ title: "ナレッジを追加", subtitle: "登録先を選び、方法を選んで内容を入力してください", wide: true, onClose: () => { if (anyDone) refreshKnowledgeLists(); } });
     let anyDone = false;
     const S = {
@@ -4828,6 +5375,10 @@ export function chatUiHtml(): string {
       pairs: [{ question: "", answer: "" }], alsoNotion: false, csvName: "", csvText: "", csvRows: 0,
       items: [], status: [], detail: [], message: [], error: "", stop: false,
     };
+    if (preset && preset.method === "qa") {
+      S.method = "qa";
+      if (preset.question) S.pairs = [{ question: preset.question, answer: "" }];
+    }
     S.namespaces = await kbLoadNamespaces();
     if (!S.namespace || (S.namespaces.length > 0 && !S.namespaces.includes(S.namespace))) {
       S.namespace = S.namespaces.includes(S.namespace) ? S.namespace : (S.namespaces.find((n) => n.indexOf("shared:") === 0) || S.namespaces[0] || "");
