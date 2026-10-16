@@ -1,7 +1,7 @@
 import type { AuthedUser, Env, KbSyncResult } from "./types";
 import { jsonResponse } from "./http";
 import { authorizeSync, cronMayWrite, ownerOfNamespace, previewBody, scopeForRequest } from "./syncTargets";
-import { ingestDocument, logKb } from "./kbIngest";
+import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
 import { resolveJiraOAuthContext } from "./jiraOAuth";
@@ -232,6 +232,7 @@ export async function handleSyncJira(req: Request, env: Env, user: AuthedUser): 
   const startIndex = body.startIndex ?? 0;
   const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
   const opId = body.opId || newOpId();
+  await recordOp(env, opId, user.userId, "jira", namespace);
 
   const issues = await listJiraIssues(auth, jiraConfig.projectKey, { extraJql: jiraConfig.extraJql });
   const batch = issues.slice(startIndex, startIndex + batchSize);
@@ -369,6 +370,7 @@ export async function runScheduledJiraSync(env: Env): Promise<void> {
         continue;
       }
       const opId = newOpId();
+      await recordOp(env, opId, null, "jira", row.namespace_id);
       await processJiraBatch(env, row.namespace_id, opId, issues);
       await env.DB.prepare("UPDATE kb_sources SET jira_last_synced_at = ? WHERE namespace_id = ?")
         .bind(runStartedAt, row.namespace_id)

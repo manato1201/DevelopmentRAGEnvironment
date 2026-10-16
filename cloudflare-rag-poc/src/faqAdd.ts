@@ -1,6 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { requireKnowledgeEditor, assertOwnNamespaceOrShared } from "./auth";
-import { ingestDocument, logKb } from "./kbIngest";
+import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { createNotionPage } from "./notion";
 import { jsonResponse } from "./http";
@@ -31,6 +31,7 @@ export async function handleAddFaq(req: Request, env: Env, user: AuthedUser): Pr
   const title = `Q: ${question.slice(0, 90)}`;
   const bodyText = `Q: ${question}\nA: ${answer}`;
   const opId = newOpId();
+  await recordOp(env, opId, user.userId, "manual", namespace);
 
   let notionPageId: string | null = null;
   if (body.alsoWriteToNotion) {

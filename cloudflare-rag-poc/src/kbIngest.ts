@@ -5,7 +5,7 @@ import { chunkText } from "./chunking";
 // VectorizeのベクトルIDは64バイト上限。日本語の長いページタイトルをそのままIDに使うと
 // UTF-8で1文字3バイトになり簡単に超過する（実際にHoudini21同期で発生した）。
 // 人間が読めるファイル名はmetadata.fileに持たせ、IDそのものはハッシュベースの固定長にする。
-async function makeChunkId(
+export async function makeChunkId(
   namespaceId: string,
   file: string,
   chunkIndex: number,
@@ -226,6 +226,24 @@ export async function ingestDocument(
   }
 
   return { chunks: chunks.length, skippedVectors };
+}
+
+// 取り込み1回（op_id）の実行者を残す（migrations/0023）。userIdがnullなら自動実行（Cron）。
+// 同じop_idの継続呼び出しでは何もしない（最初の実行者を残す）。失敗しても取り込み自体は止めない。
+export async function recordOp(
+  env: Env,
+  opId: string,
+  userId: string | null,
+  kind: string,
+  namespaceId: string,
+): Promise<void> {
+  try {
+    await env.DB.prepare("INSERT OR IGNORE INTO kb_ops (op_id, user_id, kind, namespace_id, created_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(opId, userId, kind, namespaceId, Math.floor(Date.now() / 1000))
+      .run();
+  } catch {
+    // 記録の失敗で取り込みを止めない
+  }
 }
 
 export async function logKb(

@@ -3,7 +3,7 @@ import { jsonResponse } from "./http";
 import { getGoogleAccessToken, requireGoogleServiceAccountConfig } from "./googleAuth";
 import { resolveGoogleOAuthAccessToken } from "./googleOAuth";
 import { authorizeSync, previewBody } from "./syncTargets";
-import { ingestDocument, logKb } from "./kbIngest";
+import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { notifySyncComplete } from "./syncNotify";
 
@@ -314,6 +314,7 @@ export async function handleSyncDrive(req: Request, env: Env, user: AuthedUser):
   const startIndex = body.startIndex ?? 0;
   const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
   const opId = body.opId || newOpId();
+  await recordOp(env, opId, user.userId, "drive", namespace);
 
   const token = await resolveDriveAccessToken(env, scope.ownerId);
   const files = await listDriveFiles(token, folderId);

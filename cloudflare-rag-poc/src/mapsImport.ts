@@ -1,6 +1,6 @@
 import type { AuthedUser, Env } from "./types";
 import { requireKnowledgeEditor, assertOwnNamespaceOrShared } from "./auth";
-import { ingestDocument, logKb } from "./kbIngest";
+import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId } from "./chunking";
 import { jsonResponse } from "./http";
 
@@ -103,6 +103,7 @@ export async function handleImportPlace(req: Request, env: Env, user: AuthedUser
   const result = await ingestDocument(env, namespace, place.title, place.text, "manual");
 
   const opId = newOpId();
+  await recordOp(env, opId, user.userId, "manual", namespace);
   const skipNote = result.skippedVectors.length > 0 ? `（${result.skippedVectors.length}チャンクは登録失敗のためスキップ）` : "";
   await logKb(env, opId, namespace, "manual", place.title, "ok", `Googleマップ登録: ${result.chunks}チャンク登録${skipNote}（検索語: ${query}）`);
 
@@ -147,6 +148,7 @@ export async function handleImportPlacesCsv(req: Request, env: Env, user: Authed
   const startIndex = body.startIndex ?? 0;
   const batchSize = body.batchSize ?? DEFAULT_BATCH_SIZE;
   const opId = body.opId || newOpId();
+  await recordOp(env, opId, user.userId, "manual", namespace);
   const batch = queries.slice(startIndex, startIndex + batchSize);
 
   let documents = 0;
