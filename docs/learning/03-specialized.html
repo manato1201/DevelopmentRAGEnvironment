@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>03. 専門編</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-common-knowledge.html">01</a><a href="02-fundamentals.html">02</a><a class="current" href="03-specialized.html">03</a><a href="04-applied.html">04</a><a href="05-scripts.html">05</a><a href="06-maintenance-runbook.html">06</a></nav>
+<header class="hero">
+  <span class="badge">座学資料</span>
+  <h1>03. 専門編</h1>
+  <div class="meta">HTML生成: 2026-10-20（元: docs/learning/03-specialized.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-ragの原理">1. RAGの原理</a><ol><li><a href="#11-なぜragか">1.1 なぜRAGか</a></li><li><a href="#12-埋め込みembeddingとベクトル検索">1.2 埋め込み（embedding）とベクトル検索</a></li><li><a href="#13-キーワード検索bm25とfts5そして日本語">1.3 キーワード検索（BM25）とFTS5、そして日本語</a></li><li><a href="#14-rrfreciprocal-rank-fusion">1.4 RRF（Reciprocal Rank Fusion）</a></li><li><a href="#15-hyde">1.5 HyDE</a></li><li><a href="#16-チャンク分割">1.6 チャンク分割</a></li><li><a href="#17-出典と答えの信頼性">1.7 出典と、答えの信頼性</a></li><li><a href="#練習">練習</a></li></ol></li><li><a href="#2-llmのapiとtool-usefunction-calling">2. LLMのAPIとtool use（function calling）</a><ol><li><a href="#21-メッセージのやりとり">2.1 メッセージのやりとり</a></li><li><a href="#22-tool-useのループ">2.2 tool useのループ</a></li><li><a href="#23-費用とトークン">2.3 費用とトークン</a></li><li><a href="#24-ストリーミングsse">2.4 ストリーミング（SSE）</a></li><li><a href="#練習_1">練習</a></li></ol></li><li><a href="#3-認証認可oauth">3. 認証・認可・OAuth</a><ol><li><a href="#31-このプロジェクトの認証">3.1 このプロジェクトの認証</a></li><li><a href="#32-oauth-20authorization-code-pkce">3.2 OAuth 2.0（Authorization Code ＋ PKCE）</a></li><li><a href="#33-署名による認証slack">3.3 署名による認証（Slack）</a></li><li><a href="#練習_2">練習</a></li></ol></li><li><a href="#4-mcpmodel-context-protocol">4. MCP（Model Context Protocol）</a><ol><li><a href="#練習_3">練習</a></li></ol></li><li><a href="#5-cloudflare特有の制約と回避策">5. Cloudflare特有の制約と回避策</a><ol><li><a href="#51-バッチ再開のパターン">5.1 「バッチ＋再開」のパターン</a></li><li><a href="#52-d1の読み取り行数を増やす原因3つ">5.2 D1の読み取り行数を増やす原因（3つ）</a></li><li><a href="#練習_4">練習</a></li></ol></li><li><a href="#6-取り込みの流れナレッジ登録">6. 取り込みの流れ（ナレッジ登録）</a></li><li><a href="#7-houdini">7. Houdini</a><ol><li><a href="#71-houモジュール">7.1 houモジュール</a></li><li><a href="#72-スレッドの制約重要">7.2 スレッドの制約（重要）</a></li><li><a href="#73-python-panel-と-pyside6">7.3 Python Panel と PySide6</a></li><li><a href="#練習_5">練習</a></li></ol></li><li><a href="#8-unity">8. Unity</a></li><li><a href="#確認">確認</a></li></ol></details></nav>
+<main>
+
+<p><strong>更新日:</strong> 2026-10-17　<strong>目安:</strong> 1〜2週間（必要な章だけでよい）　<strong>前提:</strong> <a href="02-fundamentals.html">02. 基礎編</a><br />
+<strong>ゴール:</strong> このプロジェクトの<strong>核になる技術を、原理から説明できる</strong>。「なぜそう作ってあるか」が分かる。</p>
+<p>章ごとに独立している。目的別の読み方は<a href="README.html">README.md</a>を参照。</p>
+<hr />
+<h2 id="1-ragの原理">1. RAGの原理</h2>
+<h3 id="11-なぜragか">1.1 なぜRAGか</h3>
+<p>LLM（大規模言語モデル）は、学習した範囲しか知らず、自分の資料の中身を知らない。<strong>質問に関係する資料を先に検索して、質問と一緒にLLMへ渡す</strong>のがRAG（Retrieval-Augmented Generation）。資料が更新されても、LLMを学習し直さずに済む。</p>
+<div class="mermaid">flowchart LR
+    Q[&quot;質問&quot;] --&gt; H[&quot;HyDE&lt;br/&gt;仮の回答を作る&quot;]
+    H --&gt; E[&quot;埋め込み&lt;br/&gt;(数値のベクトルに)&quot;]
+    E --&gt; V[&quot;ベクトル検索&lt;br/&gt;Vectorize&quot;]
+    Q --&gt; B[&quot;キーワード検索&lt;br/&gt;D1 FTS5 (BM25)&quot;]
+    V --&gt; R[&quot;RRFで統合&quot;]
+    B --&gt; R
+    R --&gt; F[&quot;レベル・namespace上限で絞る&quot;]
+    F --&gt; L[&quot;LLMに質問＋資料を渡して回答&quot;]
+    L --&gt; A[&quot;回答＋出典&quot;]
+</div>
+<p>実装: <a href="../../cloudflare-rag-poc/src/retrieve.ts"><code>src/retrieve.ts</code></a>（流れ）、<a href="../../cloudflare-rag-poc/src/hybrid.ts"><code>src/hybrid.ts</code></a>（検索と統合）、<a href="../../cloudflare-rag-poc/src/embeddings.ts"><code>src/embeddings.ts</code></a>（Gemini呼び出し）、<a href="../../cloudflare-rag-poc/src/query.ts"><code>src/query.ts</code></a>（全体）。</p>
+<h3 id="12-埋め込みembeddingとベクトル検索">1.2 埋め込み（embedding）とベクトル検索</h3>
+<ul>
+<li><strong>埋め込み:</strong> 文章を、意味が近いほど近くなる数値の並び（このプロジェクトでは768個）にしたもの。</li>
+<li><strong>近さの測り方:</strong> コサイン類似度（2つのベクトルの向きの近さ）。Vectorizeのインデックスは<code>768次元・cosine</code>で作る。</li>
+<li><strong>注意:</strong> 質問と資料は、<strong>同じ埋め込みモデル</strong>で作る。モデルを変えたら、すべて作り直し。</li>
+<li>長所: 言い回しが違っても、意味が近ければ見つかる。短所: 型番・固有名詞・数字の完全一致に弱い。</li>
+</ul>
+<h3 id="13-キーワード検索bm25とfts5そして日本語">1.3 キーワード検索（BM25）とFTS5、そして日本語</h3>
+<ul>
+<li><strong>BM25:</strong> 「その語が、その文書に多く出て、全体では珍しいほど高い点」を付ける、古典的な検索の点数。</li>
+<li><strong>FTS5:</strong> SQLiteの全文検索機能。<code>chunks_fts</code>がそれ。</li>
+<li><strong>日本語は、単語の区切りが無い</strong>ので、標準のトークナイザでは検索できない。そこで<strong>trigram</strong>（3文字ずつの断片で索引を作る）を使う。<strong>3文字未満の語は、検索にかからない</strong>ことに注意。</li>
+<li><code>MATCH</code>には構文（<code>"</code>、<code>:</code>、<code>-</code>、<code>AND</code>、<code>OR</code>など）がある。質問文をそのまま渡すと構文エラーになるため、<code>escapeFtsQuery</code>が、語ごとに引用符で囲んで無害化している（実際に起きた不具合）。</li>
+</ul>
+<h3 id="14-rrfreciprocal-rank-fusion">1.4 RRF（Reciprocal Rank Fusion）</h3>
+<p>ベクトル検索とキーワード検索の<strong>点数は、単位が違って比べられない</strong>。そこで<strong>順位だけ</strong>を使って統合する。</p>
+<pre><code>各検索での順位 r（0始まり）について、 1 / (60 + r + 1) を足し合わせる
+</code></pre>
+<ul>
+<li>両方の検索で上位に出たものが、最も高くなる。定数60は、一般的な既定値。</li>
+<li>RRFの点の<strong>絶対値に意味は無い</strong>（小さな値）。画面には、その回答の中での相対値として扱う。</li>
+</ul>
+<h3 id="15-hyde">1.5 HyDE</h3>
+<p>質問そのものではなく、<strong>LLMに「こう答えるだろう」という短い仮の回答を作らせ、それを埋め込む</strong>。質問文と資料の言葉の食い違いを、小さくできる。<strong>仮の回答も、トークン（費用）を使う</strong>。</p>
+<h3 id="16-チャンク分割">1.6 チャンク分割</h3>
+<p>長い文章は、<strong>検索しやすい大きさに切る</strong>（<code>chunkText</code>: 1,000文字、前後150文字を重ねる）。重ねるのは、境界で文脈が切れないようにするため。大きすぎると、関係ない部分が混ざる。小さすぎると、前後の文脈が失われる。</p>
+<h3 id="17-出典と答えの信頼性">1.7 出典と、答えの信頼性</h3>
+<ul>
+<li>回答の<code>[1]</code>のような番号は、渡した資料への参照。<strong>引用率</strong>（引用された資料の割合）が低いと、資料が使われずに、LLMが自分の知識で答えた可能性がある。</li>
+<li><strong>鮮度:</strong> 資料の登録日時を出し、古いものに注意を促す（180日以上前は「古い可能性」）。</li>
+<li><strong>答えられなかった質問</strong>を集計して、足りない資料を見つける（管理画面の「利用状況・コスト」）。</li>
+</ul>
+<h3 id="練習">練習</h3>
+<ol>
+<li><code>hybrid.ts</code>の<code>rrfMerge</code>に、リストA=[x,y,z]、リストB=[y,x,w]を渡す。結果の順位を、手計算で出す。</li>
+<li>「SOPとは」という質問で、無関係な資料が混ざった。どの層（検索対象の絞り込み／namespace上限／埋め込み）で対策できるか。（→ 運用手順書§4）</li>
+<li>2文字の語「光源」だけで検索すると、キーワード検索はどうなるか。理由は。</li>
+</ol>
+<p><strong>ヒント:</strong> 1は、xはAで0位・Bで1位、yはAで1位・Bで0位。2は、<code>ns-chips</code>と<code>result_limit</code>。3は、trigram。</p>
+<h2 id="2-llmのapiとtool-usefunction-calling">2. LLMのAPIとtool use（function calling）</h2>
+<h3 id="21-メッセージのやりとり">2.1 メッセージのやりとり</h3>
+<p>LLMのAPIは、<strong>会話の履歴を毎回丸ごと送る</strong>（サーバーは覚えていない）。<code>system</code>（役割の指示）＋<code>messages</code>（ユーザーと助手のやりとり）＋<code>tools</code>（使える道具の定義）を送る。</p>
+<h3 id="22-tool-useのループ">2.2 tool useのループ</h3>
+<p>LLMは、道具を<strong>自分では実行できない</strong>。「この道具を、この引数で使いたい」と<strong>返す</strong>だけ。実行は、こちら側。</p>
+<pre><code>messages = [ユーザーの依頼]
+loop 最大80回:
+    応答 = LLM(messages, tools)
+    もし 応答が道具の使用 (tool_use) を含む:
+        各 tool_use について 結果 = こちらで実行する
+        messages に 応答 と tool_result(結果) を追加
+        続ける
+    それ以外（文章だけ）:
+        終了
+</code></pre>
+<p>実装: <a href="../../houdini/python_panels/tutorial_agent.py"><code>tutorial_agent.py</code></a>の<code>for iteration in range(1, MAX_ITERATIONS + 1)</code>。道具の定義は<code>houdini_tools.py</code>の<code>HOUDINI_TOOLS</code>、実行は<code>HoudiniToolExecutor.execute</code>。</p>
+<p><strong>設計の要点（このプロジェクトで実際に効いたこと）</strong><br />
+- <strong>道具のエラーも、結果として返す。</strong> 例外で止めず、<code>エラー: …</code>を<code>tool_result</code>に入れる。LLMがそれを読んで、自分で直す。<br />
+- <strong>終わらせる道具</strong>（<code>finish_tutorial</code>・<code>confirm_tutorial</code>）を用意する。LLMが「終わった」と言うだけでなく、検証を通す。<br />
+- <strong>上限を2つ持つ。</strong> 反復の上限（80回）と、費用の上限。無限ループを防ぐ。<br />
+- <strong>サンドボックス。</strong> 生成用のノードは、専用の場所の下だけで操作させる。外はエラーにする（<code>SandboxViolation</code>）。<br />
+- <strong>画像を結果に添付する。</strong> スクリーンショットを<code>tool_result</code>に入れ、LLMが見た目で確かめられるようにする。</p>
+<h3 id="23-費用とトークン">2.3 費用とトークン</h3>
+<ul>
+<li>料金は<strong>入力トークン＋出力トークン</strong>。日本語は、英語より、同じ内容でトークンが多くなりやすい。</li>
+<li><strong>プロンプトキャッシュ:</strong> 毎回同じ前半部分（システム指示・道具定義・RAGの資料）は、キャッシュに載せると、2回目以降が安くなる。<code>cache_control</code>で指定する。</li>
+<li>このプロジェクトは、<strong>APIキーごとのトークン予算</strong>を、サーバー側（<code>budget.ts</code>）で強制する。クライアントに、Claudeの鍵は渡さない（<code>/claude/messages</code>の中継）。</li>
+</ul>
+<h3 id="24-ストリーミングsse">2.4 ストリーミング（SSE）</h3>
+<p>回答を、生成されたそばから送る方式。Server-Sent Events（サーバーから、イベントを順に流す）。<code>/query/stream</code>が、出典を先に、回答を後から送る。<strong>ツールを使う質問は、従来どおり一括</strong>で返す。</p>
+<h3 id="練習_1">練習</h3>
+<ol>
+<li><code>tutorial_agent.py</code>を読み、「反復の上限に達した」ときの処理を探す。</li>
+<li>tool useで、道具の実行結果が<code>is_error=True</code>のとき、LLMはどうふるまうか。なぜ、例外で止めないのか。</li>
+<li><code>query.ts</code>の<code>prepareQuery</code>と<code>finishQuery</code>は、なぜ分かれているのか。（ストリーミング版と一括版の両方から使われる）</li>
+</ol>
+<h2 id="3-認証認可oauth">3. 認証・認可・OAuth</h2>
+<h3 id="31-このプロジェクトの認証">3.1 このプロジェクトの認証</h3>
+<ul>
+<li><strong>APIキー:</strong> <code>Authorization: Bearer &lt;キー&gt;</code>。<strong>サーバーには、キーのSHA-256ハッシュだけ</strong>を保存する（<code>users.user_id</code>）。DBが漏れても、元のキーは分からない。</li>
+<li><strong>ロール:</strong> <code>admin</code>（すべて）／<code>editor</code>（ナレッジ登録・同期の実行と履歴の閲覧）／<code>member</code>（チャット・グラフ・履歴の利用）／<code>guest</code>（制限つきの利用。連携やSlackは使えない）。判定は<code>requireAdmin</code>と<code>requireKnowledgeEditor</code>（<code>auth.ts</code>）。</li>
+<li><strong>namespaceの許可（<code>key_namespace_grants</code>）:</strong> キーごとに、見られる共有namespaceを絞る。個人用（<code>personal:&lt;userId&gt;</code>）は、本人だけ。</li>
+<li><strong>認可の落とし穴:</strong> 「権限のあるユーザー」だけでなく、「その<strong>対象</strong>（namespace・文書）に対する権限」も確認する。<code>assertOwnNamespaceOrShared</code>は、他人の個人用の領域に書き込めないようにする。</li>
+</ul>
+<h3 id="32-oauth-20authorization-code-pkce">3.2 OAuth 2.0（Authorization Code ＋ PKCE）</h3>
+<p>「パスワードを渡さずに、他のサービス（Jira・Google・Slack）の操作を、許可してもらう」仕組み。</p>
+<div class="mermaid">sequenceDiagram
+    participant U as 利用者のブラウザ
+    participant W as Worker
+    participant S as 外部サービス
+    U-&gt;&gt;W: 「接続する」
+    W-&gt;&gt;W: state(乱数) と PKCEのcode_verifier を作って保存
+    W--&gt;&gt;U: 外部サービスの認可画面へリダイレクト (code_challenge付き)
+    U-&gt;&gt;S: ログインして許可
+    S--&gt;&gt;U: Workerのcallbackへリダイレクト (code と state)
+    U-&gt;&gt;W: callback?code=…&amp;state=…
+    W-&gt;&gt;W: stateが一致するか確認
+    W-&gt;&gt;S: code と code_verifier を送ってトークンと交換
+    S--&gt;&gt;W: access_token / refresh_token
+    W-&gt;&gt;W: トークンをD1に保存 (oauth_connections)
+</div>
+<ul>
+<li><strong>state:</strong> 他人が作った認可を、自分のものとして処理させない（CSRF）ための乱数。</li>
+<li><strong>PKCE:</strong> 認可コードが途中で盗まれても、<code>code_verifier</code>を知らないと使えないようにする。</li>
+<li><strong>access_token:</strong> 短命。<strong>refresh_token:</strong> 新しいaccess_tokenを得るための長命の鍵。<strong>どちらも、ログやエラーに出さない。</strong></li>
+<li><strong>連携の持ち主（<code>owner_id</code>）:</strong> 共有（空）か、個人（ユーザーID）。個人用の連携は、本人の索引にだけ入る。</li>
+<li>実装: <code>oauthConnections.ts</code>（保存）、<code>*OAuth.ts</code>（各サービス）、<code>mcp/auth.ts</code>（公式MCPの自動登録＝DCR）。</li>
+</ul>
+<h3 id="33-署名による認証slack">3.3 署名による認証（Slack）</h3>
+<p>Slackからのリクエストは、APIキーではなく<strong>HMAC署名</strong>で確かめる。<code>署名 = HMAC-SHA256(secret, "v0:" + 時刻 + ":" + 本文)</code>。<strong>時刻が5分以上ずれたら拒否</strong>（使い回しの防止）。比較は、<strong>定数時間</strong>で行う（処理時間から、署名を推測されないため）。実装: <code>slackBot.ts</code>。</p>
+<h3 id="練習_2">練習</h3>
+<ol>
+<li><code>auth.ts</code>の<code>authenticate</code>を読み、APIキーから、ユーザーを見つけるまでの流れを書く。</li>
+<li>OAuthのcallbackで、<code>state</code>を確認しないと、どんな攻撃が可能になるか。</li>
+<li><code>slackBot.ts</code>の<code>verifySlackSignature</code>と<code>safeEqual</code>を読み、なぜ<code>===</code>で比較しないのか説明する。</li>
+</ol>
+<h2 id="4-mcpmodel-context-protocol">4. MCP（Model Context Protocol）</h2>
+<p>AIが外部の道具・データを使うための<strong>共通の規格</strong>。JSON-RPC（JSONで「関数を呼ぶ」やりとり）の上に作られている。</p>
+<ul>
+<li><strong>サーバー</strong>が道具（<code>tools/list</code>で一覧、<code>tools/call</code>で実行）を公開する。<strong>クライアント</strong>（AIを使う側）がそれを呼ぶ。</li>
+<li>このプロジェクトでは、<strong>Workerが、公式MCPサーバー（GitHub・Slack・Google・Linear・Sentry・Figma・Notion・Atlassianなど）に接続するクライアント</strong>になる（<code>src/mcp/</code>）。RAGの検索で足りないとき、<strong>読み取り専用の道具だけ</strong>を使って調べる。</li>
+<li>安全策: ツールは、管理者が選んだものだけ。チャットで使えるのは読み取り専用のものだけで、判定は<code>permissions.ts</code>が行う（読み取り専用と確認できないものは「書き込みかもしれない」として扱う）。引数は監査ログに保存しない。</li>
+<li>ほかに、ローカルRAGを<strong>MCPサーバーとして公開</strong>するもの（<code>scripts/rag_mcp_server.py</code>）がある。</li>
+</ul>
+<p>関連: <a href="../../cloudflare-rag-poc/docs/mcp-client.md">mcp-client.md</a></p>
+<h3 id="練習_3">練習</h3>
+<ol>
+<li><code>src/mcp/protocol.ts</code>を読み、<code>tools/list</code>と<code>tools/call</code>のリクエストの形を書く。</li>
+<li>道具が「読み取り専用」かどうかを決める優先順位を、<code>permissions.ts</code>の冒頭コメントから書き出す。</li>
+</ol>
+<h2 id="5-cloudflare特有の制約と回避策">5. Cloudflare特有の制約と回避策</h2>
+<p>このプロジェクトの設計の多くは、<strong>Workersの制約への対処</strong>。制約を知ると、設計の理由が分かる。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>制約（2026-10時点・無料枠。<strong>最新は公式で確認</strong>）</th>
+<th>実際に起きたこと</th>
+<th>対処（設計）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1リクエストの<strong>CPU時間</strong>が短い</td>
+<td>重い同期で<code>Error 1102</code></td>
+<td>1回の呼び出しで少しだけ処理し、<strong>続きは呼び直す</strong>（バッチ＋<code>opId</code>で再開）</td>
+</tr>
+<tr>
+<td>外部呼び出し（サブリクエスト）の<strong>回数上限</strong></td>
+<td>大量のページで失敗</td>
+<td>バッチサイズを下げる（既定1〜5件）</td>
+</tr>
+<tr>
+<td><strong>メモリ128MB</strong></td>
+<td>大きいファイルで失敗</td>
+<td>ファイル全体を読まず、必要な部分だけ取得（DOCX/PPTXはHTTP Range）</td>
+</tr>
+<tr>
+<td>1回のリクエストが<strong>長い</strong>と、途中で切られる</td>
+<td><code>Unexpected token '&lt;'</code></td>
+<td>25秒の予算で打ち切り、残りは次のリクエスト</td>
+</tr>
+<tr>
+<td>1ページの<strong>登録量</strong>が多すぎる</td>
+<td>再クロールが503（2026-10-17。1ページの9割がサイドバーの目次で、約200チャンク）</td>
+<td>本文（<code>&lt;main&gt;</code>）だけを登録。1ページ10万文字で頭打ち</td>
+</tr>
+<tr>
+<td><strong>D1の読み取り行数</strong>（1日）</td>
+<td>2026-10-16、全APIが500</td>
+<td>全件走査を避ける（下記）</td>
+</tr>
+<tr>
+<td><strong>FTS5のUNINDEXED列</strong>で探すと全件走査</td>
+<td>グラフ表示で、日次枠の9割を消費（2026-08）</td>
+<td><code>kb_documents</code>、<code>chunk_rows</code>の対応表</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="51-バッチ再開のパターン">5.1 「バッチ＋再開」のパターン</h3>
+<pre><code>開始: ジョブ(opId)を作る → 先頭からN件処理 → 位置を保存 → 「続きがある」と返す
+クライアント: nextIndex が null になるまで、同じ操作を繰り返し呼ぶ
+途中で止まっても、保存した位置から再開できる
+</code></pre>
+<ul>
+<li>失敗は<strong>そのページだけ</strong>を「エラー」にして、次へ進む（1件の失敗で全体を止めない）。</li>
+<li><strong>変更が無いページは飛ばす</strong>（本文のハッシュ<code>crawl_page_hashes</code>を比べる）。再クロールが軽くなる。</li>
+<li>実装: <code>urlImport.ts</code>（<code>runCrawlBatch</code>）、<code>crawlSchedules.ts</code>（定期実行のCron）。</li>
+</ul>
+<h3 id="52-d1の読み取り行数を増やす原因3つ">5.2 D1の読み取り行数を増やす原因（3つ）</h3>
+<ol>
+<li><strong>索引の無い列での検索</strong>（<code>SCAN</code>）。→ <code>EXPLAIN QUERY PLAN</code>で確認。</li>
+<li><strong>同じ集計を、画面を開くたびに実行する。</strong> → 結果を一定時間キャッシュ（<code>stats_cache</code>）。</li>
+<li><strong>「新しい順に20件」でも、索引が無いと全件を読んで並べ替える。</strong> → <code>ORDER BY</code>の列に索引（<code>kb_log(created_at)</code>）。</li>
+</ol>
+<p><strong>調べ方:</strong> <code>wrangler d1 insights rag-poc-db --timePeriod 1d</code>で、<strong>どのSQLが何行読んだか</strong>の一覧が出る（<a href="06-maintenance-runbook.html">06 保守ランブック</a>の記録も参照）。</p>
+<h3 id="練習_4">練習</h3>
+<ol>
+<li><code>migrations/0030_chunk_rows.sql</code>と<code>src/chunkRows.ts</code>を読み、なぜ「<code>chunks_fts</code>に挿入した直後の<code>last_insert_rowid()</code>」を使うのか、説明する。（ヒント: FTS5はrowidでの参照だけが速い）</li>
+<li><code>chunkRows.ts</code>の<code>runStatementGroups</code>は、なぜ「グループを分割しない」のか。</li>
+<li>無料枠を使い切ったとき、ユーザーに見える症状を、3つ書く。</li>
+</ol>
+<h2 id="6-取り込みの流れナレッジ登録">6. 取り込みの流れ（ナレッジ登録）</h2>
+<pre><code>取得（Notion/Drive/URL/…）→ テキスト化 → チャンク分割 → 埋め込み(Gemini) →
+  Vectorize へ登録 ＋ D1（chunks_fts / chunk_rows / kb_documents）へ登録 → 履歴（kb_log / kb_ops）
+</code></pre>
+<ul>
+<li><strong>チャンクID:</strong> <code>ハッシュ(namespace::file):番号</code>。同じ文書を再登録すると、同じIDで<strong>置き換わる</strong>（重複しない）。IDに日本語をそのまま使わないのは、Vectorizeの64バイト上限のため。</li>
+<li><strong>短くなった文書:</strong> 前回のチャンク数を覚えておき、増えなかった分の古いチャンクを消す。</li>
+<li><strong>取り消し（ロールバック）:</strong> <code>opId</code>単位で、D1とVectorizeの両方から消す。<strong>生のテキストは保存していない</strong>ので、必要なら再同期する。</li>
+<li><strong>安全策:</strong> 連携の同期先は<strong>許可リストに入れたnamespaceだけ</strong>。自動同期は<strong>明示的にオンにしたものだけ</strong>。同期前に<strong>プレビュー</strong>で内容を確認する。<strong>ステージング</strong>（受け皿namespace）で確認してから本番へ移す。</li>
+</ul>
+<p>実装: <code>kbIngest.ts</code>（核）、<code>syncTargets.ts</code>（認可）、<code>staging.ts</code>、<code>kbRollback.ts</code>。詳細は<a href="../../cloudflare-rag-poc/docs/sync-governance.md">sync-governance.md</a>。</p>
+<h2 id="7-houdini">7. Houdini</h2>
+<h3 id="71-houモジュール">7.1 <code>hou</code>モジュール</h3>
+<p>HoudiniのPython API。ノード・パラメータ・ジオメトリを操作する。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>やること</th>
+<th>例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ノードを作る</td>
+<td><code>parent.createNode("box", "my_box")</code></td>
+</tr>
+<tr>
+<td>パラメータを設定</td>
+<td><code>node.parm("sizex").set(2.0)</code>、式は<code>setExpression("sin($F)")</code></td>
+</tr>
+<tr>
+<td>つなぐ</td>
+<td><code>node.setInput(0, other)</code></td>
+</tr>
+<tr>
+<td>評価（cook）</td>
+<td><code>node.cook(force=True)</code></td>
+</tr>
+<tr>
+<td>ジオメトリを調べる</td>
+<td><code>node.geometry().points()</code>、<code>geo.attribs()</code></td>
+</tr>
+<tr>
+<td>ネットワークの種類</td>
+<td>SOP（形）、COP（画像）、LOP（USD）、VOP（シェーダ）、CHOP、DOP、TOP</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>cookエラーの有無</strong>が、チュートリアル生成の合格条件の1つ。</li>
+<li><strong>KineFX／APEX</strong>（リグ）は、SOPレベルのノードまでが対象。<code>apex::graph</code>の中身は、今のツールでは編集できない。</li>
+</ul>
+<h3 id="72-スレッドの制約重要">7.2 スレッドの制約（重要）</h3>
+<p><code>hou</code>の操作は、**Houdiniのメインスレッド（UIのスレッド）**で行わないと、不安定になる。一方、生成中にUIを固めたくないので、**生成は<code>QThread</code>（別スレッド）**で動かす。</p>
+<p>→ <code>houdini_tools.py</code>の<code>_run_in_main_thread</code>が、<code>hdefereval.executeInMainThreadWithResult</code>で、<code>hou</code>の操作だけをメインスレッドに送っている。<strong>ツールを足すときも、この経路を通る</strong>（<code>execute</code>が自動で通す）。</p>
+<h3 id="73-python-panel-と-pyside6">7.3 Python Panel と PySide6</h3>
+<ul>
+<li>Houdiniの画面にパネルを出す仕組み。UIは<strong>PySide6（Qt）</strong>。</li>
+<li>Python Panelは、コードを<strong>文字列として実行</strong>するため、<code>__file__</code>が未定義になる。<code>rag_chatbot.py</code>は、<code>hou.homeHoudiniDirectory()</code>から探して<code>sys.path</code>に足している。（→ 配布の整理: <a href="../distribution-strategy.md">distribution-strategy.md §5</a>）</li>
+<li><strong>配置先に注意:</strong> 実機は<code>Documents/houdini21.0/python_panels</code>の手動コピーを読む。<strong>リポジトリを直しても、実機には反映されない。</strong></li>
+</ul>
+<h3 id="練習_5">練習</h3>
+<ol>
+<li><code>houdini_tools.py</code>の<code>_tool_create_node</code>（871行付近）を読み、<code>SandboxViolation</code>が出る条件を探す。</li>
+<li><code>HOUDINI_TOOLS</code>の1つ（例: <code>set_parameter</code>）の定義と、対応する<code>_tool_set_parameter</code>の対応を、表にする。</li>
+<li>新しい道具を足すとき、<strong>変更が必要な場所</strong>を、3つ挙げる。（→ <a href="04-applied.html#レシピd-houdiniの道具を足す">04 応用編</a>）</li>
+</ol>
+<h2 id="8-unity">8. Unity</h2>
+<ul>
+<li>エディタ拡張のウィンドウ（<code>RAGChatbotWindow</code>）は、<code>IRAGClient</code>を通して通信する。<strong>Cloud/Localの切り替えは、設定だけ</strong>。</li>
+<li>通信はHTTP＋JSON。認証は、他のクライアントと同じBearerキー。</li>
+<li>保守の焦点: <strong>APIの契約が変わったら、C#の型（<code>RAGMessage</code>、<code>RAGGraphData</code>）も合わせる</strong>。→ <a href="../architecture-layering-plan.html">architecture-layering-plan.md §6</a></li>
+</ul>
+<h2 id="確認">確認</h2>
+<ul>
+<li><a href="README.html">README.md</a>の「専門」のチェック4項目に、答えられる。</li>
+<li>白紙に、検索の流れ・OAuthの流れ・tool useのループを、何も見ずに描ける。</li>
+</ul>
+</main>
+<div class="pager"><a href="02-fundamentals.html">← 前へ</a><a href="04-applied.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+</body>
+</html>
