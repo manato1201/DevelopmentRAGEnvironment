@@ -3,6 +3,7 @@ import { jsonResponse } from "./http";
 import { ForbiddenError, requireAdmin, requireKnowledgeEditor } from "./auth";
 import { logKb, makeChunkId, recordOp } from "./kbIngest";
 import { newOpId } from "./chunking";
+import { deleteChunkStatements, putChunkStatements, readDocumentChunks, runStatementGroups } from "./chunkRows";
 
 // 取り込みのステージング（2026-10-16追加、migrations/0024）。
 // 連携・クロールなどの取り込み先を「受け皿」namespaceにしておき、内容を確認してから本番のnamespaceへ移す
@@ -117,10 +118,7 @@ export async function handleStagingDocs(req: Request, env: Env, user: AuthedUser
 // 1ドキュメントを受け皿から本番へ移す。新しい側を先に書き、書けてから古い側を消す。
 // チャンクIDはnamespaceとfileから決まるので、本番に同名のドキュメントがあれば置き換わる。
 async function moveDocument(env: Env, from: string, to: string, file: string): Promise<number> {
-  const rows = await env.DB.prepare("SELECT chunk_id, body FROM chunks_fts WHERE namespace = ? AND file = ?")
-    .bind(from, file)
-    .all<{ chunk_id: string; body: string }>();
-  const old = rows.results ?? [];
+  const old = await readDocumentChunks(env, from, file);
   if (old.length === 0) return 0;
 
   const bodyById = new Map(old.map((r) => [r.chunk_id, r.body]));
@@ -149,37 +147,35 @@ async function moveDocument(env: Env, from: string, to: string, file: string): P
       })),
     );
   }
-  const statements: D1PreparedStatement[] = [];
+  const groups: D1PreparedStatement[][] = [];
   for (const v of moved) {
-    statements.push(env.DB.prepare("DELETE FROM chunks_fts WHERE chunk_id = ?").bind(v.newId));
-    statements.push(
-      env.DB.prepare(
-        "INSERT INTO chunks_fts (chunk_id, file, namespace, scope, owner_user_id, difficulty, body) VALUES (?, ?, ?, 'shared', NULL, ?, ?)",
-      ).bind(v.newId, file, to, v.metadata.difficulty ?? null, bodyById.get(v.oldId) ?? v.metadata.text),
-    );
+    const group = putChunkStatements(env, {
+      chunkId: v.newId,
+      file,
+      namespace: to,
+      scope: "shared",
+      ownerUserId: null,
+      difficulty: v.metadata.difficulty ?? null,
+      body: bodyById.get(v.oldId) ?? v.metadata.text,
+    });
     if (v.index === 0) {
-      statements.push(
+      group.push(
         env.DB.prepare("INSERT OR REPLACE INTO kb_documents (chunk_id, file, namespace, scope, owner_user_id) VALUES (?, ?, ?, 'shared', NULL)").bind(v.newId, file, to),
       );
     }
+    groups.push(group);
   }
-  await runBatch(env, statements);
+  await runStatementGroups(env, groups);
 
   // 2) 受け皿側を消す
   for (const ids of chunkArray(moved.map((v) => v.oldId), 20)) await env.VEC_SHARED.deleteByIds(ids);
-  await runBatch(env, [
-    ...moved.map((v) => env.DB.prepare("DELETE FROM chunks_fts WHERE chunk_id = ?").bind(v.oldId)),
-    env.DB.prepare("DELETE FROM kb_documents WHERE namespace = ? AND file = ?").bind(from, file),
+  await runStatementGroups(env, [
+    [
+      ...deleteChunkStatements(env, moved.map((v) => v.oldId)),
+      env.DB.prepare("DELETE FROM kb_documents WHERE namespace = ? AND file = ?").bind(from, file),
+    ],
   ]);
   return moved.length;
-}
-
-async function runBatch(env: Env, statements: D1PreparedStatement[]): Promise<void> {
-  for (let i = 0; i < statements.length; i += 50) {
-    const group = statements.slice(i, i + 50);
-    if (typeof env.DB.batch === "function") await env.DB.batch(group);
-    else for (const s of group) await s.run();
-  }
 }
 
 // POST /admin/staging/promote — 受け皿から選んだドキュメントを、対応する本番のnamespaceへ移す。

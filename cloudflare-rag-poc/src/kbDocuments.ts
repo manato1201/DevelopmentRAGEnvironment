@@ -1,6 +1,7 @@
 import type { AuthedUser, ChunkMetadata, Env } from "./types";
 import { ForbiddenError, requireKnowledgeEditor } from "./auth";
 import { jsonResponse } from "./http";
+import { deleteDocumentChunkStatements, listChunkIds, runStatementGroups } from "./chunkRows";
 
 const DELETE_CHUNK = 20; // getByIds()の1回あたり上限（20件）に合わせた保守的な値。deleteByIds()の実際の上限は未確認のため同じ値を流用する
 
@@ -30,23 +31,24 @@ function chunk<T>(arr: T[], size: number): T[][] {
 // グラフビューに存在しないはずのドキュメントが「幽霊ノード」として残る不具合が
 // あったため、あわせて修正している）。
 export async function deleteDocumentChunks(env: Env, namespace: string, file: string): Promise<number> {
-  const chunkRes = await env.DB.prepare("SELECT chunk_id FROM chunks_fts WHERE namespace = ? AND file = ?")
-    .bind(namespace, file)
-    .all<{ chunk_id: string }>();
-  const ids = (chunkRes.results ?? []).map((r) => r.chunk_id);
+  const ids = await listChunkIds(env, namespace, file);
   if (ids.length === 0) return 0;
 
   const index = namespace.startsWith("personal:") ? env.VEC_PERSONAL : env.VEC_SHARED;
   for (const idsChunk of chunk(ids, DELETE_CHUNK)) {
     await index.deleteByIds(idsChunk);
   }
-  await env.DB.prepare("DELETE FROM chunks_fts WHERE namespace = ? AND file = ?").bind(namespace, file).run();
-  await env.DB.prepare("DELETE FROM kb_documents WHERE namespace = ? AND file = ?").bind(namespace, file).run();
+  await runStatementGroups(env, [
+    [
+      ...deleteDocumentChunkStatements(env, namespace, file),
+      env.DB.prepare("DELETE FROM kb_documents WHERE namespace = ? AND file = ?").bind(namespace, file),
+    ],
+  ]);
   return ids.length;
 }
 
 // POST /admin/kb/list-documents — namespace内の登録済みドキュメント（file名）一覧を返す。
-// chunks_fts本体（UNINDEXED列への検索で実質フルスキャンになる。migrations/0002参照）では
+// chunks_fts本体（UNINDEXED列への検索で実質フルスキャンになる。migrations/0002、chunkRows.ts参照）では
 // なくkb_documents（migrations/0008、namespaceにインデックス済み。1ドキュメント1行）を
 // 使うことで、D1 FreeプランのRows read日次上限を消費する全チャンクスキャンを避ける。
 // body: { namespace }

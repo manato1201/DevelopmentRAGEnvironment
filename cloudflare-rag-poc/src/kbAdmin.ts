@@ -148,13 +148,38 @@ export async function handleKbHistory(req: Request, env: Env, user: AuthedUser):
 // Jira/Backlog/カレンダー（2026-09-17追加）もここに含めないと、「連携」タブで
 // 同期元を設定した直後でもこの一覧では「手動登録のみ」のまま表示されてしまう不整合が
 // あったため、追加時に合わせて反映する（2026-09-19、リファクタリング時に発見・修正）。
+// 集計は全チャンク分の行を読む（chunk_rows＝chunks_ftsの約半分の行数。以前はchunks_fts本体を走査して、画面を開く
+// たびに約3万行ずつ読み、D1の無料枠（1日500万行）を使い切って全APIが止まった）。
+// 結果をstats_cache（migrations/0029）に10分だけ置く。
+const CHUNK_COUNTS_TTL_SEC = 600;
+type ChunkCount = { namespace: string; fileCount: number; chunkCount: number };
+
+async function loadChunkCounts(env: Env): Promise<ChunkCount[]> {
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    const cached = await env.DB.prepare("SELECT value, computed_at FROM stats_cache WHERE cache_key = 'chunk_counts'").first<{ value: string; computed_at: number }>();
+    if (cached && now - cached.computed_at < CHUNK_COUNTS_TTL_SEC) return JSON.parse(cached.value) as ChunkCount[];
+  } catch {
+    // キャッシュが読めなくても、集計し直せば返せる
+  }
+  const res = await env.DB.prepare(
+    "SELECT namespace, COUNT(DISTINCT file) AS fileCount, COUNT(*) AS chunkCount FROM chunk_rows GROUP BY namespace",
+  ).all<ChunkCount>();
+  const rows = res.results ?? [];
+  await env.DB.prepare(
+    "INSERT INTO stats_cache (cache_key, value, computed_at) VALUES ('chunk_counts', ?, ?) ON CONFLICT(cache_key) DO UPDATE SET value = excluded.value, computed_at = excluded.computed_at",
+  )
+    .bind(JSON.stringify(rows), now)
+    .run()
+    .catch(() => undefined);
+  return rows;
+}
+
 export async function handleKbOverview(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireKnowledgeEditor(user);
 
-  const [countsRes, lastUpdateRes, sourcesRes] = await Promise.all([
-    env.DB.prepare(
-      "SELECT namespace, COUNT(DISTINCT file) AS fileCount, COUNT(*) AS chunkCount FROM chunks_fts GROUP BY namespace",
-    ).all<{ namespace: string; fileCount: number; chunkCount: number }>(),
+  const [counts, lastUpdateRes, sourcesRes] = await Promise.all([
+    loadChunkCounts(env),
     env.DB.prepare(
       "SELECT namespace_id, MAX(created_at) AS lastUpdated FROM kb_log WHERE status = 'ok' GROUP BY namespace_id",
     ).all<{ namespace_id: string; lastUpdated: number }>(),
@@ -177,7 +202,7 @@ export async function handleKbOverview(req: Request, env: Env, user: AuthedUser)
   const lastUpdateMap = new Map((lastUpdateRes.results ?? []).map((r) => [r.namespace_id, r.lastUpdated]));
   const sourceMap = new Map((sourcesRes.results ?? []).map((r) => [r.namespace_id, r]));
 
-  const namespaces = (countsRes.results ?? []).map((c) => {
+  const namespaces = counts.map((c) => {
     const source = sourceMap.get(c.namespace);
     return {
       namespace: c.namespace,

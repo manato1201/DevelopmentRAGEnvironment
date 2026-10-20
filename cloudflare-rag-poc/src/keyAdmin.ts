@@ -3,6 +3,7 @@ import { VALID_ROLES } from "./types";
 import { requireAdmin } from "./auth";
 import { sha256Hex } from "./embeddings";
 import { jsonResponse } from "./http";
+import { deleteNamespaceChunkStatements, listChunkIds } from "./chunkRows";
 
 const DEFAULT_RAG_CAPACITY = 100000;
 
@@ -183,17 +184,14 @@ export async function handleDeleteKey(req: Request, env: Env, user: AuthedUser):
   if (userId === user.userId) return jsonResponse(400, { error: "自分自身のキーは削除できません" });
 
   const personalNs = `personal:${userId}`;
-  const chunkRes = await env.DB.prepare("SELECT chunk_id FROM chunks_fts WHERE namespace = ?")
-    .bind(personalNs)
-    .all<{ chunk_id: string }>();
-  const chunkIds = (chunkRes.results ?? []).map((r) => r.chunk_id);
+  const chunkIds = await listChunkIds(env, personalNs);
   const DELETE_CHUNK = 20; // getByIds/deleteByIdsの1回あたり上限に合わせた保守的な値（kbRollback.tsと同じ理由）
   for (let i = 0; i < chunkIds.length; i += DELETE_CHUNK) {
     await env.VEC_PERSONAL.deleteByIds(chunkIds.slice(i, i + DELETE_CHUNK));
   }
 
   await env.DB.batch([
-    env.DB.prepare("DELETE FROM chunks_fts WHERE namespace = ?").bind(personalNs),
+    ...deleteNamespaceChunkStatements(env, personalNs),
     env.DB.prepare("DELETE FROM kb_documents WHERE namespace = ?").bind(personalNs),
     env.DB.prepare("DELETE FROM kb_sources WHERE namespace_id = ?").bind(personalNs),
     env.DB.prepare("DELETE FROM kb_log WHERE namespace_id = ?").bind(personalNs),

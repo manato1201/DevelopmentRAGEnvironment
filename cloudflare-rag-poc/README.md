@@ -588,11 +588,14 @@ curl.exe -X POST http://localhost:8787/admin/health/check -H "Authorization: Bea
 curl.exe -X POST http://localhost:8787/admin/health/test-alert -H "Authorization: Bearer <adminのAPIキー>" -H "Content-Type: application/json" -d '{}'
 ```
 
-## 型チェック
+## 型チェックと自動テスト
 
 ```bash
-npm run typecheck
+npm run typecheck   # 型チェック
+npm test            # 自動テスト（test/*.test.mjs。Node.js 22以上）
 ```
+
+テストは、偽のD1（`node:sqlite`）と偽の外部APIで動く。**Cloudflareにも、外部サービスにも、接続しない**（本番のD1の読み取り枠も使わない）。TypeScriptの元のファイルを直接動かす（`tsx`）ので、ビルドは要らない。CI（`.github/workflows/ci.yml`の`worker`ジョブ）でも、同じものが動く。書き方・テスト一覧は[../docs/learning/04-applied.md §3](../docs/learning/04-applied.md)。
 
 ## トラブルシューティング（実際に遭遇したエラーと対処）
 

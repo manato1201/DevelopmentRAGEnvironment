@@ -218,6 +218,8 @@ erDiagram
 
 `chunks_fts`（D1 FTS5仮想テーブル）はキーワード検索専用で、実際の本文全文とメタデータは**Vectorize側にも**メタデータとして重複して持たせている（`ChunkMetadata`：file/namespace/scope/chunk_index/text/source/size/ingested_at）。ベクトル検索・キーワード検索を1回のリクエストで独立に行い、結果をアプリケーション層でRRF統合する設計のため、両ストアが同じチャンクIDで対応付けられている必要がある。
 
+**`chunk_rows`**（2026-10-16追加、migrations/0030）は`chunks_fts`の行を`chunk_id`・`(namespace, file)`から引くための対応表（`chunk_id`→FTSの`rowid`）。`chunks_fts`は`chunk_id`/`namespace`/`file`がUNINDEXED列で、これらでの検索・削除が毎回全チャンクの走査になり、D1無料枠（1日500万行の読み取り）を使い切って全APIが止まったため導入した。FTS5は`rowid`での参照だけは速いので、削除・参照はすべて`rowid`経由にしている（`src/chunkRows.ts`に集約。`chunks_fts`への書き込みは必ずここを通す）。あわせて、管理画面のnamespace別集計は`stats_cache`に10分キャッシュし、`kb_log(created_at)`に索引を足した（migrations/0029）。
+
 **`kb_documents`**（2026-09追加）は`chunks_fts`本体（1チャンク=1行）とは別に、1ドキュメント=1行（先頭チャンクのIDのみ）を保持する軽量インデックス。グラフ可視化・重複検出（[§7](#7-知識ベース取り込みパイプライン)）・ドキュメント一覧表示が、チャンク数に比例するコスト（D1の日次Rows read上限に直結）を払わずにドキュメント単位の操作を行えるようにするために導入した。
 
 **`oauth_connections`/`oauth_pending_state`**（2026-09-22追加）は、他のテーブルと異なり`namespace_id`を持たない＝**デプロイ単位で1接続**という設計（`JIRA_API_TOKEN`等の既存secretと同じスコープ感）。`oauth_pending_state`はOAuth認可フロー中の一時データで、コールバック受信時に検証・削除される（10分で自動失効）。
