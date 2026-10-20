@@ -819,7 +819,7 @@ export function chatUiHtml(): string {
 
       <div class="section">
         <h2>namespaceごとのナレッジ登録状況</h2>
-        <p class="hint">別プロジェクト管理コンソールの「Knowledge by Agent」を参考に追加（2026-09-10）。ファイル数・チャンク数はchunks_ftsから、最終更新日時は同期成功ログから集計しています。</p>
+        <p class="hint">別プロジェクト管理コンソールの「Knowledge by Agent」を参考に追加（2026-09-10）。ファイル数・チャンク数は登録データから（最大10分前の集計）、最終更新日時は同期成功ログから集計しています。</p>
         <button class="btn" id="refreshKbOverview">再読み込み</button>
         <div class="table-scroll"><table class="admin-table" id="kbOverviewTable"><thead><tr><th>namespace</th><th>ファイル数</th><th>チャンク数</th><th>同期元</th><th>最終更新</th></tr></thead><tbody></tbody></table></div>
       </div>

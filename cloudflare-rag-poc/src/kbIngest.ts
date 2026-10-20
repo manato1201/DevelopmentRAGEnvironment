@@ -1,6 +1,7 @@
 import type { ChunkMetadata, Env } from "./types";
 import { embedTextBatch, sha256Hex } from "./embeddings";
 import { chunkText } from "./chunking";
+import { deleteChunkStatements, putChunkStatements, runStatementGroups } from "./chunkRows";
 
 // VectorizeのベクトルIDは64バイト上限。日本語の長いページタイトルをそのままIDに使うと
 // UTF-8で1文字3バイトになり簡単に超過する（実際にHoudini21同期で発生した）。
@@ -56,16 +57,6 @@ const EMBED_BATCH_SIZE = 50;
 // 個ずつ同時に投げる。
 const EMBED_BATCH_CONCURRENCY = 3;
 
-// D1の書き込みを1回の往復にまとめる（上限を超えないよう50件ずつ）。batchが使えない環境では順に実行する。
-async function runStatements(env: Env, statements: D1PreparedStatement[]): Promise<void> {
-  const BATCH = 50;
-  for (let i = 0; i < statements.length; i += BATCH) {
-    const group = statements.slice(i, i + BATCH);
-    if (typeof env.DB.batch === "function") await env.DB.batch(group);
-    else for (const s of group) await s.run();
-  }
-}
-
 export async function ingestDocument(
   env: Env,
   namespaceId: string,
@@ -116,7 +107,7 @@ export async function ingestDocument(
     );
     // D1への書き込みは、チャンクごとに1回ずつ呼ぶのではなく、バッチ（1回の往復）にまとめる。
     // 1ページが数十チャンクあるとき、往復の回数と時間が大きく減る（再クロール・同期の高速化）。
-    const statements: D1PreparedStatement[] = [];
+    const groups: D1PreparedStatement[][] = [];
     batchValues.forEach((values, offset) => {
       const i = start + offset;
       const chunkId = chunkIds[i];
@@ -133,23 +124,20 @@ export async function ingestDocument(
       };
       vectors[i] = { id: chunkId, values, metadata };
 
-      statements.push(env.DB.prepare("DELETE FROM chunks_fts WHERE chunk_id = ?").bind(chunkId));
-      statements.push(
-        env.DB.prepare(
-          "INSERT INTO chunks_fts (chunk_id, file, namespace, scope, owner_user_id, difficulty, body) VALUES (?, ?, ?, ?, ?, NULL, ?)",
-        ).bind(chunkId, file, namespaceId, scope, ownerUserId, chunks[i]),
-      );
+      // chunks_fts + 対応表chunk_rows（chunkRows.ts）。1チャンク分は1グループ（途中で分割しない）。
+      const group = putChunkStatements(env, { chunkId, file, namespace: namespaceId, scope, ownerUserId, difficulty: null, body: chunks[i] });
       // グラフビュー用の軽量インデックス（migrations/0008_kb_documents.sql参照）。
       // ドキュメントごとに1行（chunk_index=0のチャンクIDのみ）を維持する。
       if (i === 0) {
-        statements.push(
+        group.push(
           env.DB.prepare(
             "INSERT OR REPLACE INTO kb_documents (chunk_id, file, namespace, scope, owner_user_id) VALUES (?, ?, ?, ?, ?)",
           ).bind(chunkId, file, namespaceId, scope, ownerUserId),
         );
       }
+      groups.push(group);
     });
-    await runStatements(env, statements);
+    await runStatementGroups(env, groups);
   };
 
   const batchRanges: Array<{ start: number; end: number }> = [];
@@ -205,7 +193,7 @@ export async function ingestDocument(
   // 同じドキュメントを短く書き換えて再登録したとき、古い末尾のチャンクが残らないようにする
   // （再クロールで、前回より短くなったページの古い内容が検索に出続けるのを防ぐ）。
   // 前回のチャンク数（previousChunkCount）が分かっているときだけ、増えなかった分のIDを消す。
-  // chunks_ftsのUNINDEXED列での検索は全件走査になるため、IDは前回の件数から計算して指定する。
+  // IDは前回の件数から計算して指定する（chunk_rows経由のrowid削除。chunkRows.ts）。
   // 今回の全チャンクの登録に成功したときだけ行う（途中で失敗したときは古い内容を消さない）。
   if (skippedVectors.length === 0 && previousChunkCount && previousChunkCount > chunks.length) {
     const count = Math.min(previousChunkCount - chunks.length, 500);
@@ -219,10 +207,7 @@ export async function ingestDocument(
         // ベクトルの掃除に失敗しても、今回の登録自体は成功として扱う
       }
     }
-    await runStatements(
-      env,
-      staleIds.map((id) => env.DB.prepare("DELETE FROM chunks_fts WHERE chunk_id = ?").bind(id)),
-    );
+    await runStatementGroups(env, staleIds.map((id) => deleteChunkStatements(env, [id])));
   }
 
   return { chunks: chunks.length, skippedVectors };

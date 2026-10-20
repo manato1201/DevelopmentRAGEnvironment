@@ -1,6 +1,7 @@
 import type { AuthedUser, ChunkMetadata, Env } from "./types";
 import { jsonResponse } from "./http";
 import { embedText, sha256Hex } from "./embeddings";
+import { putChunkStatements, runStatementGroups } from "./chunkRows";
 
 // VectorizeのベクトルIDは64バイト上限。日本語ファイル名をそのままIDに使うと超過しうるため
 // （src/kbIngest.tsと同じ理由）、ハッシュベースの固定長IDにする。
@@ -101,22 +102,30 @@ export async function handleIngest(req: Request, env: Env, user: AuthedUser): Pr
   }
 
   // 既存チャンクの再投入（テスト等）に備え、同じchunk_idのFTS行は一度消してから入れ直す
-  for (const row of ftsRows) {
-    await env.DB.prepare("DELETE FROM chunks_fts WHERE chunk_id = ?").bind(row.chunk_id).run();
-    await env.DB.prepare(
-      "INSERT INTO chunks_fts (chunk_id, file, namespace, scope, owner_user_id, difficulty, body) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    )
-      .bind(row.chunk_id, row.file, row.namespace, row.scope, row.owner_user_id, row.difficulty, row.body)
-      .run();
-  }
+  // chunks_fts + 対応表chunk_rows（chunkRows.ts）。1チャンク分は1グループにして、バッチ内で分割されないようにする。
+  await runStatementGroups(
+    env,
+    ftsRows.map((row) =>
+      putChunkStatements(env, {
+        chunkId: row.chunk_id,
+        file: row.file,
+        namespace: row.namespace,
+        scope: row.scope as "shared" | "personal",
+        ownerUserId: row.owner_user_id,
+        difficulty: row.difficulty,
+        body: row.body,
+      }),
+    ),
+  );
 
-  for (const doc of documentRows.values()) {
-    await env.DB.prepare(
-      "INSERT OR REPLACE INTO kb_documents (chunk_id, file, namespace, scope, owner_user_id) VALUES (?, ?, ?, ?, ?)",
-    )
-      .bind(doc.chunk_id, doc.file, doc.namespace, doc.scope, doc.owner_user_id)
-      .run();
-  }
+  await runStatementGroups(
+    env,
+    [...documentRows.values()].map((doc) => [
+      env.DB.prepare(
+        "INSERT OR REPLACE INTO kb_documents (chunk_id, file, namespace, scope, owner_user_id) VALUES (?, ?, ?, ?, ?)",
+      ).bind(doc.chunk_id, doc.file, doc.namespace, doc.scope, doc.owner_user_id),
+    ]),
+  );
 
   return jsonResponse(200, {
     status: "ok",

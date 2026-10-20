@@ -8,17 +8,55 @@ import { jsonResponse, clampInt } from "./http";
 // HTMLから本文テキストを抽出する（Workers組み込みのHTMLRewriterを使用。DOMパーサ相当の
 // ライブラリを追加せずに済む）。本文抽出に加え、ページ内のリンク（絶対URLに正規化済み）と
 // titleタグの内容も収集できる（再帰クロール用。単発URL登録はtext以外を読み捨てる）。
-async function extractTextLinksAndTitle(
+//
+// 本文は、ページに<main>・<article>・role="main"があれば、その中だけを取る。さらに、どのページでも
+// <nav>・<footer>・<aside>・<noscript>（と role="navigation"）の中の文字は、本文に入れない。
+// ドキュメントサイトは、全ページに「全ノードの一覧」のようなサイドバーの目次を持つことが多く
+// （SideFXのドキュメントは、1ページ約10.5万文字のうち、本文は約1万文字。残りは目次）、そのまま
+// 登録すると、①1ページ約200チャンク（本文だけなら約12）になり、埋め込み・D1書き込みの量と、
+// 1回のリクエストの時間が約10倍になる（再クロールの503の原因だった）、②全ページに同じ目次が入り、
+// 検索が目次で汚染される。リンクは、目次からのものも含め、ページ全体から集める（クロールで辿るため）。
+export async function extractTextLinksAndTitle(
   html: string,
   baseUrl: string,
+): Promise<{ text: string; links: string[]; title: string }> {
+  const hasMain = /<main[\s>]|<article[\s>]|role=["']main["']/i.test(html);
+  const first = await extractOnce(html, baseUrl, hasMain);
+  // 本文の領域が、完全に空の入れ物だった場合（本文をJavaScriptで描くページなど）だけ、領域の絞り込みをやめて取り直す。
+  // 短い本文は、短いままにする（取り直すと、領域の外の文字が入る）
+  if (hasMain && first.text.length === 0) {
+    const retry = await extractOnce(html, baseUrl, false);
+    if (retry.text.length > first.text.length) return retry;
+  }
+  return first;
+}
+
+async function extractOnce(
+  html: string,
+  baseUrl: string,
+  onlyMain: boolean,
 ): Promise<{ text: string; links: string[]; title: string }> {
   const chunks: string[] = [];
   const links = new Set<string>();
   let title = "";
+  let mainDepth = 0; // <main>等の中にいるとき1以上
+  let skipDepth = 0; // <nav>等の中にいるとき1以上
   const rewriter = new HTMLRewriter()
     .on("script", { element: (el) => { el.remove(); } })
     .on("style", { element: (el) => { el.remove(); } })
     .on("title", { text: (t) => { title += t.text; } })
+    .on("main, article, [role=main]", {
+      element: (el) => {
+        mainDepth++;
+        el.onEndTag(() => { mainDepth--; });
+      },
+    })
+    .on("nav, footer, aside, noscript, [role=navigation]", {
+      element: (el) => {
+        skipDepth++;
+        el.onEndTag(() => { skipDepth--; });
+      },
+    })
     .on("a[href]", {
       element: (el) => {
         const href = el.getAttribute("href");
@@ -32,7 +70,13 @@ async function extractTextLinksAndTitle(
         }
       },
     })
-    .on("*", { text: (t) => { chunks.push(t.text); } });
+    .on("*", {
+      text: (t) => {
+        if (skipDepth > 0) return;
+        if (onlyMain && mainDepth === 0) return;
+        chunks.push(t.text);
+      },
+    });
   await rewriter.transform(new Response(html)).text();
   const text = chunks.join(" ").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
   return { text, links: Array.from(links), title: title.trim() };
@@ -104,6 +148,10 @@ const CRAWL_FETCH_TIMEOUT_MS = 20_000;
 const CRAWL_PER_PAGE_TIMEOUT_MS = 60_000;
 // 1リクエストの目安の時間。batchSizeが残っていても、これを超えたら残りは次のリクエストへ回す。
 const CRAWL_REQUEST_BUDGET_MS = 25_000;
+// 1ページから登録する本文の最大文字数（約118チャンク分）。これを超える分は切り捨てる。
+// 巨大なページ（本文抽出で目次を外せなかったサイトなど）1枚で、1回のリクエストの処理量（埋め込み・D1書き込みの
+// 回数）が膨らみ、Cloudflareに打ち切られて503になるのを防ぐ保険（2026-10-17）。通常のページは、これに届かない。
+const CRAWL_MAX_TEXT_CHARS = 100_000;
 
 type CrawlResultStatus = "ok" | "error" | "skipped_existing" | "unchanged";
 
@@ -229,7 +277,8 @@ async function storePage(env: Env, namespace: string, url: string, hash: string,
 // が、HTMLRewriterでのfetch＋パース自体は軽く、コストが大きいのはGemini埋め込み呼び出し
 // （ingestDocument内）なので、そこだけ避けられれば実用上の効果は十分ある。
 async function documentAlreadyExists(env: Env, namespace: string, file: string): Promise<boolean> {
-  const row = await env.DB.prepare("SELECT 1 FROM chunks_fts WHERE namespace = ? AND file = ? LIMIT 1")
+  // kb_documents（namespaceに索引あり・1ドキュメント1行）で確認する。chunks_ftsは索引が効かず、毎回全件走査になる。
+  const row = await env.DB.prepare("SELECT 1 FROM kb_documents WHERE namespace = ? AND file = ? LIMIT 1")
     .bind(namespace, file)
     .first();
   return row !== null;
@@ -359,7 +408,9 @@ export async function runCrawlBatch(env: Env, body: CrawlBody, actor: string | n
 
     // リンクは元URLではなく、リダイレクト後の実際のページURL（finalUrl）を基準に
     // 相対解決する（そうしないと起点がリダイレクトするサイトで相対リンクが壊れる）。
-    const { text, links, title: pageTitle } = await extractTextLinksAndTitle(html, finalUrl);
+    const extracted = await extractTextLinksAndTitle(html, finalUrl);
+    const { links, title: pageTitle } = extracted;
+    const text = extracted.text.length > CRAWL_MAX_TEXT_CHARS ? extracted.text.slice(0, CRAWL_MAX_TEXT_CHARS) : extracted.text;
     const title = pageTitle || current.url;
 
     if (!text) {

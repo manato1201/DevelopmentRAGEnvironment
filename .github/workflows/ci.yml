@@ -39,3 +39,33 @@ jobs:
 
       - name: namespace governance check (pep.py 遵守チェック)
         run: uv run python scripts/ci_check_namespaces.py
+
+      # 動画の初心者向け台本（houdini/python_panels/video_script.py）。Houdini・Claudeは使わない。
+      - name: houdini unit tests (video_script)
+        run: uv run python -m unittest discover -s houdini/tests
+
+  # Cloudflare Worker（cloudflare-rag-poc）の型チェックと自動テスト。
+  # テストは、偽のD1（node:sqlite）と偽の外部APIで動く。Cloudflareや外部サービスには接続しない。
+  worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare-rag-poc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22   # node:sqlite（テストで使用）が使える版
+          cache: npm
+          cache-dependency-path: cloudflare-rag-poc/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test

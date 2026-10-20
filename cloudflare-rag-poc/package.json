@@ -9,10 +9,12 @@
     "deploy": "wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply rag-poc-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply rag-poc-db --remote",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260820.1",
+    "tsx": "^4.23.15",
     "typescript": "^5.6.3",
     "wrangler": "^4.0.0"
   },
