@@ -47,6 +47,8 @@ import urllib.request
 from pathlib import Path
 from typing import Callable
 
+import lesson_design
+import tutorial_review
 from houdini_tools import HOUDINI_TOOLS, HoudiniToolExecutor
 
 # ─── 定数 ────────────────────────────────────────────────────────────────────────
@@ -283,19 +285,20 @@ _GRACE_NUDGE_TEXT = (
 # 順で生成する際、各段のシステムプロンプトに差し込む指示文。「どのレベルを生成するか」の決定
 # 自体はscore_engine.pyの理解度スコア（呼び出し側）に委ね、tutorial_agent.pyはレベルを受け取って
 # 生成するだけに責務を絞る（決定ロジックをここに持ち込まない）。
+# 2026-10-20: 3段階を「難しさ」ではなく1つの学習の道すじ（レッスン1→2→3）として定義し直した
+# （中身は lesson_design.LESSON_PATH）。キー名（basic/applied/advanced）は互換のため変えない。
 _LEVEL_INSTRUCTIONS: dict[str, str] = {
-    "basic":    "初心者が最初に触るノード構成に限定してください。3〜5ノード程度で、パラメータもデフォルトに近い値のまま使うことを優先します。",
-    "applied":  "basic段の構成を前提に、パラメータ調整や分岐（例: ノイズの重ね掛け、条件による分岐）を1〜2個追加してください。",
-    "advanced": "applied段を前提に、実務で使う応用パターン（VEXコード・式・複数ノードの連携等）を含めてください。",
+    level: f"{title}。{role}" for level, (title, role) in lesson_design.LESSON_PATH.items()
 }
 _DEFAULT_LEVEL = "basic"
 
 _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初心者向けチュートリアルを作成するエージェントです。
 与えられたツールで Houdini のノードグラフを実際に組み立て、動作確認済みのチュートリアルを作成します。
 
-## レベル: {level}（basic → applied → advanced の一貫進行の一部として生成しています）
+## レベル: {level}（basic → applied → advanced は、レッスン1→2→3の学習の道すじです）
 {level_instruction}
 {prior_level_summary}
+{lesson_section}
 {reference_section}
 {requirements_section}
 {domain_sections}
@@ -320,7 +323,7 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初
 1. リクエストと参考ドキュメントからチュートリアルの構成を決める（3〜8ノード程度の到達可能なスコープに収める）
 2. ノードを作成・接続・パラメータ設定する
 3. cook_node でエラー確認 → 自己修正
-4. エラーゼロを確認したら finish_tutorial を呼ぶ。steps には実際に行った操作を初心者が再現できる粒度で書き、pitfalls には生成中に遭遇したエラーと対処を書く。next_steps には「このパラメータを変えたら/このノードを足したら何が変わるか」を具体的に3〜5個挙げ、読んだ人が自分のプロジェクトに応用するための手がかりにする（手順の要約の繰り返しにしないこと）。sources_used には実際に参考にした「参考ドキュメント」の番号（下記の[1][2]...）を記入する（使っていなければ空配列）
+4. エラーゼロを確認し、パラメータ実験と仕上げ（上の「教え方のルール」）を終えたら finish_tutorial を呼ぶ。steps には実際に行った操作を、理由と各章の「✅ 確認ポイント」つきで、初心者が再現できる粒度で書き、pitfalls には生成中に遭遇したエラーと対処を書く。learn / concepts / experiments / polish / next_lesson も書く。next_steps には「このパラメータを変えたら/このノードを足したら何が変わるか」を具体的に3〜5個挙げ、読んだ人が自分のプロジェクトに応用するための手がかりにする（手順の要約の繰り返しにしないこと）。sources_used には実際に参考にした「参考ドキュメント」の番号（下記の[1][2]...）を記入する（使っていなければ空配列）
 5. finish_tutorial の直後に現在のビューポート画像が送られます。**その画像を確認し、意図した見た目になっているか自己検証してから、必ず confirm_tutorial を呼んでください。** 見た目に問題があれば looks_correct=false にして修正し、finish_tutorial からやり直してください
 
 ## 参考ドキュメント（{kb_label} ナレッジベース。番号は sources_used で引用する際に使う）
@@ -575,6 +578,9 @@ class TutorialResult:
         # 作成・エージェントループ・Markdown組み立てまで全体を計測する（ユーザーが実際に
         # 待つ時間の実感に合わせるため、API呼び出し部分だけを計測するより意味がある）。
         self.elapsed_seconds: float = 0.0
+        # レッスン設計（lesson_design.design_lesson。作れなければNone）と、生成物の採点（tutorial_review）。
+        self.lesson_plan: dict | None = None
+        self.lesson_review: dict = {}
 
     def file_basename(self) -> str:
         date = datetime.datetime.now().strftime("%Y%m%d")
@@ -740,8 +746,20 @@ class TutorialAgent:
         # ③ エージェントループ
         if prior_level_summary:
             self._progress(f"前段の要約をプロンプトに引き継ぎました（{len(prior_level_summary)} 文字）")
+        # ③-0 レッスン設計（ノードを組む前に、章立て・確認・実験を決める）。失敗しても設計なしで続ける。
+        try:
+            result.lesson_plan, plan_message, plan_usage = lesson_design.design_lesson(
+                self.complete_text, topic, level, self._requirements, rag_texts, prior_level_summary,
+                bool(self._reference_blocks), Path(self._target_model).name if self._target_model else "",
+            )
+        except Exception as exc:  # noqa: BLE001 -- 設計は付加価値。例外で生成を止めない
+            result.lesson_plan, plan_message, plan_usage = None, f"レッスン設計: 失敗したため設計なしで続けます（{str(exc)[:60]}）", {}
+        result.cost_usd += self._usage_cost(plan_usage)
+        result.input_tokens += plan_usage.get("input_tokens", 0)
+        result.output_tokens += plan_usage.get("output_tokens", 0)
+        self._progress(plan_message)
         system_blocks, tools, messages = self._build_initial_prompt(
-            topic, rag_texts, level, prior_level_summary
+            topic, rag_texts, level, prior_level_summary, result.lesson_plan
         )
         try:
             self._run_loop(system_blocks, tools, messages, result)
@@ -763,7 +781,15 @@ class TutorialAgent:
             # このケースでも以前のまともな下書きを拾える。
             finish = self.executor.best_unconfirmed_draft()
             result.used_unconfirmed_draft = finish is not None
-        finish = finish or {}
+        finish = dict(finish or {})
+        # モデルが書かなかったレッスン用の項目は、設計で補う（実験は「予想」と明記される）。
+        for key, value in lesson_design.fallback_fields(result.lesson_plan).items():
+            if len(str(finish.get(key) or "").strip()) < 12:
+                finish[key] = value
+        result.lesson_review = tutorial_review.review_finish(
+            finish, list(self.executor.step_log) if self.executor else []
+        )
+        self._progress(tutorial_review.summarize(result.lesson_review))
         result.title = finish.get("title") or f"Houdiniチュートリアル: {topic}"
         result.slug = self._sanitize_slug(finish.get("slug", ""), topic)
         result.next_steps = finish.get("next_steps", "")
@@ -990,6 +1016,7 @@ class TutorialAgent:
         rag_texts: list[str],
         level: str = _DEFAULT_LEVEL,
         prior_level_summary: str = "",
+        lesson_plan: dict | None = None,
     ) -> tuple[list[dict], list[dict], list[dict]]:
         """
         システム・ツール・初期メッセージを構築する。
@@ -1013,6 +1040,7 @@ class TutorialAgent:
             level=level,
             level_instruction=_LEVEL_INSTRUCTIONS.get(level, _LEVEL_INSTRUCTIONS[_DEFAULT_LEVEL]),
             prior_level_summary=prior_summary_block,
+            lesson_section=lesson_design.plan_section(lesson_plan, level),
             reference_section=_REFERENCE_SECTION if self._reference_blocks else "",
             requirements_section=build_requirements_section(self._requirements),
             domain_sections=build_target_model_section(self._target_model)
@@ -1286,6 +1314,18 @@ class TutorialAgent:
             return self._call_api_cloudflare(system_blocks, tools, messages)
         return self._call_api_gas(system_blocks, tools, messages)
 
+    def complete_text(self, system: str, user: str) -> tuple[str, dict]:
+        """
+        ツールを使わない、1回きりのテキスト生成（動画の台本づくり: video_script.py）。
+        エージェントループと同じ経路（GAS/Cloudflare経由・トークン予算の対象）で呼ぶ。
+        戻り値: (本文, usage)。API呼び出しの失敗は例外のまま呼び出し元へ出す。
+        """
+        response = self._call_api(
+            [{"type": "text", "text": system}], [], [{"role": "user", "content": user}],
+        )
+        text = "".join(b.get("text", "") for b in (response.get("content") or []) if b.get("type") == "text")
+        return text, response.get("usage", {})
+
     def _call_api_cloudflare(
         self, system_blocks: list[dict],
         tools: list[dict], messages: list[dict],
@@ -1512,6 +1552,9 @@ class TutorialAgent:
             "reference_images": result.reference_image_count,
             "has_requirements": bool(self._requirements),
             "has_target_model": bool(self._target_model),
+            "lesson_plan": bool(result.lesson_plan),
+            "lesson_score": result.lesson_review.get("score", -1),
+            "lesson_missing": "、".join(result.lesson_review.get("missing", []))[:160],
             "lessons_used": getattr(self, "_lessons_used", 0),
             "examples_used": getattr(self, "_examples_used", 0),
         }
@@ -1626,6 +1669,17 @@ class TutorialAgent:
         # バナー付きのままstatus: activeで保存され、動画まで自動生成されてしまう
         # 事例が報告されたための対応（動画生成自体のガードはtutorial_view.py参照）。
         frontmatter_status = "active" if result.completed else "archived"
+
+        def lesson_block(key: str) -> str:
+            """レッスン用の節（書かれていれば「## 見出し」つき。無ければ空文字で、従来の形のまま）。"""
+            body = str(finish.get(key) or "").strip()
+            if not body:
+                return ""
+            return f"## {tutorial_review.LESSON_FIELDS[key][0]}\n\n{body}\n\n"
+
+        lesson_before = lesson_block("learn") + lesson_block("concepts")
+        lesson_after = lesson_block("experiments") + lesson_block("polish")
+        lesson_next = lesson_block("next_lesson")
         return f"""---
 title: {result.title}
 namespace: tutorials
@@ -1643,11 +1697,11 @@ reference_images: {result.reference_image_count}
 
 {finish.get("overview", f"リクエスト「{topic}」から自動生成されたチュートリアルです。")}
 
-## 手順
+{lesson_before}## 手順
 
 {finish.get("steps", "（打ち切りのため手順は未完成です。下記のノード構成を参照してください）")}
 
-## コード・ノード構成
+{lesson_after}## コード・ノード構成
 
 サンドボックス: `{result.sandbox_path}`
 
@@ -1670,7 +1724,7 @@ reference_images: {result.reference_image_count}
     else "特になし（パラメータを変えて色々試してみましょう）"
 )}
 
-## 参考
+{lesson_next}## 参考
 {extraction_note}
 {chr(10).join(source_lines)}
 

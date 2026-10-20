@@ -41,11 +41,16 @@ def launch_video_generation(
     step_screenshots: list[dict],
     exe_path: str,
     db_key: str = "",
+    script_path: Path | None = None,
 ) -> tuple[str, Path | None]:
     """
     動画生成を非同期で起動する。戻り値は (状態メッセージ, ログファイルパス)。
     ログファイルパスは実際にプロセスを起動できた場合のみ返す（進捗ポーリング用）。
     呼び出し元の状態ラベルにそのまま表示できる短い日本語メッセージを返す。例外は投げない。
+
+    script_path（2026-10-19追加）: video_script.py が作った初心者向けの台本（<slug>_video_script.json）。
+    あれば --houdini-script で渡す。エンジンは、手順ごとの解説で音声を作り、画面と同期させる。
+    無い・存在しないときは、従来どおり（チュートリアル本文の朗読）になる。
     """
     if not exe_path:
         return "動画生成: video_factory_exe_path が未設定のためスキップしました（Settingsタブで設定してください）", None
@@ -72,6 +77,10 @@ def launch_video_generation(
         "--houdini-screenshots",
         str(screenshots_path),
     ]
+    has_script = script_path is not None and Path(script_path).exists()
+    if has_script:
+        args += ["--houdini-script", str(script_path)]
+
     # 動画エンジンの位置引数（トピック・DBキー）。トピックはエンジン側がチュートリアルの
     # タイトルで上書きするので仮の値でよい。DBキーは動画のブランド表示（"HOUDINI22"）と
     # RAG問い合わせ先になる。未指定だとエンジンの既定値 houdini21 になり、Houdini 22の
@@ -90,15 +99,16 @@ def launch_video_generation(
     except OSError as exc:
         return f"動画生成の起動に失敗しました: {exc}", None
 
+    script_note = "初心者向け台本つき / " if has_script else ""
     shot_count = sum(1 for s in step_screenshots if s.get("viewport") or s.get("network"))
     if shot_count:
         status = (
-            f"動画生成をバックグラウンドで開始しました（スクリーンショット{shot_count}件 / "
+            f"動画生成をバックグラウンドで開始しました（{script_note}スクリーンショット{shot_count}件 / "
             f"ログ: {log_path.name}）"
         )
     else:
         status = (
-            "動画生成をバックグラウンドで開始しました（スクリーンショットなし。"
+            f"動画生成をバックグラウンドで開始しました（{script_note}スクリーンショットなし。"
             f"ログ: {log_path.name}）"
         )
     return status, log_path

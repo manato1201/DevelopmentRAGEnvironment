@@ -528,3 +528,11 @@ flowchart LR
 | `cook_node` | 時間依存ノードは10フレーム評価。TOPは作業項目の生成まで |
 | `inspect_geometry` | 新規。SOP・COP・LOPの中身を数値で確認 |
 | `list_available_node_types` | `Cop`・`Lop`・`Chop`を追加 |
+
+### 2.18 動画の初心者向け台本と音声（2026-10-19）
+
+動画のナレーション・画面の文が、「操作の記録の読み上げ」になっていた問題を直した。保存の直後に、Claudeで**初心者向けの台本**（導入・手順ごとの解説・全体の構成・つまずきやすい点・まとめ）を作り（`video_script.py`）、動画エンジンは、**スライドごとに音声を作って連結し、スライドの長さを音声の長さで決める**。音声は、導入済みのVOICEVOXを自動で起動し、どの声で作ったかをログとパネルに出す。詳しくは[houdini-video-script.md](houdini-video-script.md)。
+
+### 2.19 レッスン設計と品質採点（2026-10-20）
+
+3段階（basic/applied/advanced）を、難しさではなく**レッスン1→2→3の学習の道すじ**に定義し直した。ノードを組む前にレッスンの設計（用語・たとえ・章ごとの確認・パラメータ実験・仕上げ・次回）を作り（`lesson_design.py`）、`finish_tutorial`で抜けがあれば書き足させ、100点満点で採点する（`tutorial_review.py`）。既存の生成物3本は、どれも6/100だった。詳しくは[houdini-lesson-design.md](houdini-lesson-design.md)。

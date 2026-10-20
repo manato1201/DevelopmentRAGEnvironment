@@ -379,7 +379,7 @@ def save_lessons(project_dir: str, lessons: list[dict]) -> bool:
 
 
 def approved_lessons(project_dir: str) -> list[str]:
-    return [l["text"] for l in load_lessons(project_dir) if l["approved"]][:MAX_APPROVED_LESSONS]
+    return [lesson["text"] for lesson in load_lessons(project_dir) if lesson["approved"]][:MAX_APPROVED_LESSONS]
 
 
 def build_lessons_section(project_dir: str) -> str:

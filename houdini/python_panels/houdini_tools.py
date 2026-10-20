@@ -25,6 +25,8 @@ import threading
 from pathlib import Path
 from typing import Any, Callable
 
+import tutorial_review
+
 
 # ─── Anthropic tool-use スキーマ ─────────────────────────────────────────────────
 # ツール定義はエージェントループの固定部分としてプロンプトキャッシュされるため、
@@ -302,6 +304,32 @@ HOUDINI_TOOLS: list[dict] = [
                         "「もっと調べてみましょう」のような一般論で終わらせず、変更するパラメータ名や"
                         "追加するノードタイプなど具体的な手がかりを含めること。"
                     ),
+                },
+                "learn": {
+                    "type": "string",
+                    "description": "このレッスンで身につくこと（Markdown箇条書き 2〜4個）",
+                },
+                "concepts": {
+                    "type": "string",
+                    "description": (
+                        "先に知っておく考え方（Markdown）。初めて出る用語を一言で説明し、仕組み全体を日常の"
+                        "たとえで1つ説明する。初心者が手順を読む前に読む部分"
+                    ),
+                },
+                "experiments": {
+                    "type": "string",
+                    "description": (
+                        "パラメータを動かして確かめた結果（Markdown箇条書き 2〜3個）。実際に set_parameter で"
+                        "値を変えて cook_node した結果だけを書く。形: 「ノード.パラメータ: 値A → 値B で、〇〇がこう変わる」"
+                    ),
+                },
+                "polish": {
+                    "type": "string",
+                    "description": "仕上げ（見た目を整えた1〜2個の操作と、その効果）",
+                },
+                "next_lesson": {
+                    "type": "string",
+                    "description": "次のレッスンで学ぶとよいこと（1〜2個）と、今回の内容がどう役立つか",
                 },
                 "sources_used": {
                     "type": "array",
@@ -1546,6 +1574,15 @@ class HoudiniToolExecutor:
         draft = dict(args)
         self._pending_finish = draft
         self._finish_drafts.append(draft)
+        # 品質ゲート（2026-10-20）: レッスン用の項目（考え方・確認ポイント・実験・仕上げ・次のレッスン）が
+        # 抜けていれば、書き足させる。最初の2回の提出だけ（無限ループ・予算の浪費を避ける）。
+        if len(self._finish_drafts) <= 2:
+            gap = tutorial_review.finish_gap_message(draft)
+            if gap:
+                return (
+                    "チュートリアル内容を受け付けましたが、まだ確定していません。\n" + gap
+                    + "\nこのあとビューポートの画像が送られます。書き足したうえで、もう一度 finish_tutorial を呼んでください。"
+                )
         return (
             "チュートリアル内容を受け付けました（まだ確定していません）。"
             "このあとビューポートの画像が送られるので、意図した見た目になっているか確認し、"
@@ -1569,7 +1606,8 @@ class HoudiniToolExecutor:
             return None
 
         def content_length(draft: dict) -> int:
-            fields = ("title", "overview", "steps", "pitfalls", "next_steps")
+            fields = ("title", "overview", "steps", "pitfalls", "next_steps",
+                      "learn", "concepts", "experiments", "polish", "next_lesson")
             return sum(len(str(draft.get(f, ""))) for f in fields)
 
         # 文字数が同点の場合はインデックスが大きい（＝より新しい）方を優先する。

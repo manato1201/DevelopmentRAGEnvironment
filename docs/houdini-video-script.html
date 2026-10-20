@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Houdiniチュートリアル動画: 初心者向け台本と音声の改善</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">動画の台本と音声</span>
+  <h1>Houdiniチュートリアル動画: 初心者向け台本と音声の改善</h1>
+  <div class="meta">HTML生成: 2026-10-20（元: docs/houdini-video-script.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-何が問題だったか実データで確認">1. 何が問題だったか（実データで確認）</a></li><li><a href="#2-どう直したか">2. どう直したか</a><ol><li><a href="#21-台本houdini側">2.1 台本（Houdini側）</a></li><li><a href="#22-動画エンジン側">2.2 動画エンジン側</a></li><li><a href="#23-音声">2.3 音声</a></li></ol></li><li><a href="#3-実データでの確認ブラックホールのチュートリアル16手順">3. 実データでの確認（ブラックホールのチュートリアル、16手順）</a></li><li><a href="#4-使い方設定">4. 使い方・設定</a></li><li><a href="#5-未確認のこと">5. 未確認のこと</a></li><li><a href="#6-関連して見つかった不具合動画エンジン">6. 関連して見つかった不具合（動画エンジン）</a></li><li><a href="#7-テスト">7. テスト</a></li></ol></details></nav>
+<main>
+
+<p><strong>作成日:</strong> 2026-10-19<br />
+<strong>対象:</strong> <code>houdini/python_panels/video_script.py</code>（新規）、<code>tutorial_view.py</code>、<code>video_factory_bridge.py</code>、動画エンジン（別リポジトリ <code>RAGReel</code>）<br />
+<strong>関連:</strong> <a href="content-generation.md">content-generation.md §2.8・§2.11</a>、RAGReelの<code>docs/narration-quality.md</code>・<code>docs/technical-reference.md §22</code></p>
+<hr />
+<h2 id="1-何が問題だったか実データで確認">1. 何が問題だったか（実データで確認）</h2>
+<p>保存済みのチュートリアル（<code>procedural-black-hole-particles_20261018</code>）の動画で確認した。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>事実</th>
+<th>影響</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>音声はチュートリアル本文の朗読、画面は別の文</strong>だった。手順のスライドには、ツールの実行結果文（「…ノードを作り、名前を emit にする」）が出ていた</td>
+<td>画面と音声が対応せず、どちらも「操作の記録」で、初心者への説明になっていない</td>
+</tr>
+<tr>
+<td>2</td>
+<td>コードを入力する手順では、<strong>コード全文</strong>（<code>emit のパラメータを設定: Run Over を 0、VEXpression を int n = 30000; float rin = …</code>）が、画面の文章の元になっていた</td>
+<td>画面に出せず、読み上げもできない</td>
+</tr>
+<tr>
+<td>3</td>
+<td>「ハマりポイント」「応用・発展のヒント」の節は、<strong>専門家向けの文面のまま約110秒（動画の約35%）読み上げられていた</strong>（<code>setpointattrib に float 変数を渡すと Ambiguous call エラー…</code>、<code>pow(u,3)</code>、<code>curlnoise</code>…）</td>
+<td>初心者には意味が分からない</td>
+</tr>
+<tr>
+<td>4</td>
+<td>スライドの長さは、文字数からの推定だった</td>
+<td>音声の区切りと、画面の切り替わりがずれる</td>
+</tr>
+<tr>
+<td>5</td>
+<td>音声の向上（VOICEVOX）は、<strong>導入済みでも、エンジンが起動していないと黙って従来の声（SAPI）に戻る</strong>作りだった。どちらの声で作ったかも、どこにも出なかった</td>
+<td>向上が一度も効いていなかった</td>
+</tr>
+<tr>
+<td>6</td>
+<td>読み替え辞書（<code>tts_dictionary.json</code>）が、<strong>実行ファイルの隣にコピーされていなかった</strong>。SAPIには、そもそも読み替えが無かった</td>
+<td>「Houdini」「VEX」「Attribute Wrangle」などの読みが崩れる</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-どう直したか">2. どう直したか</h2>
+<div class="mermaid">flowchart LR
+    A[&quot;保存したチュートリアル&lt;br/&gt;(.md)&quot;] --&gt; S[&quot;video_script.py&lt;br/&gt;初心者向けの台本を作る&quot;]
+    B[&quot;手順ごとの&lt;br/&gt;スクリーンショット一覧&quot;] --&gt; S
+    S --&gt;|&quot;Claude&lt;br/&gt;(失敗・不合格は定型の解説で補う)&quot;| J[&quot;（slug）_video_script.json&quot;]
+    J --&gt; E[&quot;動画エンジン RAGReel&lt;br/&gt;--houdini-script&quot;]
+    E --&gt; N[&quot;スライドごとに音声を作って連結&lt;br/&gt;(VOICEVOX。無ければSAPI)&quot;]
+    N --&gt; V[&quot;スライドの長さ = その音声の長さ&lt;br/&gt;→ 画面と音声が必ず一致&quot;]
+</div>
+<h3 id="21-台本houdini側">2.1 台本（Houdini側）</h3>
+<ul>
+<li>保存の直後、動画を作る前に、<strong>別スレッドで</strong>台本を作る（Claudeの呼び出しに数十秒かかるため、UIは止まらない）。</li>
+<li>台本の内容: <strong>導入</strong>（何を作るか・身につくこと）／<strong>手順ごとの解説</strong>／<strong>全体の構成の説明</strong>／<strong>その他の節の言い直し</strong>（ハマりポイント、応用のヒント）／<strong>まとめ</strong>（次の一歩）。</li>
+<li>Claudeへの指示（<code>video_script.py</code>の<code>SYSTEM_PROMPT</code>）の要点:</li>
+<li>手順ごとに、①いま何をするか ②<strong>なぜそうするのか</strong> ③画面で見る場所 ④つまずきやすい点、の順で書く。</li>
+<li><strong>初めて出る用語は、その場で一言で説明する</strong>。</li>
+<li><strong>コードは読まない</strong>。何をするコードかを、日常のたとえで説明する。変数名・記号・数式は読み上げない。</li>
+<li>ナレーションに英字を使わない（ノード名はカタカナ）。話し言葉の「です・ます」調、1文は40文字くらいまで。</li>
+<li>与えられた手順・値・ノード名にないことは、書かない。</li>
+<li><strong>検証</strong>（<code>clean_narration</code>）: コードのような文章、40文字未満、320文字超（文の切れ目で切れないもの）、英字が3割超の文章は、採用しない。採用しなかった手順・節は、<strong>定型の解説</strong>で補う（同じ説明を繰り返さず、ノード名・パラメータ名を入れる）。</li>
+<li>台本が作れない（手順が無い等）ときだけ、従来の動画になる。</li>
+</ul>
+<h3 id="22-動画エンジン側">2.2 動画エンジン側</h3>
+<ul>
+<li>台本の<strong>手順の解説・短い画面の文（最大2行）・見出し</strong>を、各スライドに載せる。見出しは「手順 3　アトリビュートラングルノードを作る」の形。</li>
+<li>スライドごとに音声を作って連結し、<strong>スライドの長さを、実際の音声の長さで決める</strong>（手順の間に0.45秒の息継ぎ）。字幕も、同じ時刻から作る。</li>
+<li>台本が無い場合は、従来どおり（本文を1回で読み、長さは文字数から推定）。</li>
+</ul>
+<h3 id="23-音声">2.3 音声</h3>
+<ul>
+<li><strong>VOICEVOXが応答しなければ、導入済みのエンジンを自動で起動する</strong>（最大90秒待つ）。導入やダウンロードは、しない。</li>
+<li><strong>どの声で作ったかを必ず出す。</strong> 動画のログに <code>Narration voice: VOICEVOX:春日部つむぎ(ノーマル)</code> を出し、Houdiniパネルの進捗にも出る。従来の声（SAPI）になったときは、「従来の音声です。VOICEVOXを起動してください」と出る。</li>
+<li>辞書をexeの隣にコピーし、VOICEVOXも既定でそれを読む。Houdiniの用語47語を追加（全72語）。SAPIにも、読み替え（カタカナ化・略語の文字読み）を入れた。</li>
+</ul>
+<h2 id="3-実データでの確認ブラックホールのチュートリアル16手順">3. 実データでの確認（ブラックホールのチュートリアル、16手順）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>改善前</th>
+<th>改善後</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>音声</td>
+<td>従来の声（SAPI）。本文の朗読</td>
+<td>VOICEVOX（春日部つむぎ）。<strong>手順ごとの解説</strong>。合成に約77秒</td>
+</tr>
+<tr>
+<td>手順スライドの画面の文</td>
+<td>ツールの結果文・コード全文</td>
+<td>短い文（例: 「Attribute Wrangle ノードを作る（名前: emit）」「emit → swirl」）</td>
+</tr>
+<tr>
+<td>「ハマりポイント」「応用のヒント」</td>
+<td>専門家向けの文面を約110秒読み上げ</td>
+<td>初心者向けの言い直し</td>
+</tr>
+<tr>
+<td>スライドの長さ</td>
+<td>文字数からの推定</td>
+<td>音声の長さ（画面と音声が一致）</td>
+</tr>
+<tr>
+<td>同じ説明の繰り返し</td>
+<td>—</td>
+<td>2回目以降は短く言う</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>注意:</strong> 上の「改善後」は、<strong>Claudeに接続できないときの定型の解説</strong>で確認したもの（この環境のAPIキーが無いため）。<strong>Claudeが書く台本の品質は、実際に生成して確認する必要がある</strong>（§5）。</p>
+</blockquote>
+<h2 id="4-使い方設定">4. 使い方・設定</h2>
+<ul>
+<li>通常どおり、Tutorialタブで生成 → 保存。<strong>台本は自動で作られる</strong>（設定は不要）。保存フォルダに <code>&lt;slug&gt;_video_script.json</code> が残る。</li>
+<li>進捗欄の表示:</li>
+<li><code>動画生成: 初心者向けの台本を作っています…</code> → <code>台本: Claudeが書いた台本（16手順） / 動画生成をバックグラウンドで開始しました（初心者向け台本つき / …）</code> → <code>動画生成: フレーム N/M（P%） / 音声: VOICEVOX:春日部つむぎ(ノーマル)</code></li>
+<li>台本の元が <code>定型の解説</code> のときは、その理由（「Claudeに接続できないため」等）が出る。</li>
+<li>台本はそのまま<strong>手で直せる</strong>（JSONの<code>narration</code>・<code>points</code>・<code>heading</code>）。直したあと、エンジンを直接実行すれば、その内容で動画が作れる:<br />
+<code>video_factory_cloudrag_poc.exe --houdini-md &lt;md&gt; --houdini-json &lt;json&gt; --houdini-screenshots &lt;screenshots.json&gt; --houdini-script &lt;video_script.json&gt; &lt;トピック&gt; &lt;db&gt;</code></li>
+<li>Claudeのトークンは、チュートリアル生成と同じ<strong>Claude予算</strong>から引かれる（1回あたりの量は、まだ実測していない。16手順のチュートリアルで、入力・出力とも数千トークンの見込み）。</li>
+</ul>
+<h2 id="5-未確認のこと">5. 未確認のこと</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Claudeが書く台本の<strong>品質</strong>（初心者に分かる説明になっているか）</td>
+<td><strong>未確認</strong>。検証（コード・長さ・英字）と定型の補いは入れてあるが、文章の良し悪しは、実際に生成して人が読んで判断する</td>
+</tr>
+<tr>
+<td>VOICEVOXの<strong>聴感</strong>（声・読み）</td>
+<td><strong>未確認</strong>（機械では判断できない）。聞いて、辞書の読み（<code>engine/assets/tts_dictionary.json</code>）を直す</td>
+</tr>
+<tr>
+<td>手順ごとの音声の長さ（動画が長くなる）</td>
+<td>1手順あたり2〜5文の指示。長すぎる場合は、<code>SYSTEM_PROMPT</code>の文の数と<code>STEP_NARRATION_MAX</code>を調整する</td>
+</tr>
+<tr>
+<td>従来の「画面時間の比率（ノード70%・ビューポート20%・その他10%）」</td>
+<td><strong>台本つきの動画では、目標ではなく結果になる</strong>（各手順の解説の長さで決まる）。ログの <code>Screen time share:</code> と、スライドごとの <code>Slide N:</code> の行で確認できる</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="6-関連して見つかった不具合動画エンジン">6. 関連して見つかった不具合（動画エンジン）</h2>
+<ul>
+<li><strong>C++が <code>/EHsc</code> 無しでコンパイルされていた。</strong> 例外が投げられても、局所オブジェクトのデストラクタが実行されない。VOICEVOXの自動起動で、起動直後のエンジンに対するHTTP確認がタイムアウト（例外）になったあと、次の呼び出しでクラッシュした（終了コード139）。<code>CMakeLists.txt</code>に <code>/EHsc</code> を明示して解消。<code>narration_tests</code>に、応答しないサーバーへの連続確認の回帰テストを追加した。</li>
+<li>詳細は、保守ランブックの<a href="learning/06-maintenance-runbook.html#3-障害記録">障害記録</a>（H・I）。</li>
+</ul>
+<h2 id="7-テスト">7. テスト</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>場所</th>
+<th>内容</th>
+<th>件数</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>houdini/tests/test_video_script.py</code>（<code>uv run python -m unittest discover -s houdini/tests</code>）</td>
+<td>台本の検証・補い・Claude失敗時・その他の節・出力ファイルの形</td>
+<td>24</td>
+</tr>
+<tr>
+<td>RAGReel <code>narration_tests</code></td>
+<td>読み替え辞書、手順ごとの音声の連結・時刻、HTTP確認の回帰</td>
+<td>33</td>
+</tr>
+<tr>
+<td>RAGReel <code>script_composer_tests</code></td>
+<td>台本の読み込み・スライドへの反映・コードを読まない保証・節</td>
+<td>25</td>
+</tr>
+</tbody>
+</table></div>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+</body>
+</html>

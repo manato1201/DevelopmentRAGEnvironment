@@ -207,6 +207,30 @@ class FeedbackUploadWorker(QThread):
         self.finished_with.emit(ok, message)
 
 
+class VideoScriptWorker(QThread):
+    """動画用の「初心者向け台本」を作る（Claude呼び出しは数十秒かかるので、UIを止めないよう別スレッド）。
+    台本が作れなくても、動画は従来どおり作れる（その場合 script_path は空）。"""
+    done = Signal(str, str)  # (台本ファイルのパス or "", 状態の説明)
+
+    def __init__(self, make_agent, md_path: Path, step_screenshots: list) -> None:
+        super().__init__()
+        self._make_agent, self._md_path, self._steps = make_agent, md_path, step_screenshots
+
+    def run(self) -> None:
+        try:
+            import video_script
+
+            complete = None
+            try:
+                complete = self._make_agent().complete_text
+            except Exception:  # noqa: BLE001 -- Claudeに繋がらなくても、定型の解説で台本は作れる
+                complete = None
+            path, message = video_script.prepare_script_file(self._md_path, self._steps, complete)
+            self.done.emit(str(path) if path else "", message)
+        except Exception as exc:  # noqa: BLE001
+            self.done.emit("", f"台本: 作成に失敗しました（{exc}）。従来の動画になります")
+
+
 class LessonDistillWorker(QThread):
     """低評価のメモから、Claudeに「避けること」の教訓候補を作らせる。"""
     done = Signal(list)    # list[str]
@@ -318,7 +342,7 @@ class LessonsDialog(QDialog):
         ]
 
     def _update_count(self, *_args) -> None:
-        approved = sum(1 for l in self._lessons() if l["approved"])
+        approved = sum(1 for lesson in self._lessons() if lesson["approved"])
         limit = self._fb.MAX_APPROVED_LESSONS
         over = "（上限超過。先頭から使われます）" if approved > limit else ""
         self._count_label.setText(f"承認 {approved}/{limit}{over}")
@@ -350,7 +374,7 @@ class LessonsDialog(QDialog):
         except Exception as exc:  # noqa: BLE001
             self._status.setText(f"Claudeの呼び出し準備に失敗: {exc}")
             return
-        existing = [l["text"] for l in self._lessons()]
+        existing = [lesson["text"] for lesson in self._lessons()]
         self._distill_btn.setEnabled(False)
         self._status.setText(f"👎 {len(entries)} 件から候補を作っています…")
         self._worker = LessonDistillWorker(agent, entries, existing)
@@ -360,7 +384,7 @@ class LessonsDialog(QDialog):
 
     def _on_distilled(self, candidates: list) -> None:
         self._distill_btn.setEnabled(True)
-        known = {l["text"] for l in self._lessons()}
+        known = {lesson["text"] for lesson in self._lessons()}
         added = 0
         for text in candidates:
             if text and text not in known:
@@ -379,7 +403,7 @@ class LessonsDialog(QDialog):
     def _on_save(self) -> None:
         lessons = self._lessons()
         limit = self._fb.MAX_APPROVED_LESSONS
-        if sum(1 for l in lessons if l["approved"]) > limit:
+        if sum(1 for lesson in lessons if lesson["approved"]) > limit:
             self._status.setText(f"承認は最大{limit}件までです。チェックを減らしてください")
             return
         if not self._fb.save_lessons(self._project_dir, lessons):
@@ -425,6 +449,7 @@ class TutorialGeneratePanel(QWidget):
         self._destroy_worker: _DestroySandboxWorker | None = None
         self._image_index_workers: list = []  # GC 防止のため参照を保持（rag_chatbot.pyのRateWorkerと同じ流儀）
         self._last_video_path: Path | None = None  # プレビュー再生対象（生成完了検出時に設定）
+        self._script_workers: list[VideoScriptWorker] = []  # 台本づくりの実行中スレッド（参照を保持）
         # 直近のチェーン生成（3段階連続生成）で実際にディスクへ書き出した
         # (level, md_path, json_path) の一覧（2026-09-20追加）。チェーンモードは
         # プレビュー確認なしで自動保存するため、結果が気に入らなかった場合に
@@ -926,12 +951,34 @@ class TutorialGeneratePanel(QWidget):
     def _launch_video_for_result(self, result, md_path: Path, json_path: Path) -> str:
         """
         動画生成をバックグラウンドで自動起動する（ベストエフォート）。
-        video_factory_bridge / screen_capture は LearningQt 側の video factory との
-        連携用モジュールで、失敗してもチュートリアル保存そのものは既に成功済みなので
-        例外は投げず、状態表示用の文字列として返すだけに留める。
-        起動に成功した場合は、続けてログファイルのポーリングによる進捗表示を開始する
-        （2026-08-31。以前は「バックグラウンドで開始しました」のまま数分待つだけだった）。
+        2026-10-19: 起動の前に、初心者向けの台本（video_script.py）を別スレッドで作る。以前は手順のスライドに
+        ツールの実行結果文を出し、ナレーションはチュートリアル本文の朗読だったため、「解説」になっていなかった。
+        台本が作れなくても動画は作る（その場合は従来どおり）。実行ファイルが未設定のときは、台本を作らず
+        すぐに状態を返す（Claudeの呼び出しを無駄にしない）。
+        例外は投げず、状態表示用の文字列として返す。
         """
+        exe_path = self._cfg_getter().get("video_factory_exe_path", "")
+        if not exe_path or not Path(exe_path).exists():
+            return self._start_video_process(result, md_path, json_path, None)
+        steps = list(getattr(result, "step_screenshots", None) or [])
+        if not steps:
+            return self._start_video_process(result, md_path, json_path, None)
+        self._video_progress.setText("動画生成: 初心者向けの台本を作っています（数十秒かかります）…")
+        worker = VideoScriptWorker(self._make_agent, md_path, steps)
+        self._script_workers.append(worker)
+
+        def on_done(script_path: str, message: str, w: VideoScriptWorker = worker) -> None:
+            if w in self._script_workers:
+                self._script_workers.remove(w)
+            status = self._start_video_process(result, md_path, json_path, Path(script_path) if script_path else None)
+            self._video_progress.setText(f"{message} / {status}")
+
+        worker.done.connect(on_done)
+        worker.start()
+        return "動画生成: 台本を作成中です（完了後に動画の生成を始めます）"
+
+    def _start_video_process(self, result, md_path: Path, json_path: Path, script_path: Path | None) -> str:
+        """動画エンジンを起動する（video_factory_bridge）。起動に成功したら進捗表示を始める。"""
         exe_path = self._cfg_getter().get("video_factory_exe_path", "")
         try:
             from video_factory_bridge import launch_video_generation
@@ -943,12 +990,26 @@ class TutorialGeneratePanel(QWidget):
                 step_screenshots=result.step_screenshots,
                 exe_path=exe_path,
                 db_key=getattr(result, "rag_name", ""),
+                script_path=script_path,
             )
             if log_path is not None:
                 self._start_video_progress_poll(log_path, Path(exe_path).parent, md_path)
             return status
         except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
             return f"動画生成の起動に失敗: {exc}"
+
+    @staticmethod
+    def _voice_summary(log_text: str) -> str:
+        """動画エンジンのログから、実際に使われた音声を取り出す。VOICEVOXが使えず従来の音声（SAPI）に
+        なったときは、そのことが分かる文にする（以前は黙って従来の音声になり、気づけなかった）。"""
+        voice = re.findall(r"Narration voice: (.+)", log_text)
+        if voice:
+            name = voice[-1].strip()
+            if name.startswith("SAPI"):
+                return f"音声: 従来の音声（{name}）。自然な声にするにはVOICEVOXを起動してください"
+            return f"音声: {name}"
+        engine = re.findall(r"Narration engine: (.+)", log_text)
+        return f"音声: {engine[-1].strip()[:90]}" if engine else ""
 
     # ── 動画生成の進捗表示（ログファイルのポーリング） ────────────────────────────
 
@@ -986,7 +1047,10 @@ class TutorialGeneratePanel(QWidget):
             wrote_match = re.search(r"Wrote (\S+\.webm)", text)
             if wrote_match:
                 video_path = output_dir / wrote_match.group(1)
-                self._video_progress.setText(f"動画生成: 完了（{video_path.name}）")
+                voice_note = self._voice_summary(text)
+                self._video_progress.setText(
+                    f"動画生成: 完了（{video_path.name}）" + (f" / {voice_note}" if voice_note else "")
+                )
                 if video_path.exists():
                     self._last_video_path = video_path
                     self._preview_btn.setEnabled(True)
@@ -1012,7 +1076,10 @@ class TutorialGeneratePanel(QWidget):
             if match:
                 done, total = int(match.group(1)), int(match.group(2))
                 pct = int(done / total * 100) if total else 0
-                self._video_progress.setText(f"動画生成: フレーム {done}/{total}（{pct}%）")
+                voice_note = self._voice_summary(text)
+                self._video_progress.setText(
+                    f"動画生成: フレーム {done}/{total}（{pct}%）" + (f" / {voice_note}" if voice_note else "")
+                )
             else:
                 self._video_progress.setText(f"動画生成: 準備中…（{log_path.name}）")
 
