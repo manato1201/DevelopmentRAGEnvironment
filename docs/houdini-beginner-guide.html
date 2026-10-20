@@ -1,0 +1,1664 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Houdini 初心者ガイド（基礎知識とショートカットキー一覧）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">Houdini入門</span>
+  <h1>Houdini 初心者ガイド（基礎知識とショートカットキー一覧）</h1>
+  <div class="meta">HTML生成: 2026-10-20（元: docs/houdini-beginner-guide.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-houdiniとは何か">1. Houdiniとは何か</a><ol><li><a href="#エディション">エディション</a></li></ol></li><li><a href="#2-画面の構成">2. 画面の構成</a></li><li><a href="#3-ノードとネットワーク">3. ノードとネットワーク</a><ol><li><a href="#31-ノード">3.1 ノード</a></li><li><a href="#32-cookクック">3.2 cook（クック）</a></li><li><a href="#33-コンテキストネットワークの種類">3.3 コンテキスト（ネットワークの種類）</a></li><li><a href="#34-フラグ">3.4 フラグ</a></li></ol></li><li><a href="#4-ジオメトリの基礎ポイントアトリビュート">4. ジオメトリの基礎（ポイント・アトリビュート）</a><ol><li><a href="#41-ジオメトリの部品">4.1 ジオメトリの部品</a></li><li><a href="#42-アトリビュート">4.2 アトリビュート</a></li><li><a href="#43-座標と単位">4.3 座標と単位</a></li></ol></li><li><a href="#5-パラメータと式">5. パラメータと式</a><ol><li><a href="#51-パラメータの基本">5.1 パラメータの基本</a></li><li><a href="#52-式expression">5.2 式（Expression）</a></li><li><a href="#53-アニメーションの基本">5.3 アニメーションの基本</a></li></ol></li><li><a href="#6-はじめての作例">6. はじめての作例</a></li><li><a href="#7-vexとwrangle入門">7. VEXとWrangle入門</a><ol><li><a href="#71-基本">7.1 基本</a></li><li><a href="#72-例">7.2 例</a></li></ol></li><li><a href="#8-保存ファイルゲームエンジンへの出力">8. 保存・ファイル・ゲームエンジンへの出力</a><ol><li><a href="#81-保存">8.1 保存</a></li><li><a href="#82-キャッシュ重い処理を保存する">8.2 キャッシュ（重い処理を保存する）</a></li><li><a href="#83-ゲームエンジンへの出力">8.3 ゲームエンジンへの出力</a></li></ol></li><li><a href="#9-つまずきやすい点">9. つまずきやすい点</a></li><li><a href="#10-ショートカットキー一覧">10. ショートカットキー一覧</a><ol><li><a href="#100-まず覚える10個">10.0 まず覚える10個</a></li><li><a href="#101-全般表示ビュー">10.1 全般・表示（ビュー）</a></li><li><a href="#102-ツール">10.2 ツール</a></li><li><a href="#103-選択">10.3 選択</a></li><li><a href="#104-アニメーションタイムライン">10.4 アニメーション・タイムライン</a></li><li><a href="#105-ペイン画面の区画">10.5 ペイン（画面の区画）</a></li><li><a href="#106-ネットワークエディタ">10.6 ネットワークエディタ</a></li><li><a href="#107-フラグのキーネットワークエディタ">10.7 フラグのキー（ネットワークエディタ）</a></li><li><a href="#108-キーを自分で確認変更する">10.8 キーを自分で確認・変更する</a></li></ol></li><li><a href="#11-学習のロードマップ">11. 学習のロードマップ</a></li><li><a href="#12-このプロジェクトとの関係">12. このプロジェクトとの関係</a></li><li><a href="#13-用語集">13. 用語集</a></li></ol></details></nav>
+<main>
+
+<p><strong>作成日:</strong> 2026-10-17<br />
+<strong>対象:</strong> Houdiniを初めて触る人。ゲーム開発者（Unity・Unreal）を想定。<br />
+<strong>対象バージョン:</strong> Houdini 21（キーの一覧は、公式の21.0／22.0のページで確認。同じ内容）<br />
+<strong>この資料の位置づけ:</strong> 「Houdiniの考え方」と「手を動かすためのキー」を、1か所にまとめたもの。チュートリアルの自動生成（<a href="content-generation.md">content-generation.md</a>）が作る教材を読む前の、<strong>予習用</strong>。</p>
+<blockquote>
+<p><strong>ショートカットキーについて:</strong> §10の一覧は、SideFX公式ドキュメント（<a href="https://www.sidefx.com/docs/houdini/start/hotkeys.html">Hotkey Quick Reference</a>、<a href="https://www.sidefx.com/docs/houdini21.0/network/shortcuts.html">Network editor shortcuts</a>、<a href="https://www.sidefx.com/docs/houdini/network/flags.html">Node flags</a>）に基づく。<strong>キーは変更できる</strong>（Edit → Hotkeys）。一覧と合わないときは、そこで現在の割り当てを確認する。<br />
+公式ページが22.0版のため、<strong>21.0で一部違う可能性</strong>がある。違いに気づいたら、この資料を直す。</p>
+</blockquote>
+<hr />
+<hr />
+<h2 id="1-houdiniとは何か">1. Houdiniとは何か</h2>
+<p><strong>Houdini</strong>（SideFX社）は、3DのモデリングやVFX（煙・炎・水・破壊など）、アニメーション、レンダリングを作るソフト。他の3Dソフトとの最大の違いは、**手続き型（プロシージャル）**であること。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>他のソフトでの考え方</th>
+<th>Houdiniでの考え方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>形を、手で直接変形して作る</td>
+<td><strong>作り方（手順）を、ノードでつないで作る</strong></td>
+</tr>
+<tr>
+<td>途中を変えると、やり直しになる</td>
+<td><strong>手順のどこでも変えられる</strong>（変更が、後ろのノードに流れる）</td>
+</tr>
+<tr>
+<td>完成した形が、成果物</td>
+<td><strong>手順そのものが、成果物</strong>（パラメータを変えれば、別の形が作れる）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>プロシージャルの利点（ゲーム開発の場面で）</strong><br />
+- 建物・地形・植生のバリエーションを、<strong>パラメータを変えるだけで量産</strong>できる。<br />
+- 「やっぱり、窓の数を増やしたい」が、最初からやり直さずに済む。<br />
+- 作った手順を、**HDA（Houdini Digital Asset）**にして、他のプロジェクトや、<strong>Houdini Engine</strong>経由でUnity・Unrealの中でも使える。</p>
+<h3 id="エディション">エディション</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>エディション</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Apprentice</strong></td>
+<td>無料。学習・個人の非商用</td>
+</tr>
+<tr>
+<td><strong>Indie</strong></td>
+<td>年間の収益が小さい個人・小規模向けの、低価格の商用版</td>
+</tr>
+<tr>
+<td><strong>Houdini FX / Core</strong></td>
+<td>商用の標準版</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>条件（収益の上限・出力の制限など）は変わる。<strong>使う前に、SideFXの公式ページで確認する。</strong><br />
+ファイルの拡張子は、エディションで違う: <code>.hip</code>（FX・Core）、<code>.hiplc</code>（Indie）、<code>.hipnc</code>（Apprentice）。</p>
+</blockquote>
+<h2 id="2-画面の構成">2. 画面の構成</h2>
+<p>Houdiniの画面は、<strong>ペイン（区画）<strong>の集まり。ペインの組み合わせを</strong>デスクトップ</strong>と呼び、用途別（Build、Animate、Technical など）が用意されている。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>ペイン</th>
+<th>役割</th>
+<th>キー</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Scene View</strong>（シーンビュー）</td>
+<td>3Dの表示。形を見る・触る</td>
+<td><code>Alt+1</code></td>
+</tr>
+<tr>
+<td><strong>Network Editor</strong>（ネットワークエディタ）</td>
+<td><strong>ノードをつなぐ場所。Houdiniの作業の中心</strong></td>
+<td><code>Alt+2</code></td>
+</tr>
+<tr>
+<td><strong>Parameters</strong>（パラメータ）</td>
+<td>選んだノードの設定項目</td>
+<td><code>Alt+3</code></td>
+</tr>
+<tr>
+<td><strong>Tree View</strong>（ツリービュー）</td>
+<td>ネットワークの階層の一覧</td>
+<td><code>Alt+4</code></td>
+</tr>
+<tr>
+<td><strong>Textport</strong>（テキストポート）</td>
+<td>コマンド・Pythonの入出力</td>
+<td><code>Alt+5</code></td>
+</tr>
+<tr>
+<td><strong>Animation Editor</strong></td>
+<td>アニメーションのカーブ</td>
+<td><code>Alt+6</code></td>
+</tr>
+<tr>
+<td><strong>Material Palette</strong></td>
+<td>マテリアルの一覧</td>
+<td><code>Alt+7</code></td>
+</tr>
+<tr>
+<td><strong>Details View</strong>（ジオメトリスプレッドシート）</td>
+<td><strong>ポイントなどの値を、表で見る</strong></td>
+<td><code>Alt+8</code></td>
+</tr>
+<tr>
+<td><strong>Timeline</strong>（タイムライン）</td>
+<td>画面の下。フレームの再生・移動</td>
+<td><code>↑↓←→</code></td>
+</tr>
+<tr>
+<td><strong>Shelf</strong>（シェルフ）</td>
+<td>画面の上。よく使う道具のボタン</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>Tab（タブメニュー）:</strong> ネットワークエディタで<code>Tab</code>を押すと、ノードの一覧が出る。<strong>名前の一部を打つと絞り込まれる</strong>。ノードを作る基本の方法。</li>
+<li>ペインは、タブで切り替えたり、分割したりできる。<strong>Parametersは、ネットワークエディタ上で<code>P</code>を押すと、浮かせて出せる</strong>（§10）。</li>
+<li><strong>Details View（Geometry Spreadsheet）は、最初に覚えると、理解が速い。</strong> 「いま、ポイントにどんな値が入っているか」が、数字で見える。</li>
+</ul>
+<h2 id="3-ノードとネットワーク">3. ノードとネットワーク</h2>
+<h3 id="31-ノード">3.1 ノード</h3>
+<p><strong>ノード</strong>は、1つの処理（箱を作る、動かす、色を付ける…）の部品。<strong>入力（上）から出力（下）へ</strong>、線（ワイヤ）でつなぐ。上から下へ、データが流れる。</p>
+<div class="mermaid">flowchart LR
+    A[&quot;Box&lt;br/&gt;箱を作る&quot;] --&gt; B[&quot;Transform&lt;br/&gt;動かす&quot;] --&gt; C[&quot;Color&lt;br/&gt;色を付ける&quot;] --&gt; D[&quot;OUT&lt;br/&gt;(Null)&quot;]
+</div>
+<ul>
+<li>つなぐ順番が、結果を決める。<strong>順番を入れ替えると、結果が変わる。</strong></li>
+<li>ノードを選ぶと、<strong>Parameters</strong>に、そのノードの設定が出る。パラメータを変えると、その下流が、<strong>自動でやり直される</strong>（cook）。</li>
+</ul>
+<h3 id="32-cookクック">3.2 cook（クック）</h3>
+<p>ノードが、入力から出力を<strong>計算し直す</strong>こと。パラメータや入力が変わったときに、必要なノードだけが、cookされる。<br />
+- ノードが<strong>赤く表示される</strong>／警告が出るのは、cookのエラー。<strong>まず、Parametersと、ノードを右クリックして出るメッセージを読む。</strong><br />
+- 重い処理は、cookに時間がかかる。**途中の結果を保存（キャッシュ）**して軽くする（§8）。</p>
+<h3 id="33-コンテキストネットワークの種類">3.3 コンテキスト（ネットワークの種類）</h3>
+<p>ノードは、**種類（コンテキスト）**ごとの、別々のネットワークに置く。<strong>他の種類のノードは、置けない。</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>コンテキスト</th>
+<th>略称</th>
+<th>何を作るか</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Object</td>
+<td>OBJ（<code>/obj</code>）</td>
+<td>シーンの入れ物。ジオメトリ・カメラ・ライトを置く</td>
+</tr>
+<tr>
+<td>Geometry</td>
+<td><strong>SOP</strong></td>
+<td><strong>形（ポイント・面）を作る・加工する。最も使う</strong></td>
+</tr>
+<tr>
+<td>Dynamics</td>
+<td>DOP</td>
+<td>シミュレーション（剛体・流体・布など）の仕組み</td>
+</tr>
+<tr>
+<td>VEX Operator</td>
+<td>VOP</td>
+<td>ノードをつないで、シェーダや計算を作る（VEXのノード版）</td>
+</tr>
+<tr>
+<td>Compositing</td>
+<td>COP</td>
+<td>画像・テクスチャの処理（21ではCopernicus）</td>
+</tr>
+<tr>
+<td>Solaris</td>
+<td>LOP</td>
+<td>USDのシーンの組み立て・ライティング・レンダリング</td>
+</tr>
+<tr>
+<td>Task</td>
+<td>TOP</td>
+<td>処理の自動化・分散（PDG）。大量の処理の管理</td>
+</tr>
+<tr>
+<td>Channel</td>
+<td>CHOP</td>
+<td>アニメーションや音の、チャンネル（時間で変わる値）の処理</td>
+</tr>
+<tr>
+<td>Render</td>
+<td>ROP</td>
+<td>出力（レンダリング・ファイルの書き出し）の指示</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>階層の例:</strong> <code>/obj/geo1/box1</code> ＝ ObjectネットワークのなかのGeometryノード<code>geo1</code>の、さらに中にある、SOPノード<code>box1</code>。</p>
+<ul>
+<li><strong>Geometryノード（<code>geo1</code>）の中に入るには、ダブルクリック（または<code>Enter</code>）。1つ上に戻るには<code>U</code></strong>。</li>
+<li><strong>よくある間違い:</strong> <code>/obj</code>の階層に、SOPのノード（Boxなど）を置こうとする。<strong>まず、<code>/obj</code>にGeometryノードを作り、その中に入る。</strong></li>
+</ul>
+<h3 id="34-フラグ">3.4 フラグ</h3>
+<p>ノードの状態を決める、小さなスイッチ。SOPでは、次の5つを、特に使う。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>フラグ</th>
+<th>キー</th>
+<th>意味</th>
+<th>見た目</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Display</strong>（表示）</td>
+<td><code>R</code></td>
+<td><strong>このノードの結果を、ビューに出す</strong></td>
+<td>青い旗（右）</td>
+</tr>
+<tr>
+<td><strong>Render</strong>（レンダー）</td>
+<td><code>T</code></td>
+<td>レンダリングに使う結果</td>
+<td>紫の旗</td>
+</tr>
+<tr>
+<td><strong>Bypass</strong>（バイパス）</td>
+<td><code>Q</code> または <code>B</code></td>
+<td>このノードを<strong>飛ばして</strong>、入力をそのまま通す（消さずに無効化）</td>
+<td>黄色の旗（左）</td>
+</tr>
+<tr>
+<td><strong>Template</strong>（テンプレート）</td>
+<td><code>E</code></td>
+<td>ガイドとして、薄く表示する（編集の目印に使う）</td>
+<td>栗色の旗</td>
+</tr>
+<tr>
+<td><strong>Lock</strong>（ロック）</td>
+<td>メニュー</td>
+<td>結果を固定し、cookを止める</td>
+<td>赤い旗</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>「ビューに何も出ない」は、Displayフラグが、別のノードに立っているのが原因のことが多い。</strong> 見たいノードの、青い旗をクリックする（または選んで<code>R</code>）。</li>
+<li>長いネットワークの最後には、<strong><code>Null</code>ノードを置き、名前を<code>OUT</code>にして、そこにDisplay・Renderフラグを立てる</strong>のが、定番の習慣。（途中のノードを入れ替えても、出力の場所が変わらない。他のネットワークからも、<code>OUT</code>を参照できる）</li>
+<li>フラグは、ネットワークの種類で、少し違う（§10.7）。</li>
+</ul>
+<h2 id="4-ジオメトリの基礎ポイントアトリビュート">4. ジオメトリの基礎（ポイント・アトリビュート）</h2>
+<h3 id="41-ジオメトリの部品">4.1 ジオメトリの部品</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>部品</th>
+<th>意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ポイント（Point）</strong></td>
+<td>空間の点。位置（<code>P</code>）などの値を持つ</td>
+</tr>
+<tr>
+<td><strong>頂点（Vertex）</strong></td>
+<td>面が、ポイントを参照する「つなぎ目」。UVや法線を、面ごとに変えたいときに登場する</td>
+</tr>
+<tr>
+<td><strong>プリミティブ（Primitive）</strong></td>
+<td>面・曲線など、ポイントを束ねたもの（ポリゴンの面など）</td>
+</tr>
+<tr>
+<td><strong>ディテール（Detail）</strong></td>
+<td>ジオメトリ全体で、1つだけの値</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="42-アトリビュート">4.2 アトリビュート</h3>
+<p>ポイントや面に付ける、<strong>値のラベル</strong>。Houdiniは、あらゆるものを、<strong>アトリビュートで表す</strong>。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>名前</th>
+<th>意味</th>
+<th>型</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>P</code></td>
+<td>位置</td>
+<td>ベクトル（x, y, z）</td>
+</tr>
+<tr>
+<td><code>N</code></td>
+<td>法線（面の向き）</td>
+<td>ベクトル</td>
+</tr>
+<tr>
+<td><code>Cd</code></td>
+<td>色（Color）</td>
+<td>ベクトル（r, g, b。0〜1）</td>
+</tr>
+<tr>
+<td><code>uv</code></td>
+<td>テクスチャ座標</td>
+<td>ベクトル</td>
+</tr>
+<tr>
+<td><code>pscale</code></td>
+<td>大きさ（コピーするときなど）</td>
+<td>数値</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td>識別番号（パーティクルなど）</td>
+<td>整数</td>
+</tr>
+<tr>
+<td><code>v</code></td>
+<td>速度</td>
+<td>ベクトル</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>Details View（<code>Alt+8</code>）で、いつでも値を確認できる。</strong> ノードを選んで、Displayフラグを立てて、表を見る。</li>
+<li>自分で、好きな名前のアトリビュートも作れる（例: <code>height</code>）。</li>
+<li><strong>グループ</strong>: ポイントや面を、名前をつけて束ねる。「この部分だけ動かす」のような、一部への処理に使う。</li>
+</ul>
+<h3 id="43-座標と単位">4.3 座標と単位</h3>
+<ul>
+<li><strong>1単位 ＝ 1メートル。Yが上</strong>（Y-up）。UnityもY-upだが、<strong>Unityは左手系、Houdiniは右手系</strong>。Zの向きなどで、出力時に注意が必要。</li>
+<li>スケールが合わないときは、まず、**単位（メートル／センチメートル）**を疑う。</li>
+</ul>
+<h2 id="5-パラメータと式">5. パラメータと式</h2>
+<h3 id="51-パラメータの基本">5.1 パラメータの基本</h3>
+<ul>
+<li>数字の欄は、<strong>数字を直接入力</strong>、スライダーのドラッグ、または<strong>式を入力</strong>できる。</li>
+<li>欄の左のラベルを<strong>右クリック</strong>すると、キーフレームの設定、リセット（Revert to Defaults）などの、メニューが出る。</li>
+<li>式やキーフレームが入っている欄は、<strong>色が変わって表示される</strong>（普通の数値の欄と、見分けがつく）。色の意味は、Houdiniのバージョンや設定で違うことがある。</li>
+</ul>
+<h3 id="52-式expression">5.2 式（Expression）</h3>
+<p>欄に、数字の代わりに、式を書ける。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>式</th>
+<th>意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$F</code></td>
+<td>現在のフレーム番号</td>
+</tr>
+<tr>
+<td><code>$FF</code></td>
+<td>現在のフレーム（小数）</td>
+</tr>
+<tr>
+<td><code>$T</code></td>
+<td>現在の時間（秒）</td>
+</tr>
+<tr>
+<td><code>$FPS</code></td>
+<td>1秒あたりのフレーム数</td>
+</tr>
+<tr>
+<td><code>$HIP</code></td>
+<td>現在のシーンファイル（<code>.hip</code>）のフォルダ</td>
+</tr>
+<tr>
+<td><code>$HIPNAME</code></td>
+<td>シーンファイルの名前</td>
+</tr>
+<tr>
+<td><code>sin($T)</code></td>
+<td>サイン波（関数も使える）</td>
+</tr>
+<tr>
+<td><code>ch("../box1/sizex")</code></td>
+<td>別のノードのパラメータの値を<strong>参照</strong></td>
+</tr>
+<tr>
+<td><code>`ch("size")`</code></td>
+<td><strong>文字列の中</strong>で式を使うときは、バッククォート（<code>`</code>）で囲む</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong><code>ch()</code>による参照は、手順をつなげる最も基本の方法。</strong> 元の値を変えると、参照している値も、変わる。</li>
+<li><code>$F</code>は<strong>整数</strong>。小数が必要なときは<code>$FF</code>。</li>
+<li>式を、<strong>数字に戻したい</strong>ときは、欄を空にして入力し直す。</li>
+</ul>
+<h3 id="53-アニメーションの基本">5.3 アニメーションの基本</h3>
+<ul>
+<li><strong>キーフレーム</strong>: パラメータのラベルを右クリック → キーを設定。または、ビュー上で<code>K</code>（キーフレームを設定）。</li>
+<li>フレームの移動は、タイムラインの<code>←</code>・<code>→</code>、再生は<code>↑</code>（逆再生は<code>↓</code>）。</li>
+<li>カーブの調整は、Animation Editor（<code>Alt+6</code>）。</li>
+</ul>
+<h2 id="6-はじめての作例">6. はじめての作例</h2>
+<p>目的: <strong>「箱の表面に、球を散らす」</strong>。手順がつながる感覚を、つかむ。</p>
+<ol>
+<li>画面の下部の、<strong>ネットワークエディタ</strong>で、<code>/obj</code>にいることを確認。<code>Tab</code> → <code>geo</code>と打って、<strong>Geometry</strong>を作る。ダブルクリックで中に入る。</li>
+<li><code>Tab</code> → <code>box</code>。<strong>Boxノード</strong>ができる。Displayフラグが立っていることを確認（形が見える）。</li>
+<li><code>Tab</code> → <code>scatter</code>。BoxのOUTPUT（下の丸）から、<strong>Scatterノードの上</strong>へ、ドラッグしてつなぐ。Box表面に、<strong>点</strong>が散る。Parametersの <strong>Force Total Count</strong> を変えて、点の数を変える。</li>
+<li><code>Tab</code> → <code>sphere</code>。<strong>Sphereノード</strong>を作る（Radiusを小さく。例 <code>0.05</code>）。</li>
+<li><code>Tab</code> → <code>copytopoints</code>（<strong>Copy to Points</strong>）。<strong>1つ目の入力</strong>に、Sphere（コピーする形）、<strong>2つ目の入力</strong>に、Scatter（置き場所の点）をつなぐ。Displayフラグを、Copy to Pointsに立てる。</li>
+<li>球が、点の位置に並ぶ。<strong>ScatterのSeed</strong>や、<strong>Box のサイズ</strong>を変えて、<strong>全体が自動で変わる</strong>ことを確かめる。</li>
+<li>最後に<code>Tab</code> → <code>null</code>、名前を<code>OUT</code>にして、Copy to Pointsの後ろにつなぎ、<strong>そこにDisplay・Renderフラグ</strong>を立てる。</li>
+</ol>
+<div class="mermaid">flowchart TB
+    Box[&quot;Box&quot;] --&gt; Scatter[&quot;Scatter&lt;br/&gt;表面に点を散らす&quot;]
+    Sphere[&quot;Sphere&lt;br/&gt;小さい球&quot;] --&gt; CTP[&quot;Copy to Points&quot;]
+    Scatter --&gt; CTP
+    CTP --&gt; OUT[&quot;OUT (Null)&quot;]
+</div>
+<p><strong>ここで学ぶこと:</strong> ①<code>Tab</code>でノードを作る ②上から下へつなぐ ③<strong>入力の順番に意味がある</strong>（Copy to Pointsは、1つ目が形、2つ目が位置） ④どこかを変えると、<strong>全体が自動で追従する</strong>。</p>
+<h2 id="7-vexとwrangle入門">7. VEXとWrangle入門</h2>
+<p><strong>VEX</strong>は、Houdiniの、高速な計算用の小さな言語。<strong>Attribute Wrangle</strong>ノードに書くと、<strong>ポイントごとに、同じ処理が実行される</strong>。</p>
+<h3 id="71-基本">7.1 基本</h3>
+<p><code>Tab</code> → <code>attribwrangle</code>（<strong>Attribute Wrangle</strong>）。<strong>VEXpression</strong>欄に書く。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>書き方</th>
+<th>意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>@P</code></td>
+<td>ポイントの位置（<code>P</code>）。<code>@</code>で、アトリビュートを読み書き</td>
+</tr>
+<tr>
+<td><code>@Cd</code></td>
+<td>ポイントの色</td>
+</tr>
+<tr>
+<td><code>@ptnum</code></td>
+<td>ポイントの番号（0から）</td>
+</tr>
+<tr>
+<td><code>@numpt</code></td>
+<td>ポイントの総数</td>
+</tr>
+<tr>
+<td><code>@Time</code></td>
+<td>現在の時間（秒）</td>
+</tr>
+<tr>
+<td><code>@Frame</code></td>
+<td>現在のフレーム</td>
+</tr>
+<tr>
+<td><code>;</code>（セミコロン）</td>
+<td><strong>文の終わり。書き忘れるとエラー</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="72-例">7.2 例</h3>
+<pre><code class="language-c">// ポイントごとに、ランダムな色を付ける
+@Cd = rand(@ptnum);          // rand()は、番号から、0〜1の値（色にもなる）
+</code></pre>
+<pre><code class="language-c">// 時間に合わせて、上下に波打たせる
+@P.y += sin(@P.x * 2 + @Time) * 0.2;
+</code></pre>
+<pre><code class="language-c">// スライダーを作って、強さを調整する（パラメータの横の、設定ボタンから自動生成できる）
+@P += @N * chf(&quot;amount&quot;);    // chf(&quot;名前&quot;) は、浮動小数のパラメータを読む
+</code></pre>
+<ul>
+<li><strong>Run Over</strong>（何ごとに実行するか）の設定が、Pointsなら、ポイントごと。Primitives、Detail（1回だけ）もある。</li>
+<li>エラーのときは、ノードに警告が出る。<strong>行番号とメッセージを読む。</strong></li>
+<li>最初は、<strong>ノードだけで作って</strong>、慣れてから、Wrangleに置き換える方が、理解しやすい。</li>
+</ul>
+<h2 id="8-保存ファイルゲームエンジンへの出力">8. 保存・ファイル・ゲームエンジンへの出力</h2>
+<h3 id="81-保存">8.1 保存</h3>
+<ul>
+<li>シーンは、<code>.hip</code>（エディションによって<code>.hiplc</code>／<code>.hipnc</code>）。<strong>こまめに保存する。</strong> 自動バックアップもあるが、頼らない。</li>
+<li><code>$HIP</code>が、そのシーンのフォルダ。<strong>ファイルのパスは、<code>$HIP/geo/…</code>のように、相対的に書く</strong>と、フォルダごと移動しても壊れない。</li>
+<li><strong>シーンを開く前に、保存場所の確認</strong>。別のバージョンで保存したファイルを、古いバージョンで開けないことがある。</li>
+</ul>
+<h3 id="82-キャッシュ重い処理を保存する">8.2 キャッシュ（重い処理を保存する）</h3>
+<ul>
+<li><strong>File Cache</strong>ノードで、途中の結果を、ファイル（<code>.bgeo.sc</code>など）に書き出し、<strong>読み込み専用にできる</strong>。重いシミュレーションの再計算を避けられる。</li>
+<li>キャッシュを読み込みに切り替えたら、<strong>上流のノードを変えても、結果が変わらない</strong>ことに注意。更新するときは、書き出し直す。</li>
+</ul>
+<h3 id="83-ゲームエンジンへの出力">8.3 ゲームエンジンへの出力</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Houdini Engine</strong></td>
+<td>Unity・Unrealの中で、HDAを実行。パラメータを、エンジン側から調整できる</td>
+</tr>
+<tr>
+<td><strong>FBX・Alembic・USD などの書き出し</strong></td>
+<td>ROP（Render）ネットワークの、出力用ノードから書き出す</td>
+</tr>
+<tr>
+<td><strong>ゲーム向けのツール群</strong></td>
+<td>SideFXが、ゲーム開発向けのツールセット（Game Development Toolset）を公開している</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>手順や対応バージョンは、<strong>使う前に、SideFXの公式ドキュメントで確認する。</strong> Houdini EngineのUnity・Unreal対応のバージョンは、Houdiniの更新に追従するまで、ずれることがある。</p>
+</blockquote>
+<h2 id="9-つまずきやすい点">9. つまずきやすい点</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因と対処</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ビューに、何も出ない</td>
+<td><strong>Displayフラグ</strong>が、別のノードにある。見たいノードで<code>R</code>を押す。または、<code>Space+H</code>／<code>Space+A</code>で、全体を表示</td>
+</tr>
+<tr>
+<td>ノードが<strong>赤い</strong>・エラー</td>
+<td>cookエラー。ノードを選んで、メッセージを読む。つなぎ忘れ（入力が空）が、よくある原因</td>
+</tr>
+<tr>
+<td>ノードを置けない</td>
+<td><strong>コンテキストが違う</strong>（例: <code>/obj</code>にSOPを置こうとした）。Geometryノードの<strong>中</strong>に入る</td>
+</tr>
+<tr>
+<td><code>Tab</code>で、目的のノードが出ない</td>
+<td>名前が違う。英語で、一部を打つ。別のネットワークの種類では、出ない</td>
+</tr>
+<tr>
+<td>値を変えても、変化しない</td>
+<td>その下流に、<strong>Lock</strong>や、<strong>File Cacheの読み込み</strong>がある。<strong>Bypass</strong>が立っている</td>
+</tr>
+<tr>
+<td>形が、思った場所に出ない</td>
+<td>単位（m／cm）、座標系（右手系／左手系）。<strong>Details View</strong>で<code>P</code>を確認</td>
+</tr>
+<tr>
+<td>Wrangleでエラー</td>
+<td><code>;</code>の書き忘れ。アトリビュート名の綴り。<strong>型</strong>（数値とベクトルの混同）</td>
+</tr>
+<tr>
+<td>触ってはいけないものを触った</td>
+<td><code>Ctrl+Z</code>（元に戻す）。メニューのEditで確認</td>
+</tr>
+<tr>
+<td>昨日の自分の作業が分からない</td>
+<td><strong>ノードに名前を付ける</strong>。<strong>Sticky Note</strong>（<code>Shift+P</code>）や、<strong>Network Box</strong>（<code>Shift+O</code>）で、まとめて説明を書く</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="10-ショートカットキー一覧">10. ショートカットキー一覧</h2>
+<p><strong>出典:</strong> SideFX公式（<a href="https://www.sidefx.com/docs/houdini/start/hotkeys.html">Hotkey Quick Reference</a>／<a href="https://www.sidefx.com/docs/houdini21.0/network/shortcuts.html">Network editor shortcuts（21.0）</a>／<a href="https://www.sidefx.com/docs/houdini/network/flags.html">Node flags</a>）。<br />
+<strong>表記:</strong> <code>LMB</code>＝左クリック、<code>MMB</code>＝中クリック、<code>RMB</code>＝右クリック、<code>Wheel</code>＝ホイール。<strong>キーの割り当ては変更できる</strong>（Edit → Hotkeys）。</p>
+<h3 id="100-まず覚える10個">10.0 まず覚える10個</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Tab</code>（ネットワークエディタ）</td>
+<td>ノードを作る</td>
+</tr>
+<tr>
+<td><code>Space + LMB</code>ドラッグ</td>
+<td>ビューを回す（Tumble）</td>
+</tr>
+<tr>
+<td><code>Space + MMB</code>ドラッグ</td>
+<td>ビューを平行移動（Track）</td>
+</tr>
+<tr>
+<td><code>Space + RMB</code>ドラッグ／<code>Wheel</code></td>
+<td>ズーム（Dolly）</td>
+</tr>
+<tr>
+<td><code>Space + A</code></td>
+<td>すべてのオブジェクトを画面に収める</td>
+</tr>
+<tr>
+<td><code>Space + G</code></td>
+<td>選んだものを画面に収める</td>
+</tr>
+<tr>
+<td><code>H</code>／<code>G</code>（ネットワークエディタ）</td>
+<td>すべてのノード／選んだノードを画面に収める</td>
+</tr>
+<tr>
+<td><code>R</code>（ネットワークエディタ）</td>
+<td>Displayフラグを立てる（SOPの場合）</td>
+</tr>
+<tr>
+<td><code>Q</code>（または<code>B</code>）</td>
+<td>Bypass</td>
+</tr>
+<tr>
+<td><code>P</code>（ネットワークエディタ）</td>
+<td>Parametersを浮かせて出す・隠す</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="101-全般表示ビュー">10.1 全般・表示（ビュー）</h3>
+<p><strong>ヒント:</strong> <code>Space</code>または<code>Alt</code>を押している間は、一時的に<strong>ビューの操作モード</strong>になる。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Tab</code></td>
+<td>使えるノードのメニューを開く</td>
+</tr>
+<tr>
+<td><code>Space + LMB</code></td>
+<td>回転（Tumble）</td>
+</tr>
+<tr>
+<td><code>Space + RMB</code>／<code>Wheel</code></td>
+<td>ズーム（Dolly）</td>
+</tr>
+<tr>
+<td><code>Space + MMB</code></td>
+<td>平行移動（Track）</td>
+</tr>
+<tr>
+<td><code>Space + Ctrl + LMB</code></td>
+<td>カメラの傾き（Tilt）</td>
+</tr>
+<tr>
+<td><code>Space + Ctrl + RMB</code></td>
+<td>カメラのレンズのズーム</td>
+</tr>
+<tr>
+<td><code>Ctrl + Alt + LMB</code></td>
+<td>範囲を指定してズーム（Box zoom）</td>
+</tr>
+<tr>
+<td><code>Space + Z</code></td>
+<td>ポインタの下の点を中心に回転</td>
+</tr>
+<tr>
+<td><code>Space + H</code></td>
+<td>標準の表示に戻す</td>
+</tr>
+<tr>
+<td><code>Space + A</code></td>
+<td>すべてのオブジェクトを表示に収める</td>
+</tr>
+<tr>
+<td><code>Space + G</code></td>
+<td>選んだものを表示に収める</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ポインタがビューの上にあるとき</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>W</code></td>
+<td>シェーディング表示／ワイヤーフレーム表示の切り替え</td>
+</tr>
+<tr>
+<td><code>D</code></td>
+<td>表示オプション（Display Options）のウィンドウ</td>
+</tr>
+<tr>
+<td><code>Space + B</code></td>
+<td>1画面／4画面の切り替え</td>
+</tr>
+<tr>
+<td><code>Space + O</code></td>
+<td>正投影／透視投影の切り替え</td>
+</tr>
+<tr>
+<td><code>Space + E</code></td>
+<td>1つのビュー／すべてのビューの切り替え</td>
+</tr>
+<tr>
+<td><code>Space + 1</code></td>
+<td>透視（Perspective）ビュー</td>
+</tr>
+<tr>
+<td><code>Space + 2</code></td>
+<td>上（Top）</td>
+</tr>
+<tr>
+<td><code>Space + 3</code></td>
+<td>前（Front）</td>
+</tr>
+<tr>
+<td><code>Space + 4</code></td>
+<td>横（Side）</td>
+</tr>
+<tr>
+<td><code>Space + 5</code></td>
+<td>UVエディタ</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="102-ツール">10.2 ツール</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>S</code></td>
+<td>選択ツール（アイコンを右クリックで、選択の方式のメニュー）</td>
+</tr>
+<tr>
+<td><code>T</code></td>
+<td>移動（Move）</td>
+</tr>
+<tr>
+<td><code>R</code></td>
+<td>回転（Rotate）</td>
+</tr>
+<tr>
+<td><code>E</code></td>
+<td>スケール（Scale）</td>
+</tr>
+<tr>
+<td><code>Enter</code></td>
+<td>ノード固有のハンドル</td>
+</tr>
+<tr>
+<td><code>Esc</code></td>
+<td>ビューの操作</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>注意:</strong> <code>T</code>・<code>R</code>・<code>E</code>は、<strong>ビューの上</strong>では移動・回転・スケール。<strong>ネットワークエディタの上</strong>では、<strong>フラグ</strong>のキー（§10.5）になる。ポインタの位置で、意味が変わる。</p>
+</blockquote>
+<h3 id="103-選択">10.3 選択</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>F8</code></td>
+<td>オブジェクト選択／コンポーネント選択の切り替え</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td>オブジェクトを選択</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td>ポイントを選択</td>
+</tr>
+<tr>
+<td><code>3</code></td>
+<td>エッジ（辺）を選択</td>
+</tr>
+<tr>
+<td><code>4</code></td>
+<td>プリミティブ（面）を選択</td>
+</tr>
+<tr>
+<td><code>5</code></td>
+<td>頂点を選択</td>
+</tr>
+<tr>
+<td><code>6</code></td>
+<td>パーティクルを選択</td>
+</tr>
+<tr>
+<td><code>7</code></td>
+<td>ダイナミクスを選択</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>選択しているとき</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LMB</code></td>
+<td>選択</td>
+</tr>
+<tr>
+<td><code>Ctrl + Shift + LMB</code></td>
+<td>選択に追加</td>
+</tr>
+<tr>
+<td><code>Ctrl + LMB</code></td>
+<td>選択から外す</td>
+</tr>
+<tr>
+<td><code>Shift + LMB</code></td>
+<td>選択の切り替え（Toggle）</td>
+</tr>
+<tr>
+<td><code>N</code></td>
+<td>すべてを選択</td>
+</tr>
+<tr>
+<td><code>Shift + N</code></td>
+<td>何も選択しない</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="104-アニメーションタイムライン">10.4 アニメーション・タイムライン</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>K</code></td>
+<td>キーフレームを設定</td>
+</tr>
+<tr>
+<td><code>Alt + K</code></td>
+<td>オートキーの切り替え</td>
+</tr>
+<tr>
+<td><code>Ctrl + K</code></td>
+<td>ハンドルにキーを設定</td>
+</tr>
+<tr>
+<td><code>Shift + T</code></td>
+<td>移動にキー</td>
+</tr>
+<tr>
+<td><code>Shift + R</code></td>
+<td>回転にキー</td>
+</tr>
+<tr>
+<td><code>Shift + E</code></td>
+<td>スケールにキー</td>
+</tr>
+<tr>
+<td><code>↑</code></td>
+<td>順方向に再生</td>
+</tr>
+<tr>
+<td><code>↓</code></td>
+<td>逆方向に再生</td>
+</tr>
+<tr>
+<td><code>Ctrl + ↑</code></td>
+<td>最初のフレームへ</td>
+</tr>
+<tr>
+<td><code>←</code></td>
+<td>前のフレーム</td>
+</tr>
+<tr>
+<td><code>→</code></td>
+<td>次のフレーム</td>
+</tr>
+<tr>
+<td><code>Ctrl + ←</code></td>
+<td>前のキーフレーム</td>
+</tr>
+<tr>
+<td><code>Ctrl + →</code></td>
+<td>次のキーフレーム</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="105-ペイン画面の区画">10.5 ペイン（画面の区画）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Alt + 1</code></td>
+<td>Scene View</td>
+</tr>
+<tr>
+<td><code>Alt + 2</code></td>
+<td>Network Editor</td>
+</tr>
+<tr>
+<td><code>Alt + 3</code></td>
+<td>Parameters</td>
+</tr>
+<tr>
+<td><code>Alt + 4</code></td>
+<td>Tree View</td>
+</tr>
+<tr>
+<td><code>Alt + 5</code></td>
+<td>Textport</td>
+</tr>
+<tr>
+<td><code>Alt + 6</code></td>
+<td>Animation Editor</td>
+</tr>
+<tr>
+<td><code>Alt + 7</code></td>
+<td>Material Palette</td>
+</tr>
+<tr>
+<td><code>Alt + 8</code></td>
+<td>Details View（ジオメトリスプレッドシート）</td>
+</tr>
+<tr>
+<td><code>Alt + 9</code></td>
+<td>Scene View</td>
+</tr>
+<tr>
+<td><code>Ctrl + T</code></td>
+<td>新しいタブ</td>
+</tr>
+<tr>
+<td><code>Alt + Shift + C</code></td>
+<td>タブを、別のウィンドウに切り離す</td>
+</tr>
+<tr>
+<td><code>Ctrl + PgUp</code>／<code>Ctrl + PgDn</code></td>
+<td>前のタブ／次のタブ</td>
+</tr>
+<tr>
+<td><code>Ctrl + W</code></td>
+<td>タブを閉じる</td>
+</tr>
+<tr>
+<td><code>Alt + /</code></td>
+<td>すべてのタブを閉じる</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="106-ネットワークエディタ">10.6 ネットワークエディタ</h3>
+<p><strong>表示</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Space + LMB</code>（または<code>MMB</code>）</td>
+<td>平行移動（Pan）</td>
+</tr>
+<tr>
+<td><code>Space + RMB</code>（または<code>Wheel</code>）</td>
+<td>ズーム</td>
+</tr>
+<tr>
+<td><code>H</code></td>
+<td>すべてのノードを表示に収める</td>
+</tr>
+<tr>
+<td><code>G</code></td>
+<td>選んだノードを表示に収める</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ノードの追加</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Tab</code></td>
+<td>メニューから、ノードを追加</td>
+</tr>
+<tr>
+<td><code>=</code></td>
+<td>Fileノードを追加（そのネットワークにある場合）</td>
+</tr>
+<tr>
+<td><code>Shift + O</code></td>
+<td><strong>ネットワークボックス</strong>を追加（選んだノードが、中に入る）</td>
+</tr>
+<tr>
+<td><code>Shift + P</code></td>
+<td>**付箋（Sticky Note）**を追加</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ワイヤ（線）のつなぎ方</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>コネクタを<code>LMB</code>でドラッグ</td>
+<td>つなぐ（コネクタを順にクリックしても、つなげる）</td>
+</tr>
+<tr>
+<td>コネクタを<code>RMB</code></td>
+<td>つないだノードの手前に、新しいノードを挿入</td>
+</tr>
+<tr>
+<td>コネクタを<code>MMB</code></td>
+<td>コネクタから、新しいノードを分岐させる</td>
+</tr>
+<tr>
+<td>ノードを<code>Alt + LMB</code></td>
+<td>つなげるコネクタのメニューを表示</td>
+</tr>
+<tr>
+<td><code>Y</code> + ドラッグ</td>
+<td>ワイヤを横切って、切る</td>
+</tr>
+<tr>
+<td>ノードを<strong>振る（シェイク）</strong></td>
+<td>すべてのワイヤから外す</td>
+</tr>
+<tr>
+<td>ワイヤを<code>Alt + LMB</code></td>
+<td>ドット（中継点）を追加</td>
+</tr>
+<tr>
+<td>ドットを<code>Alt + LMB</code></td>
+<td>ドットを固定／固定解除</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ツールの表示・非表示</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>P</code></td>
+<td><strong>パラメータエディタ</strong>（右上に浮かせる）の表示・非表示</td>
+</tr>
+<tr>
+<td><code>Shift + W</code></td>
+<td>ネットワーク階層のツリー（左）の表示・非表示</td>
+</tr>
+<tr>
+<td><code>O</code></td>
+<td>ネットワーク全体の概観（左下）の表示・非表示</td>
+</tr>
+<tr>
+<td><code>C</code></td>
+<td>カラーパレット（右下）の表示・非表示</td>
+</tr>
+<tr>
+<td><code>Z</code></td>
+<td>形状（シェイプ）パレット（右下）の表示・非表示</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ナビゲーション（階層の移動）</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ダブルクリック／<code>Enter</code></td>
+<td>ノードの中に入る（<code>Enter</code>は、選んだノードに対して）</td>
+</tr>
+<tr>
+<td><code>U</code></td>
+<td>1つ上の階層に戻る</td>
+</tr>
+<tr>
+<td><code>Ctrl + 1〜5</code></td>
+<td>現在の表示位置を、クイックマークに記憶</td>
+</tr>
+<tr>
+<td><code>Shift + 1〜5</code></td>
+<td>記憶した位置に戻る</td>
+</tr>
+<tr>
+<td><code>`</code>（バッククォート）</td>
+<td>1つ前の表示に戻る</td>
+</tr>
+<tr>
+<td><code>PgUp</code></td>
+<td>上流のノードを選択</td>
+</tr>
+<tr>
+<td><code>PgDn</code></td>
+<td>下流のノードを選択</td>
+</tr>
+<tr>
+<td><code>Shift + PgUp</code>／<code>Shift + PgDn</code></td>
+<td>前／次の、兄弟のノードを選択</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ノードの操作</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ノードを<code>MMB</code>で押し続ける</td>
+<td>ノードの情報ウィンドウを、押している間表示</td>
+</tr>
+<tr>
+<td>ノードを<code>Shift + MMB</code></td>
+<td><strong>cookせずに</strong>情報ウィンドウを表示</td>
+</tr>
+<tr>
+<td><code>Alt</code> + ノードをドラッグ</td>
+<td>ノードをコピー</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ノードの整列</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>A</code> + ノードをドラッグ</td>
+<td>上／左へドラッグで、上流のノードを整列。下／右へで、下流のノードを整列（選択があるときは、選んだものだけ）</td>
+</tr>
+<tr>
+<td><code>Shift + A</code> + ノードをドラッグ</td>
+<td>選んだノードを、対象のノードに揃える</td>
+</tr>
+<tr>
+<td><code>Alt + A</code> + ノードをドラッグ</td>
+<td>選んだノードを、等間隔に並べる</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>クリックとドラッグ（組み合わせ）</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>入力</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LMB</code></td>
+<td>選択</td>
+</tr>
+<tr>
+<td><code>Shift + LMB</code></td>
+<td>選択に追加</td>
+</tr>
+<tr>
+<td><code>Ctrl + LMB</code></td>
+<td>選択から外す</td>
+</tr>
+<tr>
+<td><code>Alt + Shift + LMB</code></td>
+<td>そのノードと、<strong>すべての入力側</strong>を選択</td>
+</tr>
+<tr>
+<td><code>Alt + Ctrl + LMB</code></td>
+<td>そのノードと、<strong>すべての出力側</strong>を選択</td>
+</tr>
+<tr>
+<td>ドラッグ</td>
+<td>移動</td>
+</tr>
+<tr>
+<td><code>Shift</code> + ドラッグ</td>
+<td>ノードと、その入力側を、まとめて移動</td>
+</tr>
+<tr>
+<td><code>Ctrl</code> + ドラッグ</td>
+<td>ノードと、その出力側を、まとめて移動</td>
+</tr>
+<tr>
+<td><code>Alt + Ctrl + Shift</code> + ドラッグ</td>
+<td>選んだノードの、<strong>参照コピー</strong>を作る</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ノート・ネットワークボックス</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Shift + P</code></td>
+<td>付箋を追加</td>
+</tr>
+<tr>
+<td><code>Shift + O</code></td>
+<td>選んだものを、ネットワークボックスに入れる</td>
+</tr>
+<tr>
+<td><code>Shift + J</code></td>
+<td>選んだ付箋・ボックスを、最小化</td>
+</tr>
+<tr>
+<td><code>Shift + K</code></td>
+<td>最小化したものを、元に戻す</td>
+</tr>
+<tr>
+<td><code>Shift + M</code></td>
+<td>選んだネットワークボックスを、中身に合わせて縮める</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>検索</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>キー</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Ctrl + F</code>（または<code>/</code>）</td>
+<td>検索ダイアログ</td>
+</tr>
+<tr>
+<td><code>Ctrl + G</code>（または<code>&gt;</code>）</td>
+<td>次の一致を選択</td>
+</tr>
+<tr>
+<td><code>Shift + Ctrl + G</code>（または<code>&lt;</code>）</td>
+<td>前の一致を選択</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="107-フラグのキーネットワークエディタ">10.7 フラグのキー（ネットワークエディタ）</h3>
+<p><strong><code>Q</code>・<code>W</code>・<code>E</code>・<code>R</code>・<code>T</code>が、フラグのキー。<strong>ノードを選んで押すと、切り替わる。<strong>押し続けて、ノードをクリックする</strong>と、複数を、まとめて設定・解除できる。</strong><code>Q</code>と<code>B</code>は、常にBypass</strong>。公式の説明では、<strong><code>R</code>が最もよく使うフラグ</strong>、次に<code>E</code>、<code>T</code>、<code>W</code>の順。</p>
+<p>ネットワークの種類で、フラグの意味が違う（公式の<a href="https://www.sidefx.com/docs/houdini/network/flags.html">Node flags</a>より）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>ネットワーク</th>
+<th><code>Q</code>／<code>B</code></th>
+<th><code>W</code></th>
+<th><code>E</code></th>
+<th><code>R</code></th>
+<th><code>T</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Object</strong>（<code>/obj</code>）</td>
+<td>—</td>
+<td>—</td>
+<td>Selectable（ビューで選べる）</td>
+<td><strong>Display</strong>（ビューに出す）</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>SOP</strong>（ジオメトリ）</td>
+<td><strong>Bypass</strong></td>
+<td>Selectable Template</td>
+<td>Template</td>
+<td><strong>Display</strong></td>
+<td>Render</td>
+</tr>
+<tr>
+<td><strong>DOP</strong>（ダイナミクス）</td>
+<td><strong>Bypass</strong></td>
+<td>—</td>
+<td>Hidden（隠す）</td>
+<td>Output（シミュレーションの出力）</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>COP</strong>（Copernicus）</td>
+<td><strong>Bypass</strong></td>
+<td>Shaded Template</td>
+<td>Template</td>
+<td><strong>Display</strong></td>
+<td>3D Output</td>
+</tr>
+<tr>
+<td><strong>ROP</strong>（レンダー）</td>
+<td><strong>Bypass</strong></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>Render（レンダー実行のボタン）</td>
+</tr>
+<tr>
+<td><strong>VOP</strong></td>
+<td><strong>Bypass</strong></td>
+<td>—</td>
+<td>—</td>
+<td>Debug</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>CHOP</strong></td>
+<td><strong>Bypass</strong></td>
+<td>—</td>
+<td>Export</td>
+<td><strong>Display</strong></td>
+<td>Output</td>
+</tr>
+<tr>
+<td><strong>TOP</strong>（タスク）</td>
+<td><strong>Bypass</strong></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>Output</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>表の「—」は、公式のページに、そのキーの記載が無いもの。<strong>Lock・Unload・Materialなどは、キーが無く</strong>、ノードを右クリック → Flagsのメニューで設定する。</p>
+</blockquote>
+<h3 id="108-キーを自分で確認変更する">10.8 キーを自分で確認・変更する</h3>
+<ul>
+<li>メニューの <strong>Edit → Hotkeys</strong> で、すべての割り当てを、確認・変更できる。</li>
+<li><code>Ctrl + Alt + Shift</code> を押しながら、画面上のボタンやメニューを<code>LMB</code>クリックすると、<strong>そのボタンに対応するキーの設定画面</strong>が開く。</li>
+<li>保存・元に戻す・コピーなど、一般的な操作（<code>Ctrl+S</code>・<code>Ctrl+Z</code>など）は、公式の一覧ページには載っていない。<strong>Editメニュー・Fileメニューに、割り当てが表示される</strong>ので、そこで確認する。</li>
+</ul>
+<h2 id="11-学習のロードマップ">11. 学習のロードマップ</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>段階</th>
+<th>目標</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>1. 触る</strong>（1〜2日）</td>
+<td>画面とノードに慣れる</td>
+<td>§2〜§6。Box・Scatter・Copy to Pointsの作例。キーを10個使う</td>
+</tr>
+<tr>
+<td><strong>2. 理解する</strong>（1〜2週間）</td>
+<td>アトリビュートと流れを理解する</td>
+<td>§4・§5。Details Viewで値を見る。<code>ch()</code>で参照する。Transform・Merge・Blast・Polyextrudeなどの基本ノードを使う</td>
+</tr>
+<tr>
+<td><strong>3. 作る</strong>（1〜2か月）</td>
+<td>小さな成果物を作る</td>
+<td>例: 建物のバリエーション、散らす草木、道の生成。HDAにして、パラメータを公開する</td>
+</tr>
+<tr>
+<td><strong>4. 組み込む</strong></td>
+<td>ゲームエンジンで使う</td>
+<td>FBX・Alembic・USDの書き出し、またはHoudini Engine</td>
+</tr>
+<tr>
+<td><strong>5. 広げる</strong></td>
+<td>専門を選ぶ</td>
+<td>VEX、シミュレーション（DOP）、Solaris（USD・レンダリング）、TOP（自動化）、KineFX（リグ）など</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>基本の道具（最初の10ノード）:</strong> <code>Box</code>・<code>Sphere</code>・<code>Grid</code>・<code>Transform</code>・<code>Merge</code>・<code>Null</code>・<code>Scatter</code>・<code>Copy to Points</code>・<code>Poly Extrude</code>・<code>Attribute Wrangle</code>。</p>
+<p><strong>学びの資料（公式）</strong><br />
+- <a href="https://www.sidefx.com/docs/houdini/">Houdiniのドキュメント</a>（日本語のチュートリアルもある）<br />
+- SideFXの<a href="https://www.sidefx.com/tutorials/">チュートリアル</a>（公式の動画・学習パス）</p>
+<p><strong>学び方のコツ</strong><br />
+- <strong>ノードの名前を、ひとつずつ覚える</strong>より、<strong>目的から、<code>Tab</code>で探す</strong>クセをつける。<br />
+- 分からないノードは、<strong>選んで<code>F1</code></strong>（ヘルプが開く）。公式のヘルプには、パラメータの説明と、作例が載っている。<br />
+- <strong>Details View</strong>で、いつも、値を見る。</p>
+<h2 id="12-このプロジェクトとの関係">12. このプロジェクトとの関係</h2>
+<p>このリポジトリには、<strong>HoudiniのパネルからRAGに質問し、チュートリアルを自動生成する</strong>仕組みがある。この資料の知識は、その使い方に直結する。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>この資料の知識</th>
+<th>プロジェクトでの使いどころ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ノード・ネットワーク・コンテキスト（§3）</td>
+<td>生成されるチュートリアルは、<strong>どのネットワーク（SOP・COPなど）で作るか</strong>を、決めて始まる。読むときは、<code>/obj/geo1/…</code>の階層から追う</td>
+</tr>
+<tr>
+<td>フラグ・cook（§3.2・§3.4）</td>
+<td>生成の<strong>合格条件の1つが、cookエラーが無いこと</strong>。ノードが赤いときは、cookエラー</td>
+</tr>
+<tr>
+<td>パラメータと式（§5）</td>
+<td>生成ツールの<code>set_parameter</code>は、値・式・キーフレーム・ランプを設定する</td>
+</tr>
+<tr>
+<td>アトリビュート（§4）</td>
+<td>生成された手順の、<code>Cd</code>・<code>P</code>・<code>N</code>などの扱いを読み解く</td>
+</tr>
+<tr>
+<td>ショートカット（§10）</td>
+<td>チュートリアルを、<strong>実際に手で追いながら</strong>確かめるとき</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>生成の対応範囲（SOP中心、KineFX／APEXはSOPレベルまで）は、<a href="user-manual.html">user-manual.md §9</a>と、<a href="learning/03-specialized.html">learning/03-specialized.md §7</a>を参照。</li>
+<li>生成された手順は、<strong>必ず、自分の手で追って確かめる</strong>。AIの生成物は、間違うことがある。</li>
+</ul>
+<h2 id="13-用語集">13. 用語集</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>用語</th>
+<th>意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ノード（Node）</strong></td>
+<td>処理の1単位</td>
+</tr>
+<tr>
+<td><strong>ネットワーク（Network）</strong></td>
+<td>ノードをつないだもの。階層になっている</td>
+</tr>
+<tr>
+<td><strong>コンテキスト</strong></td>
+<td>ネットワークの種類（SOP・DOP・VOP…）</td>
+</tr>
+<tr>
+<td><strong>cook</strong></td>
+<td>ノードが、結果を計算すること</td>
+</tr>
+<tr>
+<td><strong>フラグ（Flag）</strong></td>
+<td>ノードの状態のスイッチ（Display・Bypass…）</td>
+</tr>
+<tr>
+<td><strong>パラメータ</strong></td>
+<td>ノードの設定項目</td>
+</tr>
+<tr>
+<td><strong>アトリビュート（Attribute）</strong></td>
+<td>ポイントや面などに付ける、値のラベル（<code>P</code>・<code>Cd</code>…）</td>
+</tr>
+<tr>
+<td><strong>グループ（Group）</strong></td>
+<td>ポイントや面を、名前で束ねたもの</td>
+</tr>
+<tr>
+<td><strong>SOP</strong></td>
+<td>ジオメトリ（形）を扱うネットワーク</td>
+</tr>
+<tr>
+<td><strong>DOP</strong></td>
+<td>シミュレーションを扱うネットワーク</td>
+</tr>
+<tr>
+<td><strong>VOP</strong></td>
+<td>VEXをノードで書くネットワーク</td>
+</tr>
+<tr>
+<td><strong>COP</strong></td>
+<td>画像処理（現在はCopernicus）</td>
+</tr>
+<tr>
+<td><strong>LOP</strong>（Solaris）</td>
+<td>USDのシーンを扱うネットワーク</td>
+</tr>
+<tr>
+<td><strong>TOP</strong>（PDG）</td>
+<td>処理の自動化・分散</td>
+</tr>
+<tr>
+<td><strong>CHOP</strong></td>
+<td>チャンネル（時間で変わる値）の処理</td>
+</tr>
+<tr>
+<td><strong>ROP</strong></td>
+<td>出力・レンダリングの指示</td>
+</tr>
+<tr>
+<td><strong>VEX</strong></td>
+<td>高速な計算用の言語</td>
+</tr>
+<tr>
+<td><strong>Wrangle</strong></td>
+<td>VEXを書くためのノード（Attribute Wrangleなど）</td>
+</tr>
+<tr>
+<td><strong>HDA</strong></td>
+<td>Houdini Digital Asset。ノードの組み合わせを、1つのノードにまとめたもの</td>
+</tr>
+<tr>
+<td><strong>Houdini Engine</strong></td>
+<td>HDAを、Unity・Unrealなどの中で実行する仕組み</td>
+</tr>
+<tr>
+<td><strong><code>$HIP</code></strong></td>
+<td>現在のシーンファイルのフォルダ</td>
+</tr>
+<tr>
+<td><strong>Details View</strong></td>
+<td>ポイントなどの値を、表で見るペイン</td>
+</tr>
+<tr>
+<td><strong>KineFX／APEX</strong></td>
+<td>リグ・キャラクターのアニメーションの仕組み</td>
+</tr>
+<tr>
+<td><strong>USD</strong></td>
+<td>シーンを記述する、業界標準の形式（Solarisで扱う）</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<p><em>関連: <a href="glossary.html">glossary.md</a>（このプロジェクトの用語）／<a href="content-generation.md">content-generation.md</a>（チュートリアル生成）／<a href="user-manual.html">user-manual.md</a>（ツールの使い方）／<a href="learning/README.html">learning/README.md</a>（座学資料）</em></p>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+</body>
+</html>
