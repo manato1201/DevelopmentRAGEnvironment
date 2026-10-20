@@ -105,4 +105,55 @@ Cloud Functionsは完全なNode.js/Pythonランタイムのため、`pdf-parse`�
 
 ---
 
-*関連ドキュメント: [docs/cloudflare-rag-technical-report.md](cloudflare-rag-technical-report.md) / [cloudflare-rag-poc/README.md](../cloudflare-rag-poc/README.md)*
+## 7. 追記（2026-10-17）: Cloudflare Workers／Firebase Hosting／Cloud Run の比較
+
+> §1〜6は「CloudflareとFirebase（Cloud Functions）」の比較。ここでは、**Firebase Hosting**と**Cloud Run**を加えた3つを比べる。数字や制限は2026-10時点の認識で、変わりうる。**採用の前に、各社の公式ページで確認する。**
+
+### 7.1 まず、この3つは「同じ階層のもの」ではない
+
+| | 何か | コードを動かせるか |
+|---|---|---|
+| **Cloudflare Workers** | 世界中の拠点で、**V8（JavaScriptの実行環境）**のコードを動かす。D1・Vectorizeなどを、設定で直接つなげる | ○ |
+| **Firebase Hosting** | **静的ファイル（HTML・CSS・JS・画像）を配信するCDN**。設定で、特定のURLを、Cloud FunctionsやCloud Runに**振り分けられる** | ×（配信と振り分けだけ） |
+| **Cloud Run** | **コンテナ（Dockerのイメージ）**をサーバーレスで動かす。Firebaseの**Cloud Functions（第2世代）の実体**でもある | ○（言語・ライブラリは自由） |
+
+つまり、**「Firebase Hosting ＋ Cloud Run」で、「Workers」1つ分**に近い。比べる相手は、Workersに対して、Cloud Run（コンピュート）と、Firebase Hosting（画面の配信）の組み合わせ。
+
+### 7.2 それぞれの利点
+
+| 観点 | Cloudflare Workers | Firebase Hosting | Cloud Run |
+|---|---|---|---|
+| **得意なこと** | 軽い処理を、世界中で、遅延なく。D1・Vectorize・Cronなどが、同じ場所にそろう | 静的な画面の高速配信。HTTPS・独自ドメイン・**プレビュー用のURL**・ロールバックが簡単 | **何でも動かせる**。重い処理、長い処理、Python、ネイティブのライブラリ |
+| **起動の遅さ（コールドスタート）** | ほぼ無い | なし（静的） | 起こりうる（数秒。常時起動の設定で緩和できるが、待機中も課金） |
+| **処理時間・メモリ** | 厳しい（無料枠はCPU時間が短く、外部呼び出し数・メモリ（128MB）にも上限。本プロジェクトで実際に遭遇） | 該当なし | **ゆるい**（1リクエストを長時間、メモリ・CPUも大きく選べる）。GPUを使える構成もある |
+| **言語・ライブラリ** | JavaScript／TypeScript（ネイティブ拡張を持つnpmは動かないことがある） | 該当なし | **自由**（Node・Python・Go・何でも。`pdf-parse`や`sentence-transformers`もそのまま） |
+| **データ** | D1（SQLite）、Vectorize、KV、R2などを、すぐ使える | Firebaseの他の部品（Firestore・Auth）と連携しやすい | Cloud SQL・Firestore・Vertex AIなど、**GCPの部品を、別途選んで組む**（全文検索・ベクトル検索は、自分で用意する） |
+| **Googleとの連携** | サービスアカウントの署名を自前で実装（約90行）。組織ポリシーで鍵が作れない問題にも遭遇 | — | **標準の認証（ADC）がそのまま使える**。Drive・Gmailなどに、鍵なしで入れる |
+| **料金の形** | リクエスト数＋CPU時間。無料枠が大きいが、**D1の日次の読み取り行数に上限**（2026-10-16に実際に超過） | 転送量・保存量。無料枠あり | 使った時間×CPU・メモリ。**無料枠はあるが、課金アカウントの登録が必要**。待機（常時起動）に課金されうる |
+| **配布のしやすさ** | アカウント＋`wrangler`の数コマンド。無料枠でも動く | Firebaseプロジェクトが必要。FunctionsやRun連携には、従量課金プラン（Blaze）が必要 | GCPプロジェクト＋課金＋IAM＋コンテナのビルド。**導入の手間は最も大きい** |
+| **世界配信** | 標準（300都市以上） | CDNで、標準 | 単一リージョン（複数にするなら、別途設計） |
+
+### 7.3 このプロジェクトでは
+
+- **今の構成（Workers）は、妥当。** ハイブリッド検索（D1のFTS5＋Vectorize）、Cron、世界配信、コールドスタートがほぼ無いこと、配布の軽さが、要件に合っている。
+- **Firebase Hostingは、今は不要。** 画面は、Worker自身が返せる（将来、`chatUi.ts`を静的ファイルに分解したら、**WorkersのStatic Assets**で配信できる。→ [architecture-layering-plan.md §4.4](architecture-layering-plan.md#44-chatuits-の分解)）。Firebase Authなど、Firebaseの他の部品を使うときに、改めて検討する。
+- **Cloud Runが効く場面は、はっきりしている。**
+
+  | 場面 | 理由 |
+  |---|---|
+  | 重いファイル変換（PDF・Office・音声・動画）を、Workersの制限を気にせず行いたい | ネイティブのライブラリがそのまま使え、時間・メモリがゆるい |
+  | **ローカルRAG（ChromaDB＋`sentence-transformers`、約1.2GBのモデル）を、共有サーバーとして公開したい** | Pythonのコンテナとして、そのまま動かせる。Workersには載らない |
+  | 大規模なクロール・同期を、**1回の呼び出しで最後まで**処理したい | 「バッチ＋再開」の仕組みが、不要になる規模が大きくなる |
+  | GPUが必要な処理（画像・音声のモデルなど） | Cloud Runは、GPUを選べる構成がある |
+
+  組み方は、**Workerを入口のままにして、重い処理だけを、HTTPでCloud Runに任せる**（サイドカー型）。全面的な移行は、D1のFTS5・Vectorize・Cronを、別のサービスで作り直すことになり、割に合わない。
+- **判断の目安:** 「Workersの制限（CPU時間・メモリ・外部呼び出し数）に、**繰り返し**当たって、設計で回避するコストが、Cloud Runの導入コストを上回った」ときに、Cloud Runを足す。**当たっていないうちは、足さない。**
+
+### 7.4 配布の観点（[architecture-layering-plan.md](architecture-layering-plan.md)と合わせて）
+
+- 受け取る側の手間は、**Cloudflareのみ**が最小。Cloud Runを必須にすると、配布の相手が、GCPの課金設定までできる人に限られる。
+- そのため、**Cloud Runは「任意のプラグイン」**（無くても、基本機能が動く）にするのが、配布と相性が良い。
+
+---
+
+*関連ドキュメント: [docs/cloudflare-rag-technical-report.md](cloudflare-rag-technical-report.md) / [cloudflare-rag-poc/README.md](../cloudflare-rag-poc/README.md) / [docs/architecture-layering-plan.md](architecture-layering-plan.md)*

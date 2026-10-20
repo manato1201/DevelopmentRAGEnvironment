@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>01. 常識編</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a class="current" href="01-common-knowledge.html">01</a><a href="02-fundamentals.html">02</a><a href="03-specialized.html">03</a><a href="04-applied.html">04</a><a href="05-scripts.html">05</a><a href="06-maintenance-runbook.html">06</a></nav>
+<header class="hero">
+  <span class="badge">座学資料</span>
+  <h1>01. 常識編</h1>
+  <div class="meta">HTML生成: 2026-10-20（元: docs/learning/01-common-knowledge.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-コンピュータとosの常識">1. コンピュータとOSの常識</a></li><li><a href="#2-ネットワークとwebの常識">2. ネットワークとWebの常識</a><ol><li><a href="#21-urlとhttp">2.1 URLとHTTP</a></li><li><a href="#22-応答がjsonではありませんの正体">2.2 「応答がJSONではありません」の正体</a></li><li><a href="#23-dnshttpscorsを一言で">2.3 DNS・HTTPS・CORSを一言で</a></li></ol></li><li><a href="#3-データ形式の常識">3. データ形式の常識</a></li><li><a href="#4-セキュリティの常識">4. セキュリティの常識</a></li><li><a href="#5-gitの常識">5. Gitの常識</a></li><li><a href="#6-仕事の進め方の常識">6. 仕事の進め方の常識</a></li><li><a href="#7-費用と上限の常識">7. 費用と上限の常識</a></li><li><a href="#練習">練習</a></li><li><a href="#確認">確認</a></li></ol></details></nav>
+<main>
+
+<p><strong>更新日:</strong> 2026-10-17　<strong>目安:</strong> 半日　<strong>前提:</strong> なし<br />
+<strong>ゴール:</strong> このプロジェクトのエラーや運用の話が、「何の話か」分かる。分からない単語で止まらない。</p>
+<hr />
+<h2 id="1-コンピュータとosの常識">1. コンピュータとOSの常識</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>用語</th>
+<th>一言で</th>
+<th>このプロジェクトでの出番</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>プロセス</td>
+<td>動いているプログラム</td>
+<td><code>wrangler dev</code>、<code>rag_local_bridge.py</code>、Houdini本体</td>
+</tr>
+<tr>
+<td>環境変数</td>
+<td>プログラムに渡す、名前つきの設定値</td>
+<td><code>ANTHROPIC_API_KEY</code>（鍵を、ファイルではなく環境変数に置く方針）</td>
+</tr>
+<tr>
+<td>PATH</td>
+<td>コマンドを探す場所の一覧</td>
+<td><code>uv</code>、<code>node</code>、<code>ffmpeg</code> が見つからないときは、まずPATH</td>
+</tr>
+<tr>
+<td>標準出力・標準エラー</td>
+<td>プログラムが書き出す結果・エラー</td>
+<td><code>wrangler</code>のログ、<code>uv run</code>の出力</td>
+</tr>
+<tr>
+<td>終了コード</td>
+<td>成功は0、失敗は0以外</td>
+<td><code>tsc --noEmit</code>が0以外なら型エラー</td>
+</tr>
+<tr>
+<td>権限</td>
+<td>誰が何をできるか</td>
+<td>OSのファイル権限、APIキーのロール（admin/editor/member/guest）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>文字コードと改行（ハマりやすい）</strong><br />
+- テキストは <strong>UTF-8</strong> で保存する。日本語が文字化けしたら、まず保存時の文字コードを疑う。<br />
+- 改行はOSで違う。Windowsは <code>CRLF</code>（<code>\r\n</code>）、LinuxやMacは <code>LF</code>（<code>\n</code>）。ファイルの中に両方が混ざると、検索・置換や差分が合わなくなる。このプロジェクトでも、置換スクリプトが改行の違いで失敗したことがある。<br />
+- Windowsのパスは <code>C:\Users\...</code>（バックスラッシュ）。プログラムの文字列に書くと、<code>\</code> が特別な意味（エスケープ）になる。パスは <code>/</code> で書くか、<code>\\</code> と二重にする。</p>
+<h2 id="2-ネットワークとwebの常識">2. ネットワークとWebの常識</h2>
+<h3 id="21-urlとhttp">2.1 URLとHTTP</h3>
+<pre><code>https://rag-poc.manato1201m.workers.dev/query?x=1
+└─┬──┘ └──────────────┬──────────────┘└──┬─┘ └┬─┘
+ 通信方式          ホスト名             パス  クエリ
+</code></pre>
+<ul>
+<li><strong>リクエスト</strong>は「メソッド（GET/POSTなど）＋URL＋ヘッダ＋本文」。<strong>レスポンス</strong>は「ステータスコード＋ヘッダ＋本文」。</li>
+<li>このプロジェクトのAPIは、ほとんどが <code>POST</code>＋JSON本文。認証は <code>Authorization: Bearer &lt;APIキー&gt;</code> ヘッダ。</li>
+</ul>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>ステータス</th>
+<th>意味</th>
+<th>このプロジェクトでの典型</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>200</td>
+<td>成功</td>
+<td></td>
+</tr>
+<tr>
+<td>400</td>
+<td>リクエストが不正</td>
+<td>必須項目が無い</td>
+</tr>
+<tr>
+<td>401</td>
+<td>認証できない</td>
+<td>APIキーが違う・期限切れ</td>
+</tr>
+<tr>
+<td>403</td>
+<td>権限が無い</td>
+<td>memberがadmin用APIを呼んだ</td>
+</tr>
+<tr>
+<td>404</td>
+<td>見つからない</td>
+<td>存在しないドキュメントの削除</td>
+</tr>
+<tr>
+<td>405</td>
+<td>そのメソッドは使えない</td>
+<td>POST専用のURLをGETで開いた</td>
+</tr>
+<tr>
+<td>429</td>
+<td>回数・予算の超過</td>
+<td>レート制限、トークン予算</td>
+</tr>
+<tr>
+<td>500</td>
+<td>サーバー内部の失敗</td>
+<td>コードの例外、<strong>D1の上限超過</strong></td>
+</tr>
+<tr>
+<td>503</td>
+<td>一時的に使えない</td>
+<td>設定不足、一時的な障害</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="22-応答がjsonではありませんの正体">2.2 「応答がJSONではありません」の正体</h3>
+<p>画面に出る <code>Unexpected token '&lt;'</code> や「応答がJSONではありません」は、<strong>サーバーがJSONではなくHTMLのエラーページを返した</strong>ときに出る。<code>&lt;</code> は <code>&lt;html&gt;</code> の先頭。原因は大きく2つ。</p>
+<ol>
+<li>処理に時間がかかり、途中のプロキシ・ブラウザが打ち切った（タイムアウト）。</li>
+<li>サーバー（Worker）が、JSONを作る前に落ちた（Cloudflareのエラーページ）。</li>
+</ol>
+<p>→ <strong>まずステータスコードを見る</strong>（ブラウザの開発者ツール → Networkタブ）。500なら、サーバー側の問題。</p>
+<h3 id="23-dnshttpscorsを一言で">2.3 DNS・HTTPS・CORSを一言で</h3>
+<ul>
+<li><strong>DNS:</strong> ホスト名からIPアドレスを調べる仕組み。「名前が解決できない」はDNSの問題。</li>
+<li><strong>HTTPS:</strong> 通信の暗号化。鍵（APIキー）を送るときは必ずHTTPS。<code>http://</code>に鍵を送らない。</li>
+<li><strong>CORS:</strong> ブラウザが、別のサイトへのリクエストを制限する仕組み。ブラウザだけの制限なので、<code>curl</code>では起きない。「curlでは通るのにブラウザでは失敗する」ときに疑う。</li>
+</ul>
+<h2 id="3-データ形式の常識">3. データ形式の常識</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>形式</th>
+<th>特徴</th>
+<th>出番</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JSON</td>
+<td><code>{ "名前": 値 }</code>。文字列は<code>"</code>で囲む。末尾にカンマ不可。コメント不可</td>
+<td>API、設定ファイル</td>
+</tr>
+<tr>
+<td>Markdown</td>
+<td>見出し・リスト・コードを簡単に書く</td>
+<td>資料、チュートリアルの出力</td>
+</tr>
+<tr>
+<td>CSV</td>
+<td>カンマ区切りの表</td>
+<td>Q&amp;Aの一括登録、利用状況のエクスポート</td>
+</tr>
+<tr>
+<td>SQL</td>
+<td>データベースへの命令</td>
+<td><code>migrations/</code>、<code>wrangler d1 execute</code></td>
+</tr>
+<tr>
+<td>YAML/TOML</td>
+<td>設定向け。インデントが意味を持つ</td>
+<td><code>pyproject.toml</code>、GitHub Actions</td>
+</tr>
+<tr>
+<td>Base64</td>
+<td>バイナリを文字にする</td>
+<td>画像・ファイルをJSONに載せるとき（約33%大きくなる）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="4-セキュリティの常識">4. セキュリティの常識</h2>
+<ol>
+<li><strong>秘密（APIキー・トークン・パスワード）はコードに書かない・Gitに入れない。</strong> 置き場所: Cloudflareなら <code>wrangler secret put</code>、ローカルなら環境変数。鍵を見つけたら、<strong>使えなくして（失効）、新しく作り直す</strong>。履歴から消しても、一度公開した鍵は漏れたものとして扱う。</li>
+<li><strong>最小権限。</strong> 必要な権限だけ渡す。このプロジェクトでは、APIキーごとに「見られるnamespace」を許可リストで絞る。連携の同期先も、許可リストに入れたものだけ。</li>
+<li><strong>入力を信用しない。</strong> 外から来る値は、型・長さ・範囲を確認する。<code>clampInt</code>（<code>src/http.ts</code>）はその例。SQLには、値を文字列で埋め込まず、必ず <code>?</code> と <code>bind</code> で渡す（SQLインジェクション対策）。</li>
+<li><strong>画面に出す文字はエスケープする。</strong> 外部の文章がそのままHTMLとして実行されると、不正なスクリプトが動く（XSS）。<code>oauthResultPage</code> は、メッセージをエスケープしている。</li>
+<li><strong>プロンプトインジェクション。</strong> AIに読ませる文書や、外部ツールの結果の中に「この指示に従え」と書かれていても、<strong>それは命令ではなくデータ</strong>。このプロジェクトでは、外部連携のツールを読み取り専用にし、書き込み系は使わせない。</li>
+<li><strong>署名で本物かを確かめる。</strong> SlackからのリクエストはHMAC署名（秘密の値で作る改ざん検出）と時刻で確認する。</li>
+<li><strong>鍵の表示は、必要な時間だけ。</strong> 管理画面は、発行した鍵を60秒で隠す。</li>
+</ol>
+<p><strong>漏れたかもしれないとき（手順）:</strong> ①その鍵を失効 → ②新しい鍵を発行して置き換え → ③監査ログで、いつ・何に使われたか確認 → ④再発防止（置き場所の見直し）。</p>
+<h2 id="5-gitの常識">5. Gitの常識</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>やりたいこと</th>
+<th>コマンド</th>
+<th>注意</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>状態を見る</td>
+<td><code>git status</code></td>
+<td>迷ったら、まずこれ</td>
+</tr>
+<tr>
+<td>変更の中身を見る</td>
+<td><code>git diff</code></td>
+<td>コミット前に必ず読む</td>
+</tr>
+<tr>
+<td>記録する</td>
+<td><code>git add &lt;ファイル&gt;</code> → <code>git commit -m "メッセージ"</code></td>
+<td><code>git add .</code> は、意図しないファイルを入れやすい</td>
+</tr>
+<tr>
+<td>履歴を見る</td>
+<td><code>git log --oneline -10</code></td>
+<td>書き方（<code>feat:</code> など）は、既存に合わせる</td>
+</tr>
+<tr>
+<td>直前の変更を取り消す（新しい記録で）</td>
+<td><code>git revert &lt;コミット&gt;</code></td>
+<td>履歴を消さないので安全</td>
+</tr>
+<tr>
+<td>変更を捨てる</td>
+<td><code>git restore &lt;ファイル&gt;</code></td>
+<td><strong>戻せない</strong>。捨ててよいと確認してから</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><code>.gitignore</code> に書いたファイルは追跡されない（<code>data/</code>、ローカルのvault、<code>.wrangler/</code> など）。</li>
+<li>コミットは<strong>意味のある単位</strong>で。「バグ修正」と「整形」を混ぜない。</li>
+<li><code>git push --force</code> や <code>git reset --hard</code> は、他の人の作業や自分の未保存の作業を消す。使う前に、必ず何が消えるかを確認する。</li>
+</ul>
+<h2 id="6-仕事の進め方の常識">6. 仕事の進め方の常識</h2>
+<ol>
+<li><strong>再現手順を作ってから直す。</strong> 「いつ・何をしたら・何が起きたか」を、他の人が同じにできる形で書く。直した後に、同じ手順で直ったことを確かめる。</li>
+<li><strong>ログを読む。</strong> 画面の文言の次に、ログ（<code>wrangler tail</code>、ブラウザのConsole）。</li>
+<li><strong>本番と開発を区別する。</strong> コマンドに <code>--remote</code> が付くか、URLが本番か、毎回確認する。</li>
+<li><strong>変更の前に、戻し方を決める。</strong> バックアップ、<code>git</code>、マイグレーションは追加のみ、など。</li>
+<li><strong>直す順番:</strong> 影響の大きいもの → 原因が分かるもの → 手間が小さいもの。</li>
+<li><strong>分からないことは、実験で確かめる。</strong> ただし、実験は、壊れても良い場所（ローカル・コピー）で。</li>
+</ol>
+<h2 id="7-費用と上限の常識">7. 費用と上限の常識</h2>
+<p>クラウドの多くは「無料枠」と「従量課金」でできている。<strong>上限に達したときのふるまい</strong>を、使う前に知っておく。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>サービス</th>
+<th>上限の例</th>
+<th>達すると</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cloudflare D1（無料枠）</td>
+<td>1日の読み取り行数（500万行）・書き込み行数</td>
+<td><strong>すべてのデータベースの呼び出しが失敗</strong>（本プロジェクトで2026-10-16に実際に発生し、全APIが500を返した）</td>
+</tr>
+<tr>
+<td>Cloudflare Workers（無料枠）</td>
+<td>1リクエストのCPU時間、外部呼び出し数、1日のリクエスト数</td>
+<td>そのリクエストが失敗（<code>Error 1102</code>など）</td>
+</tr>
+<tr>
+<td>Gemini / Claude API</td>
+<td>トークン数（入力＋出力）に応じた従量課金</td>
+<td>課金が増える。このプロジェクトは、APIキーごとの予算で、サーバー側が止める</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>上限は日・月で戻る。</strong> D1の無料枠は、UTC 0時（日本時間9時）に戻る。</li>
+<li><strong>「全部が壊れた」ときは、まず上限を疑う。</strong> コードの変更が無いのに、急に全部が失敗したときは、特に。</li>
+<li>数字は変わる。<strong>使う前に公式ページで最新を確認する</strong>（<a href="https://developers.cloudflare.com/d1/platform/limits/">D1の制限</a>）。</li>
+</ul>
+<h2 id="練習">練習</h2>
+<ol>
+<li>ブラウザの開発者ツールを開き、管理画面で何かの操作をして、Networkタブでリクエスト1つを選ぶ。メソッド・URL・ステータス・レスポンスの本文を、それぞれ書き出す。</li>
+<li><a href="../../cloudflare-rag-poc/src/http.ts"><code>src/http.ts</code></a> の <code>jsonResponse</code> が返すレスポンスの、ステータス・ヘッダ・本文を、言葉で説明する。</li>
+<li><code>git log --oneline -10</code> を実行し、コミットメッセージの書き方の規則を、1行で説明する。</li>
+<li>「APIキーを誤ってチャットに貼ってしまった」とき、§4の手順を、このプロジェクトの具体的な操作（管理画面のどのボタンか）に置き換えて書く。（<a href="../user-manual.html">user-manual.md</a>を参照）</li>
+<li>「Workersの<code>1102</code>エラー」と「D1の上限超過」は、どちらも画面では「500」に見える。どうやって区別するか、考える。</li>
+</ol>
+<p><strong>ヒント:</strong> 1は、Network → 対象を選ぶ → Headers／Response。2は、<code>content-type</code>ヘッダに注目。3は、<code>feat:</code> <code>fix:</code> <code>docs:</code> の有無。5は、エラーメッセージの文言（<a href="06-maintenance-runbook.html">06-maintenance-runbook.md</a>の障害記録）。</p>
+<h2 id="確認">確認</h2>
+<ul>
+<li><a href="README.html">README.md</a>の「常識」のチェック4項目に、答えられる。</li>
+</ul>
+</main>
+<div class="pager"><a href="README.html">← 前へ</a><a href="02-fundamentals.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>共通層・固有層の整理と、ライブラリ化・プラグイン化の設計案</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">設計案</span>
+  <h1>共通層・固有層の整理と、ライブラリ化・プラグイン化の設計案</h1>
+  <div class="meta">HTML生成: 2026-10-20（元: docs/architecture-layering-plan.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-結論先に要点">1. 結論（先に要点）</a></li><li><a href="#2-現状の測定結果">2. 現状の測定結果</a><ol><li><a href="#21-構成">2.1 構成</a></li><li><a href="#22-workerの依存関係実測">2.2 Workerの依存関係（実測）</a></li></ol></li><li><a href="#3-層のモデル">3. 層のモデル</a></li><li><a href="#4-workertypescriptの整理案">4. Worker（TypeScript）の整理案</a><ol><li><a href="#41-モジュールの振り分け">4.1 モジュールの振り分け</a></li><li><a href="#42-コネクタの契約プラグインの形">4.2 コネクタの契約（プラグインの形）</a></li><li><a href="#43-環境変数とマイグレーションの扱いプラグイン化の壁">4.3 環境変数とマイグレーションの扱い（プラグイン化の壁）</a></li><li><a href="#44-chatuits-の分解">4.4 chatUi.ts の分解</a></li></ol></li><li><a href="#5-houdinipythonの整理案">5. Houdini（Python）の整理案</a></li><li><a href="#6-共通の契約api仕様">6. 共通の契約（API仕様）</a></li><li><a href="#7-unityローカルraggas">7. Unity・ローカルRAG・GAS</a></li><li><a href="#8-進め方段階と終了条件">8. 進め方（段階と終了条件）</a></li><li><a href="#9-決めてほしいこと">9. 決めてほしいこと</a></li><li><a href="#10-リスク">10. リスク</a></li></ol></details></nav>
+<main>
+
+<p><strong>作成日:</strong> 2026-10-17<br />
+<strong>位置づけ:</strong> 設計・提案書。この文書ではコードを変更しない。実際に着手するのは、末尾「§9 決めてほしいこと」の回答を受けてから。<br />
+<strong>前提資料:</strong> <a href="distribution-strategy.md">distribution-strategy.md</a>（2026-08。配布方式の比較。Cloudflare版が無かった時点の調査）／<a href="cloudflare-rag-technical-report.html">cloudflare-rag-technical-report.md</a>／<a href="../README.md">README.md</a>（ディレクトリ構成）</p>
+<blockquote>
+<p>この文書の数値（モジュールの依存数・行数）は、2026-10-17時点の <code>cloudflare-rag-poc/src/</code> を実際に集計した値。推測ではない。</p>
+</blockquote>
+<hr />
+<h2 id="1-結論先に要点">1. 結論（先に要点）</h2>
+<ol>
+<li><strong>一番効くのは「共通のコード」より「共通の契約」を先に固めること。</strong> このプロジェクトは、サーバー（GAS／Cloudflare Worker／ローカルブリッジ）と、クライアント（Webチャット／Unity／Houdini／Slack）が、HTTP APIでつながっている。この<strong>APIの形（リクエスト・レスポンス・エラー）を仕様書にして版管理する</strong>のが、共通層の核になる。</li>
+<li><strong>Worker（<code>cloudflare-rag-poc</code>）は、既に層になっている。</strong> 循環した依存は無く、<code>types</code>→<code>http</code>→各機能、の一方向。分け方を決めるだけで、大きな書き換えは要らない。</li>
+<li><strong>プラグイン化に向くのは「外部サービスとの連携（コネクタ）」。</strong> Notion／Drive／Gmail／カレンダー／Jira／Backlog の6つが、ほぼ同じ手順（認可 → プレビュー → 取得 → チャンク化 → 登録 → 通知）を、各230〜460行で6回書いている。ここを1つの共通エンジンと小さなコネクタに分けるのが、最も費用対効果が高い。</li>
+<li><strong>固有層（Houdini／Unity／動画）は、「共通クライアント」と「固有ツール」に分ける。</strong> Houdiniなら、チャット・設定・グラフ表示は共通、ノード操作やスクリーンショットは固有。</li>
+<li><strong>大きな問題が1つある。</strong> <code>chatUi.ts</code>（6,335行、Worker全体の約37%）が、画面を1つの文字列で持っている。配布・保守のどちらでも最大の障害なので、層分けの前に分解する。</li>
+<li>DIコンテナや重いフレームワークは入れない。<a href="../README.md">README.md</a>の「アーキテクチャ判断」で既に見送っている。関数と登録表（レジストリ）で足りる。</li>
+</ol>
+<hr />
+<h2 id="2-現状の測定結果">2. 現状の測定結果</h2>
+<h3 id="21-構成">2.1 構成</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>場所</th>
+<th>中身</th>
+<th>行数・数</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cloudflare-rag-poc/src/</code></td>
+<td>Worker本体（TypeScript）61ファイル＋<code>mcp/</code>8ファイル</td>
+<td>約17,300行（<code>mcp/</code>を除く）</td>
+</tr>
+<tr>
+<td><code>cloudflare-rag-poc/migrations/</code></td>
+<td>D1のSQL（0001〜0030）</td>
+<td>30本</td>
+</tr>
+<tr>
+<td><code>houdini/python_panels/</code></td>
+<td>Houdiniのパネル（Python、PySide6）9ファイル</td>
+<td>約7,200行</td>
+</tr>
+<tr>
+<td><code>Assets/Editor/RAGChatbot/</code></td>
+<td>Unityエディタ拡張（C#）7ファイル</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>scripts/</code></td>
+<td>ローカルRAG（ChromaDB）、MCPサーバー、GAS、各種ユーティリティ</td>
+<td>35ファイル</td>
+</tr>
+<tr>
+<td><code>docs/</code>・<code>lecture/</code></td>
+<td>資料</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="22-workerの依存関係実測">2.2 Workerの依存関係（実測）</h3>
+<p>「何個のファイルから読まれているか」の上位:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: right;">読まれている数</th>
+<th>モジュール</th>
+<th>役割</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">63</td>
+<td><code>types</code></td>
+<td>型と環境変数（<code>Env</code>）の定義</td>
+</tr>
+<tr>
+<td style="text-align: right;">41</td>
+<td><code>http</code></td>
+<td>レスポンス生成の共通関数</td>
+</tr>
+<tr>
+<td style="text-align: right;">29</td>
+<td><code>auth</code></td>
+<td>認証・権限</td>
+</tr>
+<tr>
+<td style="text-align: right;">13</td>
+<td><code>syncTargets</code></td>
+<td>連携の許可リスト・同期先の認可</td>
+</tr>
+<tr>
+<td style="text-align: right;">13</td>
+<td><code>chunking</code></td>
+<td>文書のチャンク分割</td>
+</tr>
+<tr>
+<td style="text-align: right;">13</td>
+<td><code>kbIngest</code></td>
+<td>取り込み（埋め込み → D1・Vectorize）</td>
+</tr>
+<tr>
+<td style="text-align: right;">11</td>
+<td><code>embeddings</code></td>
+<td>埋め込み・生成のGemini呼び出し</td>
+</tr>
+<tr>
+<td style="text-align: right;">10</td>
+<td><code>oauthConnections</code></td>
+<td>OAuth接続の保存</td>
+</tr>
+</tbody>
+</table></div>
+<p>読まれていないのは <code>index</code>（ルーティングの入口）だけ。つまり<strong>循環が無く、下から上へ一方向</strong>に積み上がっている。</p>
+<p>気になる点（直すと層がきれいになる）:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>問題</th>
+<th>詳細</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>auth</code> が <code>embeddings</code> を読む</td>
+<td><code>sha256Hex</code>（ハッシュ関数）を使うためだけ。基盤の関数なので、<code>util</code>に移すべき</td>
+</tr>
+<tr>
+<td><code>types.ts</code> が全員の環境変数を持つ</td>
+<td>63ファイルが読む。連携ごとのsecret（Slack・Jira・Google…）も同居していて、プラグインを外せない</td>
+</tr>
+<tr>
+<td><code>index.ts</code> に122個のルートを手書き</td>
+<td>機能を足すたびに、入口を直接編集する</td>
+</tr>
+<tr>
+<td><code>chatUi.ts</code> が6,335行</td>
+<td>UIが1つの文字列。部品の再利用もテストもできない</td>
+</tr>
+<tr>
+<td>コネクタの骨格が6回複製</td>
+<td><code>*Sync.ts</code> が各230〜460行、<code>*OAuth.ts</code> が各170〜200行</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="3-層のモデル">3. 層のモデル</h2>
+<div class="mermaid">flowchart TB
+    subgraph clients[&quot;クライアント（固有層）&quot;]
+        web[&quot;Webチャット&lt;br/&gt;(chatUi)&quot;]
+        houdini[&quot;Houdiniパネル&lt;br/&gt;チュートリアル生成&quot;]
+        unity[&quot;Unityエディタ拡張&quot;]
+        slack[&quot;Slack /rag&quot;]
+    end
+    subgraph contract[&quot;共通の契約&quot;]
+        api[&quot;HTTP API仕様&lt;br/&gt;(OpenAPI) ＋ エラー形式 ＋ 版番号&quot;]
+    end
+    subgraph server[&quot;サーバー&quot;]
+        plugins[&quot;L2 プラグイン&lt;br/&gt;コネクタ / MCP / 通知&quot;]
+        core[&quot;L1 コア&lt;br/&gt;認証・検索・取り込み・予算・履歴&quot;]
+        base[&quot;L0 基盤&lt;br/&gt;型・http・チャンク分割・レート制限・監査&quot;]
+    end
+    subgraph infra[&quot;実行基盤&quot;]
+        cf[&quot;Cloudflare&lt;br/&gt;Workers / D1 / Vectorize&quot;]
+        local[&quot;ローカル&lt;br/&gt;ChromaDB&quot;]
+        gas[&quot;GAS&lt;br/&gt;（旧）&quot;]
+    end
+    clients --&gt; api --&gt; plugins --&gt; core --&gt; base --&gt; infra
+</div>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>層</th>
+<th>置くもの</th>
+<th>依存してよい先</th>
+<th>例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>契約</strong></td>
+<td>APIの仕様、エラー形式、版番号</td>
+<td>なし</td>
+<td><code>/query</code>, <code>/search</code>, <code>/ingest</code>, <code>/admin/*</code></td>
+</tr>
+<tr>
+<td><strong>L0 基盤</strong></td>
+<td>他のどの機能にも属さない部品</td>
+<td>なし</td>
+<td><code>types</code>, <code>http</code>, <code>chunking</code>, <code>rateLimit</code>, <code>auditLog</code>, <code>budget</code>, <code>chunkRows</code></td>
+</tr>
+<tr>
+<td><strong>L1 コア</strong></td>
+<td>このシステムの存在理由。外せない</td>
+<td>L0</td>
+<td><code>auth</code>, <code>embeddings</code>, <code>hybrid</code>/<code>retrieve</code>/<code>search</code>/<code>query</code>, <code>kbIngest</code>, <code>kbDocuments</code>, <code>memory</code>/<code>threads</code>/<code>presets</code>, <code>graph</code>, <code>syncTargets</code>, <code>oauthConnections</code></td>
+</tr>
+<tr>
+<td><strong>L2 プラグイン</strong></td>
+<td>無くても動く。足し引きできる</td>
+<td>L0・L1</td>
+<td>各コネクタ、<code>mcp/*</code>、<code>slackBot</code>、<code>urlImport</code>、<code>mediaImport</code></td>
+</tr>
+<tr>
+<td><strong>固有層</strong></td>
+<td>特定の用途・環境だけのもの</td>
+<td>契約（HTTP）だけ</td>
+<td>Houdiniのノード操作、Unityのウィンドウ、動画生成</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>守るルール（これだけ）:</strong><br />
+1. 依存は下向きだけ。L0はL1を、L1はL2を、読まない。<br />
+2. プラグインどうしは読み合わない。共通で使いたくなったら、L1に降ろす。<br />
+3. 固有層は、サーバーの内部（ファイル）ではなく、HTTP APIだけを使う。</p>
+<hr />
+<h2 id="4-workertypescriptの整理案">4. Worker（TypeScript）の整理案</h2>
+<h3 id="41-モジュールの振り分け">4.1 モジュールの振り分け</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>層</th>
+<th>ファイル</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L0 基盤</td>
+<td><code>types</code>（コア分のみ）, <code>http</code>, <code>chunking</code>, <code>rateLimit</code>, <code>auditLog</code>, <code>budget</code>, <code>chunkRows</code>, <code>geminiFile</code></td>
+</tr>
+<tr>
+<td>L1 コア</td>
+<td><code>auth</code>, <code>embeddings</code>, <code>hybrid</code>, <code>retrieve</code>, <code>search</code>, <code>query</code>, <code>claude</code>（Claude中継）, <code>kbIngest</code>, <code>kbDocuments</code>, <code>kbRollback</code>, <code>kbAdmin</code>, <code>keyAdmin</code>, <code>namespaceAdmin</code>, <code>memory</code>, <code>threads</code>, <code>presets</code>, <code>graph</code>, <code>insights</code>, <code>usageStats</code>, <code>backup</code>, <code>syncTargets</code>, <code>oauthConnections</code>, <code>myConnections</code>, <code>staging</code>, <code>healthCheck</code>, <code>alerts</code></td>
+</tr>
+<tr>
+<td>L2 コネクタ</td>
+<td><code>notion</code>/<code>notionSync</code>, <code>driveSync</code>＋<code>docExtract</code>＋<code>mediaTranscribe</code>, <code>gmailSync</code>＋<code>gmailOAuth</code>, <code>calendarSync</code>＋<code>calendarOAuth</code>, <code>jiraSync</code>＋<code>jiraOAuth</code>, <code>backlogSync</code>＋<code>backlogOAuth</code>, <code>googleOAuth</code>＋<code>googleAuth</code>, <code>mapsImport</code></td>
+</tr>
+<tr>
+<td>L2 取り込み系</td>
+<td><code>urlImport</code>＋<code>crawlSchedules</code>, <code>mediaImport</code>, <code>qaImport</code>, <code>faqAdd</code>, <code>ingest</code>（手動投入）</td>
+</tr>
+<tr>
+<td>L2 その他</td>
+<td><code>mcp/*</code>（公式MCPクライアント）, <code>slackBot</code>＋<code>slackOAuth</code>, <code>syncNotify</code></td>
+</tr>
+<tr>
+<td>固有（Houdini）</td>
+<td><code>tutorialFeedback</code>（チュートリアル評価の保存・集計）</td>
+</tr>
+<tr>
+<td>UI</td>
+<td><code>chatUi</code>（分解の対象）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="42-コネクタの契約プラグインの形">4.2 コネクタの契約（プラグインの形）</h3>
+<p>6つのコネクタが共通して行っていること:</p>
+<pre><code>認可（syncTargets）→ プレビュー → 取得（ページング）→ チャンク化 → 登録（kbIngest）→ 履歴・通知（syncNotify）
+                    └ 失敗分だけ再同期 / 自動同期（明示的にオンのときだけ）
+</code></pre>
+<p>これを、次の形に分ける。</p>
+<pre><code class="language-ts">// 案。名前・形は着手時に詰める
+interface Connector {
+  id: &quot;jira&quot; | &quot;backlog&quot; | &quot;gmail&quot; | ...;
+  label: string;                       // 画面に出す名前
+  auth: { kind: &quot;oauth&quot; | &quot;token&quot; | &quot;mcp&quot;; /* 接続の仕方 */ };
+  env: string[];                       // 必要な環境変数（無ければ画面で「未設定」）
+  sourceSchema: SourceField[];         // 同期元の設定項目（プロジェクトキー、検索式など）
+  list(cursor, ctx): Promise&lt;{ items: ItemRef[]; next: Cursor | null }&gt;;
+  fetch(item: ItemRef, ctx): Promise&lt;{ file: string; text: string }&gt;;   // 1件を文書にする
+  preview?(source, ctx): Promise&lt;PreviewRow[]&gt;;
+  autoSync?: { default: false; schedule: &quot;daily&quot; };
+}
+</code></pre>
+<p>共通エンジンが受け持つこと: 認可・許可リスト、バッチ分割と再開、プレビュー、失敗分の再同期、履歴（<code>kb_log</code>・<code>kb_ops</code>）、通知、自動同期のオプトイン、画面のフォーム生成。コネクタが受け持つこと: 「一覧の取り方」と「1件を文書にする」だけ。</p>
+<p><strong>期待できること:</strong> コネクタを足す作業が、数百行の複製から、約100行の定義に変わる（実測ではなく見込み。パイロットで確かめる）。許可リストやプレビューなどの安全策が、コネクタごとにバラつかなくなる。</p>
+<h3 id="43-環境変数とマイグレーションの扱いプラグイン化の壁">4.3 環境変数とマイグレーションの扱い（プラグイン化の壁）</h3>
+<ul>
+<li><strong>環境変数:</strong> <code>types.ts</code> の <code>Env</code> を、<code>CoreEnv</code>（D1・Vectorize・GEMINI_API_KEY など）と、各プラグインの <code>env</code>（<code>SLACK_SIGNING_SECRET</code> など）に分ける。プラグインが読む値は、そのプラグインの宣言に書く。</li>
+<li><strong>マイグレーション:</strong> D1は1本の連番ディレクトリ。プラグインごとに表を持つなら、<strong>表名に接頭辞</strong>（例 <code>slack_*</code>）を付け、ファイルは本体のディレクトリに残す方式が最も単純。プラグインの有無でマイグレーションを変える運用は、復元が難しくなるので避ける（未使用の空の表が残るだけで害は無い）。</li>
+<li><strong>ルート登録:</strong> <code>index.ts</code> の手書きのcaseを、<code>{ path, handler, minRole }</code> の登録表に変え、各プラグインが自分のルートを登録する。権限（<code>minRole</code>）を表に書くことで、認可の付け忘れも防げる。</li>
+</ul>
+<h3 id="44-chatuits-の分解">4.4 <code>chatUi.ts</code> の分解</h3>
+<p>6,335行のテンプレート文字列は、最優先で解く。順序の案:</p>
+<ol>
+<li>画面を静的ファイル（HTML・CSS・JS）にする。WorkersのStatic Assetsで配信できる。</li>
+<li>JSを機能ごとのファイルに分ける（チャット／履歴／管理／ナレッジ登録／連携／グラフ）。</li>
+<li>連携の画面を、コネクタの <code>sourceSchema</code> から生成する（§4.2）。</li>
+</ol>
+<p>これで、①UIのテスト、②部品の再利用、③「テンプレートリテラル内でバックスラッシュが使えない」などの制約の解消、が同時に得られる。</p>
+<hr />
+<h2 id="5-houdinipythonの整理案">5. Houdini（Python）の整理案</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>共通（どの用途でも使う）</th>
+<th>固有（チュートリアル生成のためのもの）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rag_chatbot.py</code>（チャット・設定のパネル）</td>
+<td><code>tutorial_agent.py</code>（生成のオーケストレーター）</td>
+</tr>
+<tr>
+<td><code>graph_view.py</code>（グラフ表示）</td>
+<td><code>houdini_tools.py</code>（<code>hou</code> を操作するツール群）</td>
+</tr>
+<tr>
+<td><code>token_usage.py</code>（残高の表示）</td>
+<td><code>tutorial_view.py</code>（Tutorial/Historyタブ）</td>
+</tr>
+<tr>
+<td>設定の読み書き（<code>~/.houdini/…json</code>）</td>
+<td><code>screen_capture.py</code>、<code>tutorial_graph_simplify.py</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>video_factory_bridge.py</code>（動画生成の起動）</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>配布の形:</strong> <a href="distribution-strategy.md#5-houdini21チュートリアル生成の配布">distribution-strategy.md §5</a> の推奨どおり、**Houdiniパッケージ（<code>.json</code>）**にする。さらに2つのパッケージに分ける案:</li>
+<li><code>devragenv-core</code>: 共通クライアント（チャット・設定・グラフ）</li>
+<li><code>devragenv-tutorial</code>: 固有（チュートリアル生成・動画）。<code>core</code> に依存</li>
+<li><strong>共通クライアント:</strong> サーバーとのやりとり（認証・<code>/query</code>・<code>/search</code>・エラー処理）を1つのPythonモジュールに集める。Unity（C#）にも同じ役割のクラスがあるので、<strong>仕様（§6）を共有</strong>して、2言語で同じふるまいにする。</li>
+<li><strong>ツール定義の共有:</strong> <code>HOUDINI_TOOLS</code>（ツールの名前・引数・説明）は、他のエージェントからも使える形（JSON Schema）で外に出せる。これはMCPサーバー化したい場合の土台にもなる（今は不要）。</li>
+</ul>
+<h2 id="6-共通の契約api仕様">6. 共通の契約（API仕様）</h2>
+<ul>
+<li>今の<code>/query</code>・<code>/search</code>・<code>/ingest</code>・<code>/graph</code>・<code>/admin/*</code>など約120のルートの、<strong>リクエスト・レスポンス・エラー</strong>を、1つの仕様書（OpenAPI）にまとめる。</li>
+<li>エラーの形を統一する（今は <code>{ "error": "文字列" }</code>）。クライアントが機械的に判断できるよう、<code>code</code>（例 <code>BUDGET_EXCEEDED</code>）を足す案。</li>
+<li><strong>版番号</strong>を付ける（例 <code>GET /health</code> が <code>apiVersion</code> を返す）。クライアントは対応外の版なら案内を出せる。</li>
+<li>仕様が3つの実装（GAS・Worker・ローカルブリッジ）の「どれが何を満たすか」の対応表にもなる（<a href="gas-feature-parity.md">gas-feature-parity.md</a>の発展）。</li>
+<li>Unity・Houdiniのクライアントは、この仕様から作る（または仕様に対するテストで確認する）。</li>
+</ul>
+<h2 id="7-unityローカルraggas">7. Unity・ローカルRAG・GAS</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>対象</th>
+<th>方針</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unity</td>
+<td><code>IRAGClient</code>（Cloud/Local）で既に抽象化済み。UPM（Unity Package Manager）のパッケージにして、Git URLで入れられる形にする。</td>
+</tr>
+<tr>
+<td>ローカルRAG（<code>scripts/</code>）</td>
+<td><code>pyproject.toml</code> に <code>[project.scripts]</code> を足して、コマンド（例 <code>devragenv-bridge</code>）として公開する（<a href="distribution-strategy.md#24-推奨方式と実装ステップ概要">distribution-strategy.md §2.4</a>）。ローカルのブリッジは、契約（§6）の <code>/search</code>・<code>/query</code> を満たす実装として位置づける。</td>
+</tr>
+<tr>
+<td>GAS</td>
+<td>保守のみ。新機能は入れない（Worker側が上位互換）。契約のうち満たしている範囲を、対応表に残す。</td>
+</tr>
+<tr>
+<td>動画生成（LearningQt）</td>
+<td>別リポジトリ。ffmpeg/x264のライセンス判断が先（<a href="distribution-strategy.md#42-ライセンス上の重大な確認事項配布方式より先に解決すべき">distribution-strategy.md §4.2</a>）。</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="8-進め方段階と終了条件">8. 進め方（段階と終了条件）</h2>
+<p>各段階は、<strong>既存のテストと本番の挙動を変えずに</strong>終えられる大きさにしてある。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>段階</th>
+<th>やること</th>
+<th>終了条件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>0. 下準備</strong>（挙動は変えない）</td>
+<td><code>sha256Hex</code>を<code>util</code>へ。<code>Env</code>をコアと連携別に分割。ルート登録表の導入（既存caseを機械的に移す）。依存の方向を検査するスクリプトの追加</td>
+<td>型チェックと既存テストが通る。検査スクリプトが、下から上への依存を0件と報告する</td>
+</tr>
+<tr>
+<td><strong>1. 契約</strong></td>
+<td>OpenAPI仕様の作成。エラー形式（<code>code</code>）の追加（後方互換）。<code>apiVersion</code>の追加</td>
+<td>仕様に対する疎通テストが通る。Unity・Houdiniの既存クライアントが無改造で動く</td>
+</tr>
+<tr>
+<td><strong>2. コネクタの共通化（パイロット1本）</strong></td>
+<td><code>Connector</code>インターフェースと共通エンジンを作り、<strong>Backlog</strong>（API形式が素直）を移行</td>
+<td>旧実装と新実装で、同期結果（登録件数・内容）が一致する。残り5本の移行手順書ができる</td>
+</tr>
+<tr>
+<td><strong>3. コネクタの全面移行</strong></td>
+<td>残りの連携を移行。連携画面を<code>sourceSchema</code>から生成</td>
+<td>旧<code>*Sync.ts</code>を削除。コネクタ追加の手順が「定義を1ファイル書く」になる</td>
+</tr>
+<tr>
+<td><strong>4. UIの分解</strong></td>
+<td><code>chatUi.ts</code>を静的ファイル化・機能別に分割</td>
+<td>見た目と操作が変わらない（画面の確認＋ブラウザテスト）</td>
+</tr>
+<tr>
+<td><strong>5. パッケージ化</strong></td>
+<td>npm workspaces（<code>core</code>／<code>connectors</code>／<code>ui</code>／<code>app</code>）、Houdiniパッケージ2種、Unity UPM、<code>uv</code>のコマンド化</td>
+<td>手順書どおりに、他の環境へ入れて動く（配布テスト）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>先にやらない方がよいこと:</strong> 5（パッケージ化）を最初にやること。層と契約が決まる前に箱を分けると、境界が間違っていたときに、分け直しのコストが大きい。</p>
+<h2 id="9-決めてほしいこと">9. 決めてほしいこと</h2>
+<ol>
+<li><strong>配布の相手</strong>は誰か。（A）自分の別プロジェクト・チーム内、（B）社外の技術者、（C）非技術者。Aなら段階0〜3で十分に価値がある。BとCは、5（パッケージ化）とインストール手順の整備が必要。</li>
+<li><strong>段階2のパイロット</strong>は、Backlogでよいか。（Jiraの方が使用頻度が高いなら、Jiraでもよい。）</li>
+<li><strong>OpenAPI仕様</strong>は、手で書くか、既存のコードから起こすか。（この規模なら、重要な20ルートを先に書き、残りを段階的に足すのが現実的。）</li>
+<li><strong>GAS版</strong>は、保守のみにする（新機能を入れない）でよいか。</li>
+<li><strong>Cloud Run等の併用</strong>は、今は見送ってよいか（比較は<a href="cloudflare-vs-firebase-comparison.html">cloudflare-vs-firebase-comparison.md §7</a>。結論は「Workerが入口のまま、重い処理だけを、任意のプラグインとして足す」）。</li>
+</ol>
+<h2 id="10-リスク">10. リスク</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>リスク</th>
+<th>対策</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>抽象化しすぎて、読みにくくなる</td>
+<td>インターフェースは1つ（<code>Connector</code>）。DIコンテナは入れない。最初は実装1本で確かめる</td>
+</tr>
+<tr>
+<td>層の境界が間違っていた</td>
+<td>段階2のパイロットで確かめてから、全面移行（段階3）へ進む</td>
+</tr>
+<tr>
+<td>移行中に本番が壊れる</td>
+<td>段階ごとに、旧実装と新実装の出力を比較するテストを作る。マイグレーションは追加のみ</td>
+</tr>
+<tr>
+<td>D1の読み取り枠（無料）を使い切る</td>
+<td>2026-10-16に実際に発生。開発中のテストでも、リモートのD1を直接読まない。対応表<code>chunk_rows</code>（migrations/0030）を維持する</td>
+</tr>
+<tr>
+<td>1人で抱え込む</td>
+<td><a href="learning/README.html">docs/learning/</a>の資料で、AI無しでも保守・拡張できる土台を作る</td>
+</tr>
+</tbody>
+</table></div>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+</body>
+</html>

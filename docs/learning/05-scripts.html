@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>05. Script編</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-common-knowledge.html">01</a><a href="02-fundamentals.html">02</a><a href="03-specialized.html">03</a><a href="04-applied.html">04</a><a class="current" href="05-scripts.html">05</a><a href="06-maintenance-runbook.html">06</a></nav>
+<header class="hero">
+  <span class="badge">座学資料</span>
+  <h1>05. Script編</h1>
+  <div class="meta">HTML生成: 2026-10-20（元: docs/learning/05-scripts.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-シェルの基本powershellとbash">1. シェルの基本（PowerShellとBash）</a></li><li><a href="#2-安全なスクリプトを書く原則">2. 安全なスクリプトを書く原則</a></li><li><a href="#3-wranglerコマンド集cloudflare">3. wranglerコマンド集（Cloudflare）</a></li><li><a href="#4-プロジェクトのscriptsの地図">4. プロジェクトのscripts/の地図</a></li><li><a href="#5-pythonのスクリプトを書く型">5. Pythonのスクリプトを書く型</a></li><li><a href="#6-読み取り専用の点検スクリプトの例">6. 読み取り専用の「点検スクリプト」の例</a></li><li><a href="#練習">練習</a></li><li><a href="#確認">確認</a></li></ol></details></nav>
+<main>
+
+<p><strong>更新日:</strong> 2026-10-17　<strong>目安:</strong> 2〜3日　<strong>前提:</strong> <a href="01-common-knowledge.html">01. 常識編</a>、<a href="02-fundamentals.html">02. 基礎編</a><br />
+<strong>ゴール:</strong> コマンド・スクリプトを<strong>読んで意味が分かり、安全に書ける</strong>。プロジェクトの<code>scripts/</code>と<code>wrangler</code>を使いこなせる。</p>
+<hr />
+<h2 id="1-シェルの基本powershellとbash">1. シェルの基本（PowerShellとBash）</h2>
+<p>このプロジェクトでは、<strong>Windows 11のPowerShellが主</strong>。Git Bashなど、Bash（POSIX）系も使える。<strong>書き方が違う</strong>ので、まず違いを知る。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>PowerShell</th>
+<th>Bash</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>変数</td>
+<td><code>$name = "x"</code></td>
+<td><code>name="x"</code>（<code>=</code>の前後に空白を入れない）</td>
+</tr>
+<tr>
+<td>環境変数（設定）</td>
+<td><code>$env:ANTHROPIC_API_KEY = "…"</code></td>
+<td><code>export ANTHROPIC_API_KEY="…"</code></td>
+</tr>
+<tr>
+<td>環境変数（読む）</td>
+<td><code>$env:NAME</code></td>
+<td><code>$NAME</code></td>
+</tr>
+<tr>
+<td>パスの区切り</td>
+<td><code>C:\Users\x</code>（<code>/</code>も通る）</td>
+<td><code>/c/Users/x</code>（Git Bashの場合）</td>
+</tr>
+<tr>
+<td>続きの行</td>
+<td>行末に<code>`</code>（バッククォート）</td>
+<td>行末に<code>\</code></td>
+</tr>
+<tr>
+<td>出力のつなぎ</td>
+<td><code>cmd1 \| cmd2</code>（オブジェクトを渡す）</td>
+<td><code>cmd1 \| cmd2</code>（テキストを渡す）</td>
+</tr>
+<tr>
+<td>文字列の引用</td>
+<td><code>'…'</code>は、そのまま／<code>"…"</code>は、<code>$var</code>を展開</td>
+<td>同じ</td>
+</tr>
+<tr>
+<td>条件・繰り返し</td>
+<td><code>if (…) { }</code>、<code>foreach ($x in $xs) { }</code></td>
+<td><code>if […]; then … fi</code>、<code>for x in …; do … done</code></td>
+</tr>
+<tr>
+<td>コマンドの結果コード</td>
+<td><code>$LASTEXITCODE</code></td>
+<td><code>$?</code></td>
+</tr>
+<tr>
+<td>ヒアドキュメント（複数行）</td>
+<td><code>@' … '@</code></td>
+<td><code>&lt;&lt;'EOF' … EOF</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ハマりどころ</strong><br />
+- <strong>バックスラッシュとクォート:</strong> 複数行の文字列やパスの中の<code>\</code>は、シェルによって解釈が変わる。<strong>複雑な文字列は、ファイルに書いてから使う</strong>方が確実。<br />
+- <strong>スペースを含むパス</strong>は、必ず<code>"…"</code>で囲む（<code>C:\Users\my name\</code>）。<br />
+- <strong>PowerShellのスクリプト実行は、既定で制限されている</strong>ことがある（実行ポリシー）。<code>.ps1</code>が動かないときは、これを疑う。<br />
+- <strong>日本語の出力が文字化け</strong>するときは、コンソールの文字コードの問題（ファイルは、UTF-8のままで正しいことが多い）。</p>
+<h2 id="2-安全なスクリプトを書く原則">2. 安全なスクリプトを書く原則</h2>
+<ol>
+<li><strong>読むだけのモードを先に作る</strong>（<code>--dry-run</code>）。何をするかを表示して、実行しない。</li>
+<li><strong>危険な操作の前に、確認する。</strong> 本番を変更する・消す操作は、自動で「はい」にしない。</li>
+<li><strong>冪等にする。</strong> 二度実行しても、壊れない（既にあれば何もしない）。</li>
+<li><strong>秘密を、引数・ログ・ファイルに出さない。</strong> 環境変数から読み、表示するときは、先頭数文字だけ。</li>
+<li><strong>対象を、明示的に指定させる。</strong> 本番／ローカル（<code>--remote</code>の有無）、namespace、ユーザー。省略時に「全部」にしない。</li>
+<li><strong>失敗したら、止まる。</strong> 途中の失敗を無視して、続けない。（Bashは<code>set -e</code>、PowerShellは<code>$ErrorActionPreference = "Stop"</code>）</li>
+<li><strong>何をしたか、ログを残す。</strong> 後から、確認できるように。</li>
+<li><strong>変更の前に、戻す方法を用意する。</strong> バックアップ、<code>git</code>。</li>
+<li><strong>使い捨てのスクリプトでも、消す・上書きする前に、対象を確認する。</strong>（<code>ls</code>で中身を見てから<code>rm</code>）</li>
+</ol>
+<blockquote>
+<p><strong>やってはいけない例:</strong> <code>echo y | wrangler d1 migrations apply … --remote</code>。確認プロンプトに自動で「はい」を答えてしまい、<strong>何が適用されるかを見ずに、本番を変更する</strong>。<strong>一覧を見て（<code>migrations list</code>）、確認プロンプトには人が答える。</strong></p>
+</blockquote>
+<h2 id="3-wranglerコマンド集cloudflare">3. <code>wrangler</code>コマンド集（Cloudflare）</h2>
+<p><strong><code>cloudflare-rag-poc/</code>の中で実行する。</strong> <code>npx wrangler …</code>（npmで入れた版を使う）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>やりたいこと</th>
+<th>コマンド</th>
+<th>本番に影響</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ログイン確認</td>
+<td><code>npx wrangler whoami</code></td>
+<td>なし</td>
+</tr>
+<tr>
+<td>ローカルで起動</td>
+<td><code>npm run dev</code></td>
+<td>なし</td>
+</tr>
+<tr>
+<td>型チェック</td>
+<td><code>npm run typecheck</code></td>
+<td>なし</td>
+</tr>
+<tr>
+<td>未適用のマイグレーションを見る</td>
+<td><code>npx wrangler d1 migrations list rag-poc-db --remote</code></td>
+<td>なし（読むだけ）</td>
+</tr>
+<tr>
+<td>ローカルDBにマイグレーション</td>
+<td><code>npm run db:migrate:local</code></td>
+<td>なし</td>
+</tr>
+<tr>
+<td><strong>本番にマイグレーション</strong></td>
+<td><code>npm run db:migrate:remote</code></td>
+<td><strong>あり</strong>（確認プロンプトに自分で答える）</td>
+</tr>
+<tr>
+<td><strong>本番にデプロイ</strong></td>
+<td><code>npm run deploy</code></td>
+<td><strong>あり</strong></td>
+</tr>
+<tr>
+<td>直前の版に戻す</td>
+<td><code>npx wrangler rollback</code></td>
+<td><strong>あり</strong></td>
+</tr>
+<tr>
+<td>本番DBを読む</td>
+<td><code>npx wrangler d1 execute rag-poc-db --remote --command "SELECT …"</code></td>
+<td>なし（読むだけ。<strong>書き込みのSQLなら、あり</strong>）</td>
+</tr>
+<tr>
+<td>ローカルDBを読む</td>
+<td><code>npx wrangler d1 execute rag-poc-db --command "SELECT …"</code></td>
+<td>なし</td>
+</tr>
+<tr>
+<td>JSONで結果を得る</td>
+<td>上に<code>--json</code>を足す</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>DBの負荷を調べる</strong>（どのSQLが何行読んだか）</td>
+<td><code>npx wrangler d1 insights rag-poc-db --timePeriod 1d</code></td>
+<td>なし</td>
+</tr>
+<tr>
+<td>ログをリアルタイムで見る</td>
+<td><code>npx wrangler tail</code></td>
+<td>なし</td>
+</tr>
+<tr>
+<td>秘密の一覧（名前のみ）</td>
+<td><code>npx wrangler secret list</code></td>
+<td>なし</td>
+</tr>
+<tr>
+<td>秘密を登録・更新</td>
+<td><code>npx wrangler secret put NAME</code></td>
+<td><strong>あり</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>鉄則</strong><br />
+- <strong><code>--remote</code>の有無を、毎回確認する。</strong> 付ければ本番、付けなければローカルの空DB。（「データが無い」と勘違いする事故の原因）<br />
+- <strong>「読むだけ」と書いたコマンドでも、<code>d1 execute</code>に<code>INSERT</code>/<code>UPDATE</code>/<code>DELETE</code>を渡せば、書き込む。</strong> SQLの中身を、実行前に読む。<br />
+- <strong>読み取りも、D1の枠を使う。</strong> 大きな表に<code>SELECT *</code>（全件）は、しない。<code>LIMIT</code>と<code>WHERE</code>、<code>COUNT(*)</code>を使う。</p>
+<h2 id="4-プロジェクトのscriptsの地図">4. プロジェクトの<code>scripts/</code>の地図</h2>
+<p>実行は、リポジトリのルートから<code>uv run python scripts/&lt;名前&gt;.py</code>。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>目的</th>
+<th>スクリプト</th>
+<th>補足</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ローカルRAGの検索・索引</strong></td>
+<td><code>rag_cli.py</code>（<code>index</code>/<code>clear</code>/<code>count</code>）、<code>auto_index.py</code>（ファイル監視で自動索引）</td>
+<td>まず<code>rag_cli.py index</code></td>
+</tr>
+<tr>
+<td><strong>UnityやHoudiniとつなぐ</strong></td>
+<td><code>rag_local_bridge.py</code>（<code>localhost:8766</code>のHTTPブリッジ）</td>
+<td><code>ANTHROPIC_API_KEY</code>が必要</td>
+</tr>
+<tr>
+<td><strong>ローカルRAGの中身</strong></td>
+<td><code>rag_service.py</code>（統合層）、<code>vector_database.py</code>（ChromaDB＋BM25）、<code>embedding_generator.py</code>、<code>document_processor.py</code>、<code>document_pipeline.py</code></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>グラフ表示用のデータ</strong></td>
+<td><code>rag_graph_export.py</code></td>
+<td><code>graph_data.json</code>を作る</td>
+</tr>
+<tr>
+<td><strong>認証・権限</strong></td>
+<td><code>auth_manager.py</code>（初回管理者の作成など）、<code>pep.py</code>（namespaceのアクセス制御）、<code>knowledge_manager.py</code></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>監査・点検</strong></td>
+<td><code>audit_logger.py</code>、<code>audit_report.py</code>、<code>ci_check_namespaces.py</code>（CIが実行）</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>MCPサーバー（ローカルRAG）</strong></td>
+<td><code>rag_mcp_server.py</code>、<code>mcp_server.py</code>、<code>rag_mcp_tools.py</code></td>
+<td>Claude Desktopへの登録用</td>
+</tr>
+<tr>
+<td><strong>Notion連携</strong></td>
+<td><code>notion_bulk_add.py</code>（YAMLから一括投入）、<code>notion_to_corpus.py</code>、<code>localrag_to_notion.py</code></td>
+<td><strong><code>--dry-run</code>で確認してから</strong></td>
+</tr>
+<tr>
+<td><strong>Houdiniドキュメント</strong></td>
+<td><code>sync_houdini21_db.py</code>、<code>extract_zip.py</code>、<code>delete_non_txt.py</code></td>
+<td><code>delete_non_txt.py</code>は<strong>削除する</strong>。対象を必ず確認</td>
+</tr>
+<tr>
+<td><strong>取り込み補助</strong></td>
+<td><code>youtube_transcribe.py</code>、<code>rss_to_rag.py</code></td>
+<td>外部コマンド（<code>ffmpeg</code>など）が必要なものがある</td>
+</tr>
+<tr>
+<td><strong>保守</strong></td>
+<td><code>backup_data.py</code>、<code>check_gemini_api.py</code>（APIの疎通確認）</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>資料の生成</strong></td>
+<td><code>build_system_guide.py</code>、<code>guide_svg.py</code></td>
+<td><code>docs/system-guide.html</code>などを作る</td>
+</tr>
+<tr>
+<td><strong>GAS（旧クラウド）</strong></td>
+<td><code>gas_cloud_rag.js</code></td>
+<td>Apps Scriptに貼る。新機能は、Worker側</td>
+</tr>
+</tbody>
+</table></div>
+<p>使う前に、<strong>そのファイルの冒頭と<code>--help</code>を読む</strong>。引数があるものは、たいてい、<code>--help</code>で一覧が出る。</p>
+<h2 id="5-pythonのスクリプトを書く型">5. Pythonのスクリプトを書く型</h2>
+<pre><code class="language-python">#!/usr/bin/env python3
+&quot;&quot;&quot;何をするスクリプトか、1〜3行で。&quot;&quot;&quot;
+from __future__ import annotations
+
+import argparse
+import sys
+
+
+def main(argv: list[str] | None = None) -&gt; int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(&quot;target&quot;, help=&quot;対象（省略不可。「全部」を既定にしない）&quot;)
+    parser.add_argument(&quot;--dry-run&quot;, action=&quot;store_true&quot;, help=&quot;実行せず、内容だけ表示&quot;)
+    args = parser.parse_args(argv)
+
+    items = find_items(args.target)          # まず、対象を集める
+    print(f&quot;対象: {len(items)}件&quot;)
+    for it in items[:5]:
+        print(&quot; -&quot;, it)                       # 何をするか、見せる
+    if args.dry_run:
+        print(&quot;（dry-run: ここまで）&quot;)
+        return 0
+
+    if input(&quot;実行しますか？ [y/N] &quot;).strip().lower() != &quot;y&quot;:   # 確認する
+        print(&quot;中止しました&quot;)
+        return 1
+    for it in items:
+        do_one(it)                            # 1件ずつ。失敗は、止める
+    return 0
+
+
+if __name__ == &quot;__main__&quot;:
+    sys.exit(main())
+</code></pre>
+<ul>
+<li>外部のコマンドを呼ぶときは、<code>subprocess.run([...], check=True)</code>。<strong>文字列を<code>shell=True</code>で渡さない</strong>（引数に、不正な文字が混ざると、別の命令が実行される）。</li>
+<li>秘密は<code>os.environ["NAME"]</code>から。<strong>見つからなければ、分かる文で止まる。</strong></li>
+<li>読み書きするファイルは、<code>pathlib.Path</code>で。<strong>消す前に、対象のパスを表示する。</strong></li>
+</ul>
+<h2 id="6-読み取り専用の点検スクリプトの例">6. 読み取り専用の「点検スクリプト」の例</h2>
+<p><strong>本番を書き換えずに、状態を確かめる</strong>（PowerShell）。</p>
+<pre><code class="language-powershell"># 本番のD1の状態を、読むだけで確認する（書き込みのSQLは入れない）
+Set-Location &quot;$HOME\Desktop\GameDevelopment\DevelopmentRAGEnvironment\cloudflare-rag-poc&quot;
+$ErrorActionPreference = &quot;Stop&quot;
+
+Write-Host &quot;== 未適用のマイグレーション ==&quot;
+npx wrangler d1 migrations list rag-poc-db --remote
+
+Write-Host &quot;== namespaceごとの文書数 ==&quot;
+npx wrangler d1 execute rag-poc-db --remote --command `
+  &quot;SELECT namespace, COUNT(*) AS docs FROM kb_documents GROUP BY namespace ORDER BY docs DESC&quot;
+
+Write-Host &quot;== 直近1日のエラー件数 ==&quot;
+npx wrangler d1 execute rag-poc-db --remote --command `
+  &quot;SELECT COUNT(*) AS errors FROM kb_log WHERE status = 'error' AND created_at &gt;= strftime('%s','now') - 86400&quot;
+</code></pre>
+<ul>
+<li><code>kb_documents</code>と<code>kb_log</code>は索引があるので、読み取り行数が小さい。<strong><code>chunks_fts</code>を、直接<code>COUNT</code>しない</strong>（全件を読む）。</li>
+<li>結果をJSONで処理するなら、<code>--json</code>を付けて、<code>ConvertFrom-Json</code>で受ける。</li>
+</ul>
+<h2 id="練習">練習</h2>
+<ol>
+<li><code>rag_cli.py</code>を<code>--help</code>付きで実行（<code>uv run python scripts/rag_cli.py --help</code>）し、サブコマンドを書き出す。</li>
+<li>上の§6の点検スクリプトを、ファイルに保存して実行する。<strong>どのコマンドが、D1の何行を読むか</strong>を、<code>EXPLAIN QUERY PLAN</code>で確かめる。</li>
+<li>§5の型で、「<code>localRAG/</code>の中の<code>.md</code>ファイルの数を、ディレクトリ別に表示する」スクリプトを書く（書き込みは、しない）。</li>
+<li>「確認なしで本番を変更するコマンド」の例を、このプロジェクトで3つ挙げ、それぞれ、どう安全にするか書く。</li>
+<li>PowerShellとBashで、「環境変数<code>X</code>が設定されていなければ、メッセージを出して終了する」を、それぞれ書く。</li>
+</ol>
+<p><strong>ヒント:</strong> 5は、PowerShellは<code>if (-not $env:X) { Write-Error "…"; exit 1 }</code>、Bashは<code>: "${X:?メッセージ}"</code>が使える。</p>
+<h2 id="確認">確認</h2>
+<ul>
+<li><a href="README.html">README.md</a>の「Script」のチェック2項目に答えられる。</li>
+<li>自分で書いたスクリプトに、§2の原則のうち、<strong>少なくとも3つ</strong>が入っている。</li>
+</ul>
+</main>
+<div class="pager"><a href="04-applied.html">← 前へ</a><a href="06-maintenance-runbook.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

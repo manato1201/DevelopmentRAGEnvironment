@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>06. 保守ランブック</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-common-knowledge.html">01</a><a href="02-fundamentals.html">02</a><a href="03-specialized.html">03</a><a href="04-applied.html">04</a><a href="05-scripts.html">05</a><a class="current" href="06-maintenance-runbook.html">06</a></nav>
+<header class="hero">
+  <span class="badge">座学資料</span>
+  <h1>06. 保守ランブック</h1>
+  <div class="meta">HTML生成: 2026-10-20（元: docs/learning/06-maintenance-runbook.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-定期点検">1. 定期点検</a><ol><li><a href="#毎日1分画面で">毎日（1分。画面で）</a></li><li><a href="#毎週10分">毎週（10分）</a></li><li><a href="#毎月30分">毎月（30分）</a></li></ol></li><li><a href="#2-症状別の切り分け">2. 症状別の切り分け</a></li><li><a href="#3-障害記録">3. 障害記録</a><ol><li><a href="#a-2026-10-16-d1の読み取り枠を使い切り全apiが500">A. 2026-10-16 D1の読み取り枠を使い切り、全APIが500</a></li><li><a href="#b-2026-08-29-グラフ表示がd1の日次枠の9割を消費">B. 2026-08-29 グラフ表示がD1の日次枠の9割を消費</a></li><li><a href="#c-検索が常に0件メタデータインデックスの作り忘れ">C. 検索が常に0件（メタデータインデックスの作り忘れ）</a></li><li><a href="#d-2026-09-04-検索語の記号でfts5が構文エラー">D. 2026-09-04 検索語の記号でFTS5が構文エラー</a></li><li><a href="#e-同期中のunexpected-token-error-1102">E. 同期中のUnexpected token &#x27;&amp;lt;&#x27;／Error 1102</a></li><li><a href="#f-サービスアカウントのキーが作れないgcpの組織ポリシー">F. サービスアカウントのキーが作れない（GCPの組織ポリシー）</a></li><li><a href="#g-2026-10-17-再クロールが503で止まるページの9割がサイドバーの目次">G. 2026-10-17 再クロールが503で止まる（ページの9割がサイドバーの目次）</a></li><li><a href="#h-2026-10-19-動画の音声が良くならない導入済みのvoicevoxが黙って使われていなかった">H. 2026-10-19 動画の音声が良くならない（導入済みのVOICEVOXが、黙って使われていなかった）</a></li><li><a href="#i-2026-10-19-動画エンジンが起動直後のvoicevoxへの確認でクラッシュ終了コード139">I. 2026-10-19 動画エンジンが、起動直後のVOICEVOXへの確認でクラッシュ（終了コード139）</a></li></ol></li><li><a href="#4-やってはいけないこと">4. やってはいけないこと</a></li><li><a href="#5-復旧の基本手順全部が止まったとき">5. 復旧の基本手順（「全部が止まった」とき）</a></li><li><a href="#6-バックアップと復旧">6. バックアップと復旧</a></li><li><a href="#7-連絡エスカレーション">7. 連絡・エスカレーション</a></li></ol></details></nav>
+<main>
+
+<p><strong>更新日:</strong> 2026-10-17　<strong>使い方:</strong> 通読する資料ではなく、<strong>困ったときに引く資料</strong>。<br />
+<strong>前提:</strong> <a href="05-scripts.html">05. Script編</a>の<code>wrangler</code>の節。コマンドは、すべて<code>cloudflare-rag-poc/</code>で実行。</p>
+<hr />
+<h2 id="1-定期点検">1. 定期点検</h2>
+<h3 id="毎日1分画面で">毎日（1分。画面で）</h3>
+<ul>
+<li>[ ] 管理 → Overview：エラー数・予算の残りが、異常でないか</li>
+<li>[ ] 管理 → ナレッジ登録 →「同期履歴」：状態が<code>error</code>のものが増えていないか（日次の自動同期は、日本時間13時台に動く）</li>
+</ul>
+<h3 id="毎週10分">毎週（10分）</h3>
+<ul>
+<li>[ ] 管理 → 利用状況・コスト：Gemini・Claudeの推定コストが、想定内か</li>
+<li>[ ] 管理 → 利用状況・コスト：「答えられなかった質問」を見て、足りない資料を登録する</li>
+<li>[ ] 連携の「接続状態」：期限切れ（要再認証）が出ていないか</li>
+<li>[ ] <code>npx wrangler d1 insights rag-poc-db --timePeriod 7d</code>：<strong>読み取り行数が突出したSQLが無いか</strong>（<a href="#3-障害記録">§3の障害記録</a>）</li>
+</ul>
+<h3 id="毎月30分">毎月（30分）</h3>
+<ul>
+<li>[ ] 管理 → システム →「設定バックアップ」をエクスポートし、保管する</li>
+<li>[ ] 使っていないAPIキー（最終利用が古い）の失効</li>
+<li>[ ] 依存の更新確認（<code>npm outdated</code>、<code>uv lock --upgrade</code>は<strong>実行前に差分を確認</strong>）</li>
+<li>[ ] 外部サービスの仕様変更（Gemini・Cloudflare・各OAuth）のお知らせ確認。<strong>モデル名の廃止</strong>に注意（<code>gemini-flash-latest</code>のような別名は、影響を受けにくい）</li>
+<li>[ ] この資料群の更新（新しい障害の記録を足す）</li>
+</ul>
+<h2 id="2-症状別の切り分け">2. 症状別の切り分け</h2>
+<p><strong>最初にやること（どの症状でも）:</strong> ①<strong>いつから</strong>か ②<strong>何をしたら</strong>か ③<strong>自分だけか、全員か</strong> ④<strong>直前に変更したか</strong>（デプロイ・マイグレーション・設定）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>まず疑うこと</th>
+<th>確認</th>
+<th>詳しくは</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>全部のAPIが500</strong>（認証も）</td>
+<td><strong>D1の読み取り枠の超過</strong></td>
+<td><code>npx wrangler d1 migrations list rag-poc-db --remote</code>で、<code>code: 7500</code>が出るか</td>
+<td><a href="#3-障害記録">§3 A</a></td>
+</tr>
+<tr>
+<td>画面に「応答がJSONではありません」</td>
+<td>サーバーが落ちた、または処理が長すぎた</td>
+<td>ブラウザのNetworkタブでステータスを見る</td>
+<td><a href="01-common-knowledge.html#22-応答がjsonではありませんの正体">01 §2.2</a></td>
+</tr>
+<tr>
+<td>401（認証に失敗）</td>
+<td>APIキーの誤り・失効・期限切れ</td>
+<td>管理 → ユーザー・権限で、期限を確認</td>
+<td></td>
+</tr>
+<tr>
+<td>403（権限がありません）</td>
+<td>ロール不足、namespaceの許可が無い</td>
+<td>ロールと、許可namespaceの確認</td>
+<td>運用手順書§3</td>
+</tr>
+<tr>
+<td>429（予算・レート制限）</td>
+<td>トークン予算の枯渇、30回/分の超過</td>
+<td>利用状況・コスト</td>
+<td>運用手順書§9</td>
+</tr>
+<tr>
+<td>検索が常に<strong>0件</strong></td>
+<td>Vectorizeの<strong>メタデータインデックス</strong>が、データ投入前に作られていない</td>
+<td>セットアップ手順D</td>
+<td>運用手順書§1</td>
+</tr>
+<tr>
+<td>検索が<code>fts5: syntax error</code></td>
+<td>検索語の特殊記号（<code>-</code> <code>:</code> <code>"</code>など）</td>
+<td><code>hybrid.ts</code>の<code>escapeFtsQuery</code></td>
+<td><a href="#3-障害記録">§3 D</a></td>
+</tr>
+<tr>
+<td>同期が途中で止まる／<code>Error 1102</code></td>
+<td>CPU時間・サブリクエスト数の制限</td>
+<td>バッチサイズを下げる</td>
+<td><a href="03-specialized.html#5-cloudflare特有の制約と回避策">03 §5</a></td>
+</tr>
+<tr>
+<td>同期結果が空・古い</td>
+<td>同期元の設定ミス、OAuth期限切れ、許可リスト外</td>
+<td>「接続テスト」「プレビュー」。許可リストの確認</td>
+<td>sync-governance.md</td>
+</tr>
+<tr>
+<td>通知（Slack・Gmail）が来ない</td>
+<td>通知先の設定</td>
+<td>管理 → ナレッジ登録 → Slack連携の欄の「テスト通知を送信」</td>
+<td>運用手順書§5</td>
+</tr>
+<tr>
+<td>画面が崩れる・ボタンが効かない</td>
+<td><code>chatUi.ts</code>のテンプレート文字列の記号</td>
+<td>ブラウザのConsoleのエラー</td>
+<td><a href="04-applied.html#レシピe-管理画面にカードを足す">04 レシピE</a></td>
+</tr>
+<tr>
+<td>Houdiniで、修正が反映されない</td>
+<td>実機は、<strong>別の場所のコピー</strong>を読んでいる</td>
+<td><code>Documents/houdini21.0/python_panels</code>の更新日時</td>
+<td><a href="03-specialized.html#73-python-panel-と-pyside6">03 §7.3</a></td>
+</tr>
+<tr>
+<td>Houdiniの生成が、途中で止まる</td>
+<td>反復の上限、予算、費用の上限、cookエラー</td>
+<td>パネルの進行ログ、<code>abort_reason</code></td>
+<td></td>
+</tr>
+<tr>
+<td>wranglerが<code>7403</code>で失敗</td>
+<td>一時的なAPIエラーのことが多い</td>
+<td><code>npx wrangler whoami</code>→再実行</td>
+<td>運用手順書§8-3</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-障害記録">3. 障害記録</h2>
+<p><strong>書き方（新しい障害のたびに足す）:</strong> ①いつ ②症状 ③原因 ④見つけ方 ⑤復旧 ⑥再発防止 ⑦学び。</p>
+<h3 id="a-2026-10-16-d1の読み取り枠を使い切り全apiが500">A. 2026-10-16　D1の読み取り枠を使い切り、全APIが500</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>症状</strong></td>
+<td>チャット画面で「認証に失敗しました: 応答がJSONではありません…HTTP 500」。Consoleに405と500が複数。コードの変更は無い</td>
+</tr>
+<tr>
+<td><strong>原因</strong></td>
+<td>D1の無料枠（1日の読み取り行数）を超過。<strong><code>wrangler</code>の応答が<code>code: 7500</code>（<code>exceeded D1's free tier daily row read limit</code>）</strong>。認証も、D1を読むため、全部が失敗した</td>
+</tr>
+<tr>
+<td><strong>見つけ方</strong></td>
+<td><code>npx wrangler d1 insights rag-poc-db --timePeriod 1d</code>。<strong>読み取り行数の合計が、ほぼ1つのSQLに集中</strong>していた（下表）</td>
+</tr>
+<tr>
+<td><strong>復旧</strong></td>
+<td>①UTC 0時（日本時間9時）に枠が戻る、または有料プランにする。②下記の再発防止を入れる。<strong>復旧前は、マイグレーションもデプロイも、D1を使うので失敗する</strong></td>
+</tr>
+<tr>
+<td><strong>復旧の記録</strong></td>
+<td>2026-10-17 UTC 3時台に枠が戻ったことを確認 → 未適用のマイグレーション（0022〜0030）を、一覧と中身を読んでから適用 → 表・列の存在と<code>chunk_rows</code>の一致（14,586件）を確認 → デプロイ → 疎通確認。以後の1日の読み取りは、約3.9万行（障害時は約500万行）</td>
+</tr>
+</tbody>
+</table></div>
+<p>見つかった内訳（1日分）:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>SQL</th>
+<th style="text-align: right;">1回あたりの読み取り行数</th>
+<th style="text-align: right;">実行回数</th>
+<th style="text-align: right;">合計</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SELECT namespace, COUNT(DISTINCT file), COUNT(*) FROM chunks_fts GROUP BY namespace</code>（管理画面のnamespace別集計）</td>
+<td style="text-align: right;">約29,000</td>
+<td style="text-align: right;">149</td>
+<td style="text-align: right;"><strong>約435万</strong></td>
+</tr>
+<tr>
+<td><code>SELECT * FROM kb_log ORDER BY created_at DESC LIMIT ?</code>（同期履歴）</td>
+<td style="text-align: right;">約4,400</td>
+<td style="text-align: right;">145</td>
+<td style="text-align: right;">約63万</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>再発防止（実施済み）</strong><br />
+1. namespace別の集計を、<code>stats_cache</code>に<strong>10分キャッシュ</strong>（migrations/0029）<br />
+2. 集計の元を、<code>chunks_fts</code>から、<strong>対応表<code>chunk_rows</code></strong>に変更（migrations/0030）<br />
+3. <code>kb_log(created_at)</code>に<strong>索引</strong>（0029）<br />
+4. クロールの重複確認を、<code>chunks_fts</code>ではなく<code>kb_documents</code>（索引つき）に変更<br />
+5. <code>chunks_fts</code>を<code>chunk_id</code>・<code>namespace</code>・<code>file</code>で探す・消す処理を、すべて<strong>rowid経由</strong>（<code>chunk_rows</code>）に変更</p>
+<p><strong>学び</strong><br />
+- <strong>復旧の手順は、「一覧で確認 → 中身を読む → 適用 → 確認 → デプロイ → 疎通確認」。</strong><br />
+- <strong>「全部が壊れた」＋「コードの変更が無い」→ 上限を疑う。</strong> エラーメッセージの<code>code</code>を読む。<br />
+- <strong>調べる操作も、読み取り枠を使う。</strong> 枠が尽きかけているときに、大きな<code>SELECT</code>を打たない。<br />
+- <strong>全件走査は、少ない呼び出しでも積もる</strong>（1回約3万行×150回で、枠の9割）。画面を開くたびに走る集計は、特に危険。<br />
+- <strong>マイグレーションを先に適用し、デプロイは後</strong>。枠が尽きている間は、どちらもできない。<br />
+- <strong><code>echo y |</code>で確認を飛ばして、本番に適用しない。</strong></p>
+<h3 id="b-2026-08-29-グラフ表示がd1の日次枠の9割を消費">B. 2026-08-29　グラフ表示がD1の日次枠の9割を消費</h3>
+<ul>
+<li><strong>原因:</strong> <code>chunks_fts</code>の<code>UNINDEXED</code>列に、先頭が不定の<code>LIKE '%:0'</code>をかけ、グラフを開くたびに全チャンクを走査。</li>
+<li><strong>対処:</strong> 1ドキュメント1行の<code>kb_documents</code>を新設（migrations/0008）。</li>
+<li><strong>学び:</strong> <code>UNINDEXED</code>列は、検索の条件にしない。要約・対応表を作る。</li>
+</ul>
+<h3 id="c-検索が常に0件メタデータインデックスの作り忘れ">C. 検索が常に0件（メタデータインデックスの作り忘れ）</h3>
+<ul>
+<li><strong>原因:</strong> Vectorizeの<strong>メタデータインデックス</strong>を、データ投入の<strong>前</strong>に作っていなかった。後から作っても、既に入れたデータには効かない。</li>
+<li><strong>対処:</strong> セットアップ手順（運用手順書§1）の順序を守る。</li>
+</ul>
+<h3 id="d-2026-09-04-検索語の記号でfts5が構文エラー">D. 2026-09-04　検索語の記号でFTS5が構文エラー</h3>
+<ul>
+<li><strong>症状:</strong> 「<code>-f</code>フラグの直し方」「比率: 3:1」のような、ごく普通の質問で検索全体が失敗（<code>fts5: syntax error</code>）。</li>
+<li><strong>原因:</strong> FTS5の<code>MATCH</code>は、<code>-</code>・<code>:</code>・<code>"</code>などに構文上の意味があり、質問文をそのまま渡していた。</li>
+<li><strong>対処:</strong> 語ごとに引用符で囲んで無害化（<code>escapeFtsQuery</code>）。</li>
+</ul>
+<h3 id="e-同期中のunexpected-token-error-1102">E. 同期中の<code>Unexpected token '&lt;'</code>／<code>Error 1102</code></h3>
+<ul>
+<li><strong>原因:</strong> 1回の同期処理が長すぎて、プロキシが打ち切った（HTMLのエラーページが返る）、またはWorkerのCPU時間を超過した。</li>
+<li><strong>対処:</strong> バッチサイズを下げる（既定1〜5）。25秒の予算で打ち切って続きを呼び直す設計に。</li>
+<li><strong>関連:</strong> 無料プランでは、CPU時間の上限を引き上げられない（<code>limits.cpu_ms</code>は有料プランのみ）。</li>
+</ul>
+<h3 id="f-サービスアカウントのキーが作れないgcpの組織ポリシー">F. サービスアカウントのキーが作れない（GCPの組織ポリシー）</h3>
+<ul>
+<li><strong>原因:</strong> 組織ポリシー<code>iam.disableServiceAccountKeyCreation</code>。</li>
+<li><strong>対処:</strong> 個人アカウントのOAuthリフレッシュトークン方式に変更。詳細は<a href="../cloudflare-rag-technical-report.html">cloudflare-rag-technical-report.md §8</a>。</li>
+</ul>
+<h3 id="g-2026-10-17-再クロールが503で止まるページの9割がサイドバーの目次">G. 2026-10-17　再クロールが503で止まる（ページの9割がサイドバーの目次）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>症状</strong></td>
+<td>管理 → ナレッジ登録 → URLのクロールで、<code>POST /admin/kb/crawl-url</code>が503（Service Unavailable）。画面は「登録中です…」のまま。中断中のジョブ（<code>crawl_jobs</code>）は、14ページ処理した時点で止まり、あと約790ページが残っていた</td>
+</tr>
+<tr>
+<td><strong>原因</strong></td>
+<td>ドキュメントサイトの各ページ（SideFXは1ページ約90万バイト）は、**全ノードの一覧のサイドバー（約9.5万文字）**を持つ。本文（<code>&lt;main&gt;</code>）は約1万文字。目次ごと登録していたため、<strong>1ページ約200チャンク</strong>（本文だけなら約17）になり、埋め込み・Vectorize・D1書き込みの回数が約10倍になった。当日のD1書き込みの改修（チャンクあたり2文→4文）が重なり、1リクエストの処理がCloudflareの上限を超えて打ち切られた（HTMLの503）。ただし、Workerのログで直接確認できたわけではない（推定）</td>
+</tr>
+<tr>
+<td><strong>見つけ方</strong></td>
+<td>①<code>wrangler d1 execute</code>で<code>crawl_jobs</code>の次のURLを調べ、②そのページを<code>curl</code>で取得して、本文とナビの文字数の内訳を計測（<code>&lt;main&gt;</code>の外が約90%）</td>
+</tr>
+<tr>
+<td><strong>復旧</strong></td>
+<td>本文抽出を修正（下記）して、デプロイ。止まっていたジョブは、管理画面の「中断したクロール」から「続きから再開」できる</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>再発防止（実施済み）</strong><br />
+1. 本文は<code>&lt;main&gt;</code>・<code>&lt;article&gt;</code>・<code>role="main"</code>の中だけを取る。どのページでも、<code>&lt;nav&gt;</code>・<code>&lt;footer&gt;</code>・<code>&lt;aside&gt;</code>・<code>&lt;noscript&gt;</code>の中の文字は、本文に入れない。<strong>リンクは、目次からのものも含め、ページ全体から集める</strong>（クロールで辿るため）（<code>src/urlImport.ts</code>の<code>extractTextLinksAndTitle</code>）<br />
+2. 本文の領域が完全に空のページ（JavaScriptで描くページなど）だけ、領域の絞り込みをやめて取り直す<br />
+3. 1ページから登録する本文を、10万文字（約118チャンク）で頭打ちにする（保険）<br />
+4. テスト<code>test/extract.test.mjs</code>を追加（実ページの構造を模した、目次入りのページ）。テスト用の<code>HTMLRewriter</code>の代用品を、入れ子・終了タグを扱える形に作り直した（<code>test/helpers/htmlRewriterShim.mjs</code>）</p>
+<p><strong>効果（実ページで計測）:</strong> 抽出文字数 約16.9万 → 約1.4万、チャンク 約199 → 17、リンク 約1,200本は維持。</p>
+<p><strong>学び</strong><br />
+- <strong>ドキュメントサイトは、本文より目次の方が大きいことがある。</strong> クロールの対象サイトの1ページを、先に取得して、本文とナビの内訳を測る。<br />
+- <strong>目次を登録すると、コストだけでなく、検索の質も落ちる</strong>（全ページに同じ文が入る）。<br />
+- <strong>「直前に入れた改修」と「前から潜んでいた弱点」が重なると、突然壊れる。</strong> 本番のログ（<code>wrangler tail</code>）が取れない障害では、実データ（<code>crawl_jobs</code>、対象ページ）から、再現に必要な数字を測る。</p>
+<h3 id="h-2026-10-19-動画の音声が良くならない導入済みのvoicevoxが黙って使われていなかった">H. 2026-10-19　動画の音声が良くならない（導入済みのVOICEVOXが、黙って使われていなかった）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>症状</strong></td>
+<td>動画の音声に、VOICEVOXへの切り替えの効果が感じられない。ナレーションも、解説ではなく読み上げに聞こえる</td>
+</tr>
+<tr>
+<td><strong>原因</strong></td>
+<td>①VOICEVOXは導入済みだが、<strong>エンジンが起動していないと、黙って従来の声（SAPI）に戻る</strong>作りだった。②<strong>どちらの声で作ったか</strong>が、どこにも出なかった。③読み替え辞書が<strong>exeの隣にコピーされておらず</strong>、SAPIには読み替え自体が無かった。④台本は、チュートリアル本文の朗読で、画面の文はツールの結果文だった</td>
+</tr>
+<tr>
+<td><strong>見つけ方</strong></td>
+<td><code>http://127.0.0.1:50021/version</code> が応答しない／<code>Programs\VOICEVOX</code> には実体がある。動画のログに音声の種類の行が無い。<code>build/engine/assets/</code> に辞書が無い。章ごとの時間と文章を、メタデータ（<code>metadata.json</code>）から出して、読み上げられている文を確認</td>
+</tr>
+<tr>
+<td><strong>対策</strong></td>
+<td>導入済みVOICEVOXの自動起動、使った声のログ・画面への表示、辞書のコピーとSAPIへの読み替え、<strong>初心者向けの台本とスライドごとの音声</strong>（<a href="../houdini-video-script.html">houdini-video-script.md</a>）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>学び</strong><br />
+- <strong>フォールバックは、黙って切り替えず、必ず「切り替わった」ことを見せる。</strong> 無音にしない配慮が、改善の不発を隠していた。<br />
+- <strong>「実装した」と「効いている」は別。</strong> 実際の生成物（ログ・メタデータ・音声）で確かめる。<br />
+- 入力の文章（ツールの結果文、コード全文）を、そのまま出力にしない。<strong>読む人に合わせて書き直す工程</strong>が必要。</p>
+<h3 id="i-2026-10-19-動画エンジンが起動直後のvoicevoxへの確認でクラッシュ終了コード139">I. 2026-10-19　動画エンジンが、起動直後のVOICEVOXへの確認でクラッシュ（終了コード139）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>症状</strong></td>
+<td>VOICEVOXが止まっている状態で動画エンジンを動かすと、数秒でセグメンテーション違反。ログは「Run ID」の1行だけ</td>
+</tr>
+<tr>
+<td><strong>原因</strong></td>
+<td><strong>C++が<code>/EHsc</code>無しでコンパイルされていた</strong>（コンパイルコマンドに<code>-utf-8</code>しか無い。MSVCの警告C4530）。例外を投げても、局所オブジェクトのデストラクタが実行されない。起動直後のVOICEVOXへのHTTP確認がタイムアウト（＝例外）になると、<code>QNetworkAccessManager</code>と<code>QEventLoop</code>が、使えないスタック領域に残り、次の呼び出しで、そこへ応答が届いて落ちた</td>
+</tr>
+<tr>
+<td><strong>見つけ方</strong></td>
+<td>段階ごとの出力（一時的なトレース）で、「1回目の確認がタイムアウトした直後の、2回目で落ちる」ことを特定。<code>ninja -t commands</code>でコンパイルの実際のフラグを見て、<code>/EHsc</code>が無いことに気づいた</td>
+</tr>
+<tr>
+<td><strong>対策</strong></td>
+<td><code>CMakeLists.txt</code>に<code>add_compile_options(/EHsc)</code>。応答を、マネージャーより先に直接削除する。応答しないサーバーへの連続確認の回帰テストを追加</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>学び</strong><br />
+- <strong>デバッガが無くても、段階ごとの出力で、落ちる場所は絞れる。</strong> 絞れたら、症状（タイムアウト直後）から原因を推定する。<br />
+- <strong>コンパイルの実際のフラグを見る</strong>（<code>ninja -t commands</code>）。設定ファイルの見た目と、実際のコマンドは、違うことがある。<br />
+- 例外を使うC++では、<code>/EHsc</code>（MSVC）が必須。警告C4530は、無視しない。</p>
+<h2 id="4-やってはいけないこと">4. やってはいけないこと</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>してはいけないこと</th>
+<th>理由</th>
+<th>代わりに</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--remote</code>の有無を確認せず、<code>d1 execute</code>を打つ</td>
+<td>本番を書き換える／空のローカルを見て誤解する</td>
+<td>毎回、コマンドを声に出して読む</td>
+</tr>
+<tr>
+<td><code>echo y \|</code>で、確認プロンプトを自動で通す</td>
+<td>何が適用されるか見ずに、本番を変更する</td>
+<td>一覧を見て、プロンプトに自分で答える</td>
+</tr>
+<tr>
+<td>適用済みのマイグレーションを書き換える</td>
+<td>環境ごとに、DBの状態がずれる</td>
+<td>新しい番号で、追加する</td>
+</tr>
+<tr>
+<td>デプロイ→マイグレーションの順にする</td>
+<td>表が無く、全APIが500</td>
+<td>マイグレーション→デプロイ</td>
+</tr>
+<tr>
+<td>本番の大きな表に<code>SELECT *</code>・<code>COUNT(*)</code>（<code>chunks_fts</code>）</td>
+<td>読み取り枠を使い切る</td>
+<td><code>kb_documents</code>・<code>chunk_rows</code>を使う。<code>LIMIT</code></td>
+</tr>
+<tr>
+<td>APIキー・トークンを、チャット・ログ・コミットに出す</td>
+<td>漏洩する</td>
+<td><a href="01-common-knowledge.html#4-セキュリティの常識">01 §4</a>の手順で、失効→再発行</td>
+</tr>
+<tr>
+<td>動いている原因が分からないまま、複数の変更を一度に入れる</td>
+<td>どれが効いたか分からない</td>
+<td>1つずつ変更し、確認する</td>
+</tr>
+<tr>
+<td><code>git reset --hard</code>・<code>git push --force</code>を、確認なしで使う</td>
+<td>作業が消える</td>
+<td>何が消えるかを確認する</td>
+</tr>
+<tr>
+<td><code>chatUi.ts</code>のテンプレート文字列に、<code>`</code>・<code>${</code>を直接書く</td>
+<td>画面全体が壊れる</td>
+<td>エスケープする（<a href="04-applied.html#レシピe-管理画面にカードを足す">04 レシピE</a>）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="5-復旧の基本手順全部が止まったとき">5. 復旧の基本手順（「全部が止まった」とき）</h2>
+<div class="mermaid">flowchart TD
+    A[&quot;全APIが失敗&quot;] --&gt; B[&quot;1. 範囲の確認&lt;br/&gt;全員か・一部か・いつからか&quot;]
+    B --&gt; C[&quot;2. 直前の変更の確認&lt;br/&gt;デプロイ・マイグレーション・設定&quot;]
+    C --&gt; D{&quot;3. wranglerのエラーコード&lt;br/&gt;d1 migrations list --remote&quot;}
+    D --&gt;|&quot;7500 (枠超過)&quot;| E[&quot;枠が戻るまで待つ、または有料プラン&lt;br/&gt;→ 再発防止を入れる (§3 A)&quot;]
+    D --&gt;|&quot;7403 等&quot;| F[&quot;whoami→再実行&lt;br/&gt;一時的なことが多い&quot;]
+    D --&gt;|&quot;接続できる&quot;| G[&quot;4. ログを見る&lt;br/&gt;npx wrangler tail&quot;]
+    G --&gt; H{&quot;直前のデプロイが原因？&quot;}
+    H --&gt;|&quot;はい&quot;| I[&quot;npx wrangler rollback&lt;br/&gt;(DBは戻らない。追加のみなので、旧コードでも動く)&quot;]
+    H --&gt;|&quot;いいえ&quot;| J[&quot;原因を絞る&lt;br/&gt;(上の症状別の表)&quot;]
+</div>
+<h2 id="6-バックアップと復旧">6. バックアップと復旧</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>対象</th>
+<th>方法</th>
+<th>復旧</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>設定（ユーザー・namespace・同期元・予算・許可）</td>
+<td>管理 → システム →「設定バックアップ」→「エクスポート」（JSON）</td>
+<td>JSONを見ながら、画面・APIで再設定（自動の復元は無い）</td>
+</tr>
+<tr>
+<td>ナレッジの本文・ベクトル</td>
+<td><strong>自動のバックアップは無い</strong>（D1・Vectorizeのサービス側に依存）。<strong>生のテキストも保存していない</strong></td>
+<td>同期元（Notion・Drive・URL等）から<strong>再同期</strong></td>
+</tr>
+<tr>
+<td>誤った同期の取り消し</td>
+<td>管理 → 同期履歴 →「KBロールバック」（<code>opId</code>）</td>
+<td>取り消し後は、必要なら再同期</td>
+</tr>
+<tr>
+<td>コード</td>
+<td>Git</td>
+<td><code>git revert</code>、<code>npx wrangler rollback</code></td>
+</tr>
+<tr>
+<td>秘密（APIキー等）</td>
+<td><strong>コピーを、パスワード管理ツールに保管</strong></td>
+<td>失効→再発行</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>重要:</strong> ナレッジの元データ（Notion・Driveなど）が<strong>正本</strong>。D1・Vectorizeは、そこから作り直せる<strong>写し</strong>として扱う。</p>
+<h2 id="7-連絡エスカレーション">7. 連絡・エスカレーション</h2>
+<ul>
+<li>外部サービスの障害は、各社のステータスページで確認する（Cloudflare・Google・Anthropic・Notion・Atlassian）。</li>
+<li>解決できないときは、<strong>症状・時刻・直前の変更・エラーメッセージの全文</strong>を添えて、問い合わせる。<strong>APIキー・トークンは、貼らない。</strong></li>
+<li>解決したら、<strong>§3の形式で記録を足す。</strong> 次に困る自分への、最も価値のある引き継ぎ。</li>
+</ul>
+</main>
+<div class="pager"><a href="05-scripts.html">← 前へ</a><span></span></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+</body>
+</html>

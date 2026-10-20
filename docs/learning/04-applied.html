@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>04. 応用編</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-common-knowledge.html">01</a><a href="02-fundamentals.html">02</a><a href="03-specialized.html">03</a><a class="current" href="04-applied.html">04</a><a href="05-scripts.html">05</a><a href="06-maintenance-runbook.html">06</a></nav>
+<header class="hero">
+  <span class="badge">座学資料</span>
+  <h1>04. 応用編</h1>
+  <div class="meta">HTML生成: 2026-10-20（元: docs/learning/04-applied.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-このプロジェクトの設計パターン">1. このプロジェクトの設計パターン</a></li><li><a href="#2-レシピ機能の足し方">2. レシピ（機能の足し方）</a><ol><li><a href="#レシピa-新しいapiルートを足す">レシピA: 新しいAPIルートを足す</a></li><li><a href="#レシピb-新しいテーブルマイグレーションを足す">レシピB: 新しいテーブル（マイグレーション）を足す</a></li><li><a href="#レシピc-新しい連携外部サービスとの同期を足す">レシピC: 新しい連携（外部サービスとの同期）を足す</a></li><li><a href="#レシピd-houdiniの道具を足す">レシピD: Houdiniの道具を足す</a></li><li><a href="#レシピe-管理画面にカードを足す">レシピE: 管理画面にカードを足す</a></li></ol></li><li><a href="#3-テストと確認">3. テストと確認</a><ol><li><a href="#31-現状">3.1 現状</a></li><li><a href="#32-当面の確認手順手動">3.2 当面の確認手順（手動）</a></li><li><a href="#33-テストの考え方書くときの型">3.3 テストの考え方（書くときの型）</a></li></ol></li><li><a href="#4-リリース手順チェックリスト">4. リリース手順（チェックリスト）</a></li><li><a href="#5-おすすめの改善ai無しで続けられるようにするために">5. おすすめの改善（AI無しで続けられるようにするために）</a></li><li><a href="#練習">練習</a></li><li><a href="#確認">確認</a></li></ol></details></nav>
+<main>
+
+<p><strong>更新日:</strong> 2026-10-17　<strong>目安:</strong> 1週間　<strong>前提:</strong> <a href="02-fundamentals.html">02. 基礎編</a>、必要に応じて<a href="03-specialized.html">03. 専門編</a><br />
+<strong>ゴール:</strong> このプロジェクトに、<strong>自分の手で機能を足し、壊さずにリリースできる</strong>。</p>
+<hr />
+<h2 id="1-このプロジェクトの設計パターン">1. このプロジェクトの設計パターン</h2>
+<p>コードを読むときも、足すときも、<strong>次のパターンのどれに当てはまるか</strong>を先に考える。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>パターン</th>
+<th>内容</th>
+<th>実例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>バッチ＋再開</strong></td>
+<td>1回で少しだけ処理し、位置を保存して続きを呼び直す。1件の失敗で止めない</td>
+<td><code>urlImport.ts</code>、各<code>*Sync.ts</code></td>
+</tr>
+<tr>
+<td><strong>冪等な書き込み</strong></td>
+<td>何度やっても同じ結果。決まったIDで「置き換える」</td>
+<td>チャンクID＝<code>ハッシュ:番号</code>、<code>INSERT OR REPLACE</code></td>
+</tr>
+<tr>
+<td><strong>変更の検出</strong></td>
+<td>ハッシュを保存し、変わったものだけ処理</td>
+<td><code>crawl_page_hashes</code></td>
+</tr>
+<tr>
+<td><strong>許可リスト（デフォルト拒否）</strong></td>
+<td>明示的に許可したものだけ通す</td>
+<td><code>sync_allowed_namespaces</code>、<code>key_namespace_grants</code></td>
+</tr>
+<tr>
+<td><strong>オプトイン</strong></td>
+<td>自動の動作は、明示的にオンにしたものだけ</td>
+<td><code>auto_jira</code>などの自動同期</td>
+</tr>
+<tr>
+<td><strong>プレビュー→実行</strong></td>
+<td>副作用のある操作の前に、結果を見せる</td>
+<td>各連携の「プレビュー」</td>
+</tr>
+<tr>
+<td><strong>索引を経由する</strong></td>
+<td>全件走査を避け、対応表・要約表を持つ</td>
+<td><code>kb_documents</code>、<code>chunk_rows</code>、<code>stats_cache</code></td>
+</tr>
+<tr>
+<td><strong>エラーを結果として返す</strong></td>
+<td>例外で止めず、LLMや利用者が直せる文にする</td>
+<td><code>HoudiniToolExecutor.execute</code></td>
+</tr>
+<tr>
+<td><strong>サーバー側で強制する</strong></td>
+<td>予算・権限は、クライアントを信じず、サーバーで止める</td>
+<td><code>budget.ts</code>、<code>auth.ts</code></td>
+</tr>
+<tr>
+<td><strong>追加のみのマイグレーション</strong></td>
+<td>表は足すだけ。適用済みのファイルを書き換えない</td>
+<td><code>migrations/</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-レシピ機能の足し方">2. レシピ（機能の足し方）</h2>
+<p>どのレシピも、<strong>最後に「§4 リリース」を行う</strong>。</p>
+<h3 id="レシピa-新しいapiルートを足す">レシピA: 新しいAPIルートを足す</h3>
+<p><strong>例:</strong> <code>POST /admin/hello</code> が、管理者にだけ<code>{"status":"ok","message":"hello"}</code>を返す。</p>
+<ol>
+<li><strong>ハンドラを書く。</strong> <code>cloudflare-rag-poc/src/hello.ts</code>を作る。</li>
+</ol>
+<pre><code class="language-ts">import type { AuthedUser, Env } from &quot;./types&quot;;
+import { jsonResponse } from &quot;./http&quot;;
+import { requireAdmin } from &quot;./auth&quot;;
+
+export async function handleHello(req: Request, env: Env, user: AuthedUser): Promise&lt;Response&gt; {
+  requireAdmin(user);                       // 権限は、必ず最初に確認する（403を投げる）
+  const body = (await req.json().catch(() =&gt; ({}))) as { name?: string };
+  return jsonResponse(200, { status: &quot;ok&quot;, message: `hello ${body.name ?? &quot;&quot;}`.trim() });
+}
+</code></pre>
+<ol start="2">
+<li><strong>入口に登録する。</strong> <code>src/index.ts</code>の先頭にimportを足し、<code>switch (url.pathname)</code>に<code>case "/admin/hello": return await handleHello(req, env, user);</code>を足す。</li>
+<li><strong>確認する。</strong> <code>npm run typecheck</code> → <code>npm run dev</code> → <code>curl</code>で呼ぶ。</li>
+<li>権限の確認: ①キー無し→401、②memberのキー→403、③adminのキー→200、の3つを必ず試す。</li>
+</ol>
+<p><strong>落とし穴</strong><br />
+- 権限確認の<strong>付け忘れ</strong>が、最も危険。ハンドラの先頭に必ず書く（<code>requireAdmin</code> / <code>requireKnowledgeEditor</code>）。<br />
+- 入力は信用しない。数値は<code>clampInt</code>、文字は長さを確認。<br />
+- 認証不要のルート（<code>/health</code>など）は、<code>authenticate</code>より前にある。新しいルートは、**後ろ（<code>switch</code>の中）**に置く。</p>
+<h3 id="レシピb-新しいテーブルマイグレーションを足す">レシピB: 新しいテーブル（マイグレーション）を足す</h3>
+<p><strong>例:</strong> 「お知らせ」を保存する<code>notices</code>表。</p>
+<ol>
+<li><strong>番号を決める。</strong> <code>ls migrations/</code>で、最後の番号を確認し、+1（例: <code>0031_notices.sql</code>）。</li>
+<li><strong>SQLを書く。</strong> 冒頭に、<strong>なぜ必要か</strong>をコメントで書く（後で自分が助かる）。</li>
+</ol>
+<pre><code class="language-sql">-- お知らせ（2026-10-xx追加）。管理者が書き、全員が読む。
+CREATE TABLE IF NOT EXISTS notices (
+    notice_id TEXT PRIMARY KEY,
+    body TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notices_created ON notices(created_at);
+</code></pre>
+<ol start="3">
+<li><strong>ローカルで適用して確かめる。</strong> <code>npm run db:migrate:local</code> → <code>npx wrangler d1 execute rag-poc-db --command "SELECT name FROM sqlite_master WHERE name='notices'"</code></li>
+<li><strong>本番へは、デプロイの前に適用する。</strong>（→ §4）</li>
+</ol>
+<p><strong>落とし穴</strong><br />
+- <strong>適用済みのファイルを書き換えない。</strong> 直したいときは、<strong>新しい番号</strong>で、<code>ALTER TABLE</code>や新しい表を足す。<br />
+- <strong>検索・並べ替えに使う列には、索引を足す</strong>（足さないと、全行を読む。→ <a href="03-specialized.html#52-d1の読み取り行数を増やす原因3つ">03 §5.2</a>）。<br />
+- ユーザーを消す処理（<code>keyAdmin.ts</code>の<code>handleDeleteKey</code>）に、<strong>そのユーザーの行を消す1行を足す</strong>。忘れると、消したはずの個人データが残る。<br />
+- 既存の行を埋める処理は、同じファイルに書く。<strong>大きな表を全件読む処理は、1回きり</strong>にする（D1の読み取り枠）。</p>
+<h3 id="レシピc-新しい連携外部サービスとの同期を足す">レシピC: 新しい連携（外部サービスとの同期）を足す</h3>
+<p>今は、既存の連携（<code>backlogSync.ts</code>など）を<strong>写して作る</strong>。将来は共通の骨格になる予定（<a href="../architecture-layering-plan.html#42-コネクタの契約プラグインの形">architecture-layering-plan.md §4.2</a>）。</p>
+<ol>
+<li>写す元を決める。<strong>認証がAPIキー方式ならBacklog</strong>、<strong>OAuthならJira</strong>が近い。</li>
+<li>作るもの: <code>xxxOAuth.ts</code>（接続）、<code>xxxSync.ts</code>（同期・プレビュー・失敗分の再同期）。</li>
+<li><strong>必ず守る安全策</strong>（既存の連携と同じにする）<br />
+   - 同期先は<code>authorizeSync</code>（<code>syncTargets.ts</code>）で認可する（許可リスト、個人用は本人のみ）。<br />
+   - プレビュー（登録せず、内容だけ返す）を作る。<br />
+   - 自動同期は、<code>kb_sources</code>に<code>auto_xxx</code>列を足し、<strong>既定はオフ</strong>にする。<br />
+   - 失敗は、1件ごとにcatchして、<code>kb_log</code>に記録。全体は止めない。<br />
+   - 履歴は<code>recordOp</code>で、実行者を残す。</li>
+<li><code>index.ts</code>にルートを足し（<code>/admin/sync/xxx</code>、<code>/preview</code>、<code>/retry-failed</code>）、<code>types.ts</code>に環境変数を足し、画面（<code>chatUi.ts</code>）にカードを足す。</li>
+<li>ドキュメント: <code>cloudflare-rag-poc/docs/</code>に、使い方・必要なsecretを書く。</li>
+</ol>
+<h3 id="レシピd-houdiniの道具を足す">レシピD: Houdiniの道具を足す</h3>
+<p><strong>例:</strong> ノードを複製する<code>copy_node</code>。変更する場所は<strong>3か所</strong>。</p>
+<ol>
+<li><strong>定義を足す。</strong> <code>houdini_tools.py</code>の<code>HOUDINI_TOOLS</code>（リスト）に、名前・説明・<code>input_schema</code>（JSON Schema）を足す。<strong>説明文は、LLMが読む</strong>ので、いつ使うか・使ってはいけないときを書く。</li>
+<li><strong>実行を足す。</strong> <code>HoudiniToolExecutor</code>に<code>_tool_copy_node(self, args: dict) -&gt; str</code>を足す。<br />
+   - ノードのパスは、必ず<code>self._resolve(path)</code>を通す（サンドボックスの外を拒否する。通さないと、外のノードを触れてしまう）。<br />
+   - 結果は、<strong>LLMが次の判断に使える文</strong>で返す（作ったノードのパス、見つからなかった理由など）。<br />
+   - 失敗は、<code>raise</code>でよい（<code>execute</code>が、エラー結果に変換する）。</li>
+<li><strong>システムプロンプトに、使い方を足す</strong>（<code>tutorial_agent.py</code>）。道具だけ増やしても、使い方が伝わらないと使われない。</li>
+<li>実機で、3つ以上の依頼で試す。<strong>実機に反映するには、<code>Documents/houdini21.0/python_panels</code>へのコピーが必要</strong>（リポジトリを直しても、実機は変わらない。→ 配置先の注意）。</li>
+</ol>
+<p><strong>落とし穴:</strong> <code>hou</code>を触る処理は、<code>execute</code>が<code>_run_in_main_thread</code>で包むので、<code>_tool_*</code>の中では<strong>意識しなくてよい</strong>。ただし、<code>_tool_*</code>の外（別スレッド）で<code>hou</code>を直接呼ばない。</p>
+<h3 id="レシピe-管理画面にカードを足す">レシピE: 管理画面にカードを足す</h3>
+<p><code>chatUi.ts</code>は、画面全体が<strong>1つのテンプレート文字列</strong>。</p>
+<ul>
+<li>HTMLは、<code>&lt;div class="admin-subpanel" data-subtab="…"&gt;</code>の中にカード（<code>&lt;div class="card"&gt;</code>）を足す。</li>
+<li>処理は、同じファイルのスクリプト部分に書く。サーバーとは、<code>api("/admin/xxx", {…})</code>で通信する（失敗の再試行・非JSON応答の判定を含む共通関数）。</li>
+<li><strong>テンプレート文字列の制約:</strong> 文字列中の<code>`</code>と<code>${…}</code>は、そのまま書けない。バックスラッシュも、1つの<code>\</code>が消える（<code>\\</code>と書く）。<strong>表示が壊れたら、まず、ここを疑う。</strong></li>
+<li>画面の部品・色・文言の規約は、<a href="../ui-rules.md">ui-rules.md</a>。</li>
+<li>管理者専用のものは、<code>class="admin-only-section"</code>を付ける（非管理者には、表示されない）。ただし、<strong>見えないだけで、サーバー側の権限確認は別に必要</strong>（レシピA）。</li>
+</ul>
+<h2 id="3-テストと確認">3. テストと確認</h2>
+<h3 id="31-現状">3.1 現状</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>確認</th>
+<th>あるか</th>
+<th>方法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>型チェック（Worker）</td>
+<td>○（CIで自動）</td>
+<td><code>cd cloudflare-rag-poc &amp;&amp; npm run typecheck</code></td>
+</tr>
+<tr>
+<td>Python静的解析</td>
+<td>○（CIで自動）</td>
+<td><code>.github/workflows/ci.yml</code>（ruff・mypy）</td>
+</tr>
+<tr>
+<td>Workerの自動テスト</td>
+<td>○（CIで自動。<code>cloudflare-rag-poc/test/</code>の9ファイル）</td>
+<td><code>cd cloudflare-rag-poc &amp;&amp; npm test</code></td>
+</tr>
+<tr>
+<td>Houdini・Unityの自動テスト</td>
+<td>×（実機で確認）</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Workerのテストは、2026-10-17にリポジトリへ入れた</strong>（それまでは、リポジトリの外に置かれていた）。<code>npm test</code>は、TypeScriptの元のファイルを直接動かす（<code>tsx</code>。ビルド不要）。偽のD1（<code>node:sqlite</code>）と偽の外部APIだけを使うので、<strong>Cloudflareにも外部サービスにも、接続しない</strong>。Node.js 22以上が必要。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>テスト</th>
+<th>見ているもの</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>chunk_rows.test.mjs</code></td>
+<td>チャンクの登録・再登録・短縮・削除と、FTSとの対応表のずれ</td>
+</tr>
+<tr>
+<td><code>crawl_graph.test.mjs</code></td>
+<td>クロールの再開・変更なしのスキップ、グラフの500件の比例配分</td>
+</tr>
+<tr>
+<td><code>features2.test.mjs</code></td>
+<td>ステージング、答えられなかった質問、定期クロール、同期の許可リスト</td>
+</tr>
+<tr>
+<td><code>features3.test.mjs</code></td>
+<td>スレッド、プリセット、Slack（署名・連携コード）、ユーザー削除</td>
+</tr>
+<tr>
+<td><code>gmail.test.mjs</code></td>
+<td>Google連携（Gmail・Drive）のOAuthと同期</td>
+</tr>
+<tr>
+<td><code>gov.test.mjs</code></td>
+<td>連携のガバナンス（許可リスト・個人用・プレビュー・自動同期のオプトイン）</td>
+</tr>
+<tr>
+<td><code>mcp.test.mjs</code>・<code>mcp_ext.test.mjs</code></td>
+<td>公式MCPクライアント（接続・ツール・権限・監査）</td>
+</tr>
+<tr>
+<td><code>stream.test.mjs</code></td>
+<td>回答のストリーミング（SSEの分割・失敗時の返金）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>未確認のもの:</strong> 実際のGemini・Slack・各OAuthサービスとの通し（偽のものでしか試していない）。画面（<code>chatUi.ts</code>）、Houdini、Unity。</p>
+<h3 id="32-当面の確認手順手動">3.2 当面の確認手順（手動）</h3>
+<ol>
+<li><code>npm run typecheck</code>（0で終わる）と、<code>npm test</code>（全部passする）</li>
+<li><code>npm run dev</code>で起動し、<code>curl</code>で、変更したルートを、<strong>正常系と異常系</strong>（キー無し・権限不足・不正な入力）で呼ぶ。</li>
+<li>画面を変えたときは、ブラウザで操作し、<strong>開発者ツールのConsoleにエラーが出ていない</strong>ことを確認する。</li>
+<li>DBの確認は、<strong>ローカル</strong>で（<code>--remote</code>なし）。</li>
+<li><strong>本番で確認するなら、読み取りのコマンドだけ</strong>。書き込みは、手順を決めてから。</li>
+</ol>
+<h3 id="33-テストの考え方書くときの型">3.3 テストの考え方（書くときの型）</h3>
+<ul>
+<li><strong>偽のDB</strong>（メモリ上のSQLite）と<strong>偽の外部API</strong>（<code>fetch</code>を差し替え）で、実際のネットワークを使わずに動かす。</li>
+<li>見るのは、「<strong>何が返るか</strong>」と「<strong>DBに何が残るか</strong>」。</li>
+<li><strong>失敗のケースを必ず書く</strong>（権限なし、不正な入力、外部APIの失敗、上限超過）。</li>
+<li><strong>書いたテストが、本当に失敗を検出できるか</strong>を、一度、確かめる（コードをわざと壊して、失敗することを見る。確かめたら、必ず元に戻す）。</li>
+<li>新しいテストは、<code>cloudflare-rag-poc/test/名前.test.mjs</code>に置く。既存の1本を写すのが早い（偽のD1の作り方が、そのまま使える）。</li>
+</ul>
+<h2 id="4-リリース手順チェックリスト">4. リリース手順（チェックリスト）</h2>
+<p><strong>順序には理由がある。</strong> 順番を変えない。</p>
+<pre><code>□ 1. 変更の中身を読む        git status / git diff
+□ 2. 型チェックとテスト      cd cloudflare-rag-poc &amp;&amp; npm run typecheck &amp;&amp; npm test   （どちらも成功）
+□ 3. 未適用のマイグレーションを確認    npx wrangler d1 migrations list rag-poc-db --remote
+□ 4. 適用前に、中身を読む    migrations/ の対象ファイル。大きな表を全件読む処理が無いか
+□ 5. マイグレーションを適用  npm run db:migrate:remote      ← 確認プロンプトに、自分で答える
+□ 6. 適用を確認              対象の表・列があるか（SELECT name FROM sqlite_master …）
+□ 7. デプロイ                npm run deploy
+□ 8. 動作確認                /health、画面の読み込み、変更した機能の正常系・異常系
+□ 9. 記録                    git commit（メッセージは、既存の書き方に合わせる）、必要ならドキュメント
+</code></pre>
+<p><strong>なぜ、マイグレーションが先か:</strong> 新しいコードは、新しい表・列を読む。<strong>先にコードを出すと、表が無いので、全部が500になる。</strong><br />
+<strong>なぜ、確認プロンプトに自分で答えるか:</strong> 本番のDBを変更する操作は、<strong>何が適用されるかを見てから</strong>行う（自動で「はい」にしない）。<br />
+<strong>D1の読み取り枠に余裕があるときに行う:</strong> 枠を使い切っている間は、マイグレーションも失敗する。→ <a href="06-maintenance-runbook.html#3-障害記録">06 §3</a></p>
+<p><strong>デプロイを戻したいとき:</strong> <code>npx wrangler rollback</code>（直前の版に戻す）。<strong>DBのマイグレーションは戻らない</strong>（追加のみにしておけば、古いコードでも動く。だから、削除・名前変更はしない）。</p>
+<h2 id="5-おすすめの改善ai無しで続けられるようにするために">5. おすすめの改善（AI無しで続けられるようにするために）</h2>
+<p>優先度の高い順。<strong>（Workerのテストの追加と、CIでの自動実行は、2026-10-17に完了した。）</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>改善</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong><code>chatUi.ts</code>を分解する</strong>（<a href="../architecture-layering-plan.html#44-chatuits-の分解">architecture-layering-plan.md §4.4</a>）</td>
+<td>6,000行超の1つの文字列は、人間が直すのも難しい。画面のテストも作れない</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>API仕様書（OpenAPI）を作る</strong></td>
+<td>クライアント（Unity・Houdini）と、サーバーの食い違いを防ぐ</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>本番を触らずに試せる環境（ステージングのWorker）を作る</strong></td>
+<td>D1の上限や、マイグレーションの失敗を、本番で踏まずに済む</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>テストを増やす</strong>（認証・権限、検索、各連携の同期の、異常系）</td>
+<td>いまのテストは、新しい機能（2026-10）に偏っている</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="練習">練習</h2>
+<ol>
+<li>レシピAに沿って、<code>GET</code>ではなく<code>POST</code>で<code>/admin/hello</code>を作り、3つの権限のケースを試す。<strong>終わったら、変更を元に戻す</strong>（<code>git restore</code>）。</li>
+<li>現在の最新のマイグレーションの番号を調べ、次の番号で、空のマイグレーション（コメントだけ）を作る。ローカルに適用する。<strong>終わったら、ファイルを削除する。</strong></li>
+<li>「<code>chunk_rows</code>を足したマイグレーションが、デプロイの前に必要だった理由」を、§4の言葉で説明する。</li>
+<li>§4のチェックリストの各項目を、「飛ばすと何が起きるか」で書き直す。</li>
+</ol>
+<h2 id="確認">確認</h2>
+<ul>
+<li><a href="README.html">README.md</a>の「応用」のチェック3項目に答えられる。</li>
+</ul>
+</main>
+<div class="pager"><a href="03-specialized.html">← 前へ</a><a href="05-scripts.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

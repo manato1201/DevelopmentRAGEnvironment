@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>02. 基礎編</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-common-knowledge.html">01</a><a class="current" href="02-fundamentals.html">02</a><a href="03-specialized.html">03</a><a href="04-applied.html">04</a><a href="05-scripts.html">05</a><a href="06-maintenance-runbook.html">06</a></nav>
+<header class="hero">
+  <span class="badge">座学資料</span>
+  <h1>02. 基礎編</h1>
+  <div class="meta">HTML生成: 2026-10-20（元: docs/learning/02-fundamentals.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-typescriptを読むworker本体">1. TypeScriptを読む（Worker本体）</a><ol><li><a href="#11-最低限の文法">1.1 最低限の文法</a></li><li><a href="#12-非同期asyncawait">1.2 非同期（async/await）</a></li><li><a href="#13-エラー処理">1.3 エラー処理</a></li><li><a href="#14-workerの基本形">1.4 Workerの基本形</a></li><li><a href="#練習">練習</a></li></ol></li><li><a href="#2-sqlとsqliteを読むd1">2. SQLとSQLiteを読む（D1）</a><ol><li><a href="#21-基本の命令">2.1 基本の命令</a></li><li><a href="#22-速い遅いではなく何行読むかで考える">2.2 「速い・遅い」ではなく「何行読むか」で考える</a></li><li><a href="#23-マイグレーション">2.3 マイグレーション</a></li><li><a href="#練習_1">練習</a></li></ol></li><li><a href="#3-pythonを読むhoudiniパネルローカルrag">3. Pythonを読む（Houdiniパネル・ローカルRAG）</a><ol><li><a href="#練習_2">練習</a></li></ol></li><li><a href="#4-cを読むunity">4. C#を読む（Unity）</a></li><li><a href="#5-開発環境">5. 開発環境</a></li><li><a href="#6-cloudflareの基本">6. Cloudflareの基本</a><ol><li><a href="#練習_3">練習</a></li></ol></li><li><a href="#確認">確認</a></li></ol></details></nav>
+<main>
+
+<p><strong>更新日:</strong> 2026-10-17　<strong>目安:</strong> 2〜3日　<strong>前提:</strong> <a href="01-common-knowledge.html">01. 常識編</a><br />
+<strong>ゴール:</strong> このプロジェクトのコードを<strong>読んで、何をしているか説明できる</strong>。書くのは次の応用編から。</p>
+<p>読み方のコツ: 全部を覚えない。<strong>この章の表を手元に置いて、コードを読みながら引く</strong>。</p>
+<hr />
+<h2 id="1-typescriptを読むworker本体">1. TypeScriptを読む（Worker本体）</h2>
+<p>Worker（<code>cloudflare-rag-poc/src/</code>）はTypeScript。JavaScriptに「型」を足した言語。</p>
+<h3 id="11-最低限の文法">1.1 最低限の文法</h3>
+<pre><code class="language-ts">// 変数: const は再代入しない、let は再代入する
+const limit = 5;
+let count = 0;
+
+// 関数（型つき）。引数と戻り値の型を書く
+export function jsonResponse(status: number, body: unknown): Response { ... }
+
+// アロー関数: 短い関数を、その場で書く
+const names = users.map((u) =&gt; u.name);
+
+// オブジェクトと分割代入
+const { userId, role } = user;
+
+// 型の定義
+interface AuthedUser { userId: string; role: &quot;admin&quot; | &quot;member&quot; | &quot;guest&quot;; }
+
+// 省略可能(?)・null許容
+function f(a?: string, b: string | null) { ... }
+
+// テンプレート文字列（バッククォート）
+const msg = `namespace(${ns})への書き込み権限がありません`;
+
+// 配列・Map・Set
+const ids = rows.map((r) =&gt; r.id);
+const byId = new Map(rows.map((r) =&gt; [r.id, r]));
+
+// モジュール: 別ファイルの関数を読む
+import { jsonResponse } from &quot;./http&quot;;
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>見かけたもの</th>
+<th>意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>x ?? y</code></td>
+<td><code>x</code>が<code>null</code>/<code>undefined</code>のときだけ<code>y</code></td>
+</tr>
+<tr>
+<td><code>x?.y</code></td>
+<td><code>x</code>が<code>null</code>でなければ<code>x.y</code>、そうでなければ<code>undefined</code></td>
+</tr>
+<tr>
+<td><code>a \|\| b</code></td>
+<td><code>a</code>が偽（空文字・0・nullなど）なら<code>b</code></td>
+</tr>
+<tr>
+<td><code>as T</code></td>
+<td>「この値は<code>T</code>型だ」と、コンパイラに伝える（実行時の確認はしない）</td>
+</tr>
+<tr>
+<td><code>unknown</code></td>
+<td>何が入っているか分からない値。使う前に確認が必要</td>
+</tr>
+<tr>
+<td><code>Promise&lt;T&gt;</code></td>
+<td>後で<code>T</code>になる、非同期の結果</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="12-非同期asyncawait">1.2 非同期（async/await）</h3>
+<p>ネットワークやDBの呼び出しは、結果が返るまで待つ。<code>await</code>で待つ。<code>await</code>は<code>async</code>関数の中でだけ使える。</p>
+<pre><code class="language-ts">async function load(env: Env, userId: string) {
+  const row = await env.DB.prepare(&quot;SELECT role FROM users WHERE user_id = ?&quot;)
+    .bind(userId)
+    .first();            // ← 結果が返るまで、ここで待つ
+  return row;
+}
+
+// 複数を同時に待つ（互いに依存しないときだけ）
+const [a, b] = await Promise.all([loadA(), loadB()]);
+</code></pre>
+<p><strong>よくある間違い:</strong> <code>await</code>を付け忘れる。型は<code>Promise&lt;...&gt;</code>のまま進み、中身が取れない。「書き込んだのに反映されない」ときは、<code>await</code>の付け忘れを疑う。</p>
+<h3 id="13-エラー処理">1.3 エラー処理</h3>
+<pre><code class="language-ts">try {
+  await doWork();
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  return jsonResponse(500, { error: message });
+}
+</code></pre>
+<p>このプロジェクトの規約: <strong>画面に出すエラーは、日本語で、原因と対処が分かる文にする</strong>。</p>
+<h3 id="14-workerの基本形">1.4 Workerの基本形</h3>
+<pre><code class="language-ts">export default {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise&lt;Response&gt; {
+    // 1) URLのパスで処理を振り分け  2) 認証  3) 処理  4) jsonResponse で返す
+  },
+  async scheduled(event, env, ctx) { /* Cronで呼ばれる */ },
+};
+</code></pre>
+<ul>
+<li><code>env</code>: Cloudflareが渡す、DB・ベクトルDB・秘密の値（<code>env.DB</code>, <code>env.VEC_SHARED</code>, <code>env.GEMINI_API_KEY</code>）。<strong>どれが入るかは <code>wrangler.jsonc</code> の設定で決まる。</strong></li>
+<li><code>ctx.waitUntil(promise)</code>: レスポンスを返した後も、その処理を続けさせる（Slackの遅延応答で使用）。</li>
+</ul>
+<h3 id="練習">練習</h3>
+<ol>
+<li><a href="../../cloudflare-rag-poc/src/http.ts"><code>src/http.ts</code></a> の<code>clampInt</code>に、<code>("abc", 10, 1, 100)</code>と<code>(500, 10, 1, 100)</code>を渡すと、それぞれ何が返るか。なぜか。</li>
+<li><a href="../../cloudflare-rag-poc/src/chunking.ts"><code>src/chunking.ts</code></a> の<code>chunkText</code>に、2,300文字の文章を渡す（<code>size</code>・<code>overlap</code>は既定値）。チャンクはいくつできて、2番目の開始位置は何文字目か。</li>
+<li><a href="../../cloudflare-rag-poc/src/index.ts"><code>src/index.ts</code></a>の<code>fetch</code>を読み、「認証が必要なルート」と「不要なルート」を、それぞれ2つ挙げる。</li>
+<li><code>async</code>でない関数の中で<code>await</code>を書くと、何が起きるか。</li>
+</ol>
+<p><strong>ヒント:</strong> 1は、<code>Number("abc")</code>が<code>NaN</code>になる点。2は、<code>start = end - overlap</code>の計算。3は、<code>/health</code>・<code>/admin/bootstrap</code>・<code>/slack/command</code>と、<code>authenticate</code>を呼ぶ位置を見比べる。</p>
+<h2 id="2-sqlとsqliteを読むd1">2. SQLとSQLiteを読む（D1）</h2>
+<p>D1はSQLite（小さなデータベース）をクラウドで使えるようにしたもの。<strong>このプロジェクトのデータの形は、<code>migrations/*.sql</code>を順に読めば全部分かる。</strong></p>
+<h3 id="21-基本の命令">2.1 基本の命令</h3>
+<pre><code class="language-sql">-- 読む
+SELECT user_id, role FROM users WHERE role = 'admin' ORDER BY created_at DESC LIMIT 10;
+
+-- 件数・集計
+SELECT namespace, COUNT(*) AS n FROM kb_documents GROUP BY namespace;
+
+-- 書く
+INSERT INTO users (user_id, role, created_at) VALUES ('u1', 'member', 1760000000);
+UPDATE token_budgets SET used_tokens = used_tokens + 100 WHERE user_id = 'u1';
+DELETE FROM threads WHERE user_id = 'u1';
+
+-- 結合（2つの表を、共通の値でつなぐ）
+SELECT d.file, l.status
+FROM kb_documents d JOIN kb_log l ON l.namespace_id = d.namespace AND l.file = d.file;
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>用語</th>
+<th>意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主キー（PRIMARY KEY）</td>
+<td>行を一意に決める列。重複できない</td>
+</tr>
+<tr>
+<td>索引（INDEX）</td>
+<td>検索を速くする目次。<strong>索引の無い列で探すと、全行を読む</strong></td>
+</tr>
+<tr>
+<td><code>NULL</code></td>
+<td>値が無い。<code>= NULL</code>では比較できず、<code>IS NULL</code>を使う</td>
+</tr>
+<tr>
+<td><code>?</code>と<code>bind</code></td>
+<td>値の差し込み。<strong>文字列を直接つなげて書かない</strong>（SQLインジェクション）</td>
+</tr>
+<tr>
+<td>トランザクション・<code>batch</code></td>
+<td>複数の命令をまとめて、全部成功か全部失敗にする</td>
+</tr>
+<tr>
+<td><code>INSERT OR REPLACE</code></td>
+<td>同じ主キーがあれば置き換える</td>
+</tr>
+<tr>
+<td><code>ON CONFLICT ... DO UPDATE</code></td>
+<td>同じ主キーがあれば、指定の列だけ更新する</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="22-速い遅いではなく何行読むかで考える">2.2 「速い・遅い」ではなく「何行読むか」で考える</h3>
+<p>D1は<strong>読んだ行数</strong>で、無料枠が決まる（<a href="01-common-knowledge.html#7-費用と上限の常識">01 §7</a>）。命令が「何行読むか」は、次で調べられる。</p>
+<pre><code class="language-sql">EXPLAIN QUERY PLAN SELECT * FROM kb_documents WHERE namespace = 'shared:docs';
+-- SEARCH ... USING INDEX idx_kb_documents_namespace  ← 索引で絞れている（良い）
+-- SCAN ...                                           ← 全行を読んでいる（要注意）
+</code></pre>
+<ul>
+<li>条件の列に索引がある → <code>SEARCH</code>（少ない行だけ読む）</li>
+<li>索引が無い、または<code>LIKE '%…'</code>（先頭が不定の部分一致）→ <code>SCAN</code>（全部読む）</li>
+<li><strong>FTS5の<code>UNINDEXED</code>列</strong>（<code>chunks_fts</code>の<code>chunk_id</code>・<code>namespace</code>・<code>file</code>）で探すと、必ず全部読む。そのため、このプロジェクトでは<strong>対応表<code>chunk_rows</code></strong>（<a href="../../cloudflare-rag-poc/migrations/0030_chunk_rows.sql">migrations/0030</a>）と<code>kb_documents</code>（<a href="../../cloudflare-rag-poc/migrations/0008_kb_documents.sql">migrations/0008</a>）を作って、全部読まずに済ませている。<strong>どちらのファイルの冒頭コメントにも、実際に起きた問題の経緯が書いてある。</strong> 必ず読むこと。</li>
+</ul>
+<h3 id="23-マイグレーション">2.3 マイグレーション</h3>
+<ul>
+<li>表の構造の変更は、<strong>番号つきのSQLファイルを追加</strong>して行う（<code>migrations/0031_…sql</code>）。<strong>適用済みのファイルは、書き換えない。</strong></li>
+<li>適用は、<code>wrangler d1 migrations apply</code>。<strong>適用の記録が残るので、同じファイルは二度流れない。</strong></li>
+<li>順序の鉄則: <strong>マイグレーションを先に適用 → 新しいコードをデプロイ</strong>。逆にすると、新しいコードが存在しない表を読んで、全部が500になる。</li>
+<li>既存の行を埋める処理（バックフィル）は、そのマイグレーションの中に書く。</li>
+</ul>
+<h3 id="練習_1">練習</h3>
+<ol>
+<li><code>migrations/0004_kb_sources.sql</code>を読み、<code>kb_log</code>にはどんな列があるか、表にまとめる。</li>
+<li>「<code>kb_log</code>から、状態が<code>error</code>のものを、新しい順に20件」を取るSQLを書く。</li>
+<li>次の2つは、どちらが何行読むか。理由も。<code>SELECT * FROM kb_documents WHERE namespace = 'x'</code>／<code>SELECT * FROM chunks_fts WHERE namespace = 'x'</code></li>
+<li><code>migrations/</code>のうち、<strong>索引を作っているもの</strong>を、すべて探す。（ヒント: <code>grep -n "CREATE INDEX" migrations/*.sql</code>）</li>
+</ol>
+<h2 id="3-pythonを読むhoudiniパネルローカルrag">3. Pythonを読む（Houdiniパネル・ローカルRAG）</h2>
+<pre><code class="language-python">from __future__ import annotations      # 型ヒントの書き方を新しい形にする（先頭に書く）
+import json
+from pathlib import Path
+
+class HoudiniToolExecutor:               # クラス: データと処理をまとめたもの
+    def __init__(self, sandbox_path: str) -&gt; None:   # 作るときに呼ばれる
+        self.sandbox_path = sandbox_path             # self.〜 は、そのオブジェクトの持ち物
+
+    def execute(self, tool_name: str, tool_input: dict) -&gt; tuple[str, bool]:
+        handler = getattr(self, f&quot;_tool_{tool_name}&quot;, None)   # 名前から関数を取り出す
+        if handler is None:
+            return f&quot;未知のツールです: {tool_name}&quot;, True
+        try:
+            return handler(tool_input), False
+        except Exception as exc:                  # 例外を捕まえて、結果として返す
+            return f&quot;エラー: {exc}&quot;, True
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>見かけたもの</th>
+<th>意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>インデント</td>
+<td>Pythonでは<strong>インデントが構文</strong>。タブとスペースを混ぜない</td>
+</tr>
+<tr>
+<td><code>def f(x: int) -&gt; str:</code></td>
+<td>関数。<code>-&gt;</code>は戻り値の型</td>
+</tr>
+<tr>
+<td><code>_name</code>（先頭に<code>_</code>）</td>
+<td>「内部用」の約束。外から呼ばない</td>
+</tr>
+<tr>
+<td><code>f"…{x}…"</code></td>
+<td>文字列に変数を埋め込む</td>
+</tr>
+<tr>
+<td><code>with open(p) as f:</code></td>
+<td>ファイルを開き、終わったら必ず閉じる</td>
+</tr>
+<tr>
+<td><code>try / except</code></td>
+<td>例外の処理（TypeScriptの<code>try / catch</code>）</td>
+</tr>
+<tr>
+<td><code>dict</code> / <code>list</code></td>
+<td><code>{"a": 1}</code> / <code>[1, 2]</code></td>
+</tr>
+<tr>
+<td><code>uv run python x.py</code></td>
+<td>このプロジェクトのPython実行。依存は<code>pyproject.toml</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Houdini内のPythonは、<strong>Houdini同梱のPython</strong>で動く。追加のパッケージを入れにくいため、<code>tutorial_agent.py</code>は<code>urllib</code>（標準ライブラリ）だけでHTTPを呼ぶ。</p>
+<h3 id="練習_2">練習</h3>
+<ol>
+<li><a href="../../houdini/python_panels/houdini_tools.py"><code>houdini_tools.py</code></a>の<code>execute</code>（550行付近）を読み、「未知のツール名」「例外」「サンドボックス違反」のとき、それぞれ何を返すか。</li>
+<li><code>_run_in_main_thread</code>（351行付近）は、何のために、何をしているか。（→ <a href="03-specialized.html#7-houdini">03 専門編 §7</a>）</li>
+</ol>
+<h2 id="4-cを読むunity">4. C#を読む（Unity）</h2>
+<p>Unity側（<code>Assets/Editor/RAGChatbot/</code>）の読み方の最低限。</p>
+<ul>
+<li><code>interface IRAGClient</code> は「できること」の約束。<code>CloudRAGClient</code>・<code>LocalRAGClient</code>が、それぞれ実装する。<strong>接続先を切り替えても、画面側のコードは変わらない。</strong>（Workerの層の考え方と同じ。→ <a href="../architecture-layering-plan.html">architecture-layering-plan.md</a>）</li>
+<li><code>EditorWindow</code>を継承したクラスが、Unityのエディタ内のウィンドウになる（<code>RAGChatbotWindow.cs</code>）。</li>
+<li>通信は非同期。画面の更新は、Unityのメインスレッドで行う。</li>
+</ul>
+<p>練習: <code>IRAGClient.cs</code>を開き、メソッドを書き出す。<code>CloudRAGClient.cs</code>と<code>LocalRAGClient.cs</code>で、同じメソッドの中身の違い（接続先・認証）を、1行ずつ書く。</p>
+<h2 id="5-開発環境">5. 開発環境</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>道具</th>
+<th>用途</th>
+<th>確認</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node.js / npm</td>
+<td>Workerの開発（TypeScript）</td>
+<td><code>node -v</code> / <code>npm -v</code></td>
+</tr>
+<tr>
+<td><code>wrangler</code></td>
+<td>Cloudflareの操作（開発・デプロイ・D1）</td>
+<td><code>npx wrangler --version</code></td>
+</tr>
+<tr>
+<td><code>uv</code></td>
+<td>Pythonの実行・依存管理</td>
+<td><code>uv --version</code></td>
+</tr>
+<tr>
+<td>Git</td>
+<td>履歴管理</td>
+<td><code>git --version</code></td>
+</tr>
+<tr>
+<td>PowerShell / Bash</td>
+<td>コマンド操作（→ <a href="05-scripts.html">05 Script編</a>）</td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>Worker: <code>cd cloudflare-rag-poc</code> → <code>npm install</code>（初回のみ）→ <code>npm run typecheck</code>（型の確認）→ <code>npm run dev</code>（ローカルで起動）</li>
+<li><strong>ローカル起動のDB（<code>--remote</code>無し）は、本番と別物。</strong> 空のことが多い。</li>
+</ul>
+<h2 id="6-cloudflareの基本">6. Cloudflareの基本</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>部品</th>
+<th>一言で</th>
+<th>このプロジェクトでの使い方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Workers</strong></td>
+<td>サーバーを持たずにコードを動かす。世界中の拠点で、必要なときだけ動く</td>
+<td><code>src/index.ts</code>がAPIとチャット画面を返す</td>
+</tr>
+<tr>
+<td><strong>D1</strong></td>
+<td>SQLite互換のDB</td>
+<td>利用者・履歴・予算・全文検索（FTS5）</td>
+</tr>
+<tr>
+<td><strong>Vectorize</strong></td>
+<td>ベクトル検索のDB</td>
+<td>意味検索（共有用<code>rag-poc-shared</code>、個人用<code>rag-poc-personal</code>）</td>
+</tr>
+<tr>
+<td><strong>Cron Triggers</strong></td>
+<td>決まった時刻にコードを呼ぶ</td>
+<td>ヘルスチェック（30分ごと）、日次の差分同期、定期の再クロール</td>
+</tr>
+<tr>
+<td><strong>Secrets</strong></td>
+<td>秘密の値の保管</td>
+<td><code>wrangler secret put GEMINI_API_KEY</code></td>
+</tr>
+<tr>
+<td><strong>wrangler.jsonc</strong></td>
+<td>上記の設定ファイル</td>
+<td><code>cloudflare-rag-poc/wrangler.jsonc</code></td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><code>binding</code>は「コードの中での名前」。<code>"binding": "DB"</code>と書けば、コードでは<code>env.DB</code>で使える。</li>
+<li><strong>Workersの制約</strong>（1回のCPU時間、外部呼び出し数、メモリ128MB）が、このプロジェクトの設計（バッチ処理＋再開）の理由。→ <a href="03-specialized.html#5-cloudflare特有の制約と回避策">03 専門編 §5</a></li>
+</ul>
+<h3 id="練習_3">練習</h3>
+<ol>
+<li><a href="../../cloudflare-rag-poc/wrangler.jsonc"><code>wrangler.jsonc</code></a>を読み、D1・Vectorize・Cronの設定を、それぞれ1行で説明する。</li>
+<li><code>env.VEC_SHARED</code>は、<code>wrangler.jsonc</code>のどの記述から来るか。</li>
+<li><code>wrangler secret put</code>で登録した値は、<code>wrangler.jsonc</code>に書かれていない。なぜ書かないのか。</li>
+</ol>
+<h2 id="確認">確認</h2>
+<ul>
+<li><a href="README.html">README.md</a>の「基礎」のチェック4項目に答えられる。</li>
+<li>任意のファイル1つ（おすすめ: <code>src/budget.ts</code>）を、行ごとに「何をしているか」を日本語で書き出せる。</li>
+</ul>
+</main>
+<div class="pager"><a href="01-common-knowledge.html">← 前へ</a><a href="03-specialized.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>座学資料: AIなしでも保守・拡張できるようになるために</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a class="current" href="README.html">目次</a><a href="01-common-knowledge.html">01</a><a href="02-fundamentals.html">02</a><a href="03-specialized.html">03</a><a href="04-applied.html">04</a><a href="05-scripts.html">05</a><a href="06-maintenance-runbook.html">06</a></nav>
+<header class="hero">
+  <span class="badge">座学資料</span>
+  <h1>座学資料: AIなしでも保守・拡張できるようになるために</h1>
+  <div class="meta">HTML生成: 2026-10-20（元: docs/learning/README.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-構成4段階-手順">1. 構成（4段階 ＋ 手順）</a></li><li><a href="#2-目的別の学習パス">2. 目的別の学習パス</a></li><li><a href="#3-学び方のルール">3. 学び方のルール</a></li><li><a href="#4-到達度チェックリスト">4. 到達度チェックリスト</a></li><li><a href="#5-この資料の保守">5. この資料の保守</a></li></ol></details></nav>
+<main>
+
+<p><strong>作成日:</strong> 2026-10-17<br />
+<strong>目的:</strong> このプロジェクト（RAG環境・Cloudflare Worker・Houdini/Unity連携）を、AIに頼らなくても<strong>動かし続け、直し、機能を足せる</strong>ようにする。<br />
+<strong>対象:</strong> 開発者本人、およびこのプロジェクトを引き継ぐ人。<br />
+<strong>位置づけ:</strong> 設計資料（<code>docs/</code>の他のファイル）は「何がどうなっているか」。この資料は「それを自分で読み書きするために、何を知っている必要があるか」。</p>
+<hr />
+<h2 id="1-構成4段階-手順">1. 構成（4段階 ＋ 手順）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>段階</th>
+<th>資料</th>
+<th>中身</th>
+<th>目安</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>常識</td>
+<td><a href="01-common-knowledge.html">01-common-knowledge.md</a></td>
+<td>OS・ネットワーク・データ形式・セキュリティ・Git・仕事の進め方・費用と上限</td>
+<td>半日</td>
+</tr>
+<tr>
+<td>基礎</td>
+<td><a href="02-fundamentals.html">02-fundamentals.md</a></td>
+<td>TypeScript・SQL/SQLite・Python・C#の読み方、開発環境、Cloudflareの基本</td>
+<td>2〜3日</td>
+</tr>
+<tr>
+<td>専門</td>
+<td><a href="03-specialized.html">03-specialized.md</a></td>
+<td>RAG、LLMのAPIとtool use、認証・OAuth、MCP、Cloudflare特有の制約、Houdini、Unity</td>
+<td>1〜2週間</td>
+</tr>
+<tr>
+<td>応用</td>
+<td><a href="04-applied.html">04-applied.md</a></td>
+<td>このプロジェクトの設計パターン、機能を足す手順（レシピ）、テスト、デバッグ、リリース</td>
+<td>1週間</td>
+</tr>
+<tr>
+<td>Script</td>
+<td><a href="05-scripts.html">05-scripts.md</a></td>
+<td>PowerShell/Bash/Pythonのスクリプト、<code>wrangler</code>、プロジェクトの<code>scripts/</code>の地図、安全な自動化</td>
+<td>2〜3日</td>
+</tr>
+<tr>
+<td>保守</td>
+<td><a href="06-maintenance-runbook.html">06-maintenance-runbook.md</a></td>
+<td>日次・週次・月次の点検、症状別の切り分け、実際に起きた障害の復旧記録</td>
+<td>随時参照</td>
+</tr>
+</tbody>
+</table></div>
+<p>関連: 用語は<a href="../glossary.html">glossary.md</a>・<a href="../terminology.md">terminology.md</a>、構造は<a href="../architecture-layering-plan.html">architecture-layering-plan.md</a>、使い方は<a href="../user-manual.html">user-manual.md</a>、運用は<a href="../cloudflare-rag-operations-manual.md">cloudflare-rag-operations-manual.md</a>。</p>
+<h2 id="2-目的別の学習パス">2. 目的別の学習パス</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>やりたいこと</th>
+<th>読む順番</th>
+<th>ここまで読めば</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>止まったときに、直せる</strong>（運用のみ）</td>
+<td>01 → 06 → 05（wranglerの節） → 02（SQLの節）</td>
+<td>症状から原因を切り分け、D1の中身を確認し、復旧できる</td>
+</tr>
+<tr>
+<td><strong>機能を足せる</strong>（保守開発）</td>
+<td>01 → 02 → 04 → 03（必要な章） → 05</td>
+<td>新しいAPI・連携・画面を、レシピに沿って追加できる</td>
+</tr>
+<tr>
+<td><strong>設計を変えられる</strong>（アーキテクト）</td>
+<td>すべて ＋ <a href="../architecture-layering-plan.html">architecture-layering-plan.md</a></td>
+<td>層の分け方・契約・移行の順序を、自分で判断できる</td>
+</tr>
+<tr>
+<td><strong>Houdini側だけ触る</strong></td>
+<td>01 → 02（Python） → 03（Houdini・LLM） → 04（Houdiniツール追加）</td>
+<td>チュートリアル生成のツールを足し、挙動を調整できる</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-学び方のルール">3. 学び方のルール</h2>
+<ol>
+<li><strong>読むだけで終わらせない。</strong> 各章の「練習」は、実際にこのリポジトリのファイルを開いて答える形になっている。答えは章末の「ヒント」で確認する（答えそのものは書かない。コードに書いてある）。</li>
+<li><strong>本番に触れない。</strong> 練習は、ローカルの開発用DB（<code>--remote</code>を付けない）と、読み取り専用のコマンドだけで行う。<code>--remote</code>を付けるのは、本番を見たいと決めたときだけ。</li>
+<li><strong>分からなくなったら、コードより先にエラーメッセージを読む。</strong> このプロジェクトのエラーは、日本語で原因と対処を出すように作ってある。</li>
+<li><strong>変更は小さく、1つずつ。</strong> 1回の変更で複数の問題を直そうとしない。</li>
+<li><strong>「なぜそうなっているか」を探す。</strong> コード内のコメントには、実際に起きた問題と、その対策の経緯が書いてある。設計を変える前に、そのコメントを読む。</li>
+</ol>
+<h2 id="4-到達度チェックリスト">4. 到達度チェックリスト</h2>
+<p>自己採点用。✔が付けば、その段階は終わり。</p>
+<p><strong>常識</strong><br />
+- [ ] HTTPのステータスコード（200/401/403/404/429/500/503）の意味を説明できる<br />
+- [ ] <code>Unexpected token '&lt;'</code> というエラーが、なぜ出るのかを説明できる<br />
+- [ ] APIキーを、どこに置いてはいけないか言える<br />
+- [ ] 無料枠の上限に達したとき、何が起きるかを説明できる</p>
+<p><strong>基礎</strong><br />
+- [ ] <code>src/http.ts</code> と <code>src/chunking.ts</code> を読んで、何をしているか説明できる<br />
+- [ ] <code>migrations/</code> の任意のSQLを読んで、表の構造を説明できる<br />
+- [ ] <code>async/await</code> と <code>Promise</code> の違いを説明できる<br />
+- [ ] <code>wrangler d1 execute</code>で、本番とローカルを間違えずに使い分けられる</p>
+<p><strong>専門</strong><br />
+- [ ] 検索の流れ（質問 → 埋め込み → ベクトル検索＋FTS → 統合 → 回答）を、図に描ける<br />
+- [ ] OAuthのAuthorization Code＋PKCEの流れを説明できる<br />
+- [ ] tool useのループ（<code>tutorial_agent.py</code>）を、擬似コードで書ける<br />
+- [ ] D1の「読み取り行数」が増える原因を、3つ挙げられる</p>
+<p><strong>応用</strong><br />
+- [ ] 新しいAPIルート（権限つき）を、レシピに沿って追加できる<br />
+- [ ] 新しいマイグレーションを書き、ローカルで適用して確かめられる<br />
+- [ ] リリースの手順（型チェック → マイグレーション → デプロイ → 動作確認）を、順序の理由つきで説明できる</p>
+<p><strong>Script</strong><br />
+- [ ] PowerShellとBashの違い（変数・クォート・パス）を3つ挙げられる<br />
+- [ ] 「確認なしで本番を変更するコマンド」を、なぜ避けるのか説明できる</p>
+<p><strong>保守</strong><br />
+- [ ] 「全APIが500を返す」ときの切り分けを、手順どおりに行える<br />
+- [ ] 本番のD1の状態を、書き換えずに確認できる</p>
+<h2 id="5-この資料の保守">5. この資料の保守</h2>
+<ul>
+<li>コードを変えたら、関連する章の「このプロジェクトでは」の節を更新する。更新日を各章の先頭に書く。</li>
+<li>新しい障害が起きたら、<a href="06-maintenance-runbook.html">06-maintenance-runbook.md</a>の「障害記録」に1件足す（原因・症状・復旧手順・再発防止）。<strong>一番価値が高いのは、この記録。</strong></li>
+<li>事実が変わりやすいもの（無料枠の数字、各サービスの画面・仕様）は、本文では「2026-10時点」と書き、公式ページへのリンクを添える。数字は古くなる前提で読む。</li>
+</ul>
+</main>
+<div class="pager"><span></span><a href="01-common-knowledge.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>
