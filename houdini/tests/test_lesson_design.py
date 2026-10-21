@@ -270,6 +270,50 @@ class AgentAssemblyTest(unittest.TestCase):
         ex._finish_drafts = []
         self.assertNotIn("書き足しが必要", ex._tool_finish_tutorial(dict(FULL_FINISH)))
 
+    def _executor(self):
+        import houdini_tools
+
+        ex = houdini_tools.HoudiniToolExecutor.__new__(houdini_tools.HoudiniToolExecutor)
+        ex._pending_finish = dict(FULL_FINISH)
+        ex._finish_drafts = [dict(FULL_FINISH)]
+        ex.finish_data = None
+        return ex
+
+    def test_note_reports_problem(self) -> None:
+        import houdini_tools
+
+        f = houdini_tools.HoudiniToolExecutor.note_reports_problem
+        # 実機で確定してしまった note（2026-10-21）
+        self.assertTrue(f("ビューポートにはボリュームの枠のみが見えており、煙の中身は見えていません。フィールドの存在は確認済み"))
+        self.assertTrue(f("画面に何も映っていません"))
+        self.assertTrue(f("Nothing is visible in the viewport"))
+        self.assertFalse(f("岩が散らばって見えており、意図どおりです"))
+        self.assertFalse(f("見えない問題はありません。点が見えています"))
+        self.assertFalse(f(""))
+        self.assertFalse(f(None))
+
+    def test_confirm_rejects_contradiction_then_lets_a_reasoned_confirmation_through(self) -> None:
+        ex = self._executor()
+        bad = {"looks_correct": True, "note": "ボリュームの枠のみが見えており、煙の中身は見えていません"}
+        first = ex._tool_confirm_tutorial(dict(bad))
+        self.assertIn("looks_correct=true になっています", first)
+        self.assertIsNone(ex.finish_data, "a contradictory confirmation must not finish the tutorial")
+        self.assertIsNotNone(ex._pending_finish, "the draft stays pending so the model can fix and confirm again")
+        ex._tool_confirm_tutorial(dict(bad))
+        self.assertIsNone(ex.finish_data)
+        third = ex._tool_confirm_tutorial(dict(bad))  # 差し戻しは最大2回。無限ループにしない
+        self.assertIn("完了", third)
+        self.assertIsNotNone(ex.finish_data)
+
+    def test_confirm_accepts_clean_note_and_false_path_unchanged(self) -> None:
+        ex = self._executor()
+        self.assertIn("完了", ex._tool_confirm_tutorial({"looks_correct": True, "note": "意図どおりに見えています"}))
+        self.assertIsNotNone(ex.finish_data)
+        ex2 = self._executor()
+        self.assertIn("修正", ex2._tool_confirm_tutorial({"looks_correct": False, "note": "枠のみ"}))
+        self.assertIsNone(ex2.finish_data)
+        self.assertIsNone(ex2._pending_finish)
+
     def test_finish_schema_has_lesson_fields(self) -> None:
         import houdini_tools
 

@@ -1618,10 +1618,42 @@ class HoudiniToolExecutor:
         )
         return best if content_length(best) >= self._MIN_DRAFT_CONTENT_CHARS else None
 
+    # confirm_tutorial の note が「見えない」ことを述べているかの判定語。
+    _PROBLEM_NOTE_RE = re.compile(
+        r"見えて(?:い)?(?:ま)?(?:せ)?ん|見えない|見えず|見えにくい|映って(?:い)?(?:ま)?(?:せ)?ん|映らない|"
+        r"表示されて(?:い)?(?:ま)?(?:せ)?ん|表示されない|枠のみ|枠だけ|中身は?見え|何も(?:ない|見え|映)|空っぽ|崩れ|"
+        r"not visible|nothing (?:is )?(?:visible|shown)|invisible|only the bounding"
+        , re.IGNORECASE,
+    )
+    # 否定の否定（「見えない問題はありません」等）で誤って差し戻さないための打ち消し語。
+    _PROBLEM_NOTE_NEGATION_RE = re.compile(r"問題(?:は)?(?:あり|な)(?:ま)?(?:せ)?ん|問題なし|問題ない|見えないことはない")
+    _MAX_CONFIRM_CONTRADICTIONS = 2
+
+    @classmethod
+    def note_reports_problem(cls, note: object) -> bool:
+        text = note if isinstance(note, str) else ""
+        return bool(cls._PROBLEM_NOTE_RE.search(text)) and not cls._PROBLEM_NOTE_NEGATION_RE.search(text)
+
     def _tool_confirm_tutorial(self, args: dict) -> str:
         if self._pending_finish is None:
             return "finish_tutorial をまだ呼んでいません。先に finish_tutorial を呼んでください。"
         if args.get("looks_correct", False):
+            # 2026-10-21: 実機で、note に「ボリュームの枠のみが見えており、煙の中身は見えていません」と
+            # 自分で書きながら looks_correct=true で確定し、煙のない動画になった。note が問題を述べているのに
+            # 「正しい」と確定するのは矛盾なので、最大2回まで差し戻す（直せない・仕様の場合は、理由を書いて
+            # もう一度 confirm_tutorial すれば通る）。
+            contradictions = getattr(self, "_confirm_contradictions", 0)
+            if contradictions < self._MAX_CONFIRM_CONTRADICTIONS and self.note_reports_problem(args.get("note")):
+                self._confirm_contradictions = contradictions + 1
+                return (
+                    "note には見た目の問題（見えない・映っていない等）が書かれていますが、looks_correct=true になっています。"
+                    "動画とチュートリアルの最初の画面になるので、見えない状態で確定しないでください。\n"
+                    "- 直せる場合: 見える形にしてから、finish_tutorial → confirm_tutorial をやり直す。"
+                    "（例: ボリュームはビューポートで枠だけに見えることがある。メッシュにする（isooffset）、ポイントに変える、"
+                    "可視化用のノードを足す、など。ノード名が不確かなら list_available_node_types で確認する）\n"
+                    "- 仕様で見えない・どうしても直せない場合: その理由を note と pitfalls に具体的に書き、"
+                    "もう一度 confirm_tutorial(looks_correct=true) を呼ぶ。"
+                )
             self.finish_data = self._pending_finish
             self._pending_finish = None
             return "確認しました。チュートリアル生成を完了します。"
