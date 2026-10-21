@@ -5,6 +5,7 @@ import { answerWithMcpTools, type McpToolCallLog } from "./mcp/chat";
 import { BudgetExceededError, reserveBudget, reconcileBudget } from "./budget";
 import { assertNotRateLimited } from "./rateLimit";
 import { buildContextTexts, resolveEffectiveNamespaces, retrieve } from "./retrieve";
+import { normalizeContextHint } from "./houdiniContext";
 import { saveMemory } from "./memory";
 import { touchThread } from "./threads";
 import { startAuditLog, finalizeAuditLog } from "./auditLog";
@@ -87,8 +88,8 @@ async function prepareQuery(
   if (!reserved) throw new BudgetExceededError("rag");
 
   try {
-    const { ranked, hydeTokensUsed } = await retrieve(env, user, query, effective, level, limit);
-    const { texts, sources } = buildContextTexts(ranked);
+    const { ranked, hydeTokensUsed, contextNote } = await retrieve(env, user, query, effective, level, limit, normalizeContextHint(body.context));
+    const { texts, sources } = buildContextTexts(ranked, contextNote);
     return {
       prepared: {
         query,

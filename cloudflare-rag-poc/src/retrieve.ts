@@ -3,10 +3,13 @@ import { embedText, hydeExpand } from "./embeddings";
 import { hybridSearch, type RankedChunk } from "./hybrid";
 import { getRemaining } from "./budget";
 import { jsonResponse } from "./http";
+import { ambiguityNote, boostByContext, detectContextCues, type DocContext } from "./houdiniContext";
 
 export interface RetrieveResult {
   ranked: RankedChunk[];
   hydeTokensUsed: number;
+  /** 同名ノードが複数の章にあり、章の指定が無いときの注意書き（無ければ空文字）。houdiniContext.ts */
+  contextNote: string;
 }
 
 // namespace（DB）ごとの採用件数上限を取得する。設定が無いnamespaceはMapに含まれない
@@ -60,16 +63,18 @@ export async function retrieve(
   namespaces: string[],
   level: string,
   limit: number,
+  contextHint: DocContext[] = [],
 ): Promise<RetrieveResult> {
   // namespaceの上限設定はnamespaces引数だけで決まり、hyde/embed/検索の結果には依存しない
   // ため、そのチェーンと並行して先に投げておく（2026-09-04、直列awaitで検索の裏で
   // 使える待ち時間を無駄にしていた不備を修正。実際に使うのは最後のcapPerNamespaceの手前）。
   const capsPromise = getNamespaceCaps(env, namespaces);
   const hyde = await hydeExpand(env, query);
-  const queryVector = await embedText(env, hyde.text);
+  // 仮の回答だけでなく、質問そのものも検索に使う（あいまいな質問で、仮の回答が1つの章に偏っても、結果が安定する）。
+  const [hydeVector, rawVector] = await Promise.all([embedText(env, hyde.text), embedText(env, query)]);
   const ranked = await hybridSearch(
     env,
-    queryVector,
+    [hydeVector, rawVector],
     query,
     namespaces,
     user.userId,
@@ -80,15 +85,21 @@ export async function retrieve(
         (r) => !r.metadata.difficulty || r.metadata.difficulty === level,
       )
     : ranked;
+  // 章の指定（質問の中、または呼び出し側が渡した作業場所）があるときだけ、その章の結果の順位を上げる。除外はしない。
+  const specified: DocContext[] = [...detectContextCues(query)];
+  for (const c of contextHint) if (!specified.includes(c)) specified.push(c);
+  const boosted = boostByContext(filtered, specified);
   const caps = await capsPromise;
-  const capped = capPerNamespace(filtered, caps, limit);
+  const capped = capPerNamespace(boosted, caps, limit);
+  const top = capped.slice(0, limit);
   return {
-    ranked: capped.slice(0, limit),
+    ranked: top,
     hydeTokensUsed: hyde.promptTokens + hyde.candidateTokens,
+    contextNote: ambiguityNote(top, specified),
   };
 }
 
-export function buildContextTexts(ranked: RankedChunk[]): {
+export function buildContextTexts(ranked: RankedChunk[], contextNote = ""): {
   texts: string[];
   sources: SourceEntry[];
 } {
@@ -96,6 +107,8 @@ export function buildContextTexts(ranked: RankedChunk[]): {
   // 100として相対的なパーセンテージに正規化する（UIでの「関連度」表示用）。
   const maxScore = Math.max(...ranked.map((r) => r.score ?? 0), 1e-9);
   const texts: string[] = [`検索結果（${ranked.length} 件）:`];
+  if (contextNote) texts.push(`
+${contextNote}`);
   const sources: SourceEntry[] = [];
   ranked.forEach((r, i) => {
     texts.push(`\n[${i + 1}] ファイル: ${r.metadata.file}\n${r.metadata.text}`);
