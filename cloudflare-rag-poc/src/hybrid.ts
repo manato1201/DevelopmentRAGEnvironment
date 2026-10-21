@@ -93,16 +93,18 @@ function rrfMerge(rankedLists: RankedChunk[][], k = 60): RankedChunk[] {
 
 // ベクトル検索（Vectorize）とBM25検索（D1 FTS5）を両方実行し、RRFで統合する。
 // 既存GASのハイブリッド検索（ベクトル+BM25をRRFで統合）と同じ設計。
+// queryVectors: 複数のクエリベクトル（HyDEの仮の回答と、質問そのもの）。それぞれ別の順位として、RRFで統合する
+// （仮の回答だけに頼ると、あいまいな質問で結果が実行のたびにぶれる。質問そのものの検索を混ぜて安定させる）。
 export async function hybridSearch(
   env: Env,
-  queryVector: number[],
+  queryVectors: number[] | number[][],
   queryText: string,
   namespaces: string[],
   userId: string,
   limit: number,
 ): Promise<RankedChunk[]> {
   const { shared, personal } = splitNamespacesByScope(namespaces);
-  const vectorRanked: RankedChunk[] = [];
+  const vectors: number[][] = Array.isArray(queryVectors[0]) ? (queryVectors as number[][]) : [queryVectors as number[]];
   const bm25Ranked: RankedChunk[] = [];
 
   // Vectorizeは returnMetadata:"all" 指定時、topKの上限が50件（呼び出し側の`retrieve()`で
@@ -113,25 +115,36 @@ export async function hybridSearch(
   // sharedとpersonalのベクトル検索・BM25検索は互いに独立しているため、全クエリ実行中
   // 毎回このパスを通ることを踏まえ、Promise.allで並列実行してレイテンシを縮める
   // （2026-09-04、逐次awaitになっていた不備を修正）。
-  const [sharedVector, sharedBm25, personalVector, personalBm25] = await Promise.all([
-    shared.length > 0
-      ? env.VEC_SHARED.query(queryVector, { topK, filter: { namespace: { $in: shared } }, returnMetadata: "all" })
-      : null,
+  const [sharedVectors, sharedBm25, personalVectors, personalBm25] = await Promise.all([
+    Promise.all(
+      vectors.map((v) =>
+        shared.length > 0
+          ? env.VEC_SHARED.query(v, { topK, filter: { namespace: { $in: shared } }, returnMetadata: "all" })
+          : null,
+      ),
+    ),
     shared.length > 0 ? bm25Search(env, queryText, shared, null, topK) : [],
-    personal.length > 0
-      ? env.VEC_PERSONAL.query(queryVector, { topK, filter: { namespace: { $in: personal }, owner_user_id: userId }, returnMetadata: "all" })
-      : null,
+    Promise.all(
+      vectors.map((v) =>
+        personal.length > 0
+          ? env.VEC_PERSONAL.query(v, { topK, filter: { namespace: { $in: personal }, owner_user_id: userId }, returnMetadata: "all" })
+          : null,
+      ),
+    ),
     personal.length > 0 ? bm25Search(env, queryText, personal, userId, topK) : [],
   ]);
 
-  if (sharedVector) {
-    vectorRanked.push(...sharedVector.matches.map((m) => ({ id: m.id, metadata: m.metadata as unknown as ChunkMetadata })));
-  }
+  // ベクトルごとに、共有・個人をまとめた1本の順位にする
+  const vectorLists: RankedChunk[][] = vectors.map((_, i) => {
+    const list: RankedChunk[] = [];
+    const s = sharedVectors[i];
+    const p = personalVectors[i];
+    if (s) list.push(...s.matches.map((m) => ({ id: m.id, metadata: m.metadata as unknown as ChunkMetadata })));
+    if (p) list.push(...p.matches.map((m) => ({ id: m.id, metadata: m.metadata as unknown as ChunkMetadata })));
+    return list;
+  });
   bm25Ranked.push(...sharedBm25);
-  if (personalVector) {
-    vectorRanked.push(...personalVector.matches.map((m) => ({ id: m.id, metadata: m.metadata as unknown as ChunkMetadata })));
-  }
   bm25Ranked.push(...personalBm25);
 
-  return rrfMerge([vectorRanked, bm25Ranked]).slice(0, limit);
+  return rrfMerge([...vectorLists, bm25Ranked]).slice(0, limit);
 }

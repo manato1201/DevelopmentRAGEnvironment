@@ -4,6 +4,8 @@ import { ingestDocument, logKb, recordOp } from "./kbIngest";
 import { newOpId, withAbortTimeout } from "./chunking";
 import { sha256Hex } from "./embeddings";
 import { jsonResponse, clampInt } from "./http";
+import { HEADER_VERSION, hasHeader, prepareDocument } from "./houdiniContext";
+import { deleteDocumentChunks } from "./kbDocuments";
 
 // HTMLから本文テキストを抽出する（Workers組み込みのHTMLRewriterを使用。DOMパーサ相当の
 // ライブラリを追加せずに済む）。本文抽出に加え、ページ内のリンク（絶対URLに正規化済み）と
@@ -104,8 +106,12 @@ export async function handleImportUrl(req: Request, env: Env, user: AuthedUser):
   const { text } = await extractTextLinksAndTitle(html, res.url || url);
   if (!text) return jsonResponse(400, { error: "本文を抽出できませんでした（対応していないページ形式の可能性があります）" });
 
-  const title = (body.title || url).trim();
-  const result = await ingestDocument(env, namespace, title, text, "manual");
+  const requestedTitle = (body.title || url).trim();
+  // Houdini公式ドキュメントのURLなら、章の見出しと章つきの名前にする（crawl-urlと同じ。houdiniContext.ts）
+  const prepared = prepareDocument(res.url || url, requestedTitle, text, namespace);
+  const title = prepared.file;
+  if (prepared.info && requestedTitle !== title) await removeLegacyDocument(env, namespace, requestedTitle);
+  const result = await ingestDocument(env, namespace, title, prepared.text, "manual");
 
   const opId = newOpId();
   await recordOp(env, opId, user.userId, "manual", namespace);
@@ -276,6 +282,23 @@ async function storePage(env: Env, namespace: string, url: string, hash: string,
 // タイトルはページを実際に取得しないと分からないため「事前にfetchをスキップ」はできない
 // が、HTMLRewriterでのfetch＋パース自体は軽く、コストが大きいのはGemini埋め込み呼び出し
 // （ingestDocument内）なので、そこだけ避けられれば実用上の効果は十分ある。
+// 旧形式の登録（Houdiniドキュメントの章の見出しが付く前、タイトルだけで登録されたもの）を、章つきの名前で
+// 登録し直すときに、1回だけ消す（2026-10-21）。消さないと「Merge」と「Merge [SOP]」が二重に残る。
+// 見出しの無い本文のときだけ消す（章つきの新しい登録は、名前が違うので、ここには来ない）。
+async function removeLegacyDocument(env: Env, namespace: string, file: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT f.body AS body FROM kb_documents d
+       JOIN chunk_rows r ON r.chunk_id = d.chunk_id
+       JOIN chunks_fts f ON f.rowid = r.fts_rowid
+      WHERE d.namespace = ? AND d.file = ? LIMIT 1`,
+  )
+    .bind(namespace, file)
+    .first<{ body: string }>();
+  if (!row || hasHeader(row.body)) return false;
+  await deleteDocumentChunks(env, namespace, file);
+  return true;
+}
+
 async function documentAlreadyExists(env: Env, namespace: string, file: string): Promise<boolean> {
   // kb_documents（namespaceに索引あり・1ドキュメント1行）で確認する。chunks_ftsは索引が効かず、毎回全件走査になる。
   const row = await env.DB.prepare("SELECT 1 FROM kb_documents WHERE namespace = ? AND file = ? LIMIT 1")
@@ -410,15 +433,21 @@ export async function runCrawlBatch(env: Env, body: CrawlBody, actor: string | n
     // 相対解決する（そうしないと起点がリダイレクトするサイトで相対リンクが壊れる）。
     const extracted = await extractTextLinksAndTitle(html, finalUrl);
     const { links, title: pageTitle } = extracted;
-    const text = extracted.text.length > CRAWL_MAX_TEXT_CHARS ? extracted.text.slice(0, CRAWL_MAX_TEXT_CHARS) : extracted.text;
-    const title = pageTitle || current.url;
+    const rawText = extracted.text.length > CRAWL_MAX_TEXT_CHARS ? extracted.text.slice(0, CRAWL_MAX_TEXT_CHARS) : extracted.text;
+    const baseTitle = pageTitle || current.url;
+    // Houdini公式ドキュメントのノードのページは、URLから章（SOP / VOP / APEX …）を決め、本文の先頭に見出しを、
+    // ファイル名に章を付ける（同名ノードの上書き・混同を防ぐ。houdiniContext.ts）。他のサイトは変えない。
+    const prepared = rawText ? prepareDocument(finalUrl, baseTitle, rawText, job.namespace) : { file: baseTitle, text: rawText, info: null };
+    const text = prepared.text;
+    const title = prepared.file;
 
     if (!text) {
       results.push({ url: current.url, title, chunks: 0, skipped: 0, status: "error", error: "本文を抽出できませんでした" });
     } else if (job.skipExisting && (await documentAlreadyExists(env, job.namespace, title))) {
       results.push({ url: current.url, title, chunks: 0, skipped: 0, status: "skipped_existing" });
     } else {
-      const contentHash = await sha256Hex(text);
+      // 見出しの版を、ハッシュに含める。版を上げると、変更の無いページも、次の再クロールで登録し直される。
+      const contentHash = await sha256Hex(prepared.info ? `${text}\n#h${HEADER_VERSION}` : text);
       const stored = await getStoredPage(env, job.namespace, current.url);
       const unchanged = stored !== null && stored.hash === contentHash && (await documentAlreadyExists(env, job.namespace, title));
       if (unchanged) {
@@ -426,6 +455,9 @@ export async function runCrawlBatch(env: Env, body: CrawlBody, actor: string | n
         results.push({ url: current.url, title, chunks: 0, skipped: 0, status: "unchanged" });
       } else {
         try {
+          if (prepared.info && baseTitle !== title && (await removeLegacyDocument(env, job.namespace, baseTitle))) {
+            await logKb(env, opId, job.namespace, "manual", baseTitle, "ok", `旧形式の登録を削除（章つきの「${title}」に置き換え）`);
+          }
           const result = await withAbortTimeout(
             (signal) => ingestDocument(env, job.namespace, title, text, "manual", signal, stored?.chunkCount),
             CRAWL_PER_PAGE_TIMEOUT_MS,

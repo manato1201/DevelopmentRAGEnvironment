@@ -4,6 +4,7 @@ import { sha256Hex } from "./embeddings";
 import { BudgetExceededError, reserveBudget, reconcileBudget } from "./budget";
 import { assertNotRateLimited } from "./rateLimit";
 import { buildContextTexts, resolveEffectiveNamespaces, retrieve } from "./retrieve";
+import { normalizeContextHint } from "./houdiniContext";
 import { startAuditLog, finalizeAuditLog } from "./auditLog";
 
 // query.tsと同じ理由の見積もりトークン数（/searchはHyDEのみでLLM本回答生成は行わないため
@@ -38,9 +39,9 @@ export async function handleSearch(req: Request, env: Env, user: AuthedUser): Pr
   let sources: SearchResponse["sources"];
   let hydeTokensUsed: number;
   try {
-    const result = await retrieve(env, user, query, effective, level, limit);
+    const result = await retrieve(env, user, query, effective, level, limit, normalizeContextHint(body.context));
     hydeTokensUsed = result.hydeTokensUsed;
-    ({ texts, sources } = buildContextTexts(result.ranked));
+    ({ texts, sources } = buildContextTexts(result.ranked, result.contextNote));
   } catch (err) {
     await reconcileBudget(env, user.userId, "rag", SEARCH_RESERVE_ESTIMATE, 0);
     throw err;

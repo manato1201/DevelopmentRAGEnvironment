@@ -63,6 +63,8 @@ export interface SearchRequest {
   limit?: number;
   namespaces?: string[];
   level?: "basic" | "applied" | "advanced" | "";
+  // 作業場所（章）のヒント。"sop" / ["SOP","APEX"]。あれば、その章の結果の順位を上げる（除外はしない）。houdiniContext.ts
+  context?: string | string[];
 }
 
 export interface SourceEntry {
@@ -96,6 +98,8 @@ export interface QueryRequest {
   limit?: number;
   level?: "basic" | "applied" | "advanced" | "";
   namespaces?: string[];
+  // 作業場所（章）のヒント（SearchRequest.contextと同じ）
+  context?: string | string[];
   // 質問に添付する画像（VLM入力。既存GASの`image: {mimeType, data}`と同一契約、2026-08-27追加）。
   // 検索・埋め込みには使わず、最終回答生成時にRAGコンテキストと一緒にGeminiへ渡すだけ。
   image?: { mimeType: string; data: string };
