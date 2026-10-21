@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSplitter,
     QTextEdit,
@@ -54,6 +55,7 @@ from PySide6.QtWidgets import (
 )
 
 import token_usage
+import video_progress
 from tutorial_graph_simplify import graph_to_mermaid, layered_positions, simplify_graph
 
 # ノード数がこれを超えるチュートリアルを開いたときは既定で「簡易表示」にする
@@ -629,6 +631,17 @@ class TutorialGeneratePanel(QWidget):
         layout.addWidget(self._status)
 
         # 動画生成の進捗表示・完了後のプレビュー再生（2026-08-31追加）。
+        # 2026-10-21: プログレスバー（台本 → 音声 → 描画 → 完了の全体の％。video_progress.py）。動画を作っていない間は隠す。
+        self._video_bar = QProgressBar()
+        self._video_bar.setRange(0, 100)
+        self._video_bar.setTextVisible(True)
+        self._video_bar.setFixedHeight(16)
+        self._video_bar.setVisible(False)
+        layout.addWidget(self._video_bar)
+        self._script_timer = QTimer(self)
+        self._script_timer.setInterval(1000)
+        self._script_timer.timeout.connect(self._on_script_tick)
+        self._script_elapsed = 0.0
         video_row = QHBoxLayout()
         self._video_progress = token_usage.fit_label(QLabel(""))
         self._video_progress.setStyleSheet("color:#7dd3fc;font-size:11px;")
@@ -985,6 +998,9 @@ class TutorialGeneratePanel(QWidget):
         if not steps:
             return self._start_video_process(result, md_path, json_path, None)
         self._video_progress.setText("動画生成: 初心者向けの台本を作っています（数十秒かかります）…")
+        self._set_video_bar(0, "台本づくり")
+        self._script_elapsed = 0.0
+        self._script_timer.start()
         # ノードの関係図（保存したグラフから描く）。動画の「考え方」などの説明スライドに、空のぼやけた板の
         # 代わりに出す。描けなければ、動画エンジンは完成画像で代用する。
         images: dict = {}
@@ -1000,6 +1016,8 @@ class TutorialGeneratePanel(QWidget):
         self._script_workers.append(worker)
 
         def on_done(script_path: str, message: str, w: VideoScriptWorker = worker) -> None:
+            self._script_timer.stop()
+            self._set_video_bar(video_progress.SCRIPT_END, "動画エンジンを起動")
             if w in self._script_workers:
                 self._script_workers.remove(w)
             status = self._start_video_process(result, md_path, json_path, Path(script_path) if script_path else None)
@@ -1008,6 +1026,24 @@ class TutorialGeneratePanel(QWidget):
         worker.done.connect(on_done)
         worker.start()
         return "動画生成: 台本を作成中です（完了後に動画の生成を始めます）"
+
+    _VIDEO_BAR_STYLE = (
+        "QProgressBar{border:1px solid #334155;border-radius:4px;background:#0f172a;color:#e2e8f0;"
+        "text-align:center;font-size:10px;}"
+        "QProgressBar::chunk{background:%s;border-radius:3px;}"
+    )
+
+    def _set_video_bar(self, percent: int, text: str, failed: bool = False) -> None:
+        """動画生成のプログレスバーを更新する（表示・％・段階の文字・失敗時の赤）。"""
+        self._video_bar.setVisible(True)
+        self._video_bar.setValue(max(0, min(100, int(percent))))
+        self._video_bar.setFormat(f"{text}  %p%" if text else "%p%")
+        self._video_bar.setStyleSheet(self._VIDEO_BAR_STYLE % ("#ef4444" if failed else "#38bdf8"))
+
+    def _on_script_tick(self) -> None:
+        """台本づくり（Claudeの呼び出し）の間、終わりが読めないので、時間の経過でゆっくり進める。"""
+        self._script_elapsed += self._script_timer.interval() / 1000.0
+        self._set_video_bar(video_progress.script_stage_percent(self._script_elapsed), "台本づくり")
 
     def _make_agent(self):
         """台本づくりでClaudeを呼ぶためのエージェント（サンドボックスは作らない）。"""
@@ -1034,6 +1070,8 @@ class TutorialGeneratePanel(QWidget):
             )
             if log_path is not None:
                 self._start_video_progress_poll(log_path, Path(exe_path).parent, md_path)
+            else:
+                self._video_bar.setVisible(False)  # 起動できなかった（exe未設定など）。進捗は無い
             return status
         except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
             return f"動画生成の起動に失敗: {exc}"
@@ -1076,6 +1114,7 @@ class TutorialGeneratePanel(QWidget):
         「動画」タブ（VideoLibraryPanel）へ即時反映する。
         """
         state = {"polls": 0}
+        self._set_video_bar(video_progress.ENGINE_START, "動画エンジンを準備中")
 
         def poll() -> None:
             state["polls"] += 1
@@ -1083,6 +1122,9 @@ class TutorialGeneratePanel(QWidget):
                 text = log_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 return  # ログがまだ書かれ始めていない等。次回ポーリングに任せる
+
+            progress = video_progress.progress_from_log(text)
+            self._set_video_bar(progress.percent, progress.label if not progress.failed else "失敗の可能性", progress.failed)
 
             wrote_match = re.search(r"Wrote (\S+\.webm)", text)
             if wrote_match:
@@ -1107,21 +1149,10 @@ class TutorialGeneratePanel(QWidget):
                 self._video_progress.setText(f"動画生成: 失敗の可能性（{last_line[:80]}）")
                 return
 
-            match = None
-            for line in reversed(text.splitlines()):
-                m = re.search(r"Rendered frame (\d+) / (\d+)", line)
-                if m:
-                    match = m
-                    break
-            if match:
-                done, total = int(match.group(1)), int(match.group(2))
-                pct = int(done / total * 100) if total else 0
-                voice_note = self._voice_summary(text)
-                self._video_progress.setText(
-                    f"動画生成: フレーム {done}/{total}（{pct}%）" + (f" / {voice_note}" if voice_note else "")
-                )
-            else:
-                self._video_progress.setText(f"動画生成: 準備中…（{log_path.name}）")
+            voice_note = self._voice_summary(text)
+            self._video_progress.setText(
+                f"動画生成: {progress.label}（全体の {progress.percent}%）" + (f" / {voice_note}" if voice_note else "")
+            )
 
             if state["polls"] < self._VIDEO_PROGRESS_MAX_POLLS:
                 QTimer.singleShot(self._VIDEO_PROGRESS_POLL_MS, poll)

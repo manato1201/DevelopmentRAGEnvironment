@@ -45,6 +45,8 @@ _UPLOAD_METRIC_KEYS = (
     "iterations", "cost_usd", "cook_calls", "cook_errors", "tool_calls", "node_count", "elapsed_seconds",
     "completed", "used_unconfirmed_draft", "rag_extraction_rate", "input_tokens", "output_tokens",
     "domain", "confirm_rejections", "reference_images", "has_requirements", "has_target_model",
+    # 2026-10-21: レッスン設計の有無と品質点数（学習効果のレビューで、点数と評価を突き合わせる）、キャッシュのトークン数
+    "lesson_plan", "lesson_score", "lesson_missing", "cache_write_tokens", "cache_read_tokens",
 )
 
 

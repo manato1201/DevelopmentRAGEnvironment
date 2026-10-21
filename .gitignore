@@ -25,3 +25,4 @@ Thumbs.db
 # cloudflare-rag-poc/.gitignore で除外済みだが、念のためルートにも置く）
 .wrangler/
 tts_samples/
+dist/
