@@ -536,3 +536,13 @@ flowchart LR
 ### 2.19 レッスン設計と品質採点（2026-10-20）
 
 3段階（basic/applied/advanced）を、難しさではなく**レッスン1→2→3の学習の道すじ**に定義し直した。ノードを組む前にレッスンの設計（用語・たとえ・章ごとの確認・パラメータ実験・仕上げ・次回）を作り（`lesson_design.py`）、`finish_tutorial`で抜けがあれば書き足させ、100点満点で採点する（`tutorial_review.py`）。既存の生成物3本は、どれも6/100だった。詳しくは[houdini-lesson-design.md](houdini-lesson-design.md)。
+
+### 2.20 実証実験に向けた改善（2026-10-21）
+
+- **パラメータ画面:** `set_parameter` のステップは、Houdiniの**実際のパラメータ画面**を切り出し、変更点の一覧を添える（撮れなければ、従来のカード）。
+- **画像の無い説明スライド:** ノードの関係図か、完成画像で埋める（空のグラデーションの板をなくした）。
+- **プログレスバー:** 動画生成の進み具合を、台本 → 音声 → 描画 → 完了の全体の％で出す。
+- **確定の矛盾の差し戻し:** `confirm_tutorial` の note に「見えていません」と書きながら `looks_correct=true` なら、差し戻す。
+- **公式ドキュメントの章:** 同名ノードの混同・上書きを防ぐ見出しと、章の指定による並べ替え、あいまいなときの決まり。
+- **配布:** Houdiniパッケージ（zip + `install.cmd`）、音声のクラウド化（導入不要）、RAGReel 1.1.0。
+- 詳細: [houdini-tutorial-technical-report.md](houdini-tutorial-technical-report.md)、[houdini-distribution-plan.md](houdini-distribution-plan.md)、[cost-and-quota.md](cost-and-quota.md)。

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>トークン・費用の見積もりと、配る量の決め方</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">費用と利用枠</span>
+  <h1>トークン・費用の見積もりと、配る量の決め方</h1>
+  <div class="meta">HTML生成: 2026-10-21（元: docs/cost-and-quota.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-結論実験の設定値">1. 結論（実験の設定値）</a></li><li><a href="#2-実測1回の生成">2. 実測（1回の生成）</a></li><li><a href="#3-予算のトークンと費用は比例しない">3. 「予算のトークン」と「費用」は比例しない</a></li><li><a href="#4-先確保の余裕429-の誤作動を防ぐ">4. 先確保の余裕（429 の誤作動を防ぐ）</a></li><li><a href="#5-サーバー外部サービスの月額">5. サーバー・外部サービスの月額</a><ol><li><a href="#cloudflareworkers-paid">Cloudflare（Workers Paid）</a></li><li><a href="#gemini検索の埋め込み仮の回答チャットの回答">Gemini（検索の埋め込み・仮の回答・チャットの回答）</a></li><li><a href="#google-cloud-text-to-speech">Google Cloud Text-to-Speech</a></li><li><a href="#claudeanthropic">Claude（Anthropic）</a></li></ol></li><li><a href="#6-再計算の方法">6. 再計算の方法</a></li><li><a href="#7-前提と確認できていないこと">7. 前提と、確認できていないこと</a></li></ol></details></nav>
+<main>
+
+<p><strong>目的:</strong> 実証実験で、1人にどれだけの利用枠（Claude 予算・音声の文字数）を配るかを、実測から決める。<strong>版:</strong> 2026-10-21</p>
+<h2 id="1-結論実験の設定値">1. 結論（実験の設定値）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>値</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>1人あたりの Claude 予算</strong></td>
+<td><strong>420,000 トークン</strong>（チュートリアル＋動画の台本、10回分 × 余裕1.5倍 ＋ 先確保の余裕 45,000 を切り上げ）</td>
+</tr>
+<tr>
+<td>1人の費用（普通に使って）</td>
+<td>約 <strong>$3.3</strong>（10回分）</td>
+</tr>
+<tr>
+<td>1人の費用（使い切った場合の上限の目安）</td>
+<td>約 <strong>$5.6</strong></td>
+</tr>
+<tr>
+<td>10人分</td>
+<td>普通 約 $33、上限の目安 約 $56</td>
+</tr>
+<tr>
+<td>音声の文字数</td>
+<td>1人あたり 約 35,000 文字（10本）。鍵ごとの1日の上限は既定 50,000</td>
+</tr>
+<tr>
+<td>サーバーの月額（固定）</td>
+<td>Cloudflare Workers Paid <strong>$5</strong>。Gemini は $0〜約 $10（契約と利用量による）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>注意:</strong> 基準が<strong>レッスン設計つきの実測1件</strong>だけです（2026-10-21 時点）。実験の最初の数日で、実測が増えたら、<code>scripts/estimate_generation_cost.py</code> で再計算してください。</p>
+<h2 id="2-実測1回の生成">2. 実測（1回の生成）</h2>
+<p><code>localRAG/tutorials/*_metrics.json</code>（生成のたびに自動で記録）から。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>生成</th>
+<th>レベル</th>
+<th>反復</th>
+<th>秒</th>
+<th>予算に数えるトークン</th>
+<th>費用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>apex-autorig-fbx-basic</td>
+<td>advanced</td>
+<td>16</td>
+<td>76</td>
+<td>2,645</td>
+<td>$0.10</td>
+</tr>
+<tr>
+<td>apex-rigpose-setdrivenkey-base</td>
+<td>advanced</td>
+<td>16</td>
+<td>140</td>
+<td>2,701</td>
+<td>$0.09</td>
+</tr>
+<tr>
+<td>procedural-black-hole-particles</td>
+<td>advanced</td>
+<td>21</td>
+<td>70</td>
+<td>5,280</td>
+<td>$0.13</td>
+</tr>
+<tr>
+<td><strong>pyro-fire-smoke-reusable-cache</strong>（レッスン設計つき）</td>
+<td>advanced</td>
+<td>47</td>
+<td>154</td>
+<td><strong>13,062</strong></td>
+<td><strong>$0.26</strong></td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>上の3件は、レッスン設計・確認・実験を入れる前のものです。<strong>現行の姿は、最後の1件</strong>に近いです。反復が約3倍（設計・確認・パラメータ実験・仕上げの分）になり、費用も約2.5倍です。</li>
+<li>これに、<strong>動画の台本づくり</strong>（約 11,500 トークン、約 $0.07。実測が無いので仮定。次の生成から、台本の JSON に実測が残ります）が加わります。</li>
+<li>1回（チュートリアル＋台本）: <strong>約 24,600 トークン、約 $0.33</strong>。</li>
+</ul>
+<h2 id="3-予算のトークンと費用は比例しない">3. 「予算のトークン」と「費用」は比例しない</h2>
+<p>Worker の Claude 予算は、<strong>キャッシュを除く</strong> <code>input_tokens + output_tokens</code> を数えます（<code>src/claude.ts</code>）。しかし、チュートリアル生成は、システムプロンプトと会話履歴を<strong>キャッシュ</strong>するので、費用の大半は、キャッシュの読み書きです。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>生成</th>
+<th>予算に数えるトークン</th>
+<th>費用</th>
+<th>費用のうち、入力・出力の直接分</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>pyro（設計つき）</td>
+<td>13,062</td>
+<td>$0.26</td>
+<td>約 $0.11</td>
+</tr>
+<tr>
+<td>差</td>
+<td></td>
+<td></td>
+<td>約 $0.15 が、キャッシュの読み書き</td>
+</tr>
+</tbody>
+</table></div>
+<p>そのため、<strong>配る量は「予算（トークン）」で決め、費用は実測の「1トークンあたりの費用」で換算</strong>します（現状は、約 $13〜15 / 100万トークン）。この比は、生成の長さで変わるので、上限の目安は、保守的に見ています。</p>
+<h2 id="4-先確保の余裕429-の誤作動を防ぐ">4. 先確保の余裕（429 の誤作動を防ぐ）</h2>
+<p>Worker は、Claude を呼ぶ<strong>前</strong>に、<code>max_tokens（16,000）＋ 会話の大きさ（文字数÷3 ＋ 画像1枚 1,600）</code> を<strong>先に確保</strong>します。終盤の呼び出しでは、約 <strong>4万トークン</strong>になります。<strong>残りの予算がこれ未満だと、実際は足りていても 429 になります</strong>（呼び出しのあと、実測との差は払い戻されます）。</p>
+<p>そのため、「10回分の実使用」に、先確保の余裕（45,000）を足して配ります。</p>
+<pre><code>予算 = 1回の平均 × 回数 × 余裕の倍率 + 先確保の余裕
+     = 24,562 × 10 × 1.5 + 45,000 = 413,430 → 420,000（1万単位に切り上げ）
+</code></pre>
+<h2 id="5-サーバー外部サービスの月額">5. サーバー・外部サービスの月額</h2>
+<h3 id="cloudflareworkers-paid">Cloudflare（Workers Paid）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>込み分</th>
+<th>今回の見込み</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>基本料金</td>
+<td>$5 / 月</td>
+<td><strong>$5</strong></td>
+</tr>
+<tr>
+<td>D1 の読み取り</td>
+<td>250億行 / 月</td>
+<td>桁違いに小さい（前回の上限超過は、1日 500万行 = 月 1.5億行相当で、込み分の 1% 未満）</td>
+</tr>
+<tr>
+<td>D1 の書き込み</td>
+<td>5,000万行 / 月</td>
+<td>ドキュメント2,000ページの登録で約24万行</td>
+</tr>
+<tr>
+<td>D1 の容量</td>
+<td>5GB</td>
+<td>数十MB</td>
+</tr>
+<tr>
+<td>Vectorize の保存</td>
+<td>1,000万次元</td>
+<td>約1.2万本 × 768 = 約 920万次元（超過分は、1億次元あたり $0.05）</td>
+</tr>
+<tr>
+<td>Vectorize の検索</td>
+<td>5,000万次元 / 月</td>
+<td>(検索回数 + 保存ベクトル数) × 次元数。月1万回で約 1,900万次元</td>
+</tr>
+<tr>
+<td>Worker のリクエスト</td>
+<td>1,000万 / 月</td>
+<td>十分</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="gemini検索の埋め込み仮の回答チャットの回答">Gemini（検索の埋め込み・仮の回答・チャットの回答）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>費用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ドキュメント登録の埋め込み（一度だけ）</td>
+<td>約400万トークン → 約 <strong>$0.8</strong>（無料枠なら $0）。<em>単価は <code>gemini-embedding-2</code> の公式の値で代用（Worker は <code>gemini-embedding-001</code>。公式ページに単価の記載なし）</em></td>
+</tr>
+<tr>
+<td>検索1回</td>
+<td>埋め込み2回（仮の回答と、質問そのもの）と、仮の回答の生成。ごくわずか</td>
+</tr>
+<tr>
+<td>チャットの回答1件</td>
+<td>約 $0.006（<code>gemini-flash-latest</code> を、Gemini 3.x Flash の単価と仮定）</td>
+</tr>
+<tr>
+<td>月1,000件</td>
+<td>約 $6</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>Gemini 3.x Flash の単価は、<strong>2027年1月から2倍</strong>になります（公式の表より）。</li>
+<li>無料枠の契約なら、$0（回数に上限あり）。</li>
+</ul>
+<h3 id="google-cloud-text-to-speech">Google Cloud Text-to-Speech</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>声</th>
+<th>100万文字あたり</th>
+<th>月の無料枠</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Neural2</td>
+<td>$16</td>
+<td>100万文字</td>
+</tr>
+<tr>
+<td>Chirp 3: HD</td>
+<td>$30</td>
+<td>100万文字</td>
+</tr>
+</tbody>
+</table></div>
+<p>動画1本は、約3,500文字（想定）。10人 × 10本 = 35万文字で、<strong>無料枠の内</strong>です。無料枠が無かった場合でも、Neural2 で約 $5.6 です。</p>
+<h3 id="claudeanthropic">Claude（Anthropic）</h3>
+<p>§1 のとおり。<strong>別枠で、実験の期間だけ</strong>かかります。鍵ごとの予算で、サーバー側が止めます。</p>
+<h2 id="6-再計算の方法">6. 再計算の方法</h2>
+<pre><code class="language-bash">uv run python scripts/estimate_generation_cost.py --runs 10 --margin 1.5 --testers 10
+uv run python scripts/estimate_generation_cost.py --dir C:\Users\&lt;あなた&gt;\Documents\RAGReelTutorial\localRAG\tutorials
+</code></pre>
+<ul>
+<li><code>*_metrics.json</code>（生成）と、<code>*_video_script.json</code>の<code>usage</code>（台本）を読みます。レッスン設計つきの記録があれば、それだけで見積もります。</li>
+<li>テスターの実測（自分の記録のほか、評価のデータに <code>input_tokens</code> / <code>output_tokens</code> / <code>cost_usd</code> / <code>lesson_score</code> が送られます）を集めて、<strong>1人あたりの実使用の分布</strong>を見てから、予算を調整してください。</li>
+</ul>
+<h2 id="7-前提と確認できていないこと">7. 前提と、確認できていないこと</h2>
+<ul>
+<li>基準の実測が少ない（設計つきの生成は1件）。</li>
+<li>台本づくりのトークンは、仮定値（8,000 入力 + 3,500 出力）。</li>
+<li>レッスン設計つきの生成は、トピックによって、反復と費用が変わります（煙のシミュレーションは、確認・実験が重い側）。<strong>「3段階連続生成」は、1回で3本分</strong>を使います。</li>
+<li>Gemini の契約（無料枠か有料か）は、確認できていません。</li>
+<li>公式の料金は、変わることがあります。契約前・実験前に、各社の料金ページを確認してください。</li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

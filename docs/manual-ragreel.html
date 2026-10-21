@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAGReel（動画生成）取扱説明書</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">取扱説明書（RAGReel）</span>
+  <h1>RAGReel（動画生成）取扱説明書</h1>
+  <div class="meta">HTML生成: 2026-10-21（元: docs/manual-ragreel.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-これは何か">1. これは何か</a></li><li><a href="#2-インストール">2. インストール</a></li><li><a href="#3-houdini-と一緒に使う">3. Houdini と一緒に使う</a></li><li><a href="#4-画面つきランチャーragreelexe">4. 画面つきランチャー（RAGReel.exe）</a></li><li><a href="#5-動画の保存先">5. 動画の保存先</a></li><li><a href="#6-音声">6. 音声</a></li><li><a href="#7-進み具合">7. 進み具合</a></li><li><a href="#8-困ったとき">8. 困ったとき</a></li><li><a href="#9-アンインストール">9. アンインストール</a></li><li><a href="#10-ライセンスと表記">10. ライセンスと表記</a></li></ol></details></nav>
+<main>
+
+<p><strong>対象:</strong> 実証実験に参加する方、運営 ／ <strong>版:</strong> RAGReel 1.1.0（2026-10-21）／ 技術的な詳細は、RAGReel リポジトリの <code>docs/technical-reference.md</code></p>
+<h2 id="1-これは何か">1. これは何か</h2>
+<p>Houdini チュートリアル（手順書＋スクリーンショット＋初心者向けの台本）から、<strong>説明つきの解説動画</strong>（<code>.webm</code>）を作るツールです。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>実行ファイル</th>
+<th>役割</th>
+<th>使う人</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>video_factory_cloudrag_poc.exe</code></td>
+<td>動画生成エンジン（本体）。<strong>Houdini のパネルが、自動で起動します。</strong></td>
+<td>ほとんどの方は、直接触りません</td>
+</tr>
+<tr>
+<td><code>RAGReel.exe</code></td>
+<td>画面つきのランチャー。保存済みの手順書（<code>.md</code>）から、動画を作り直せます。</td>
+<td>動画だけ作り直したいとき</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>普通は、Houdini のパネルで「保存」を押すだけで、動画が作られます</strong>（<a href="manual-houdini-tutorial.html">manual-houdini-tutorial.md</a> §7）。このマニュアルは、インストールと、トラブルのときのためのものです。</p>
+<h2 id="2-インストール">2. インストール</h2>
+<ol>
+<li>配布された <strong><code>RAGReel-Setup-1.1.0.exe</code></strong> を実行します。</li>
+<li>「Windows によって PC が保護されました」と出たら、「<strong>詳細情報</strong>」→「<strong>実行</strong>」を押します（このインストーラーは、まだ署名されていないためです）。</li>
+<li>「<strong>自分だけ</strong>」（このユーザーのみ）を選んで、あとは「次へ」。管理者権限は要りません。<br />
+   - 「すべてのユーザー」を選ぶと、<code>C:\Program Files</code> に入り、<strong>動画の保存で権限エラーになることがあります</strong>。選ばないでください。</li>
+<li>完了です。インストール先は、<code>C:\Users\&lt;あなた&gt;\AppData\Local\Programs\RAGReel</code> です。</li>
+</ol>
+<ul>
+<li><strong>Visual C++ の追加インストールは、要りません</strong>（必要な DLL を同梱しています）。</li>
+<li><strong>VOICEVOX も、要りません</strong>（音声は、運営のサーバー経由です）。</li>
+<li>更新は、新しいインストーラーを実行するだけです。作った動画は消えません。</li>
+</ul>
+<h2 id="3-houdini-と一緒に使う">3. Houdini と一緒に使う</h2>
+<p><a href="manual-houdini-tutorial.html">manual-houdini-tutorial.md</a> の導入（<code>install.cmd</code>）を実行すると、<strong>インストール済みの RAGReel の場所を自動で見つけて</strong>、パネルの設定（<code>video_factory_exe_path</code>）に書きます。RAGReel を<strong>あとから</strong>入れたときは、<code>install.cmd</code> をもう一度実行するか、パネルの Settings タブで、<code>video_factory_cloudrag_poc.exe</code> のフルパスを入れてください。</p>
+<p>パネルは、保存のあと、動画エンジンを起動し、<strong>接続先の URL と API キー</strong>を、環境変数で渡します（コマンドラインには出しません）。音声は、そのキーで、運営のサーバーから取得します。</p>
+<h2 id="4-画面つきランチャーragreelexe">4. 画面つきランチャー（RAGReel.exe）</h2>
+<p>スタートメニューの「RAGReel」から起動します。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>タブ</th>
+<th>できること</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>はじめに</td>
+<td>使い方の3ステップと、困ったときのヒント</td>
+</tr>
+<tr>
+<td>設定</td>
+<td>接続先（Cloud RAG）の URL と API キー。保存されます</td>
+</tr>
+<tr>
+<td>Cloud RAG クエリ</td>
+<td>質問文から、動画を作る（Cloud RAG 版。実証実験では使いません）</td>
+</tr>
+<tr>
+<td>Houdini チュートリアル</td>
+<td><strong>保存済みの手順書（<code>.md</code>）を選んで、動画を作り直す</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>下に、実行ログが出ます。右上のランプは、接続の状態です。</p>
+<ul>
+<li>手順書と同じ場所に、同名の <code>.json</code>（ノードグラフ）と <code>_screenshots.json</code>（スクリーンショットの一覧）、<code>_video_script.json</code>（台本）があれば、自動で使います。<strong>台本があると、初心者向けの説明つきの動画になります。</strong> 無いと、手順書の朗読になります（台本は、Houdini のパネルが作ります）。</li>
+</ul>
+<h2 id="5-動画の保存先">5. 動画の保存先</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>もの</th>
+<th>場所</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>動画（<code>.webm</code>）</td>
+<td>インストール先（<code>...\Programs\RAGReel\</code>）と、<code>output\videos\&lt;実行ID&gt;\</code></td>
+</tr>
+<tr>
+<td>一覧のページ</td>
+<td><code>output\index.html</code> をブラウザで開く</td>
+</tr>
+<tr>
+<td>ログ</td>
+<td>手順書と同じフォルダの <code>&lt;名前&gt;_video_factory.log</code>（Houdini から作ったとき）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="6-音声">6. 音声</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>優先順</th>
+<th>音声</th>
+<th>条件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Google の音声合成</strong>（運営のサーバー経由）</td>
+<td>接続先の URL と API キーがある（Houdini のパネルが渡します）。1日の文字数の上限あり</td>
+</tr>
+<tr>
+<td>2</td>
+<td>VOICEVOX（春日部つむぎ）</td>
+<td>手元に VOICEVOX が入っている（止まっていれば、自動で起動します）。公開するときは「VOICEVOX:春日部つむぎ」のクレジットを入れてください</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Windows 標準の音声（SAPI）</td>
+<td>どちらも使えないとき。品質は低めです</td>
+</tr>
+</tbody>
+</table></div>
+<p>ログの <code>Narration voice:</code> の行に、実際に使われた音声が出ます。</p>
+<p>環境変数 <code>RAGREEL_TTS_BACKEND</code>（<code>auto</code> / <code>cloud</code> / <code>voicevox</code> / <code>sapi</code>）で、固定できます（通常は <code>auto</code>）。</p>
+<h2 id="7-進み具合">7. 進み具合</h2>
+<p>動画エンジンは、ログに進み具合を出します。Houdini のパネルは、これを読んで、プログレスバーに出します。</p>
+<ul>
+<li><code>Narration progress: k / n</code> … 音声の作成（スライドごと）</li>
+<li><code>Rendered frame N / M</code> … 描画</li>
+<li><code>Wrote ….webm</code> … 完了</li>
+</ul>
+<h2 id="8-困ったとき">8. 困ったとき</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>対処</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>起動しない（DLL が無い、のようなエラー）</td>
+<td>最新のインストーラー（1.1.0 以降）で入れ直してください。</td>
+</tr>
+<tr>
+<td>インストーラーが「パスが見つかりません」で止まる</td>
+<td>インストール先のパスが長すぎます（260文字の上限）。短い場所（例: 既定の場所）にしてください。</td>
+</tr>
+<tr>
+<td>動画の保存でエラー</td>
+<td>「すべてのユーザー」で <code>Program Files</code> に入れた場合に起きます。「自分だけ」で入れ直してください。</td>
+</tr>
+<tr>
+<td>音声が従来の音声（SAPI）</td>
+<td>URL と API キーが入っているか、1日の上限に達していないか、ログの <code>Narration engine:</code> の行を確認。</td>
+</tr>
+<tr>
+<td>説明が手順書の朗読になる</td>
+<td><code>_video_script.json</code> が、手順書と同じ場所にあるか確認。無ければ、Houdini のパネルで保存し直すと作られます。</td>
+</tr>
+<tr>
+<td>動画が作られない</td>
+<td>ログ（<code>_video_factory.log</code>）の最後の <code>ERROR</code> / <code>WARNING</code> の行を、運営に送ってください。</td>
+</tr>
+<tr>
+<td>ウイルス対策ソフトに止められる</td>
+<td><code>RAGReel</code> のフォルダを、除外に追加してください（未署名のため、誤検知されることがあります）。</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="9-アンインストール">9. アンインストール</h2>
+<p>Windows の「設定 → アプリ → インストールされているアプリ」から、RAGReel を削除します。<strong>作った動画（<code>output\videos\</code> と <code>.webm</code>）は、削除されずに残ることがあります。</strong> 不要ならフォルダごと削除してください。</p>
+<h2 id="10-ライセンスと表記">10. ライセンスと表記</h2>
+<ul>
+<li>動画エンジンは、Qt（LGPL）と FFmpeg（LGPL）を、<strong>動的リンク（DLL）</strong>で使っています。</li>
+<li>VOICEVOX の声を使った動画を<strong>公開</strong>するときは、「VOICEVOX:春日部つむぎ」のクレジットが必要です。Google の音声では不要です。</li>
+<li>Houdini の画面を含む動画の公開は、各自の Houdini のライセンス条件に従ってください。</li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>
