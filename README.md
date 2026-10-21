@@ -30,13 +30,13 @@
 | **セマンティック分割** | トークン単位のオーバーラップチャンク分割で検索精度向上 |
 | **HyDE 検索強化** | クエリ+仮説文書の加重平均埋め込みで語彙ミスマッチを解消（精度向上）|
 | **情報抽出度メトリクス** | 回答中の引用数÷ソース数で抽出効率を可視化（✓引用バッジ・進捗バー）|
-| **houdini21 名前空間** | Houdini 21ドキュメント専用DB（GAS・LocalRAG・Unity/Houdini UI統合）|
+| **houdini21 名前空間** | Houdini 21ドキュメント専用DB（Cloudflare・LocalRAG・Unity/Houdini UI統合）|
 | **houdini21チュートリアル自動生成** | 自然言語の依頼からHoudiniのノードグラフを実際に組み立て、cookエラーなしのチュートリアル（Markdown+ノードグラフJSON）を自動生成。ビューポート画像による視覚的自己検証（`confirm_tutorial`）・多段階の完了判定救済ロジックあり |
 | **チュートリアル動画の自動生成** | 保存したチュートリアルからLearningQt連携で解説動画を自動生成。各ステップのビューポート/ネットワークエディタのスクリーンショットが素材になる |
 | **チュートリアルの評価と学習**（2026-10） | 👍👎・理由タグ・メモと、生成時の自動指標を保存。集計・教訓（承認制）・成功例として次の生成に反映。評価はCloudflareにも送られ、管理者だけが閲覧できる |
 | **公式MCP連携**（2026-10） | Cloudflare WorkerをMCPクライアントにして、Notion・Atlassianの公式MCPサーバーへ接続（自動登録・PKCE）。RAGチャットから読み取り専用ツールを使える |
 | **ナレッジ追加のポップアップ**（2026-10） | ファイル・URL（YouTube・クロール）・Q&Aを3ステップでまとめて登録。クロールの最大ページ数は上限なし |
-| **Cloudflare RAG POC**（検証環境） | クラウド RAG（GAS+Notion+Sheets）をCloudflare Workers+D1+Vectorizeで再実装できるか検証する技術検証。本番のクラウド RAGには影響しない独立実装。GAS版には無い新機能（再帰URLクローラー・重複コンテンツ検出・Jira/Backlog/Googleカレンダー/Googleマップ連携・OAuthクリック接続化）も追加している |
+| **Cloudflare RAG**（クラウド RAG の現行実装） | Cloudflare Workers+D1+Vectorize。旧GAS版（2026-10-22に廃止・削除）の機能をすべて置き換え済み。GAS版には無い新機能（再帰URLクローラー・重複コンテンツ検出・Jira/Backlog/Googleカレンダー/Googleマップ連携・OAuthクリック接続化）も追加している |
 
 ---
 
@@ -44,9 +44,9 @@
 
 ### クラウド RAG を使いたい
 
-1. Notion に 8 つのデータベースを作成する
-2. `scripts/gas_cloud_rag.js` を Google Apps Script に貼り付けてデプロイ
-3. Unity または Houdini の Settings タブで GAS WebApp の URL を設定する
+1. Cloudflare Worker（[cloudflare-rag-poc/](cloudflare-rag-poc/README.md)）をデプロイする（GAS 版は 2026-10-22 に廃止）
+2. 管理画面で API キーを発行する
+3. Unity または Houdini の Settings タブで、Worker の URL と API キーを設定する
 
 詳細 → [docs/cloud-rag.md](docs/cloud-rag.md)（講義資料 → [lecture/cloud-rag-lecture.html](lecture/cloud-rag-lecture.html)）
 
@@ -83,11 +83,12 @@ uv run python scripts\rag_local_bridge.py
 ### Houdiniでチュートリアルを自動生成したい
 
 1. `houdini_tools.py` / `tutorial_agent.py` / `tutorial_view.py` / `token_usage.py` も `rag_chatbot.py` と同じ Python Panels フォルダにコピー
-2. Settings タブで **GAS WebApp URL / API Key を設定**（Cloud/Local どちらのRAG検索モードでも必須。チュートリアル生成のClaude API呼び出しは常にGAS経由になるため）
-   - Houdiniマシン側にANTHROPIC_API_KEYを環境変数として置く必要は**ない**（生のキーはGASのスクリプトプロパティにのみ保存する構成に変更済み。詳細 → [docs/cloud-rag.md §8.14](docs/cloud-rag.md)）
+2. Settings タブで **Cloudflare の Worker URL / APIキー を設定**（Cloudflare/Local どちらのRAG検索モードでも必須。チュートリアル生成のClaude API呼び出しは常にCloudflare経由になるため）
+   - Houdiniマシン側にANTHROPIC_API_KEYを環境変数として置く必要は**ない**（生のキーはWorkerのシークレットにのみ保存する構成。詳細 → [docs/claude-token-security-report.md](docs/claude-token-security-report.md)）
+   - 生成した動画を、ダッシュボードの動画ページに載せるには、同じ Settings タブの「動画ギャラリー」に、ギャラリーのURLとアップロードトークンを入れる（動画の生成が終わると自動で送られる。**動画**タブの「選択をダッシュボードへ」「未アップロードをすべて」で、あとからまとめて送ることもできる）
    - 同じ Settings タブで **チュートリアル生成モデル**（`claude-sonnet-5`＝既定・高品質 / `claude-haiku-4-5`＝低コスト）を選択できる。token消費対策として追加した機能で、既定は変更していない（詳細 → [docs/model-strategy-report.md](docs/model-strategy-report.md) §4）
 3. Houdini パネルの **Tutorial** タブでトピックを入力、または Chat タブで `/tutorial <トピック>` と入力
-4. RAG検索（houdini21 名前空間のみ・Local/Cloud両対応）→ エージェントループ（最大80回・$5.00 上限のローカル推定に加え、GAS側のAPIキーごとのClaudeトークン上限が実際に強制される）でノードグラフを組み立て → Markdown プレビュー →「保存」を押すと `localRAG/tutorials/` に `.md`＋`.json` を保存
+4. RAG検索（houdini<バージョン> 名前空間のみ・Local/Cloudflare両対応）→ エージェントループ（最大80回・$5.00 上限のローカル推定に加え、Cloudflare側のAPIキーごとのClaudeトークン上限が実際に強制される）でノードグラフを組み立て → Markdown プレビュー →「保存」を押すと `localRAG/tutorials/` に `.md`＋`.json` を保存
 5. 過去の生成物は **History** タブでノードグラフとあわせて確認できる
 
 詳細 → [docs/content-generation.md](docs/content-generation.md) §2（実機検証レポート → [docs/houdini21-tutorial-gen-report.md](docs/houdini21-tutorial-gen-report.md)、講義資料 → [lecture/houdini21-tutorial-gen-lecture.html](lecture/houdini21-tutorial-gen-lecture.html)、モデル運用戦略・コスト対策 → [docs/model-strategy-report.md](docs/model-strategy-report.md)）
@@ -117,7 +118,7 @@ DevelopmentRAGEnvironment/
 │   └── Editor/
 │       └── RAGChatbot/
 │           ├── IRAGClient.cs           # Cloud/Local 切り替えインターフェース
-│           ├── CloudRAGClient.cs       # GAS WebApp へ HTTPS 接続するクライアント
+│           ├── CloudflareRAGClient.cs  # Cloudflare Worker へ HTTPS 接続するクライアント
 │           ├── LocalRAGClient.cs       # localhost:8766 へ HTTP 接続するクライアント
 │           ├── RAGChatbotWindow.cs     # Chat / Graph / Settings の 3 タブ EditorWindow
 │           ├── RAGGraphView.cs         # IMGUI Painter2D によるグラフ描画
@@ -152,7 +153,6 @@ DevelopmentRAGEnvironment/
 │   ├── document_pipeline.py            # ★ SemanticChunker 追加（トークン単位チャンク分割）
 │   ├── score_engine.py                 # ★ 理解度スコアエンジン（トピック別習熟度 → 検索範囲自動調整）
 │   ├── auto_index.py                   # watchdog による自動インデックス化
-│   ├── gas_cloud_rag.js                # GAS WebApp コード（Notion + Gemini チャット）
 │   ├── notion_bulk_add.py              # Notion DB への一括データ投入
 │   ├── notion_bulk_input.yaml          # notion_bulk_add.py の入力サンプル
 │   ├── notion_to_corpus.py             # Notion → Gemini Corpus 同期
@@ -177,7 +177,7 @@ DevelopmentRAGEnvironment/
 │   ├── cloudflare-rag-technical-report.md  # ★ Cloudflare RAG POCの設計・データフロー解説（+.html版）
 │   ├── cloudflare-rag-operations-manual.md # ★ Cloudflare RAG POCの日常運用手順
 │   ├── cloudflare-vs-firebase-comparison.md # ★ 同じ構成をFirebaseで作った場合との違い
-│   ├── gas-feature-parity.md           # ★ GAS版とCloudflare RAG POCの機能対応表
+│   ├── gas-feature-parity.md           # GAS版からCloudflareへの移行の記録（GAS版は廃止済み）
 │   └── other-project-rag-integration-plan.md # ★ 別プロジェクトへのRAG環境統合計画
 │
 ├── lecture/                            # 講義資料（HTML）
@@ -256,13 +256,13 @@ NIST SP 800-207（Zero Trust Architecture）の設計を取り入れた以下の
 | **PEP** | `scripts/pep.py` | ロール（admin / developer / user）ごとにアクセス可能な名前空間を制限 |
 | **SemanticChunker** | `scripts/document_pipeline.py` | 512トークン/64オーバーラップのスライディングウィンドウ分割。`--semantic` フラグで有効化 |
 | **理解度スコア** | `scripts/score_engine.py` | トピック別スコアに応じて検索範囲を自動調整（beginner→tool_docs のみ、expert→research+team_notes） |
-| **👍/👎 評価** | Unity + Houdini UI / GAS | Cloud RAG の回答バブルに評価ボタン。👎 評価した回答は以後の検索から除外 |
+| **👍/👎 評価** | Unity + Houdini UI / Cloudflare | Cloud RAG の回答バブルに評価ボタン。👎 評価した回答は以後の検索から除外 |
 
 ### 👍/👎 評価の動作
 
 ```
-1. Cloud モードで質問 → 回答バブルの下に 👍/👎 ボタンが表示
-2. 👎 を押す → GAS の RAG_Memory シートで priority=0.0 に更新
+1. Cloudflare モードで質問 → 回答バブルの下に 👍/👎 ボタンが表示
+2. 👎 を押す → Worker の履歴（D1）に評価 -1 を記録（`/memory/rate`）
 3. 同じトピックを再度質問 → priority<0.3 のエントリが検索から除外
 4. 回答品質が自動的に向上していく
 ```
@@ -279,15 +279,15 @@ NIST SP 800-207（Zero Trust Architecture）の設計を取り入れた以下の
 | **閾値フィルタ** | コサイン類似度0.58未満（全DB時0.62未満）の低品質チャンクを除外 |
 | **情報抽出度** | 回答中の`[1][2]`引用を解析し、何件のソースが実際に活用されたかを表示 |
 | **adminUpdateKey** | APIキーのnamespace権限を削除・再作成不要で更新できる管理機能 |
-| **houdini21 namespace** | Houdini 21専用ドキュメントDB。GAS/LocalRAG/Unity/Houdini UIに統合済み |
+| **houdini21 namespace** | Houdini 21専用ドキュメントDB。Cloudflare/LocalRAG/Unity/Houdini UIに統合済み |
 
 ---
 
-## Cloudflare RAG POC（検証環境、2026-08 追加）
+## Cloudflare RAG（クラウド RAG の現行実装。2026-08 追加、2026-10-22 に GAS 版を廃止）
 
-`cloudflare-rag-poc/` に、クラウド RAG（GAS + Notion + Sheets）を Cloudflare Workers + D1 + Vectorize で置き換えられるか検証する独立実装がある。**本番のクラウド RAGには一切影響しない検証環境**で、実証実験（9月〜）の結果を待たずに本番構成は現行のまま動き続ける。
+`cloudflare-rag-poc/` が、クラウド RAG の現行実装（Cloudflare Workers + D1 + Vectorize）。以前は GAS + Notion + Sheets の構成だったが、**2026-10-22 に GAS 版を廃止し、`scripts/gas_cloud_rag.js` を削除した**（Houdini パネル・Unity・動画エンジンは、すべて Cloudflare に接続する）。
 
-Notion/Google Drive同期・PDF/DOCX/PPTX/音声動画の変換・ハイブリッド検索（Vectorize+D1 FTS5+HyDE）・Admin API・ヘルスチェック通知・Claude APIプロキシなど、既存GAS版の機能はほぼ実装・実データ検証済み（詳細 → [docs/gas-feature-parity.md](docs/gas-feature-parity.md)）。実際に `https://rag-poc.manato1201m.workers.dev` にデプロイし、houdini21DB（Notion・80ページ）の完全同期・実内容に基づく引用付き回答生成まで確認済み。
+Notion/Google Drive同期・PDF/DOCX/PPTX/音声動画の変換・ハイブリッド検索（Vectorize+D1 FTS5+HyDE）・Admin API・ヘルスチェック通知・Claude APIプロキシなど、旧GAS版の機能はほぼ移植・実データ検証済み（移行の記録 → [docs/gas-feature-parity.md](docs/gas-feature-parity.md)）。実際に `https://rag-poc.manato1201m.workers.dev` にデプロイし、houdini21DB（Notion・80ページ）の完全同期・実内容に基づく引用付き回答生成まで確認済み。
 
 | ドキュメント | 内容 |
 |---|---|
@@ -325,7 +325,7 @@ uv run mypy --strict scripts/pep.py scripts/score_engine.py scripts/audit_logger
 uv run python scripts/ci_check_namespaces.py
 ```
 
-独自拡張子・専用パーサ基盤（別文書「LoreDesktopAndWebSystem改善計画書」方式）は導入していない。このプロジェクトはPython + JS(GAS) + C#(Unity Editor拡張)の組み合わせで独自DSLを持たないため。
+独自拡張子・専用パーサ基盤（別文書「LoreDesktopAndWebSystem改善計画書」方式）は導入していない。このプロジェクトはPython + TypeScript(Cloudflare Worker) + C#(Unity Editor拡張)の組み合わせで独自DSLを持たないため。
 
 ### アーキテクチャ判断: ECS・重量DIコンテナを採用しない理由（IMPROVEMENT_PLAN.md Phase4）
 

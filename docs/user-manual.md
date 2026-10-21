@@ -290,7 +290,7 @@ namespaceの**作成**、**参考資料数の上限**（複数のnamespaceを横
 **開発者（リポジトリから、自分のHoudiniへ）:**
 1. `uv run python houdini/deploy_panels.py 22.0` で、`houdini/python_panels/`のファイルを、**Houdiniが読むフォルダ**（`Documents/houdini22.0/python_panels`）へコピーする。**リポジトリを直しただけでは、実機に反映されない。**パネル本体（`rag_chatbot.py`）を直したときは、`--pypanel` も付ける。
 2. Houdiniの Python Panel のメニューから、RAGチャットのパネルを追加する。
-3. **Settings**タブで、接続先（GAS／Cloudflare）のURLとAPIキー、モデルを設定する。**HoudiniのPCに、Claudeの鍵を置く必要は無い。**
+3. **Settings**タブで、接続先（Cloudflare）のURLとAPIキー、モデル、動画ギャラリー（ダッシュボード）のURLとトークンを設定する。**HoudiniのPCに、Claudeの鍵を置く必要は無い。**
 
 ### 9.2 タブ
 

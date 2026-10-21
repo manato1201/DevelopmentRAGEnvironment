@@ -1,5 +1,9 @@
 # GAS Cloud RAG → Cloudflare POC 機能パリティ一覧
 
+> **【2026-10-22】Google Apps Script（GAS）版は廃止しました。** Cloud RAG は、すべて Cloudflare Worker （[cloudflare-rag-poc/](../cloudflare-rag-poc/)）に置き換え済みです。`scripts/gas_cloud_rag.js` は削除しました（git の履歴に残っています）。**この文書は、GAS 時代の設計の記録です。現行の手順ではありません。** 現行の使い方は、[manual-houdini-tutorial.md](manual-houdini-tutorial.md)・[cloudflare-rag-operations-manual.md](cloudflare-rag-operations-manual.md) を参照してください。
+
+> 下の表は、移行の記録として残しています。比較元の `scripts/gas_cloud_rag.js` は、もうリポジトリにはありません。
+
 **作成日:** 2026-08-23
 **位置づけ:** [scripts/gas_cloud_rag.js](../scripts/gas_cloud_rag.js)（約3,450行・100関数超）が持つ全機能を棚卸しし、[cloudflare-rag-poc/](../cloudflare-rag-poc/)側の実装状況を追跡する。「どんどん機能を入れて最終的にGASと同等以上にする」という方針の進捗管理表。
 

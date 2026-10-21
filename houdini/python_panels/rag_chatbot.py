@@ -1,11 +1,11 @@
 """
 rag_chatbot.py — Houdini 21+ Python Panel
-RAG チャットボット（Cloud / Local 切り替え対応）
+RAG チャットボット（Cloudflare / Local 切り替え対応）
 
 アーキテクチャ:
   このファイルは1つで完結する Houdini Python Panel。
   ・設定は ~/.houdini/rag_chatbot_config.json に JSON で永続化
-  ・Cloud モード: GAS WebApp (doPost) に HTTPS で問い合わせ Gemini が回答
+  ・Cloudflare モード: Cloudflare Worker（/query）に HTTPS で問い合わせ Gemini が回答
   ・Local モード : localhost:8766 の Python ブリッジ経由で Claude / ChromaDB が回答
   ・通信は QThread（QueryWorker）で行い、UI をブロックしない
   ・ローカルブリッジの自動起動も BridgeStartWorker で非同期に行う
@@ -23,8 +23,6 @@ import json
 import subprocess
 import tempfile
 import threading
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 import sys as _sys
@@ -60,6 +58,8 @@ try:
 except ImportError:
     _TUTORIAL_AVAILABLE = False
 
+from rag_client import RAGClient, migrate_config as _migrate_config
+from rag_client import post_json as _post_json
 from PySide6.QtCore import Qt, QSize, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -80,31 +80,29 @@ from PySide6.QtWidgets import (
 # ~/.houdini/ に保存することで Houdini のバージョンに依存しない場所に永続化できる
 _CONFIG_PATH = Path.home() / ".houdini" / "rag_chatbot_config.json"
 _DEFAULT_CONFIG = {
-    "mode":             "local",   # "cloud" | "local"
-    "gas_url":          "",        # GAS WebApp のデプロイ URL
-    "gas_api_key":      "",        # Cloud RAG の API 認証キー（32 文字）
-    "gas_db_key":       "all",     # 検索対象 DB（"all" で全 DB）
+    "mode":             "cloudflare",  # "cloudflare" | "local"
+    "cf_url":           "",        # Cloudflare Worker の URL（例: https://rag-poc.xxx.workers.dev）
+    "cf_api_key":       "",        # Cloudflare RAG の API キー（管理画面で発行）
+    "cf_namespaces":    "",        # チャットで検索するナレッジ（カンマ区切り。空=権限のある全ナレッジ）
     "local_port":       8766,      # ローカルブリッジのポート番号
     "local_bridge_dir": "",        # rag_local_bridge.py が含まれるプロジェクトのパス
     "llm_backend":      "claude",  # "claude" | "gemini"（Local モード LLM 切り替え）
-    "tutorial_model":   "claude-sonnet-5",  # チュートリアル生成（GAS経由Claude）のモデル。
+    "tutorial_model":   "claude-sonnet-5",  # チュートリアル生成（Cloudflare経由Claude）のモデル。
                                     # "claude-sonnet-5"（高品質・高コスト）|
                                     # "claude-haiku-4-5"（低コスト。token消費対策）
     "score_user_id":    "",        # 理解度スコア記録用ユーザーID
     "video_factory_exe_path": "",  # LearningQt video_factory_cloudrag_poc.exe のフルパス
                                     # （チュートリアル保存時に自動で動画生成を起動する）
-    # houdini21チュートリアル生成専用の設定（2026-08-26追加）。上のCloud RAG（GAS）設定とは
-    # 独立しており、未設定なら従来通りgas_url/gas_api_key・"mode"に追随する（後方互換）。
-    "tutorial_rag_mode":      "",  # ""(未設定=chatの"mode"に追随) | "local" | "cloud" | "cloudflare"
-    "tutorial_claude_backend": "gas",  # "gas" | "cloudflare"（チュートリアル生成のClaude呼び出し先）
-    "cf_url":                 "",  # Cloudflare RAG WebAppのデプロイURL（例: https://rag-poc.xxx.workers.dev）
-    "cf_api_key":              "",  # Cloudflare RAG APIキー
     # チュートリアル生成が検索するナレッジ（2026-10-04追加）。""=起動中のHoudiniのバージョンに
     # 自動で合わせる（Houdini 22なら houdini22）。"houdini22" / "shared:houdini22" のように指定も可。
-    # 上の gas_db_key（チャット用のDB指定）とは別物で、チュートリアル生成には影響しない。
+    # 上の cf_namespaces（チャット用）とは別物で、チュートリアル生成には影響しない。
     "tutorial_rag_namespace":  "",
+    # 動画ギャラリー（ダッシュボードの「動画」ページ）へのアップロード先。
+    # gallery_url 例: https://ragreel-gallery.xxx.workers.dev / gallery_token は UPLOAD_TOKEN
+    "gallery_url":      "",
+    "gallery_token":    "",
+    "gallery_auto_upload": True,   # 動画生成の完了時に、自動でギャラリーへ上げる
 }
-
 
 def _load_config() -> dict:
     """
@@ -116,7 +114,7 @@ def _load_config() -> dict:
         try:
             with open(_CONFIG_PATH, encoding="utf-8") as f:
                 cfg = json.load(f)
-            return {**_DEFAULT_CONFIG, **cfg}  # デフォルトに既存設定を上書きマージ
+            return _migrate_config({**_DEFAULT_CONFIG, **cfg})  # デフォルトに既存設定を上書きマージ
         except Exception:
             pass
     return dict(_DEFAULT_CONFIG)
@@ -130,31 +128,6 @@ def _save_config(cfg: dict) -> None:
 
 
 # ─── RAG クライアント ─────────────────────────────────────────────────────────
-
-def _post_json(url: str, body: dict, timeout: int = 60) -> dict:
-    """
-    JSON を POST して dict を返す低レベルヘルパー。
-    urllib のみを使うことで外部ライブラリへの依存をゼロにしている。
-    timeout はデフォルト 60 秒（LLM の回答生成に時間がかかるため長めに設定）。
-    """
-    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read())
-
-
-def _get_json(url: str, timeout: int = 5) -> dict:
-    """
-    JSON を GET して dict を返す低レベルヘルパー。
-    ヘルスチェック用。timeout は 5 秒（ブリッジ未起動時に UI が固まらないよう短く設定）。
-    """
-    with urllib.request.urlopen(url, timeout=timeout) as resp:
-        return json.loads(resp.read())
-
 
 def _capture_viewport_b64() -> str | None:
     """
@@ -180,91 +153,6 @@ def _capture_viewport_b64() -> str | None:
             return base64.b64encode(path.read_bytes()).decode("ascii")
     except Exception:  # noqa: BLE001 -- best-effort, never raise
         return None
-
-
-class RAGClient:
-    """
-    Cloud / Local を透過的に扱う RAG クライアント。
-
-    Cloud モードのリクエスト body:
-      {"query": "...", "dbKey": "all", "history": [...], "apiKey": "..."}
-
-    Local モードのリクエスト body:
-      {"query": "...", "history": [...], "limit": 5}
-    """
-
-    def __init__(self, cfg: dict) -> None:
-        self.cfg = cfg
-
-    def query(self, query: str, history: list[dict], image_b64: str | None = None) -> dict:
-        """
-        RAG にクエリを送る。モードに応じてエンドポイントとリクエスト形式を切り替える。
-        history は会話コンテキストとして送る（Gemini / Claude のマルチターン対話用）。
-
-        image_b64（IMPROVEMENT_PLAN.md Phase2: VLM入力）は Cloud モードでのみ有効。
-        gas_cloud_rag.js の doPost（query アクション）が {"image":{"mimeType","data"}} を
-        受け取ると、検索コンテキストに加えて画像自体もGeminiに見せて回答する
-        （§8.20参照）。Local モードは未対応のため、渡されても無視する
-        （rag_local_bridge.py の /query は image フィールドを見ない）。
-        """
-        if self.cfg["mode"] == "cloud":
-            body = {
-                "query":  query,
-                "dbKey":  self.cfg.get("gas_db_key") or "all",
-                "history": history,
-                "apiKey": self.cfg.get("gas_api_key", ""),
-            }
-            if image_b64:
-                body["image"] = {"mimeType": "image/png", "data": image_b64}
-            return _post_json(self.cfg["gas_url"], body)
-        else:
-            port = self.cfg["local_port"]
-            return _post_json(
-                f"http://localhost:{port}/query",
-                {"query": query, "history": history, "limit": 5},
-            )
-
-    def health(self) -> bool:
-        """
-        サーバーの疎通確認。例外が発生した場合は False を返す。
-        Cloud: URL に GET して 200 OK か確認。
-        Local: /health エンドポイントで {"status":"ok"} を確認。
-        """
-        try:
-            if self.cfg["mode"] == "cloud":
-                with urllib.request.urlopen(self.cfg["gas_url"], timeout=5):
-                    return True
-            else:
-                data = _get_json(f"http://localhost:{self.cfg['local_port']}/health")
-                return data.get("status") == "ok"
-        except Exception:
-            return False
-
-    def rate(self, memory_id: str, rating: str) -> bool:
-        """
-        Cloud モードのみ有効。GAS の RAG_Memory 行に 👍/👎 評価を送る。
-        Local モードは評価先がないため常に True を返す（no-op）。
-        rating: "up"（👍）| "down"（👎）
-        """
-        if self.cfg["mode"] != "cloud":
-            return True
-        url = self.cfg.get("gas_url", "")
-        if not url or not memory_id:
-            return False
-        try:
-            result = _post_json(
-                url,
-                {
-                    "action":   "rate",
-                    "memoryId": memory_id,
-                    "rating":   rating,
-                    "apiKey":   self.cfg.get("gas_api_key", ""),
-                },
-                timeout=15,
-            )
-            return bool(result.get("ok", False))
-        except Exception:
-            return False
 
 
 # ─── バックグラウンドワーカー ─────────────────────────────────────────────────
@@ -452,7 +340,7 @@ class _ConnectionLamp(QWidget):
         self._dot.setStyleSheet(f"background:{color};border-radius:5px;")
         self._text.setText(f"{mode_label} {label}".strip())
         self.setToolTip(
-            "Cloud: GAS WebApp URL への疎通 / Local: ブリッジの /health を定期確認しています"
+            "Cloudflare: Worker の /health への疎通 / Local: ブリッジの /health を定期確認しています"
         )
 
 
@@ -632,7 +520,7 @@ class RAGChatbotPanel(QWidget):
 
 <h2>はじめの3ステップ</h2>
 <ol>
-<li><b>接続を確認する</b> — タブバー右端に「Local 接続OK」または「Cloud 接続OK」の
+<li><b>接続を確認する</b> — タブバー右端に「Local 接続OK」または「Cloudflare 接続OK」の
 緑ランプが出ているか確認してください。赤色（接続なし）の場合は
 <code>Settings</code> タブで設定を確認し、「接続確認」ボタンを押してください。</li>
 <li><b>まず Chat タブで質問してみる</b> — 例:「mountainノードの使い方は？」と入力して
@@ -655,15 +543,17 @@ class RAGChatbotPanel(QWidget):
 グラフのビューア。「簡易」は直列に繋がったノードを1つにまとめた要約表示、
 「詳細」は全ノードをそのまま表示するモードです（マウスホバーで各ボタンの
 説明が出ます）。</li>
-<li><b>Settings</b> — Cloud RAG（GAS WebApp URL / APIキー）と Local RAG
-（ブリッジのポート・プロジェクトパス）の接続設定。</li>
+<li><b>動画</b> — 生成した動画の一覧。「ダッシュボードへアップロード」で、
+ダッシュボードの動画ページ（ギャラリー）に載せられます。</li>
+<li><b>Settings</b> — Cloudflare（Worker の URL / APIキー）と Local RAG
+（ブリッジのポート・プロジェクトパス）、動画ギャラリーの接続設定。</li>
 </ul>
 
 <h2>よくある詰まりポイント</h2>
 <ul>
 <li><b>ランプが赤い（接続なし）</b> — Local モードならブリッジ（<code>rag_local_bridge.py</code>）
 が起動しているか確認してください。<code>Settings</code> タブの「ブリッジ再起動」で
-自動起動を試みます。Cloud モードなら GAS WebApp URL / API Key の設定を見直してください。</li>
+自動起動を試みます。Cloudflare モードなら Worker の URL / APIキー の設定を見直してください。</li>
 <li><b>チュートリアル生成が途中で打ち切られる</b> — 抽象的すぎるトピック
 （例: 具体的なノードで表現しにくい題材）だと、Houdiniのノードタイプを
 探し続けて反復回数を使い切ることがあります。より具体的な操作
@@ -679,7 +569,7 @@ class RAGChatbotPanel(QWidget):
     def _build_chat_tab(self) -> QWidget:
         """
         Chat タブ:
-          - モード切り替えコンボ（local / cloud）
+          - モード切り替えコンボ（local / cloudflare）
           - スクロール可能なメッセージエリア
           - 入力テキストエリア（Ctrl+Enter で送信）
           - 送信 / クリアボタン
@@ -692,20 +582,19 @@ class RAGChatbotPanel(QWidget):
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel("モード:"))
         self._mode_combo = QComboBox()
-        self._mode_combo.addItems(["local", "cloud"])
+        self._mode_combo.addItems(["local", "cloudflare"])
         self._mode_combo.setCurrentText(self._cfg["mode"])
         self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
         mode_row.addWidget(self._mode_combo)
 
-        # 画面添付チェックボックス（IMPROVEMENT_PLAN.md Phase2: VLM入力）。
-        # Cloud RAGのみ対応（gas_cloud_rag.js §8.20）。次の送信1回だけ有効な
+        # 画面添付チェックボックス（VLM入力）。Cloudflare のみ対応。次の送信1回だけ有効な
         # ワンショット仕様にしている（毎回同じ画面を送り続けてしまう事故を防ぐため）。
         self._attach_viewport_checkbox = QCheckBox("画面を添付")
         self._attach_viewport_checkbox.setToolTip(
             "現在のHoudiniビューポートをキャプチャして次のメッセージに添付します"
-            "（Cloud RAGのみ対応。送信すると自動でオフに戻ります）"
+            "（Cloudflareモードのみ対応。送信すると自動でオフに戻ります）"
         )
-        self._attach_viewport_checkbox.setEnabled(self._cfg["mode"] == "cloud")
+        self._attach_viewport_checkbox.setEnabled(self._cfg["mode"] == "cloudflare")
         mode_row.addWidget(self._attach_viewport_checkbox)
         mode_row.addStretch()
         layout.addLayout(mode_row)
@@ -769,8 +658,8 @@ class RAGChatbotPanel(QWidget):
             self._graph_widget = _RAGGraphWidget(
                 port=self._cfg.get("local_port", 8766),
                 rag_mode=self._cfg.get("mode", "local"),
-                gas_url=self._cfg.get("gas_url", ""),
-                gas_api_key=self._cfg.get("gas_api_key", ""),
+                cf_url=self._cfg.get("cf_url", ""),
+                cf_api_key=self._cfg.get("cf_api_key", ""),
             )
             return self._graph_widget
         # フォールバック: graph_view.py が見つからない場合
@@ -893,32 +782,33 @@ class RAGChatbotPanel(QWidget):
     def _build_settings_tab(self) -> QWidget:
         """
         Settings タブ:
-          Cloud RAG: GAS URL / API Key（パスワード非表示）/ DB Key
+          Cloudflare: Worker URL / API キー（パスワード非表示）/ 検索するナレッジ
           Local RAG : Bridge Port / Bridge Directory
+          動画ギャラリー: URL / アップロードトークン
           操作ボタン: 設定保存 / 接続確認 / ブリッジ再起動
         """
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setSpacing(8)
 
-        # Cloud RAG 設定
-        layout.addWidget(QLabel("Cloud RAG"))
+        # Cloudflare 設定（チャット・チュートリアル生成・グラフ共通）
+        layout.addWidget(QLabel("Cloudflare RAG"))
 
-        layout.addWidget(QLabel("GAS WebApp URL:"))
-        self._gas_url_edit = QLineEdit(self._cfg.get("gas_url", ""))
-        self._gas_url_edit.setPlaceholderText("https://script.google.com/macros/s/...")
-        layout.addWidget(self._gas_url_edit)
+        layout.addWidget(QLabel("Worker URL:"))
+        self._cf_url_edit = QLineEdit(self._cfg.get("cf_url", ""))
+        self._cf_url_edit.setPlaceholderText("https://rag-poc.xxxx.workers.dev")
+        layout.addWidget(self._cf_url_edit)
 
-        layout.addWidget(QLabel("API Key:"))
-        self._api_key_edit = QLineEdit(self._cfg.get("gas_api_key", ""))
-        self._api_key_edit.setPlaceholderText("管理画面で発行した32文字のキー")
-        self._api_key_edit.setEchoMode(QLineEdit.Password)  # 入力文字を ● で隠す
-        layout.addWidget(self._api_key_edit)
+        layout.addWidget(QLabel("APIキー:"))
+        self._cf_api_key_edit = QLineEdit(self._cfg.get("cf_api_key", ""))
+        self._cf_api_key_edit.setPlaceholderText("管理タブで発行したAPIキー")
+        self._cf_api_key_edit.setEchoMode(QLineEdit.Password)  # 入力文字を ● で隠す
+        layout.addWidget(self._cf_api_key_edit)
 
-        layout.addWidget(QLabel("DB Key:"))
-        self._db_key_edit = QLineEdit(self._cfg.get("gas_db_key", "all"))
-        self._db_key_edit.setPlaceholderText("all / tool_docs / houdini21 / afuri / ...")
-        layout.addWidget(self._db_key_edit)
+        layout.addWidget(QLabel("チャットで検索するナレッジ（カンマ区切り。空欄=権限のある全ナレッジ）:"))
+        self._cf_ns_edit = QLineEdit(self._cfg.get("cf_namespaces", ""))
+        self._cf_ns_edit.setPlaceholderText("例: houdini22, shared:houdini22")
+        layout.addWidget(self._cf_ns_edit)
 
         # Local RAG 設定
         layout.addWidget(QLabel("Local RAG"))
@@ -964,25 +854,8 @@ class RAGChatbotPanel(QWidget):
         hint.setStyleSheet("color:#888;")
         layout.addWidget(hint)
 
-        # チュートリアル生成の呼び出し先（GAS or Cloudflare、2026-08-26追加）。
-        # 上のCloud RAG設定（GAS）とは独立して切り替えられるようにしてある。
-        layout.addWidget(QLabel("チュートリアル生成: Claude呼び出し先:"))
-        self._tutorial_backend_combo = QComboBox()
-        self._tutorial_backend_combo.addItems(["gas", "cloudflare"])
-        self._tutorial_backend_combo.setCurrentText(
-            self._cfg.get("tutorial_claude_backend", "gas")
-        )
-        layout.addWidget(self._tutorial_backend_combo)
-
-        layout.addWidget(QLabel("チュートリアル生成: RAG検索先（空欄=上のCloud RAG設定に追随）:"))
-        self._tutorial_rag_mode_combo = QComboBox()
-        self._tutorial_rag_mode_combo.addItems(["", "local", "cloud", "cloudflare"])
-        self._tutorial_rag_mode_combo.setCurrentText(
-            self._cfg.get("tutorial_rag_mode", "")
-        )
-        layout.addWidget(self._tutorial_rag_mode_combo)
-
-        # 検索対象のナレッジ（Houdiniのバージョン別）。上の「DB」欄（チャット用）とは別設定。
+        # 検索対象のナレッジ（Houdiniのバージョン別）。上の「チャットで検索するナレッジ」欄とは別設定。
+        # チュートリアル生成のClaudeは常にCloudflare経由、RAG検索はチャットのモード（local/cloudflare）に従う。
         layout.addWidget(QLabel("チュートリアル生成: 検索するナレッジ（空欄=起動中のHoudiniに自動で合わせる）:"))
         self._tutorial_rag_ns_combo = QComboBox()
         self._tutorial_rag_ns_combo.setEditable(True)
@@ -990,20 +863,9 @@ class RAGChatbotPanel(QWidget):
         self._tutorial_rag_ns_combo.setCurrentText(self._cfg.get("tutorial_rag_namespace", ""))
         self._tutorial_rag_ns_combo.setToolTip(
             "空欄: Houdini 22で起動していれば houdini22、21なら houdini21 を検索します。\n"
-            "上の「DB」欄（gas_db_key）はチャットタブ用で、この設定には影響しません。"
+            "上の「チャットで検索するナレッジ」欄はチャットタブ用で、この設定には影響しません。"
         )
         layout.addWidget(self._tutorial_rag_ns_combo)
-
-        layout.addWidget(QLabel("Cloudflare RAG WebApp URL:"))
-        self._cf_url_edit = QLineEdit(self._cfg.get("cf_url", ""))
-        self._cf_url_edit.setPlaceholderText("https://rag-poc.xxxx.workers.dev")
-        layout.addWidget(self._cf_url_edit)
-
-        layout.addWidget(QLabel("Cloudflare RAG APIキー:"))
-        self._cf_api_key_edit = QLineEdit(self._cfg.get("cf_api_key", ""))
-        self._cf_api_key_edit.setPlaceholderText("管理タブで発行したAPIキー")
-        self._cf_api_key_edit.setEchoMode(QLineEdit.Password)
-        layout.addWidget(self._cf_api_key_edit)
 
         # スコアユーザーID
         layout.addWidget(QLabel("スコアユーザーID:"))
@@ -1019,7 +881,24 @@ class RAGChatbotPanel(QWidget):
         )
         layout.addWidget(self._video_factory_exe_edit)
 
-        # 注意: チュートリアル生成のClaudeトークン上限は、ここではなくGAS管理画面
+        # 動画ギャラリー（ダッシュボードの「動画」ページ）。ここへ動画をアップロードする。
+        layout.addWidget(QLabel("動画ギャラリー（ダッシュボードの動画ページ）"))
+        layout.addWidget(QLabel("ギャラリーURL:"))
+        self._gallery_url_edit = QLineEdit(self._cfg.get("gallery_url", ""))
+        self._gallery_url_edit.setPlaceholderText("https://ragreel-gallery.xxxx.workers.dev")
+        layout.addWidget(self._gallery_url_edit)
+
+        layout.addWidget(QLabel("アップロードトークン:"))
+        self._gallery_token_edit = QLineEdit(self._cfg.get("gallery_token", ""))
+        self._gallery_token_edit.setPlaceholderText("ギャラリー管理者から受け取ったトークン")
+        self._gallery_token_edit.setEchoMode(QLineEdit.Password)
+        layout.addWidget(self._gallery_token_edit)
+
+        self._gallery_auto_checkbox = QCheckBox("動画の生成が終わったら、自動でギャラリーへアップロードする")
+        self._gallery_auto_checkbox.setChecked(bool(self._cfg.get("gallery_auto_upload", True)))
+        layout.addWidget(self._gallery_auto_checkbox)
+
+        # 注意: チュートリアル生成のClaudeトークン上限は、ここではなく管理画面
         # （🔑APIキー管理タブ）側でAPIキーごとに設定する。クライアント側で
         # 上限を自己申告・改ざんできない構成にするため、意図的にここには置いていない。
 
@@ -1059,17 +938,27 @@ class RAGChatbotPanel(QWidget):
                 return True
         return super().eventFilter(obj, event)
 
+    def _sync_graph_connection(self) -> None:
+        """Graph タブに、いまの接続設定（モード・URL・キー）を渡す。タブは起動時の設定のままだと、保存・切り替えが反映されない。"""
+        widget = getattr(self, "_graph_widget", None)
+        if widget is not None:
+            widget.set_connection(
+                self._cfg.get("local_port", 8766), self._cfg.get("mode", "local"),
+                self._cfg.get("cf_url", ""), self._cfg.get("cf_api_key", ""),
+            )
+
     def _on_mode_changed(self, mode: str) -> None:
         """モード切り替え時に設定を保存してクライアントを再生成する。"""
         self._cfg["mode"] = mode
         _save_config(self._cfg)
         self._client = RAGClient(self._cfg)
+        self._sync_graph_connection()
         if mode == "local":
             self._ensure_bridge()
-        # 画面添付（VLM入力）はCloud RAG専用（§8.20）。Localに切り替えたら
+        # 画面添付（VLM入力）はCloudflare専用。Localに切り替えたら
         # チェックが入っていても解除し、無効な状態のまま残らないようにする。
-        self._attach_viewport_checkbox.setEnabled(mode == "cloud")
-        if mode != "cloud":
+        self._attach_viewport_checkbox.setEnabled(mode == "cloudflare")
+        if mode != "cloudflare":
             self._attach_viewport_checkbox.setChecked(False)
         self._check_connection_async()
 
@@ -1083,7 +972,7 @@ class RAGChatbotPanel(QWidget):
         """
         if self._conn_worker is not None and self._conn_worker.isRunning():
             return
-        mode_label = "Cloud" if self._cfg.get("mode") == "cloud" else "Local"
+        mode_label = "Cloudflare" if self._cfg.get("mode") == "cloudflare" else "Local"
         self._conn_lamp.set_state("checking", mode_label)
         self._conn_worker = _ConnectionCheckWorker(self._client)
         self._conn_worker.result.connect(
@@ -1151,7 +1040,8 @@ class RAGChatbotPanel(QWidget):
         self._add_rag_bubble(answer, memory_id)
         self._history.append({"role": "assistant", "text": answer})
         if sources:
-            titles = ", ".join(s.get("title", "") for s in sources)
+            # Cloudflare は出典を {"file": ...}、Local ブリッジは {"title": ...} で返す
+            titles = ", ".join(s.get("file") or s.get("title", "") for s in sources)
             self._set_status(f"参照: {titles}")
         else:
             self._set_status("")
@@ -1184,17 +1074,16 @@ class RAGChatbotPanel(QWidget):
 
     def _on_save_settings(self) -> None:
         """設定タブの入力値を _cfg に反映してファイルに保存し、クライアントを再生成する。"""
-        self._cfg["gas_url"]          = self._gas_url_edit.text().strip()
-        self._cfg["gas_api_key"]      = self._api_key_edit.text().strip()
-        self._cfg["gas_db_key"]       = self._db_key_edit.text().strip() or "all"
+        self._cfg["cf_url"]           = self._cf_url_edit.text().strip()
+        self._cfg["cf_api_key"]       = self._cf_api_key_edit.text().strip()
+        self._cfg["cf_namespaces"]    = self._cf_ns_edit.text().strip()
         self._cfg["local_bridge_dir"] = self._bridge_dir_edit.text().strip()
         self._cfg["llm_backend"]      = self._backend_combo.currentText()
         self._cfg["tutorial_model"]   = self._tutorial_model_combo.currentText()
-        self._cfg["tutorial_claude_backend"] = self._tutorial_backend_combo.currentText()
-        self._cfg["tutorial_rag_mode"] = self._tutorial_rag_mode_combo.currentText()
         self._cfg["tutorial_rag_namespace"] = self._tutorial_rag_ns_combo.currentText().strip()
-        self._cfg["cf_url"]           = self._cf_url_edit.text().strip()
-        self._cfg["cf_api_key"]       = self._cf_api_key_edit.text().strip()
+        self._cfg["gallery_url"]      = self._gallery_url_edit.text().strip()
+        self._cfg["gallery_token"]    = self._gallery_token_edit.text().strip()
+        self._cfg["gallery_auto_upload"] = self._gallery_auto_checkbox.isChecked()
         self._cfg["score_user_id"]    = self._score_uid_edit.text().strip()
         self._cfg["video_factory_exe_path"] = self._video_factory_exe_edit.text().strip()
         try:
@@ -1203,6 +1092,7 @@ class RAGChatbotPanel(QWidget):
             pass  # 不正なポート値は無視して既存値を維持
         _save_config(self._cfg)
         self._client = RAGClient(self._cfg)
+        self._sync_graph_connection()
         # バックエンド変更をブリッジに通知
         if self._cfg["mode"] == "local":
             threading.Thread(target=self._push_backend, daemon=True).start()
@@ -1213,7 +1103,7 @@ class RAGChatbotPanel(QWidget):
         """接続確認ボタン。health() の結果をステータスとタブバーのランプ両方に反映する。"""
         ok = self._client.health()
         self._set_status("接続OK" if ok else "接続失敗 — ブリッジが起動しているか確認してください")
-        mode_label = "Cloud" if self._cfg.get("mode") == "cloud" else "Local"
+        mode_label = "Cloudflare" if self._cfg.get("mode") == "cloudflare" else "Local"
         self._conn_lamp.set_state("ok" if ok else "fail", mode_label)
 
     def _on_restart_bridge(self) -> None:
@@ -1289,10 +1179,11 @@ class RAGChatbotPanel(QWidget):
         insert_at = max(0, self._chat_layout.count() - 1)
         self._chat_layout.insertLayout(insert_at, row)
 
-    def _add_rag_bubble(self, text: str, memory_id: str) -> None:
+    def _add_rag_bubble(self, text: str, memory_id) -> None:
         """
         RAG 回答専用バブル。テキストの下に 👍/👎 ボタンを追加する。
-        memory_id が空の場合（Local モードなど）はボタンを表示しない。
+        memory_id が空（None・""）の場合（Local モードなど）はボタンを表示しない。
+        Cloudflare の memoryId は数値（0 以外）。
         """
         container = QWidget()
         v = QVBoxLayout(container)
@@ -1305,7 +1196,7 @@ class RAGChatbotPanel(QWidget):
         bubble_row.addStretch()
         v.addLayout(bubble_row)
 
-        # 評価ボタン行（Cloud モードで memoryId がある場合のみ）
+        # 評価ボタン行（Cloudflare モードで memoryId がある場合のみ）
         if memory_id:
             btn_row = QHBoxLayout()
             thumb_up   = QPushButton("👍")

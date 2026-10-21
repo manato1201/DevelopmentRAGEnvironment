@@ -2,7 +2,7 @@
   "name": "cloudflare-rag-poc",
   "version": "0.1.0",
   "private": true,
-  "description": "Cloud RAG / Local RAG統合方針の検証用プロトタイプ（本番のgas_cloud_rag.js/rag_service.pyには一切影響しない別環境）",
+  "description": "Cloud RAG（Cloudflare Worker）の現行実装。旧GAS版（gas_cloud_rag.js）は2026-10-22に廃止",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

@@ -3,7 +3,7 @@ graph_view.py — Houdini RAG グラフビュー（PySide6 QGraphicsView、3D表
 
 rag_chatbot.py の Graph タブに埋め込む自己完結ウィジェット。
 Local モードでは rag_local_bridge.py の /graph エンドポイントから、
-Cloud モードでは gas_cloud_rag.js（doPost の action:'graph'）からデータを取得して描画する。
+Cloudflare モードでは Worker の /graph からデータを取得して描画する。
 
 2026-08-28: 2D表示を3D表示化した。Cloudflare Web UI側のグラフ（chatUi.ts、Three.js）が
 既に3D実装済みで、Houdini側だけ2Dのままだと「webとアプリで表示が違う」状態になって
@@ -44,6 +44,7 @@ import urllib.error
 import urllib.request
 from typing import Optional
 
+from rag_client import normalize_cloudflare_graph
 from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QWheelEvent
 from PySide6.QtWidgets import (
@@ -72,7 +73,7 @@ _DB_COLORS = {
     "braintq":    "#8b5cf6",  # 薄紫: Braintq 関連
     "fourteen":   "#06b6d4",  # シアン: 14 関連
     "local":      "#3b82f6",  # 青: Local DB
-    "cloud":      "#22c55e",  # 黄緑: Cloud DB
+    "cloudflare": "#22c55e",  # 黄緑: Cloudflare
 }
 _DEFAULT_NODE_COLOR = "#64748b"  # 未知の DB はグレー
 
@@ -224,9 +225,9 @@ class GraphFetchWorker(QThread):
 
     rag_mode に応じて取得先を切り替える:
       "local" : http://localhost:{port}/graph へ GET（rag_local_bridge.py の /graph）
-      "cloud" : gas_url へ {"action":"graph","apiKey":gas_api_key} を POST
-                （gas_cloud_rag.js の doPost 内 action:'graph' ブランチ。戻り値の形は
-                /graph エンドポイントと完全に同一なので呼び出し側の扱いは変わらない）
+      "cloudflare" : {cf_url}/graph へ POST（Authorization: Bearer <APIキー>）。
+                Worker は nodes[{id,label,namespace,...}] / edges[{source,target,weight}] を返すので、
+                描画側が読む db / chunk_count / score に読み替えて渡す。
     """
     data_ready = Signal(dict)  # 成功時: レスポンス全体（nodes/edges/status）
     error      = Signal(str)   # 失敗時: エラーメッセージ
@@ -235,19 +236,19 @@ class GraphFetchWorker(QThread):
         self,
         port: int,
         rag_mode: str = "local",
-        gas_url: str = "",
-        gas_api_key: str = "",
+        cf_url: str = "",
+        cf_api_key: str = "",
     ) -> None:
         super().__init__()
-        self._port        = port
-        self._rag_mode    = rag_mode
-        self._gas_url     = gas_url
-        self._gas_api_key = gas_api_key
+        self._port       = port
+        self._rag_mode   = rag_mode
+        self._cf_url     = cf_url
+        self._cf_api_key = cf_api_key
 
     def run(self) -> None:
         try:
-            if self._rag_mode == "cloud":
-                data = self._fetch_cloud()
+            if self._rag_mode == "cloudflare":
+                data = self._fetch_cloudflare()
             else:
                 data = self._fetch_local()
             self.data_ready.emit(data)
@@ -262,26 +263,24 @@ class GraphFetchWorker(QThread):
         with urllib.request.urlopen(url, timeout=90) as resp:
             return json.loads(resp.read())
 
-    def _fetch_cloud(self) -> dict:
-        """
-        GAS WebApp に {"action":"graph","apiKey":...} を POST する。
-        tutorial_agent.py の _call_api / _rag_search_cloud と同じ
-        urllib.request.Request(..., method='POST') パターン。
-        """
-        if not self._gas_url:
-            raise RuntimeError("Cloud RAGモードですが gas_url が未設定です")
-        body = json.dumps(
-            {"action": "graph", "apiKey": self._gas_api_key},
-            ensure_ascii=False,
-        ).encode("utf-8")
+    def _fetch_cloudflare(self) -> dict:
+        """Cloudflare Worker の /graph に POST し、描画用の形に読み替えて返す。"""
+        base = self._cf_url.strip().rstrip("/")
+        if not base:
+            raise RuntimeError("Cloudflareモードですが、Worker の URL が未設定です（設定タブ）")
         req = urllib.request.Request(
-            self._gas_url,
-            data=body,
-            headers={"Content-Type": "application/json"},
+            f"{base}/graph",
+            data=b"{}",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self._cf_api_key}",
+                # urllib 既定の User-Agent は Cloudflare に拒否される（error 1010）
+                "User-Agent": "HoudiniRAGPanel/1.0",
+            },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=90) as resp:
-            return json.loads(resp.read())
+            return normalize_cloudflare_graph(json.loads(resp.read()))
 
 
 # ─── グラフアイテム ─────────────────────────────────────────────────────────────
@@ -623,14 +622,14 @@ class RAGGraphWidget(QWidget):
         port: int = 8766,
         parent: Optional[QWidget] = None,
         rag_mode: str = "local",
-        gas_url: str = "",
-        gas_api_key: str = "",
+        cf_url: str = "",
+        cf_api_key: str = "",
     ) -> None:
         super().__init__(parent)
         self._port         = port
         self._rag_mode     = rag_mode
-        self._gas_url      = gas_url
-        self._gas_api_key  = gas_api_key
+        self._cf_url       = cf_url
+        self._cf_api_key   = cf_api_key
         self._worker: Optional[GraphFetchWorker] = None
 
         self._scene = RAGGraphScene()
@@ -638,6 +637,11 @@ class RAGGraphWidget(QWidget):
         self._scene.node_selected.connect(self._on_node_selected)
 
         self._build_ui()
+
+    def set_connection(self, port: int, rag_mode: str, cf_url: str, cf_api_key: str) -> None:
+        """接続設定を差し替える（設定タブで保存したとき・モードを切り替えたときに、パネルから呼ばれる）。"""
+        self._port, self._rag_mode = port, rag_mode
+        self._cf_url, self._cf_api_key = cf_url, cf_api_key
 
     def _build_ui(self) -> None:
         """ツールバー + グラフビュー + 詳細パネルを縦に配置する。"""
@@ -686,8 +690,8 @@ class RAGGraphWidget(QWidget):
         self._worker = GraphFetchWorker(
             self._port,
             rag_mode=self._rag_mode,
-            gas_url=self._gas_url,
-            gas_api_key=self._gas_api_key,
+            cf_url=self._cf_url,
+            cf_api_key=self._cf_api_key,
         )
         self._worker.data_ready.connect(self._on_data_ready)
         self._worker.error.connect(self._on_error)

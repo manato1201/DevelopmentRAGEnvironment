@@ -2,7 +2,7 @@ name: CI
 
 # IMPROVEMENT_PLAN.md Phase5: 静的解析の軽量強化。
 # 独自拡張子・専用パーサ基盤（別文書「LoreDesktopAndWebSystem改善計画書」方式）は
-# 導入しない。このプロジェクトはPython+JS(GAS)+C#(Unity Editor拡張)の組み合わせで
+# 導入しない。このプロジェクトはPython+TypeScript(Cloudflare Worker)+C#(Unity Editor拡張)の組み合わせで
 # 独自DSLを持たないため、ruff/mypy等の標準ツールで十分（Phase5アンチパターン注記）。
 
 on:
