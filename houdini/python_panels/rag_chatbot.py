@@ -368,6 +368,32 @@ class BridgeStartWorker(QThread):
         self.failed.emit("ブリッジ起動タイムアウト")
 
 
+# ─── 表示幅の保護 ─────────────────────────────────────────────────────────────
+
+_STATUS_MAX_CHARS = 120
+
+
+def elide_text(text: str, limit: int = _STATUS_MAX_CHARS) -> str:
+    """1行の表示用に、長い文を省略する（全文は呼び出し側がツールチップに出す）。"""
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def tame_label_widths(root: QWidget) -> None:
+    """折り返さない QLabel の「最小幅」を、中身の長さから切り離す。
+
+    Qt の QLabel は、折り返さない場合、文字列全体の幅を最小幅として要求する。Houdini のペインは、
+    パネルの最小幅がペインより広いと、パネルをはみ出させ、ペインの区切りも動かせなくなる
+    （チャット後の「参照: …」で実機で発生、2026-10-21）。水平方向を Ignored にすると、レイアウトは
+    中身の長さを無視して、割り当てられた幅だけを使う。"""
+    for label in root.findChildren(QLabel):
+        if label.wordWrap():
+            continue
+        policy = label.sizePolicy()
+        label.setSizePolicy(QSizePolicy.Ignored, policy.verticalPolicy())
+        label.setMinimumWidth(0)
+
+
 # ─── チャットバブル ───────────────────────────────────────────────────────────
 
 class ChatBubble(QLabel):
@@ -558,6 +584,11 @@ class RAGChatbotPanel(QWidget):
         self._status = QLabel("")
         self._status.setStyleSheet("color:#aaa;font-size:11px;")
         root.addWidget(self._status)
+
+        # 2026-10-21: チャットの回答のあと、下部に「参照: タイトル, タイトル, …」が1行で出て、
+        # ラベルの最小幅がペインより広くなり、パネルがペインからはみ出して、ペインの
+        # 区切り（比率）が動かせなくなった。折り返さないラベルは、中身の長さを無視させる。
+        tame_label_widths(self)
 
     def _build_help_tab(self) -> QWidget:
         """
@@ -1323,8 +1354,9 @@ class RAGChatbotPanel(QWidget):
         sb.setValue(sb.maximum())
 
     def _set_status(self, text: str) -> None:
-        """下部ステータスラベルのテキストを更新する。"""
-        self._status.setText(text)
+        """下部ステータスラベルのテキストを更新する。長い文は省略し、全文はツールチップに出す。"""
+        self._status.setText(elide_text(text))
+        self._status.setToolTip(text if len(text) > _STATUS_MAX_CHARS else "")
 
 
 # ─── Houdini エントリポイント ─────────────────────────────────────────────────

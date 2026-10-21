@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import datetime
 import re
+import time
 from pathlib import Path
 
 import hou
@@ -297,7 +298,7 @@ def _looks_blank(image) -> bool:
     return True
 
 
-def _grab_network_pane(network_editor, log_path: Path | None):
+def _grab_network_pane(network_editor, log_path: Path | None, label: str = "NetworkEditor"):
     """
     NetworkEditor ペインが「画面上で占めている矩形」を直接切り出して QImage で返す
     （撮れなければ None）。
@@ -328,9 +329,9 @@ def _grab_network_pane(network_editor, log_path: Path | None):
 
     rect = geometry_fn()
     x, y, w, h = int(rect.x()), int(rect.y()), int(rect.width()), int(rect.height())
-    _log(f"NetworkEditor qtScreenGeometry: ({x},{y},{w},{h})", log_path)
+    _log(f"{label} qtScreenGeometry: ({x},{y},{w},{h})", log_path)
     if w < 200 or h < 120:
-        _log("NetworkEditor pane is too small to capture (hidden or collapsed?)", log_path)
+        _log(f"{label} pane is too small to capture (hidden or collapsed?)", log_path)
         return None
 
     # 画面切り出しは「今画面に見えているもの」をそのままコピーするため、Houdini以外の
@@ -360,7 +361,7 @@ def _grab_network_pane(network_editor, log_path: Path | None):
                 _log("something outside Houdini covers part of the pane; not grabbing the screen", log_path)
                 return None
             if _is_own_panel_widget(covering):
-                _log("the RAGChatBot panel overlaps the NetworkEditor pane on screen; not grabbing it", log_path)
+                _log(f"the RAGChatBot panel overlaps the {label} pane on screen; not grabbing it", log_path)
                 return None
             top_windows.add(id(covering.window()))
     if len(top_windows) != 1:
@@ -370,7 +371,7 @@ def _grab_network_pane(network_editor, log_path: Path | None):
     origin = screen.geometry().topLeft()
     image = screen.grabWindow(0, x - origin.x(), y - origin.y(), w, h).toImage()
     if _looks_blank(image):
-        _log("the grabbed NetworkEditor region is blank", log_path)
+        _log(f"the grabbed {label} region is blank", log_path)
         return None
     return image
 
@@ -643,6 +644,36 @@ def render_network_diagram(
         return False
 
 
+def render_graph_diagram(
+    graph: dict,
+    output_path: Path,
+    width: int = 1280,
+    height: int = 720,
+    log_path: Path | None = None,
+) -> bool:
+    """保存済みのノードグラフ（NodeGraphAsset形式の dict）から、ノードの関係図を output_path に描く。
+
+    hou のノードを読まないので、サンドボックスを消したあとでも描ける。動画の説明スライド
+    （考え方・全体の流れなど）に、ぼやけた空の板の代わりに出す。失敗時は False（例外は投げない）。"""
+    try:
+        from graph_diagram import graph_to_model
+
+        label, model = graph_to_model(graph or {})
+        if not model:
+            _log("render_graph_diagram: the graph has no nodes", log_path)
+            return False
+        layers = _assign_layers(model)
+        image = _paint_network_diagram(layers, label or "ノードの関係図", None, None, width, height)
+        if not image.save(str(output_path), "PNG"):
+            _log(f"render_graph_diagram: image.save() returned False for {output_path}", log_path)
+            return False
+        _log(f"node diagram rendered from the saved graph ({len(model)} nodes)", log_path)
+        return True
+    except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
+        _log(f"render_graph_diagram failed: {exc!r}", log_path)
+        return False
+
+
 def _fit_text(metrics, text: str, max_width: float) -> str:
     """max_width に収まるよう、末尾を…で省略した文字列を返す。"""
     if metrics.horizontalAdvance(text) <= max_width:
@@ -812,6 +843,174 @@ def render_parameter_card(
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
         _log(f"render_parameter_card failed: {exc!r}", log_path)
         return False
+
+
+def _compose_parameter_screen(
+    output_path: Path,
+    pane_image,
+    container_path: str,
+    node_name: str,
+    changes: list[dict],
+    width: int,
+    height: int,
+    log_path: Path | None,
+) -> bool:
+    """実際のパラメータ画面（Houdiniのペインの切り出し）を左に大きく、「何を、いくつからいくつに変えたか」を右に並べる。
+    実画面は、パラメータがどこにあるかが分かる。右の一覧は、実画面ではスクロールや折りたたみで見えないことがある
+    変更点を、確実に伝える。"""
+    try:
+        from PySide6.QtCore import QRectF, Qt
+        from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
+
+        image = QImage(width, height, QImage.Format_ARGB32)
+        image.fill(QColor("#2f2f31"))
+        p = QPainter(image)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setRenderHint(QPainter.TextAntialiasing, True)
+        p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+
+        bar_h = 40
+        p.fillRect(QRectF(0, 0, width, bar_h), QColor("#232325"))
+        bar_font = QFont("Segoe UI", 12)
+        bar_font.setBold(True)
+        p.setFont(bar_font)
+        p.setPen(QColor("#c9c9cc"))
+        p.drawText(QRectF(16, 0, width - 32, bar_h), Qt.AlignVCenter | Qt.AlignLeft, f"{container_path}  ›  {node_name}")
+
+        pane_w = int(width * 0.60)
+        area = QRectF(12, bar_h + 12, pane_w - 12, height - bar_h - 24)
+        scaled = pane_image.scaled(int(area.width()), int(area.height()), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        px = area.x()
+        py = area.y()
+        p.drawImage(int(px), int(py), scaled)
+        p.setPen(QPen(QColor("#4a4a4f"), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawRect(QRectF(px, py, scaled.width(), scaled.height()))
+
+        x0 = pane_w + 12.0
+        col_w = width - x0 - 20
+        section_font = QFont("Segoe UI", 11)
+        section_font.setBold(True)
+        label_font = QFont("Segoe UI", 15)
+        label_font.setBold(True)
+        value_font = QFont("Segoe UI", 16)
+        value_font.setBold(True)
+        old_font = QFont("Segoe UI", 13)
+        code_font = QFont("Consolas", 11)
+        y = bar_h + 16.0
+        p.setFont(section_font)
+        p.setPen(QColor("#ffb000"))
+        p.drawText(QRectF(x0, y, col_w, 22), Qt.AlignVCenter | Qt.AlignLeft, "変更したパラメータ")
+        y += 30
+        plain = [c for c in changes if not c.get("code")][:6]
+        code = [c for c in changes if c.get("code")][:1]
+        for c in plain:
+            row = QRectF(x0, y, col_w, 62)
+            p.setPen(QPen(QColor("#ffb000"), 1.4))
+            p.setBrush(QColor(255, 176, 0, 30))
+            p.drawRoundedRect(row, 8, 8)
+            p.setFont(label_font)
+            p.setPen(QColor("#f2f2f4"))
+            p.drawText(QRectF(x0 + 12, y + 3, col_w - 24, 26), Qt.AlignVCenter | Qt.AlignLeft,
+                       _fit_text(QFontMetricsF(label_font), c.get("label", c.get("name", "")), col_w - 24))
+            old, new = str(c.get("old", "")), str(c.get("new", ""))
+            cursor = x0 + 12
+            if old and old != new:
+                p.setFont(old_font)
+                p.setPen(QColor("#8d8d92"))
+                old_text = _fit_text(QFontMetricsF(old_font), old, col_w * 0.34)
+                ow = QFontMetricsF(old_font).horizontalAdvance(old_text)
+                p.drawText(QRectF(cursor, y + 31, ow + 4, 26), Qt.AlignVCenter | Qt.AlignLeft, old_text)
+                cursor += ow + 12
+                p.setFont(value_font)
+                p.setPen(QColor("#ffb000"))
+                p.drawText(QRectF(cursor, y + 31, 30, 26), Qt.AlignVCenter | Qt.AlignLeft, "→")
+                cursor += 34
+            p.setFont(value_font)
+            p.setPen(QColor("#ffd27a"))
+            p.drawText(QRectF(cursor, y + 31, x0 + col_w - cursor - 8, 26), Qt.AlignVCenter | Qt.AlignLeft,
+                       _fit_text(QFontMetricsF(value_font), new, x0 + col_w - cursor - 8))
+            y += 72
+        for c in code:
+            p.setFont(label_font)
+            p.setPen(QColor("#f2f2f4"))
+            p.drawText(QRectF(x0, y, col_w, 26), Qt.AlignVCenter | Qt.AlignLeft,
+                       _fit_text(QFontMetricsF(label_font), c.get("label", c.get("name", "")), col_w))
+            y += 32
+            lines = str(c.get("new", "")).splitlines() or [""]
+            shown = lines[: max(2, int((height - y - 30) // 20))]
+            box = QRectF(x0, y, col_w, len(shown) * 20 + 20)
+            p.setPen(QPen(QColor("#ffb000"), 1.4))
+            p.setBrush(QColor("#1d1d1f"))
+            p.drawRoundedRect(box, 8, 8)
+            p.setFont(code_font)
+            metrics = QFontMetricsF(code_font)
+            ty = y + 10
+            for line in shown:
+                p.setPen(QColor("#7ec699") if line.lstrip().startswith("//") else QColor("#e6e6e8"))
+                p.drawText(QRectF(x0 + 12, ty, col_w - 24, 20), Qt.AlignVCenter | Qt.AlignLeft,
+                           _fit_text(metrics, line.replace("\t", "    "), col_w - 24))
+                ty += 20
+        p.end()
+        return bool(image.save(str(output_path), "PNG"))
+    except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
+        _log(f"_compose_parameter_screen failed: {exc!r}", log_path)
+        return False
+
+
+def capture_parameter_screen(
+    output_path: Path,
+    node_path: str,
+    container_path: str,
+    node_name: str,
+    node_type_label: str,
+    changes: list[dict],
+    others: list[tuple[str, str]] | None = None,
+    width: int = 1280,
+    height: int = 720,
+    log_path: Path | None = None,
+) -> str:
+    """set_parameter のステップ用の画像を作る。戻り値: 使った方法（"pane" / "card" / ""=失敗）。
+
+    1. "pane": 実際のパラメータ画面（Parmペイン）を切り出し、変更点の一覧を添える（2026-10-21）。
+       どこに何があるかが、実画面のほうが分かりやすい。ノードを選択して、ペインに表示させる。
+       ペインが無い・固定表示（ピン）・隠れている・他のウィンドウが重なっている等で撮れなければ、次へ。
+    2. "card": 従来どおり、Houdiniのパラメータ画面風に描き直したカード（render_parameter_card）。
+    どちらで撮れたかは、capture.log に「parameter capture method: ...」と残る。"""
+    pane_image = None
+    try:
+        pane = hou.ui.paneTabOfType(hou.paneTabType.Parm)
+    except Exception as exc:  # noqa: BLE001
+        _log(f"paneTabOfType(Parm) failed: {exc!r}", log_path)
+        pane = None
+    if pane is None:
+        _log("no Parm pane found in the current desktop; using the drawn card", log_path)
+    else:
+        try:
+            if pane.isPin():
+                _log("the Parm pane is pinned (it may show another node); using the drawn card", log_path)
+            else:
+                node = hou.node(node_path)
+                if node is not None:
+                    node.setCurrent(True, clear_all_selected=True)
+                    pane.setIsCurrentTab()
+                    time.sleep(0.2)  # パラメータ画面が、選んだノードの内容に組み替わるのを待つ
+                    _flush_qt_events()
+                    pane_image = _grab_network_pane(pane, log_path, label="Parm")
+        except Exception as exc:  # noqa: BLE001
+            _log(f"screen grab of the Parm pane failed: {exc!r}", log_path)
+            pane_image = None
+    if pane_image is not None and _compose_parameter_screen(
+        output_path, pane_image, container_path, node_name, changes, width, height, log_path
+    ):
+        _log("parameter capture method: pane (qtScreenGeometry) + change list", log_path)
+        return "pane"
+    if render_parameter_card(
+        output_path, container_path, node_name, node_type_label, changes, others, width, height, log_path
+    ):
+        _log("parameter capture method: drawn card", log_path)
+        return "card"
+    return ""
 
 
 def capture_network_editor(
