@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Houdini チュートリアル生成と動画生成 — 技術解説書</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">技術解説書（Houdini・動画）</span>
+  <h1>Houdini チュートリアル生成と動画生成 — 技術解説書</h1>
+  <div class="meta">HTML生成: 2026-10-21（元: docs/houdini-tutorial-technical-report.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-チュートリアル生成tutorialagentpy">2. チュートリアル生成（tutorial_agent.py）</a><ol><li><a href="#21-生成の流れ">2.1 生成の流れ</a></li><li><a href="#22-ツールhoudinitoolspy">2.2 ツール（houdini_tools.py）</a></li><li><a href="#23-安全装置暴走打ち切りの扱い">2.3 安全装置（暴走・打ち切りの扱い）</a></li><li><a href="#24-レベル学習の道すじ">2.4 レベル（学習の道すじ）</a></li></ol></li><li><a href="#3-品質を上げる仕組み2026-10-2021">3. 品質を上げる仕組み（2026-10-20〜21）</a></li><li><a href="#4-スクリーンショットscreencapturepy">4. スクリーンショット（screen_capture.py）</a></li><li><a href="#5-動画生成">5. 動画生成</a><ol><li><a href="#51-流れ">5.1 流れ</a></li><li><a href="#52-台本videoscriptpy">5.2 台本（video_script.py）</a></li><li><a href="#53-画像の無いスライド2026-10-21">5.3 画像の無いスライド（2026-10-21）</a></li><li><a href="#54-音声">5.4 音声</a></li><li><a href="#55-進捗プログレスバー">5.5 進捗（プログレスバー）</a></li></ol></li><li><a href="#6-配布houdini-パッケージ">6. 配布（Houdini パッケージ）</a></li><li><a href="#7-検証の状況">7. 検証の状況</a></li><li><a href="#8-既知の制限">8. 既知の制限</a></li></ol></details></nav>
+<main>
+
+<p><strong>版:</strong> 2026-10-21 ／ <strong>対象読者:</strong> 保守・拡張する開発者 ／ <strong>関連:</strong> <a href="content-generation.md">content-generation.md</a>（機能の経緯）、<a href="houdini-lesson-design.html">houdini-lesson-design.md</a>（レッスン設計）、<a href="houdini-video-script.html">houdini-video-script.md</a>（台本）、<a href="cloudflare-rag-technical-report.html">cloudflare-rag-technical-report.md</a>（サーバー側）、RAGReel の <code>docs/technical-reference.md</code>（動画エンジン）</p>
+<h2 id="1-全体像">1. 全体像</h2>
+<div class="mermaid">flowchart LR
+  subgraph PC[&quot;テスターのPC&quot;]
+    subgraph HOU[&quot;Houdini（Python パネル）&quot;]
+      TV[&quot;tutorial_view.py\n画面・進捗・保存&quot;] --&gt; TA[&quot;tutorial_agent.py\nエージェントのループ&quot;]
+      TA --&gt; HT[&quot;houdini_tools.py\nツール実行（hou）&quot;]
+      HT --&gt; SC[&quot;screen_capture.py\nスクリーンショット&quot;]
+      TV --&gt; VS[&quot;video_script.py\n初心者向けの台本&quot;]
+      TV --&gt; VB[&quot;video_factory_bridge.py\nエンジンの起動&quot;]
+    end
+    ENG[&quot;RAGReel\nvideo_factory_cloudrag_poc.exe&quot;]
+  end
+  subgraph CF[&quot;Cloudflare Worker（運営）&quot;]
+    CM[&quot;/claude/messages&quot;]
+    SR[&quot;/search&quot;]
+    TT[&quot;/tts&quot;]
+    FB[&quot;/tutorial-feedback/submit&quot;]
+  end
+  TA -- &quot;ツール呼び出しのループ&quot; --&gt; CM --&gt; ANT[&quot;Anthropic（Claude）&quot;]
+  TA -- &quot;参考ドキュメント&quot; --&gt; SR --&gt; GEM[&quot;Gemini + Vectorize + D1&quot;]
+  VS -- &quot;台本づくり（1回）&quot; --&gt; CM
+  VB -- &quot;環境変数で URL・鍵&quot; --&gt; ENG
+  ENG -- &quot;ナレーション&quot; --&gt; TT --&gt; GTTS[&quot;Google TTS&quot;]
+  TV -- &quot;評価・指標&quot; --&gt; FB
+</div>
+<p><strong>設計の要点</strong></p>
+<ol>
+<li><strong>Claude の鍵は、PC に置かない。</strong> すべて Worker 経由（鍵ごとの予算を、サーバー側が強制する）。</li>
+<li><strong>エージェントのループは、クライアント（Houdini）側。</strong> Worker は、鍵を隠すだけの、ステートレスな中継。</li>
+<li><strong>Houdini が真実の源。</strong> ノードの存在・パラメータ名・cook の成否は、ドキュメントではなく、Houdini 自身が答える（<code>list_available_node_types</code> / <code>get_node_info</code> / <code>cook_node</code>）。ドキュメント（RAG）は、説明の質のためのもの。</li>
+<li><strong>失敗しても止めない（ベストエフォート）。</strong> レッスン設計・台本・音声・図は、どれが失敗しても、次の段階へ進み、より単純な形に落ちる。</li>
+</ol>
+<h2 id="2-チュートリアル生成tutorialagentpy">2. チュートリアル生成（<code>tutorial_agent.py</code>）</h2>
+<h3 id="21-生成の流れ">2.1 生成の流れ</h3>
+<div class="mermaid">sequenceDiagram
+  participant UI as tutorial_view
+  participant A as TutorialAgent
+  participant W as Worker
+  participant H as Houdini
+  UI-&gt;&gt;A: generate(topic, level)
+  A-&gt;&gt;W: /search（トピック + 作業の章のヒント）
+  A-&gt;&gt;H: サンドボックス（/obj/ai_tutorial_…）を作る
+  A-&gt;&gt;W: レッスン設計（Claude 1回、失敗しても続行）
+  loop 最大80回（反復）
+    A-&gt;&gt;W: /claude/messages（システム + ツール + 会話）
+    W--&gt;&gt;A: tool_use
+    A-&gt;&gt;H: ツール実行（create_node / set_parameter / cook_node …）
+    H--&gt;&gt;A: 結果 + スクリーンショット（手順ごと）
+  end
+  A-&gt;&gt;W: finish_tutorial → ビューポート画像で自己確認 → confirm_tutorial
+  A--&gt;&gt;UI: TutorialResult（markdown・graph・指標）
+</div>
+<h3 id="22-ツールhoudinitoolspy">2.2 ツール（<code>houdini_tools.py</code>）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>ツール</th>
+<th>役割</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>create_node</code> / <code>delete_node</code></td>
+<td>ノードの作成・削除（サンドボックス内だけ）</td>
+</tr>
+<tr>
+<td><code>set_parameter</code></td>
+<td>値・式（expression）・キーフレーム・ランプ。タプルは成分ごと</td>
+</tr>
+<tr>
+<td><code>connect_nodes</code></td>
+<td>接続（<code>input_name</code> / <code>output_name</code> で名前指定できる）</td>
+</tr>
+<tr>
+<td><code>cook_node</code></td>
+<td>評価。時間依存のノードは複数フレーム評価し、短いクリップも撮る</td>
+</tr>
+<tr>
+<td><code>inspect_geometry</code></td>
+<td>点の数・範囲・属性・画像の値などを数値で確かめる（SOP / COP / LOP）</td>
+</tr>
+<tr>
+<td><code>list_available_node_types</code> / <code>get_node_info</code></td>
+<td>タイプ名・入力名・パラメータの確認</td>
+</tr>
+<tr>
+<td><code>finish_tutorial</code></td>
+<td>下書きの提出。<strong>品質ゲート</strong>（§3）を通る</td>
+</tr>
+<tr>
+<td><code>confirm_tutorial</code></td>
+<td>ビューポート画像を見て確定。<strong>矛盾ゲート</strong>（§3）を通る</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>サンドボックス:</strong> ノード操作は、<code>/obj/ai_tutorial_&lt;日時&gt;</code> の中だけ。ノードパスは、常にサンドボックス相対。ユーザーのシーンには触れない。</li>
+<li><strong>表示フラグ:</strong> システムが、末端のノードに自動で付ける（モデルは、触れない）。</li>
+</ul>
+<h3 id="23-安全装置暴走打ち切りの扱い">2.3 安全装置（暴走・打ち切りの扱い）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>値・動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>反復の上限</td>
+<td>80回。残り5回で、仕上げを促す</td>
+</tr>
+<tr>
+<td>費用の上限（クライアント側）</td>
+<td>$5。85%で仕上げを促す。実際の上限は、サーバーの鍵ごとの予算</td>
+</tr>
+<tr>
+<td>1ターンの出力</td>
+<td>16,000トークン（思考も数える）</td>
+</tr>
+<tr>
+<td>何も作らず終了</td>
+<td>最大2回、作業開始を促す</td>
+</tr>
+<tr>
+<td><code>finish</code> 済み・<code>confirm</code> 未了で終了</td>
+<td>最大2回促す。それでも無ければ、最も内容の多い下書きを、<code>archived</code>（打ち切り）として保存</td>
+</tr>
+<tr>
+<td>拒否（<code>stop_reason: refusal</code>）</td>
+<td>打ち切って、理由を表示</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="24-レベル学習の道すじ">2.4 レベル（学習の道すじ）</h3>
+<p><code>basic</code> / <code>applied</code> / <code>advanced</code> は、<strong>難しさではなく</strong>、レッスン 1（「〜とは？」と最小の作り）→ 2（動かして理解）→ 3（実務の形）。名前は互換のため据え置き。前のレッスンの要約を、次の設計に渡す（<code>build_level_chain</code>）。</p>
+<h2 id="3-品質を上げる仕組み2026-10-2021">3. 品質を上げる仕組み（2026-10-20〜21）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>仕組み</th>
+<th>ファイル</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>レッスン設計</td>
+<td><code>lesson_design.py</code></td>
+<td>ノードを組む前に、章立て・確認・実験を決める（Claude 1回）。検証し、章が2つ未満なら不採用。システムプロンプトの「教え方のルール」に差し込む</td>
+</tr>
+<tr>
+<td>品質ゲート</td>
+<td><code>houdini_tools.py</code> + <code>tutorial_review.py</code></td>
+<td><code>finish_tutorial</code> に、学ぶこと・考え方・確認ポイント・実験・仕上げ・次のレッスンが無ければ、名指しで書き足させる（最初の2回だけ）</td>
+</tr>
+<tr>
+<td>補完</td>
+<td><code>lesson_design.fallback_fields</code></td>
+<td>書かれなかった項目は、設計で補う。実験は「設計段階の予想」と明記</td>
+</tr>
+<tr>
+<td>採点</td>
+<td><code>tutorial_review.review_finish</code></td>
+<td>10項目・100点。実験は、<strong>実際に値を変えて再 cook した回数</strong>も数える。指標に記録</td>
+</tr>
+<tr>
+<td>矛盾ゲート</td>
+<td><code>houdini_tools._tool_confirm_tutorial</code></td>
+<td><code>note</code> に「見えていません」等と書きながら <code>looks_correct=true</code> なら、最大2回差し戻す</td>
+</tr>
+<tr>
+<td>検索の章のヒント</td>
+<td><code>tutorial_agent.context_hint_for</code></td>
+<td>トピックから章（SOP が常に先頭）を決め、<code>/search</code> に渡す。除外はしない</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="4-スクリーンショットscreencapturepy">4. スクリーンショット（<code>screen_capture.py</code>）</h2>
+<p>手順（ツール呼び出し）ごとに撮り、<code>_screenshots.json</code> にまとめる（<code>step, tool, result, tool_result, viewport, network, network_kind, viewport_clip_frames</code>）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>画像</th>
+<th>方法</th>
+<th>フォールバック</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ビューポート</td>
+<td><code>flipbook</code>（<code>frameAll</code> してから）</td>
+<td>なし（撮れなければ省略）</td>
+</tr>
+<tr>
+<td>ネットワーク画面</td>
+<td><code>NetworkEditor.qtScreenGeometry()</code> の矩形を画面から切り出す。他のウィンドウの重なり・ペインの小ささ・単色を検査</td>
+<td>自前描画のネットワーク図</td>
+</tr>
+<tr>
+<td>パラメータ画面（<code>set_parameter</code>）</td>
+<td>Parm ペインを切り出し、右に「変更点の一覧」を添える（2026-10-21）</td>
+<td>描き直したカード（<code>render_parameter_card</code>）</td>
+</tr>
+<tr>
+<td>ノードの関係図（動画の説明スライド用）</td>
+<td>保存したグラフ JSON から描く（<code>graph_diagram.py</code> → <code>render_graph_diagram</code>。hou に依存しない）</td>
+<td>なし</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>画面の切り出しは、「いま画面に見えているもの」をコピーするため、Houdini 以外のウィンドウが手前にあると撮らない（自前描画へ）。</li>
+<li>実機で確認済み: ネットワーク画面の切り出し、ビューポート。<strong>未確認:</strong> Parm ペインの切り出し（合成と、フォールバックのカードは、hython のオフスクリーンで確認）。</li>
+</ul>
+<h2 id="5-動画生成">5. 動画生成</h2>
+<h3 id="51-流れ">5.1 流れ</h3>
+<div class="mermaid">flowchart LR
+  S[&quot;保存（md / json）&quot;] --&gt; D[&quot;関係図を描く\ngraph_diagram&quot;]
+  D --&gt; SC[&quot;台本づくり\nvideo_script（Claude 1回）&quot;]
+  SC --&gt; E[&quot;video_factory_cloudrag_poc.exe\n--houdini-md/-json/-screenshots/-script&quot;]
+  E --&gt; N[&quot;スライドごとに音声\nクラウド → VOICEVOX → SAPI&quot;]
+  N --&gt; R[&quot;描画 → .webm&quot;]
+  E -.-&gt;|&quot;ログ: Narration progress / Rendered frame / Wrote&quot;| P[&quot;プログレスバー\nvideo_progress&quot;]
+</div>
+<h3 id="52-台本videoscriptpy">5.2 台本（<code>video_script.py</code>）</h3>
+<ul>
+<li>保存した手順書と、手順ごとのスクリーンショット一覧から、Claude が<strong>初心者向けの台本</strong>（JSON）を書く。コード・英字だらけ・長すぎる文は不採用。足りない手順は、<strong>定型の解説</strong>で補う。</li>
+<li>台本の <code>images.node_diagram</code> に、関係図のパスを書く。<code>usage</code> に、使ったトークンを残す（コストの集計用）。</li>
+<li>新しい節（学ぶこと・考え方・実験・仕上げ・次のレッスン）は、「前→後」「ここで〇〇が見えれば正しい」と話すルールで書き直す。</li>
+</ul>
+<h3 id="53-画像の無いスライド2026-10-21">5.3 画像の無いスライド（2026-10-21）</h3>
+<p>説明スライドの右側が、空のグラデーションの板（ぼやけた画面）になっていた。エンジンの <code>assignPlaceholderImages</code> が、考え方・仕組み・全体の流れ・学ぶこと・つまずき → <strong>ノードの関係図</strong>、それ以外（実験・仕上げ等）→ <strong>完成画像</strong>で埋める。</p>
+<h3 id="54-音声">5.4 音声</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>優先</th>
+<th>経路</th>
+<th>備考</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Worker <code>/tts</code> → Google Cloud TTS（Neural2 / Chirp 3 HD）</td>
+<td>鍵ごと・全体の1日の文字数の上限。同じ文章はキャッシュ。出力は、24kHz のまま受け、エンジンで 44.1kHz に</td>
+</tr>
+<tr>
+<td>2</td>
+<td>VOICEVOX（導入済みなら自動起動）</td>
+<td>クレジット表記が必要</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Windows SAPI</td>
+<td>最後の砦</td>
+</tr>
+</tbody>
+</table></div>
+<p>クラウドが失敗したときだけ、ローカルの音声を準備する（VOICEVOX の起動待ち最大90秒を、通常は払わない）。使われた音声は、ログの <code>Narration voice:</code> と、パネルに出る。</p>
+<h3 id="55-進捗プログレスバー">5.5 進捗（プログレスバー）</h3>
+<p><code>video_progress.py</code>（Qt・Houdini に依存しない）が、ログから全体の％を求める。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>段階</th>
+<th>％</th>
+<th>手がかり</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>台本づくり</td>
+<td>0〜24</td>
+<td>終わりが読めないので、時間でゆっくり進める（上限を超えない）</td>
+</tr>
+<tr>
+<td>エンジンの起動・構成</td>
+<td>25〜30</td>
+<td><code>Loading…</code> / <code>Split into N slides</code></td>
+</tr>
+<tr>
+<td>音声</td>
+<td>30〜70</td>
+<td><code>Narration progress: k / n</code>（スライドごと）</td>
+</tr>
+<tr>
+<td>描画</td>
+<td>70〜98</td>
+<td><code>Rendered frame N / M</code></td>
+</tr>
+<tr>
+<td>完了</td>
+<td>100</td>
+<td><code>Wrote ….webm</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>失敗（ログに <code>ERROR</code>）は、赤で止まる。</p>
+<h2 id="6-配布houdini-パッケージ">6. 配布（Houdini パッケージ）</h2>
+<p><code>houdini/package/</code> と <code>scripts/build_houdini_package.py</code>。zip を展開して <code>install.cmd</code> を実行する。</p>
+<ul>
+<li>パネルの Python ファイルを <code>%LOCALAPPDATA%\RAGReelTutorial\python</code> に置き、<strong>Houdini のパッケージ（<code>Documents\houdiniXX.X\packages\ragreel_tutorial.json</code>）</strong>で、<code>PYTHONPATH</code> とパネル定義の場所を登録する。パネル定義（<code>.pypanel</code>）は、<code>import rag_chatbot</code> するだけの<strong>薄い読み込み用</strong>（ASCII のみ。Latin-1 の落とし穴を避ける）。更新は、ファイルの置き換えだけで済む。</li>
+<li>設定ファイル（<code>~\.houdini\rag_chatbot_config.json</code>）に、接続先・動画エンジンの場所・保存先（<code>local_bridge_dir</code>。未設定だと保存できない）を、<strong>既存の値を残して</strong>書く。元の設定は、退避する。</li>
+<li><strong>確認済み:</strong> Houdini 22（hython）が、パッケージを読み、<code>RAGReelTutorial</code> のパネル定義を認識し、<code>import rag_chatbot</code> が通る。インストール・更新・削除・複数バージョン・設定の統合は、自動テスト（PowerShell、一時フォルダ）。</li>
+<li>開発者用の <code>deploy_panels.py</code>（リポジトリから、自分の Houdini へコピー）は、別に残す。<strong>新しい <code>.py</code> を足したら、<code>MODULES</code> に追加する</strong>（漏れると、配置されず、黙って古い動作になる。テストが検出する）。</li>
+</ul>
+<h2 id="7-検証の状況">7. 検証の状況</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python 側の自動テスト</td>
+<td>91件（<code>uv run python -m unittest discover -s houdini/tests</code>）。Houdini・Claude・ネットワークを使わない</td>
+</tr>
+<tr>
+<td>パネルの静的検査</td>
+<td><code>self._xxx</code> の定義漏れを検出（<code>test_panel_static.py</code>）。画面コードは、Houdini 内でしか動かないため</td>
+</tr>
+<tr>
+<td>Houdini 実機</td>
+<td>生成・動画・音声（クラウド）は、実機で確認済み。<strong>未確認:</strong> Parm ペインの切り出し、チャット後のレイアウト修正（ペインの区切り）、プログレスバーの表示、パッケージ経由でのパネル表示（hython では、定義の認識まで）</td>
+</tr>
+<tr>
+<td>品質（Claude が書く設計・台本）</td>
+<td>実機の生成で、レッスン品質チェック 80〜92/100 を確認。<strong>内容の正しさは、人の確認が必要</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="8-既知の制限">8. 既知の制限</h2>
+<ul>
+<li>SOP が中心。COP・LOP・VOP・CHOP・DOP も対応。<strong>KineFX／APEX は、SOP レベルのノードまで</strong>（<code>apex::graph</code> の中は編集できない）。</li>
+<li>煙などのボリュームは、ビューポートで枠だけに見えることがある（矛盾ゲートで差し戻すが、直せるかは実機次第）。</li>
+<li>画面の切り出しは、Houdini が手前に見えていないと撮れない（自前描画に落ちる）。</li>
+<li>台本・設計は AI が書く。<strong>内容の正しさは、保証しない。</strong></li>
+<li>チャットタブ（ローカル検索用）は、配布セットでは使わない。</li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+</body>
+</html>

@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Houdini チュートリアル生成パネル 取扱説明書</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">取扱説明書（Houdini）</span>
+  <h1>Houdini チュートリアル生成パネル 取扱説明書</h1>
+  <div class="meta">HTML生成: 2026-10-21（元: docs/manual-houdini-tutorial.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-これは何か">1. これは何か</a></li><li><a href="#2-必要なもの">2. 必要なもの</a></li><li><a href="#3-導入約5分">3. 導入（約5分）</a></li><li><a href="#4-はじめての1本">4. はじめての1本</a></li><li><a href="#5-画面の説明tutorial-タブ">5. 画面の説明（Tutorial タブ）</a><ol><li><a href="#レベルの意味">レベルの意味</a></li></ol></li><li><a href="#6-生成結果の読み方">6. 生成結果の読み方</a></li><li><a href="#7-解説動画">7. 解説動画</a></li><li><a href="#8-履歴と評価ご協力のお願い">8. 履歴と評価（ご協力のお願い）</a></li><li><a href="#9-費用と上限">9. 費用と上限</a></li><li><a href="#10-データの扱い送られるもの">10. データの扱い（送られるもの）</a></li><li><a href="#11-困ったとき">11. 困ったとき</a></li><li><a href="#12-アンインストール">12. アンインストール</a></li></ol></details></nav>
+<main>
+
+<p><strong>対象:</strong> 実証実験に参加する方（企業の技術者・学生）／ <strong>版:</strong> 2026-10-21</p>
+<h2 id="1-これは何か">1. これは何か</h2>
+<p>Houdini の中で、トピック（例:「煙のシミュレーション」）を入れるだけで、AI が次のものを作ります。</p>
+<ol>
+<li><strong>チュートリアル:</strong> AI が実際に Houdini のノードを組み、動かして確かめながら、手順書（Markdown）を作ります。</li>
+<li><strong>解説動画:</strong> 手順書とスクリーンショットから、初心者向けの説明つきの動画を作ります（音声つき）。</li>
+</ol>
+<p>生成の途中で、AI は次の順で作業します。「考え方の設計 → 最小構成を少しずつ作る → 各段階で確かめる → パラメータを動かして効果を見る → 仕上げ」。仕上がった手順書には、「学ぶこと」「先に知っておく考え方」「確認ポイント」「パラメータを動かして確かめよう」「次のレッスン」が入ります。</p>
+<blockquote>
+<p><strong>ご注意:</strong> 生成された手順・説明・動画は AI が書いたものです。<strong>内容が正しいかは、必ずご自分で確かめてください。</strong> 今回の実証実験は、その「使えるか・分かりやすいか」を評価していただくためのものです。</p>
+</blockquote>
+<h2 id="2-必要なもの">2. 必要なもの</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Houdini</td>
+<td>21.0 または 22.0（Apprentice・Indie・Education・商用いずれでも動きます）。企業の方は、業務で使うライセンスのものを使ってください（Apprentice は商用利用不可です）。</td>
+</tr>
+<tr>
+<td>OS</td>
+<td>Windows 10 / 11（64ビット）</td>
+</tr>
+<tr>
+<td>接続先と鍵</td>
+<td>運営からお渡しする <strong>URL</strong> と <strong>API キー</strong>（1人1つ）</td>
+</tr>
+<tr>
+<td>動画を作る場合</td>
+<td><strong>RAGReel</strong>（動画エンジン）のインストール（<a href="manual-ragreel.html">manual-ragreel.md</a>）。パネルだけでも、チュートリアルの生成はできます。</td>
+</tr>
+<tr>
+<td>ネットワーク</td>
+<td>インターネットに出られること（AI と音声合成は、運営のサーバー経由で呼び出します）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>インストールするものは2つだけです。</strong> パネル（このマニュアル）と、動画エンジン（RAGReel）。音声（VOICEVOX など）は、<strong>入れる必要がありません</strong>。</p>
+<h2 id="3-導入約5分">3. 導入（約5分）</h2>
+<ol>
+<li>配布された <strong><code>RAGReelTutorial-&lt;版&gt;.zip</code></strong> を、好きな場所に展開します。</li>
+<li>Houdini を<strong>一度起動して、終了</strong>します（<code>Documents\houdini22.0</code> のようなフォルダを作るため。すでに使っている場合は不要です）。</li>
+<li>展開したフォルダの <strong><code>install.cmd</code></strong> をダブルクリックします。</li>
+<li>聞かれたら、URL と API キーを入れます（キーは画面に表示されません）。空のまま Enter でも構いません。あとで Settings タブでも入れられます。</li>
+<li>「完了しました」と出たら、<strong>Houdini を起動</strong>します。</li>
+<li>ペインのタブの「＋」→「New Pane Tab Type」の中から、<strong>RAGReel Tutorial</strong> を選びます（Python Panel の項目にあります。見つからないときは、メニューの Windows → Python Panel も確認してください）。</li>
+<li>開いたパネルでは、<strong>Tutorial</strong> タブと <strong>Settings</strong> タブ、<strong>History</strong> タブ、<strong>動画</strong> タブを使います。<strong>Chat タブは、このセットでは使いません</strong>（自分のPCで動かす検索用です）。</li>
+</ol>
+<ul>
+<li>管理者権限は要りません。</li>
+<li>動画エンジンを先に入れておくと、場所を自動で見つけて設定します。</li>
+<li><strong>更新するとき</strong>は、新しい zip で同じ手順をやり直すだけです（設定は残ります。元の設定ファイルは、同じフォルダに <code>.backup_日時</code> として残ります）。</li>
+</ul>
+<blockquote>
+<p>インストーラーは、設定ファイル（<code>C:\Users\&lt;あなた&gt;\.houdini\rag_chatbot_config.json</code>）に、接続先と動画エンジンの場所を書きます。API キーも、このファイルに保存されます。<strong>他の人と共有するPCでは、ご注意ください。</strong></p>
+</blockquote>
+<h2 id="4-はじめての1本">4. はじめての1本</h2>
+<ol>
+<li>パネルの <strong>Tutorial</strong> タブを開きます。</li>
+<li><strong>トピック</strong>に、作りたいものを書きます（例: <code>岩を地面に散らす</code>）。</li>
+<li><strong>レベル</strong>は <code>basic</code> を選びます（初めての方向け。次の節を参照）。</li>
+<li><strong>生成</strong>を押します。</li>
+<li>画面の進行ログが流れます。<strong>数分かかります</strong>（目安: 2〜4分）。途中で Houdini のシーンに、<code>ai_tutorial_日付_時刻</code> というノードが作られ、AI がその中で作業します（あなたのシーンの他の部分には触りません）。</li>
+<li>完了すると、<strong>プレビュー</strong>が出ます。「<strong>レッスン品質チェック: ○○/100</strong>」の行も出ます（次の節）。</li>
+<li>内容を読んで、よければ <strong>保存</strong>を押します。<code>ドキュメント\RAGReelTutorial\localRAG\tutorials\</code> に、手順書（<code>.md</code>）とノードグラフ（<code>.json</code>）が保存されます（場所は Settings タブの「Bridge Directory」。導入時に自動で設定されます）。</li>
+<li>保存すると、続けて<strong>動画の生成</strong>が始まります（動画エンジンが入っているとき）。</li>
+</ol>
+<h2 id="5-画面の説明tutorial-タブ">5. 画面の説明（Tutorial タブ）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>説明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>トピック</td>
+<td>作りたいもの、学びたいことを、1行で。</td>
+</tr>
+<tr>
+<td>生成条件</td>
+<td>守ってほしい条件（例: <code>Pyroを使うこと</code>、<code>ノードは5個以内</code>）。最優先で守られます。</td>
+</tr>
+<tr>
+<td>レベル</td>
+<td><code>basic</code> / <code>applied</code> / <code>advanced</code>。<strong>難しさではなく、学習の道すじ</strong>です（下の表）。</td>
+</tr>
+<tr>
+<td>3段階連続生成</td>
+<td>チェックすると、basic → applied → advanced を続けて作り、自動保存します（<strong>費用は約3倍</strong>です）。</td>
+</tr>
+<tr>
+<td>参考画像を追加／クリップボードの画像／クリア</td>
+<td>完成イメージの画像。AI が、見た目の特徴を読み取って、近づけます。画像は AI に送られます。</td>
+</tr>
+<tr>
+<td>対象モデルを選択</td>
+<td>アニメーション・リギング用に、FBX などのモデルを指定します。<strong>ファイルの中身は送られません</strong>（AI は Houdini の中で読み込みます）が、<strong>ファイル名と場所（パス）は、AI への指示に含まれます。</strong></td>
+</tr>
+<tr>
+<td>生成</td>
+<td>開始します。</td>
+</tr>
+<tr>
+<td>保存／破棄</td>
+<td>プレビューを保存、または捨てます。<strong>保存を押すまで、ファイルは書き込まれません。</strong></td>
+</tr>
+<tr>
+<td>サンドボックス削除</td>
+<td>生成のために作られた <code>ai_tutorial_…</code> ノードを消します。</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="レベルの意味">レベルの意味</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>レベル</th>
+<th>レッスン</th>
+<th>目的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>basic</td>
+<td>1: 「〜とは？」と、最小の作り方</td>
+<td>考え方をつかみ、3〜6ノードの最小構成を作れるようになる</td>
+</tr>
+<tr>
+<td>applied</td>
+<td>2: 動かして理解する</td>
+<td>パラメータを動かして効果を体験し、見た目をコントロールする技を足す</td>
+</tr>
+<tr>
+<td>advanced</td>
+<td>3: 実務で使える形にする</td>
+<td>再利用（パラメータの整理・バリエーション）と、ゲームエンジンへ渡すときの注意点</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="6-生成結果の読み方">6. 生成結果の読み方</h2>
+<p>手順書は、次の順に並びます。</p>
+<p><code>概要 → このレッスンで学ぶこと → 先に知っておく考え方 → 手順（各章の終わりに ✅ 確認ポイント）→ パラメータを動かして確かめよう → 仕上げ → コード・ノード構成 → ハマりポイント → 応用・発展のヒント → 次のレッスン → 参考</code></p>
+<ul>
+<li><strong>✅ 確認ポイント:</strong> 「ここで〇〇が見えれば正しい」という、自分で確かめるための目印です。</li>
+<li><strong>パラメータを動かして確かめよう:</strong> AI が実際に値を変えて、結果を確かめたものです。「<strong>設計段階の予想です</strong>」と書かれているものは、確かめられていません。ご自分で試してください。</li>
+<li><strong>レッスン品質チェック（0〜100点）:</strong> 手順書に、上の要素が揃っているかを自動で採点したものです。<strong>内容が正しいかの点数ではありません。</strong> 「不足: …」に、足りない要素が出ます。</li>
+<li><strong>打ち切り:</strong> 「この生成は途中で打ち切られました」と出たときは、未完成です（反復の上限・費用の上限・予算の不足など）。</li>
+</ul>
+<h2 id="7-解説動画">7. 解説動画</h2>
+<p>保存すると、自動で動画が作られます。<strong>プログレスバー</strong>に、全体の進み具合が出ます。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>段階</th>
+<th>目安</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>台本づくり（AI が、初心者向けの説明を書く）</td>
+<td>約30〜60秒</td>
+</tr>
+<tr>
+<td>動画エンジンの起動・スライドの構成</td>
+<td>数秒</td>
+</tr>
+<tr>
+<td>音声の作成（スライドごと）</td>
+<td>約1〜2分</td>
+</tr>
+<tr>
+<td>描画</td>
+<td>約1分</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>完了すると「<strong>▶ プレビュー再生</strong>」と「<strong>外部プレイヤーで開く</strong>」が使えます。<strong>うまく再生できないときは、外部プレイヤーを使ってください。</strong></li>
+<li><strong>動画タブ</strong>に、作った動画が並びます。</li>
+<li><strong>音声:</strong> 運営のサーバー経由の Google の音声合成を使います。進行欄に「音声: Google Cloud TTS:…」と出ます。サーバーに繋がらないときは、VOICEVOX（入っていれば）、なければ Windows 標準の音声に切り替わります（「従来の音声（SAPI）」と出ます）。</li>
+<li>動画ファイルは、動画エンジンのインストール先の <code>output\videos\</code> に保存されます。</li>
+<li>台本の文章は、AI が書いたものです。保存フォルダの <code>&lt;名前&gt;_video_script.json</code> を直して、再生成することもできます。</li>
+</ul>
+<h2 id="8-履歴と評価ご協力のお願い">8. 履歴と評価（ご協力のお願い）</h2>
+<p><strong>History</strong> タブに、過去の生成物が並びます。選ぶと、ノードグラフが見られます。</p>
+<p><strong>評価をお願いします。</strong> 各生成物に、👍／👎 と、理由のタグ、一言メモを付けられます。</p>
+<ul>
+<li>企業の方: 「実務で使えるか」（手順の正しさ、再現できるか、時間の節約になるか、動画の質）</li>
+<li>学生の方: 「分かりやすいか」（初心者にも理解できるか、学習に役立つか、動画の説明は十分か）</li>
+</ul>
+<p>評価は、運営のサーバーに送られます（送る内容は次の節）。取り消しもできます。</p>
+<h2 id="9-費用と上限">9. 費用と上限</h2>
+<ul>
+<li>1回の生成（チュートリアル＋動画）に、AI の利用料がかかります。<strong>ご負担は、ありません。</strong> 運営が、1人ごとに<strong>利用の上限（予算）</strong>を設定しています。目安は、<strong>10回分前後</strong>です。</li>
+<li>上限に達すると、「予算の上限に達しています」と出て、それ以上は生成できません。運営にご連絡ください。</li>
+<li>音声は、1日の文字数に上限があります（動画10本前後で足ります）。上限に達すると、その日は別の音声に切り替わります。</li>
+<li>「3段階連続生成」は、1回で3本分を使います。</li>
+</ul>
+<h2 id="10-データの扱い送られるもの">10. データの扱い（送られるもの）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>送り先</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>運営のサーバー → AI（Anthropic）</td>
+<td>トピック、生成条件、参考画像、Houdini の作業の内容（ノード名・パラメータ・実行結果・確認用のビューポート画像）、保存した手順書（台本づくりのため）</td>
+</tr>
+<tr>
+<td>運営のサーバー → 音声合成（Google）</td>
+<td>動画のナレーションの文章（台本の文）だけ</td>
+</tr>
+<tr>
+<td>運営のサーバーに保存</td>
+<td>あなたの評価（👍👎・タグ・メモ）、生成の自動指標（反復回数・費用・点数など）</td>
+</tr>
+<tr>
+<td>あなたの PC だけ</td>
+<td>手順書・ノードグラフ・動画・スクリーンショット</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>社外秘のデータ・モデル・画像は、入力しないでください。</strong></li>
+<li>学生の方の評価と利用記録は、<strong>成績とは無関係</strong>で、<strong>匿名の ID</strong> で扱います（詳細は、運営からの説明書をご確認ください）。</li>
+</ul>
+<h2 id="11-困ったとき">11. 困ったとき</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>対処</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>パネルが見つからない</td>
+<td>Houdini を再起動。メニューの Windows → Python Panel を確認。<code>install.cmd</code> をもう一度実行。</td>
+</tr>
+<tr>
+<td>「URL/APIキーが未設定です」</td>
+<td>Settings タブの Cloudflare URL / APIキー を入力して、保存。</td>
+</tr>
+<tr>
+<td>「予算の上限に達しています」（429）</td>
+<td>運営にご連絡ください。</td>
+</tr>
+<tr>
+<td>生成が途中で止まる</td>
+<td>ログの最後の行を確認。反復の上限（80回）・費用の上限・予算のどれかです。もう一度、トピックを絞って試してください。</td>
+</tr>
+<tr>
+<td>動画が作られない</td>
+<td>Settings タブの <code>video_factory_exe_path</code> が正しいか確認（RAGReel をインストールすると、自動で入ります）。</td>
+</tr>
+<tr>
+<td>動画の音声が従来の音声（SAPI）</td>
+<td>URL・APIキーが入っているか、1日の音声の上限に達していないかを確認。</td>
+</tr>
+<tr>
+<td>チャットを使ったあと、パネルの幅が動かせない</td>
+<td>最新版のパネルで直っています。<code>install.cmd</code> で更新してください。</td>
+</tr>
+<tr>
+<td>煙などが映らない動画になる</td>
+<td>生成の仕様上、見えない状態で確定しないよう直してありますが、起きたら、評価の「動画が悪い」と、メモでお知らせください。</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>運営への連絡の際は、</strong>保存フォルダ（<code>ドキュメント\RAGReelTutorial\localRAG\tutorials\</code>）の <code>&lt;名前&gt;_video_factory.log</code>（動画の問題）と、<code>ドキュメント\RAGReelTutorial\logs\tutorial_agent\</code> の最新の <code>.jsonl</code>（生成の問題）を添えていただけると、原因を調べられます。キーは含まれません。</p>
+<h2 id="12-アンインストール">12. アンインストール</h2>
+<p>展開したフォルダで、次を実行します（Houdini を閉じてから）。</p>
+<pre><code>install.cmd -Uninstall
+</code></pre>
+<p>パネルのファイルと、Houdini のパッケージ登録を消します。設定ファイル（<code>.houdini\rag_chatbot_config.json</code>）は残ります（キーを消したいときは、このファイルを削除してください）。動画エンジンは、Windows の「アプリと機能」から、RAGReel を削除します。</p>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

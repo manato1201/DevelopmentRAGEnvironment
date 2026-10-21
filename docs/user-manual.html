@@ -464,11 +464,11 @@
 - <code>/rag unlink</code> … 連携の解除。<code>/rag help</code> … 使い方。</p>
 <h2 id="9-houdiniパネル">9. Houdiniパネル</h2>
 <h3 id="91-導入">9.1 導入</h3>
-<ol>
-<li><code>houdini/python_panels/</code>のファイルを、<strong>Houdiniが読むフォルダ</strong>（<code>Documents/houdini21.0/python_panels</code>）へコピーする。<strong>リポジトリを直しただけでは、実機に反映されない。</strong></li>
-<li>Houdiniの Python Panel のメニューから、RAGチャットのパネルを追加する。</li>
-<li><strong>Settings</strong>タブで、接続先（GAS／Cloudflare）のURLとAPIキー、モデルを設定する。<strong>HoudiniのPCに、Claudeの鍵を置く必要は無い。</strong></li>
-</ol>
+<p><strong>配布用（実証実験のテスター）:</strong> zip を展開して、<code>install.cmd</code> を実行する（Houdiniのパッケージとして登録され、設定も書かれる）。手順は <a href="manual-houdini-tutorial.html">manual-houdini-tutorial.md</a> §3。RAGReel（動画エンジン）は、別のインストーラー（<a href="manual-ragreel.html">manual-ragreel.md</a>）。</p>
+<p><strong>開発者（リポジトリから、自分のHoudiniへ）:</strong><br />
+1. <code>uv run python houdini/deploy_panels.py 22.0</code> で、<code>houdini/python_panels/</code>のファイルを、<strong>Houdiniが読むフォルダ</strong>（<code>Documents/houdini22.0/python_panels</code>）へコピーする。<strong>リポジトリを直しただけでは、実機に反映されない。</strong>パネル本体（<code>rag_chatbot.py</code>）を直したときは、<code>--pypanel</code> も付ける。<br />
+2. Houdiniの Python Panel のメニューから、RAGチャットのパネルを追加する。<br />
+3. <strong>Settings</strong>タブで、接続先（GAS／Cloudflare）のURLとAPIキー、モデルを設定する。<strong>HoudiniのPCに、Claudeの鍵を置く必要は無い。</strong></p>
 <h3 id="92-タブ">9.2 タブ</h3>
 <div class="table-scroll"><table>
 <thead>
@@ -518,8 +518,9 @@
 <h3 id="94-解説動画を作る2026-10-19">9.4 解説動画を作る（2026-10-19〜）</h3>
 <p>保存すると、続けて<strong>解説動画</strong>が作られる（動画の生成ファイルのパスが、Settingsに設定されているとき）。</p>
 <ol>
-<li><strong>台本づくり（数十秒）:</strong> まず、AIが<strong>初心者向けの台本</strong>を書く（導入・手順ごとの解説・つまずきやすい点・まとめ）。進捗欄に「台本を作っています…」と出る。保存フォルダに<code>&lt;名前&gt;_video_script.json</code>が残る。</li>
-<li><strong>動画の生成（数分）:</strong> 手順ごとに音声を作り、<strong>画面の切り替えを、音声の長さに合わせる</strong>。進捗欄に「フレーム N/M」と<strong>使われた音声</strong>が出る。</li>
+<li><strong>台本づくり（数十秒）:</strong> まず、AIが<strong>初心者向けの台本</strong>を書く（導入・手順ごとの解説・つまずきやすい点・まとめ）。保存フォルダに<code>&lt;名前&gt;_video_script.json</code>が残る。</li>
+<li><strong>動画の生成（数分）:</strong> 手順ごとに音声を作り、<strong>画面の切り替えを、音声の長さに合わせる</strong>。<strong>プログレスバー</strong>に、全体の進み具合（台本 → 音声 → 描画 → 完了）が出る。進捗欄に、段階と<strong>使われた音声</strong>が出る。</li>
+<li>説明スライドの右側は、<strong>ノードの関係図</strong>（考え方・つまずき等）か、<strong>完成画像</strong>（実験・仕上げ等）になる（空の板は出ない）。</li>
 <li>完了すると、「<strong>動画</strong>」タブに入り、「外部プレイヤーで開く」で見られる。</li>
 </ol>
 <p><strong>音声について（2026-10-20〜）</strong><br />

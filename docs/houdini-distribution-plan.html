@@ -73,7 +73,7 @@
   <h1>Houdiniチュートリアル・動画生成の配布計画（2026-10-20）</h1>
   <div class="meta">HTML生成: 2026-10-21（元: docs/houdini-distribution-plan.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-範囲と相手">1. 範囲と相手</a></li><li><a href="#2-音声-インストール不要のクラウド音声実装済み">2. 音声: インストール不要のクラウド音声（実装済み）</a><ol><li><a href="#費用公式の料金は契約前に確認">費用（公式の料金は契約前に確認）</a></li><li><a href="#google側の安全装置あなたの作業">Google側の安全装置（あなたの作業）</a></li><li><a href="#導入の手順運営側">導入の手順（運営側）</a></li></ol></li><li><a href="#3-ターゲット別のレビュー">3. ターゲット別のレビュー</a></li><li><a href="#4-残りの作業">4. 残りの作業</a></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-範囲と相手">1. 範囲と相手</a></li><li><a href="#2-音声-インストール不要のクラウド音声実装済み">2. 音声: インストール不要のクラウド音声（実装済み）</a><ol><li><a href="#費用公式の料金は契約前に確認">費用（公式の料金は契約前に確認）</a></li><li><a href="#google側の安全装置あなたの作業">Google側の安全装置（あなたの作業）</a></li><li><a href="#導入の手順運営側">導入の手順（運営側）</a></li></ol></li><li><a href="#3-ターゲット別のレビュー">3. ターゲット別のレビュー</a></li><li><a href="#4-残りの作業と状態2026-10-21">4. 残りの作業と状態（2026-10-21）</a></li></ol></details></nav>
 <main>
 
 <h2 id="1-範囲と相手">1. 範囲と相手</h2>
@@ -222,7 +222,7 @@
 </tr>
 </tbody>
 </table></div>
-<h2 id="4-残りの作業">4. 残りの作業</h2>
+<h2 id="4-残りの作業と状態2026-10-21">4. 残りの作業と状態（2026-10-21）</h2>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -233,31 +233,39 @@
 <tbody>
 <tr>
 <td>音声のクラウド化（Worker <code>/tts</code>、動画エンジンのクラウド音声、切り替え）</td>
-<td>実装・自動テスト済み。<strong>デプロイと聞き比べが未</strong></td>
+<td><strong>実装・デプロイ・実機確認済み</strong>（音声は良好）</td>
 </tr>
 <tr>
-<td>Houdiniパッケージ化と、URL・鍵の簡易インストーラー</td>
-<td>未</td>
+<td>Houdiniパッケージ化（zip + <code>install.cmd</code>）、設定の自動化</td>
+<td><strong>実装済み</strong>。Houdini 22（hython）が、パッケージとパネル定義を認識することを確認。インストール・更新・削除は、自動テスト。<strong>配布前に、別のPCでの通しの確認が必要</strong></td>
+</tr>
+<tr>
+<td>RAGReel インストーラー 1.1.0</td>
+<td><strong>作成・インストール／アンインストールを確認済み</strong>（管理者権限なし、VC ランタイム同梱）</td>
 </tr>
 <tr>
 <td>企業向け・学生向けの導入ガイド</td>
+<td><strong>取扱説明書を作成</strong>（<a href="manual-houdini-tutorial.html">manual-houdini-tutorial.md</a>、<a href="manual-ragreel.html">manual-ragreel.md</a>）。同意書・質問票は未</td>
+</tr>
+<tr>
+<td>運営者の手順書（鍵・予算・登録・デプロイ）</td>
+<td><strong>作成</strong>（<a href="operator-runbook.html">operator-runbook.md</a>）</td>
+</tr>
+<tr>
+<td>鍵ごとの予算の決め方</td>
+<td><strong>算出済み</strong>: 420,000 トークン / 人（<a href="cost-and-quota.html">cost-and-quota.md</a>）</td>
+</tr>
+<tr>
+<td>公式ドキュメント約2,000ページの登録（章の見出し・並べ替え・あいまいなときの決まり）</td>
+<td><strong>実装・自動テスト済み。未デプロイ・未登録</strong>（手順は <a href="operator-runbook.html">operator-runbook.md §5</a>）</td>
+</tr>
+<tr>
+<td>レビュー用の質問票（企業・学生の事前・事後テストと、同意書）</td>
 <td>未</td>
 </tr>
 <tr>
-<td>レビュー用の質問票</td>
-<td>未</td>
-</tr>
-<tr>
-<td>鍵の発行・上限・失効の運用手順</td>
-<td>未</td>
-</tr>
-<tr>
-<td>動画エンジンのインストーラー（<code>RAGReel/installer/ragreel.iss</code>）の動作確認とライセンス表示</td>
-<td>未</td>
-</tr>
-<tr>
-<td>実機での検証（レッスン設計の質、台本、音声）</td>
-<td>未（配布の前提）</td>
+<td>実機での検証（レッスン設計の質、Parm ペインの切り出し、プログレスバー、チャット後のレイアウト）</td>
+<td><strong>一部</strong>（設計の質・音声・動画は確認。左記の3点は、再配置後の確認待ち）</td>
 </tr>
 </tbody>
 </table></div>

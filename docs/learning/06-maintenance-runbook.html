@@ -73,7 +73,7 @@
   <h1>06. 保守ランブック</h1>
   <div class="meta">HTML生成: 2026-10-21（元: docs/learning/06-maintenance-runbook.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-定期点検">1. 定期点検</a><ol><li><a href="#毎日1分画面で">毎日（1分。画面で）</a></li><li><a href="#毎週10分">毎週（10分）</a></li><li><a href="#毎月30分">毎月（30分）</a></li></ol></li><li><a href="#2-症状別の切り分け">2. 症状別の切り分け</a></li><li><a href="#3-障害記録">3. 障害記録</a><ol><li><a href="#a-2026-10-16-d1の読み取り枠を使い切り全apiが500">A. 2026-10-16 D1の読み取り枠を使い切り、全APIが500</a></li><li><a href="#b-2026-08-29-グラフ表示がd1の日次枠の9割を消費">B. 2026-08-29 グラフ表示がD1の日次枠の9割を消費</a></li><li><a href="#c-検索が常に0件メタデータインデックスの作り忘れ">C. 検索が常に0件（メタデータインデックスの作り忘れ）</a></li><li><a href="#d-2026-09-04-検索語の記号でfts5が構文エラー">D. 2026-09-04 検索語の記号でFTS5が構文エラー</a></li><li><a href="#e-同期中のunexpected-token-error-1102">E. 同期中のUnexpected token &#x27;&amp;lt;&#x27;／Error 1102</a></li><li><a href="#f-サービスアカウントのキーが作れないgcpの組織ポリシー">F. サービスアカウントのキーが作れない（GCPの組織ポリシー）</a></li><li><a href="#g-2026-10-17-再クロールが503で止まるページの9割がサイドバーの目次">G. 2026-10-17 再クロールが503で止まる（ページの9割がサイドバーの目次）</a></li><li><a href="#h-2026-10-19-動画の音声が良くならない導入済みのvoicevoxが黙って使われていなかった">H. 2026-10-19 動画の音声が良くならない（導入済みのVOICEVOXが、黙って使われていなかった）</a></li><li><a href="#i-2026-10-19-動画エンジンが起動直後のvoicevoxへの確認でクラッシュ終了コード139">I. 2026-10-19 動画エンジンが、起動直後のVOICEVOXへの確認でクラッシュ（終了コード139）</a></li></ol></li><li><a href="#4-やってはいけないこと">4. やってはいけないこと</a></li><li><a href="#5-復旧の基本手順全部が止まったとき">5. 復旧の基本手順（「全部が止まった」とき）</a></li><li><a href="#6-バックアップと復旧">6. バックアップと復旧</a></li><li><a href="#7-連絡エスカレーション">7. 連絡・エスカレーション</a></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-定期点検">1. 定期点検</a><ol><li><a href="#毎日1分画面で">毎日（1分。画面で）</a></li><li><a href="#毎週10分">毎週（10分）</a></li><li><a href="#毎月30分">毎月（30分）</a></li></ol></li><li><a href="#2-症状別の切り分け">2. 症状別の切り分け</a></li><li><a href="#3-障害記録">3. 障害記録</a><ol><li><a href="#a-2026-10-16-d1の読み取り枠を使い切り全apiが500">A. 2026-10-16 D1の読み取り枠を使い切り、全APIが500</a></li><li><a href="#b-2026-08-29-グラフ表示がd1の日次枠の9割を消費">B. 2026-08-29 グラフ表示がD1の日次枠の9割を消費</a></li><li><a href="#c-検索が常に0件メタデータインデックスの作り忘れ">C. 検索が常に0件（メタデータインデックスの作り忘れ）</a></li><li><a href="#d-2026-09-04-検索語の記号でfts5が構文エラー">D. 2026-09-04 検索語の記号でFTS5が構文エラー</a></li><li><a href="#e-同期中のunexpected-token-error-1102">E. 同期中のUnexpected token &#x27;&amp;lt;&#x27;／Error 1102</a></li><li><a href="#f-サービスアカウントのキーが作れないgcpの組織ポリシー">F. サービスアカウントのキーが作れない（GCPの組織ポリシー）</a></li><li><a href="#g-2026-10-17-再クロールが503で止まるページの9割がサイドバーの目次">G. 2026-10-17 再クロールが503で止まる（ページの9割がサイドバーの目次）</a></li><li><a href="#h-2026-10-19-動画の音声が良くならない導入済みのvoicevoxが黙って使われていなかった">H. 2026-10-19 動画の音声が良くならない（導入済みのVOICEVOXが、黙って使われていなかった）</a></li><li><a href="#i-2026-10-19-動画エンジンが起動直後のvoicevoxへの確認でクラッシュ終了コード139">I. 2026-10-19 動画エンジンが、起動直後のVOICEVOXへの確認でクラッシュ（終了コード139）</a></li><li><a href="#j-2026-10-21-動画生成がattributeerrorで始まらない画面コードの呼び出し先が無い">J. 2026-10-21 動画生成が、AttributeErrorで始まらない（画面コードの呼び出し先が無い）</a></li><li><a href="#k-2026-10-21-チャットのあとパネルがペインからはみ出し区切りが動かせない">K. 2026-10-21 チャットのあと、パネルがペインからはみ出し、区切りが動かせない</a></li><li><a href="#l-2026-10-21-登録済みのhoudiniドキュメントの本文に解析のスクリプトが混ざり同名ノードが上書きされる">L. 2026-10-21 登録済みのHoudiniドキュメントの本文に、解析のスクリプトが混ざり、同名ノードが上書きされる</a></li><li><a href="#m-2026-10-21-あいまいな質問で回答がぶれる仮の回答の検索が実行のたびに違う">M. 2026-10-21 あいまいな質問で、回答がぶれる（仮の回答の検索が、実行のたびに違う）</a></li></ol></li><li><a href="#4-やってはいけないこと">4. やってはいけないこと</a></li><li><a href="#5-復旧の基本手順全部が止まったとき">5. 復旧の基本手順（「全部が止まった」とき）</a></li><li><a href="#6-バックアップと復旧">6. バックアップと復旧</a></li><li><a href="#7-連絡エスカレーション">7. 連絡・エスカレーション</a></li></ol></details></nav>
 <main>
 
 <p><strong>更新日:</strong> 2026-10-17　<strong>使い方:</strong> 通読する資料ではなく、<strong>困ったときに引く資料</strong>。<br />
@@ -396,6 +396,110 @@
 - <strong>デバッガが無くても、段階ごとの出力で、落ちる場所は絞れる。</strong> 絞れたら、症状（タイムアウト直後）から原因を推定する。<br />
 - <strong>コンパイルの実際のフラグを見る</strong>（<code>ninja -t commands</code>）。設定ファイルの見た目と、実際のコマンドは、違うことがある。<br />
 - 例外を使うC++では、<code>/EHsc</code>（MSVC）が必須。警告C4530は、無視しない。</p>
+<h3 id="j-2026-10-21-動画生成がattributeerrorで始まらない画面コードの呼び出し先が無い">J. 2026-10-21　動画生成が、AttributeErrorで始まらない（画面コードの呼び出し先が無い）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>症状</strong></td>
+<td>保存のあと、動画が作られない。Houdiniのコンソールに <code>AttributeError: 'TutorialGeneratePanel' object has no attribute '_make_agent'</code></td>
+</tr>
+<tr>
+<td><strong>原因</strong></td>
+<td>台本づくりを呼ぶコードが、<strong>別のクラス（履歴パネル）にしか無い <code>self._make_agent</code> を呼んでいた</strong>。画面のコードは、Houdiniの中でしか動かず、単体テストが届かなかった。コンパイル・既存のテストは、通っていた</td>
+</tr>
+<tr>
+<td><strong>対策</strong></td>
+<td>共通の関数に切り出し、両方から使う。<strong>構文木で、<code>self._xxx</code> の定義漏れを見つけるテスト</strong>を追加（<code>houdini/tests/test_panel_static.py</code>）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>学び</strong><br />
+- <strong>実機でしか動かないコードは、「静的に確かめられること」だけでも、機械で確かめる。</strong><br />
+- 新しいファイルを足したときは、配布のリスト（<code>deploy_panels.py</code> の <code>MODULES</code>）に入れる。<strong>漏れると、配置されず、黙って古い動作になる</strong>（同日、<code>video_script</code> の漏れも発見）。</p>
+<h3 id="k-2026-10-21-チャットのあとパネルがペインからはみ出し区切りが動かせない">K. 2026-10-21　チャットのあと、パネルがペインからはみ出し、区切りが動かせない</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>症状</strong></td>
+<td>チャットで質問したあと、Houdini のペインの区切り（比率）が動かせなくなる。パネルが右へはみ出す</td>
+</tr>
+<tr>
+<td><strong>原因</strong></td>
+<td>下部の「参照: タイトル, タイトル, …」が<strong>1行の長い文字列</strong>で、<strong>折り返さない <code>QLabel</code> は、文字列の全体の幅を、最小幅として要求する</strong>。パネルの最小幅がペインより広くなった</td>
+</tr>
+<tr>
+<td><strong>対策</strong></td>
+<td>折り返さないラベルは、水平方向を <code>Ignored</code> にして、最小幅を中身の長さから切り離す（<code>tame_label_widths</code>）。参照の表示は120文字で省略し、全文は、ツールチップに</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>学び:</strong> 動的に長くなる文字列を出すラベルは、<strong>幅の扱い</strong>（折り返す／省略する／無視させる）を、最初に決める。</p>
+<h3 id="l-2026-10-21-登録済みのhoudiniドキュメントの本文に解析のスクリプトが混ざり同名ノードが上書きされる">L. 2026-10-21　登録済みのHoudiniドキュメントの本文に、解析のスクリプトが混ざり、同名ノードが上書きされる</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>症状</strong></td>
+<td>登録済みページの先頭が <code>window.dataLayer = …; gtag('config', …)</code>（Googleアナリティクス）。<code>Transform</code>・<code>Switch</code> など、同名ノードの多くが、登録されていない（登録済みのうち、確認した12個の名前のうち3個）</td>
+</tr>
+<tr>
+<td><strong>原因</strong></td>
+<td>①以前の抽出処理が、スクリプト・ナビを本文に入れていた（後で、本文だけを取る処理に直したが、<strong>登録済みの分は、そのまま</strong>）。②登録が<strong>タイトルで管理</strong>されるため、SOP・VOP・DOP の <code>Merge</code> が、<strong>後から登録したものが先のものを上書き</strong>する。③章の情報が、どこにも残っていない</td>
+</tr>
+<tr>
+<td><strong>見つけ方</strong></td>
+<td>D1 を読み取り専用で直接調べた（<code>kb_documents</code> の件数・名前、<code>chunk_rows</code> と <code>chunks_fts</code> の先頭の文字列）。<code>crawl_page_hashes</code> が空だったので、<strong>変更検知の記録も無い</strong>ことも分かった</td>
+</tr>
+<tr>
+<td><strong>対策</strong></td>
+<td>URLから章を決め、<strong>本文の先頭に見出し、ファイル名に章</strong>を付ける。旧形式の登録は、章つきで登録し直すときに1回だけ消す。<strong>再クロールで、既存分も直る</strong>（<a href="../operator-runbook.html">operator-runbook.md §5</a>）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>学び</strong><br />
+- <strong>本番のデータを、実際に見る。</strong> 「直したつもり」の効果は、既存のデータには及ばない。<br />
+- <strong>識別子（ここではタイトル）が一意でない対象は、文脈（章）を識別子に含める。</strong></p>
+<h3 id="m-2026-10-21-あいまいな質問で回答がぶれる仮の回答の検索が実行のたびに違う">M. 2026-10-21　あいまいな質問で、回答がぶれる（仮の回答の検索が、実行のたびに違う）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>症状（懸念）</strong></td>
+<td>「Transform の使い方」のように、章（SOP / VOP / APEX）が書かれていない質問で、答える章が、実行のたびに変わりうる</td>
+</tr>
+<tr>
+<td><strong>原因</strong></td>
+<td>検索の前に、LLM が「仮の回答」を作り、その埋め込みで検索する（HyDE）。プロンプトは「わからなくても、それらしい説明を書く」で、<strong>温度の指定も無かった</strong>。仮の回答が、毎回、どれか1つの章へ決め打ちされる</td>
+</tr>
+<tr>
+<td><strong>対策</strong></td>
+<td>温度0、章を決めつけない指示、<strong>質問そのものの検索も混ぜる</strong>、章の指定があれば、その章を先に並べる（除外しない）、指定が無く同名が複数の章にあれば、<strong>既定（SOP）で答え、前提を1行添える</strong>。同じ質問を10回流して、並びと注意書きが一致することを、テストで確認</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>学び:</strong> あいまいさは、<strong>LLM の判断に任せず、決まった規則</strong>（優先順＋前提の明示）で扱う。</p>
 <h2 id="4-やってはいけないこと">4. やってはいけないこと</h2>
 <div class="table-scroll"><table>
 <thead>
