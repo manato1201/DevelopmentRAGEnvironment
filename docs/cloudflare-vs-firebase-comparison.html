@@ -82,7 +82,7 @@
 <hr />
 <h2 id="1-結論">1. 結論</h2>
 <p><strong>「同じやり方」ではない。</strong> 今回Cloudflareで実装した際に生まれた設計上の工夫（D1 FTS5でのキーワード検索、サブリクエスト数上限を避けるためのバッチ処理化、自前のZIPパーサ、JWTの手動署名）は、いずれもCloudflare Workers特有の制約が理由で必要になったものであり、Firebase（Cloud Functions）で作る場合はこれらの制約自体が存在しない、または別の形で存在する。</p>
-<p>一方で、Firebaseには「Cloudflareには無いが必要になるもの」もある（Firestoreにはフルテキスト検索機能が無いため外部サービスが必須、ベクトル検索も専用サービスの構築が必要、など）。**トータルで見ると「Cloudflareは3サービスに機能が凝縮されている分シンプル、Firebaseはより自由度が高い分、複数のGCPサービスを組み合わせる設計力が必要」**という違いになる。</p>
+<p>一方で、Firebaseには「Cloudflareには無いが必要になるもの」もある（Firestoreにはフルテキスト検索機能が無いため外部サービスが必須、ベクトル検索も専用サービスの構築が必要、など）。<strong>トータルで見ると「Cloudflareは3サービスに機能が凝縮されている分シンプル、Firebaseはより自由度が高い分、複数のGCPサービスを組み合わせる設計力が必要」</strong>という違いになる。</p>
 <h2 id="2-コンポーネント対応表">2. コンポーネント対応表</h2>
 <div class="table-scroll"><table>
 <thead>
@@ -241,7 +241,7 @@
 <tbody>
 <tr>
 <td><strong>Cloudflare Workers</strong></td>
-<td>世界中の拠点で、**V8（JavaScriptの実行環境）**のコードを動かす。D1・Vectorizeなどを、設定で直接つなげる</td>
+<td>世界中の拠点で、<strong>V8（JavaScriptの実行環境）</strong>のコードを動かす。D1・Vectorizeなどを、設定で直接つなげる</td>
 <td>○</td>
 </tr>
 <tr>
@@ -251,7 +251,7 @@
 </tr>
 <tr>
 <td><strong>Cloud Run</strong></td>
-<td><strong>コンテナ（Dockerのイメージ）<strong>をサーバーレスで動かす。Firebaseの</strong>Cloud Functions（第2世代）の実体</strong>でもある</td>
+<td><strong>コンテナ（Dockerのイメージ）</strong>をサーバーレスで動かす。Firebaseの<strong>Cloud Functions（第2世代）の実体</strong>でもある</td>
 <td>○（言語・ライブラリは自由）</td>
 </tr>
 </tbody>

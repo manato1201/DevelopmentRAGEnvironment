@@ -400,7 +400,7 @@ interface Connector {
 </tbody>
 </table></div>
 <ul>
-<li><strong>配布の形:</strong> <a href="distribution-strategy.md#5-houdini21チュートリアル生成の配布">distribution-strategy.md §5</a> の推奨どおり、**Houdiniパッケージ（<code>.json</code>）**にする。さらに2つのパッケージに分ける案:</li>
+<li><strong>配布の形:</strong> <a href="distribution-strategy.md#5-houdini21チュートリアル生成の配布">distribution-strategy.md §5</a> の推奨どおり、<strong>Houdiniパッケージ（<code>.json</code>）</strong>にする。さらに2つのパッケージに分ける案:</li>
 <li><code>devragenv-core</code>: 共通クライアント（チャット・設定・グラフ）</li>
 <li><code>devragenv-tutorial</code>: 固有（チュートリアル生成・動画）。<code>core</code> に依存</li>
 <li><strong>共通クライアント:</strong> サーバーとのやりとり（認証・<code>/query</code>・<code>/search</code>・エラー処理）を1つのPythonモジュールに集める。Unity（C#）にも同じ役割のクラスがあるので、<strong>仕様（§6）を共有</strong>して、2言語で同じふるまいにする。</li>

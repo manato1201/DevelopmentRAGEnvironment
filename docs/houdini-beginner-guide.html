@@ -87,7 +87,7 @@
 <hr />
 <hr />
 <h2 id="1-houdiniとは何か">1. Houdiniとは何か</h2>
-<p><strong>Houdini</strong>（SideFX社）は、3DのモデリングやVFX（煙・炎・水・破壊など）、アニメーション、レンダリングを作るソフト。他の3Dソフトとの最大の違いは、**手続き型（プロシージャル）**であること。</p>
+<p><strong>Houdini</strong>（SideFX社）は、3DのモデリングやVFX（煙・炎・水・破壊など）、アニメーション、レンダリングを作るソフト。他の3Dソフトとの最大の違いは、<strong>手続き型（プロシージャル）</strong>であること。</p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -113,7 +113,7 @@
 <p><strong>プロシージャルの利点（ゲーム開発の場面で）</strong><br />
 - 建物・地形・植生のバリエーションを、<strong>パラメータを変えるだけで量産</strong>できる。<br />
 - 「やっぱり、窓の数を増やしたい」が、最初からやり直さずに済む。<br />
-- 作った手順を、**HDA（Houdini Digital Asset）**にして、他のプロジェクトや、<strong>Houdini Engine</strong>経由でUnity・Unrealの中でも使える。</p>
+- 作った手順を、<strong>HDA（Houdini Digital Asset）</strong>にして、他のプロジェクトや、<strong>Houdini Engine</strong>経由でUnity・Unrealの中でも使える。</p>
 <h3 id="エディション">エディション</h3>
 <div class="table-scroll"><table>
 <thead>
@@ -142,7 +142,7 @@
 ファイルの拡張子は、エディションで違う: <code>.hip</code>（FX・Core）、<code>.hiplc</code>（Indie）、<code>.hipnc</code>（Apprentice）。</p>
 </blockquote>
 <h2 id="2-画面の構成">2. 画面の構成</h2>
-<p>Houdiniの画面は、<strong>ペイン（区画）<strong>の集まり。ペインの組み合わせを</strong>デスクトップ</strong>と呼び、用途別（Build、Animate、Technical など）が用意されている。</p>
+<p>Houdiniの画面は、<strong>ペイン（区画）</strong>の集まり。ペインの組み合わせを<strong>デスクトップ</strong>と呼び、用途別（Build、Animate、Technical など）が用意されている。</p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -222,9 +222,9 @@
 <h3 id="32-cookクック">3.2 cook（クック）</h3>
 <p>ノードが、入力から出力を<strong>計算し直す</strong>こと。パラメータや入力が変わったときに、必要なノードだけが、cookされる。<br />
 - ノードが<strong>赤く表示される</strong>／警告が出るのは、cookのエラー。<strong>まず、Parametersと、ノードを右クリックして出るメッセージを読む。</strong><br />
-- 重い処理は、cookに時間がかかる。**途中の結果を保存（キャッシュ）**して軽くする（§8）。</p>
+- 重い処理は、cookに時間がかかる。<strong>途中の結果を保存（キャッシュ）</strong>して軽くする（§8）。</p>
 <h3 id="33-コンテキストネットワークの種類">3.3 コンテキスト（ネットワークの種類）</h3>
-<p>ノードは、**種類（コンテキスト）**ごとの、別々のネットワークに置く。<strong>他の種類のノードは、置けない。</strong></p>
+<p>ノードは、<strong>種類（コンテキスト）</strong>ごとの、別々のネットワークに置く。<strong>他の種類のノードは、置けない。</strong></p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -419,7 +419,7 @@
 <h3 id="43-座標と単位">4.3 座標と単位</h3>
 <ul>
 <li><strong>1単位 ＝ 1メートル。Yが上</strong>（Y-up）。UnityもY-upだが、<strong>Unityは左手系、Houdiniは右手系</strong>。Zの向きなどで、出力時に注意が必要。</li>
-<li>スケールが合わないときは、まず、**単位（メートル／センチメートル）**を疑う。</li>
+<li>スケールが合わないときは、まず、<strong>単位（メートル／センチメートル）</strong>を疑う。</li>
 </ul>
 <h2 id="5-パラメータと式">5. パラメータと式</h2>
 <h3 id="51-パラメータの基本">5.1 パラメータの基本</h3>
@@ -1105,7 +1105,7 @@
 </tr>
 <tr>
 <td><code>Shift + P</code></td>
-<td>**付箋（Sticky Note）**を追加</td>
+<td><strong>付箋（Sticky Note）</strong>を追加</td>
 </tr>
 </tbody>
 </table></div>
@@ -1374,7 +1374,7 @@
 </tbody>
 </table></div>
 <h3 id="107-フラグのキーネットワークエディタ">10.7 フラグのキー（ネットワークエディタ）</h3>
-<p><strong><code>Q</code>・<code>W</code>・<code>E</code>・<code>R</code>・<code>T</code>が、フラグのキー。<strong>ノードを選んで押すと、切り替わる。<strong>押し続けて、ノードをクリックする</strong>と、複数を、まとめて設定・解除できる。</strong><code>Q</code>と<code>B</code>は、常にBypass</strong>。公式の説明では、<strong><code>R</code>が最もよく使うフラグ</strong>、次に<code>E</code>、<code>T</code>、<code>W</code>の順。</p>
+<p><strong><code>Q</code>・<code>W</code>・<code>E</code>・<code>R</code>・<code>T</code>が、フラグのキー。</strong>ノードを選んで押すと、切り替わる。<strong>押し続けて、ノードをクリックする</strong>と、複数を、まとめて設定・解除できる。<strong><code>Q</code>と<code>B</code>は、常にBypass</strong>。公式の説明では、<strong><code>R</code>が最もよく使うフラグ</strong>、次に<code>E</code>、<code>T</code>、<code>W</code>の順。</p>
 <p>ネットワークの種類で、フラグの意味が違う（公式の<a href="https://www.sidefx.com/docs/houdini/network/flags.html">Node flags</a>より）。</p>
 <div class="table-scroll"><table>
 <thead>

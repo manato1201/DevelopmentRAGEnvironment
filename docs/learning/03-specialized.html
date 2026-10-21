@@ -348,7 +348,7 @@ loop 最大80回:
 <li><strong>KineFX／APEX</strong>（リグ）は、SOPレベルのノードまでが対象。<code>apex::graph</code>の中身は、今のツールでは編集できない。</li>
 </ul>
 <h3 id="72-スレッドの制約重要">7.2 スレッドの制約（重要）</h3>
-<p><code>hou</code>の操作は、**Houdiniのメインスレッド（UIのスレッド）**で行わないと、不安定になる。一方、生成中にUIを固めたくないので、**生成は<code>QThread</code>（別スレッド）**で動かす。</p>
+<p><code>hou</code>の操作は、<strong>Houdiniのメインスレッド（UIのスレッド）</strong>で行わないと、不安定になる。一方、生成中にUIを固めたくないので、<strong>生成は<code>QThread</code>（別スレッド）</strong>で動かす。</p>
 <p>→ <code>houdini_tools.py</code>の<code>_run_in_main_thread</code>が、<code>hdefereval.executeInMainThreadWithResult</code>で、<code>hou</code>の操作だけをメインスレッドに送っている。<strong>ツールを足すときも、この経路を通る</strong>（<code>execute</code>が自動で通す）。</p>
 <h3 id="73-python-panel-と-pyside6">7.3 Python Panel と PySide6</h3>
 <ul>

@@ -412,6 +412,26 @@ class LessonsDialog(QDialog):
         self.accept()
 
 
+def _build_light_agent(cfg: dict):
+    """Claudeを1回呼ぶだけの用途（台本づくり・教訓の候補作り）のエージェント。生成時と同じ設定で、
+    サンドボックスは作らない。TutorialGeneratePanel と TutorialHistoryPanel の両方が使う
+    （2026-10-21: 台本づくりが、持っていない self._make_agent を呼んで動画生成が始まらなかった）。"""
+    from tutorial_agent import TutorialAgent
+
+    return TutorialAgent(
+        bridge_port=cfg.get("local_port", 8766),
+        project_dir=cfg.get("local_bridge_dir", ""),
+        rag_mode=cfg.get("tutorial_rag_mode") or cfg.get("mode", "local"),
+        gas_url=cfg.get("gas_url", ""),
+        gas_api_key=cfg.get("gas_api_key", ""),
+        model=cfg.get("tutorial_model", "claude-sonnet-5"),
+        claude_backend=cfg.get("tutorial_claude_backend", "gas"),
+        cf_url=cfg.get("cf_url", ""),
+        cf_api_key=cfg.get("cf_api_key", ""),
+        rag_namespace=cfg.get("tutorial_rag_namespace", ""),
+    )
+
+
 class TutorialGeneratePanel(QWidget):
     """
     チュートリアル生成タブ。
@@ -977,9 +997,14 @@ class TutorialGeneratePanel(QWidget):
         worker.start()
         return "動画生成: 台本を作成中です（完了後に動画の生成を始めます）"
 
+    def _make_agent(self):
+        """台本づくりでClaudeを呼ぶためのエージェント（サンドボックスは作らない）。"""
+        return _build_light_agent(self._cfg_getter())
+
     def _start_video_process(self, result, md_path: Path, json_path: Path, script_path: Path | None) -> str:
         """動画エンジンを起動する（video_factory_bridge）。起動に成功したら進捗表示を始める。"""
-        exe_path = self._cfg_getter().get("video_factory_exe_path", "")
+        cfg = self._cfg_getter()
+        exe_path = cfg.get("video_factory_exe_path", "")
         try:
             from video_factory_bridge import launch_video_generation
 
@@ -991,6 +1016,9 @@ class TutorialGeneratePanel(QWidget):
                 exe_path=exe_path,
                 db_key=getattr(result, "rag_name", ""),
                 script_path=script_path,
+                # 音声合成（Worker経由のGoogle Cloud TTS）。Cloudflare版の設定をそのまま使う
+                tts_url=cfg.get("cf_url", ""),
+                tts_key=cfg.get("cf_api_key", ""),
             )
             if log_path is not None:
                 self._start_video_progress_poll(log_path, Path(exe_path).parent, md_path)
@@ -1006,7 +1034,7 @@ class TutorialGeneratePanel(QWidget):
         if voice:
             name = voice[-1].strip()
             if name.startswith("SAPI"):
-                return f"音声: 従来の音声（{name}）。自然な声にするにはVOICEVOXを起動してください"
+                return f"音声: 従来の音声（{name}）。自然な声にするには、Settingsタブの Cloudflare URL / APIキーを設定するか、VOICEVOXを起動してください"
             return f"音声: {name}"
         engine = re.findall(r"Narration engine: (.+)", log_text)
         return f"音声: {engine[-1].strip()[:90]}" if engine else ""
@@ -2026,21 +2054,7 @@ class TutorialHistoryPanel(QWidget):
 
     def _make_agent(self):
         """教訓の候補作りでClaudeを呼ぶためのエージェント（生成時と同じ設定。サンドボックスは作らない）。"""
-        from tutorial_agent import TutorialAgent
-
-        cfg = self._cfg_getter()
-        return TutorialAgent(
-            bridge_port=cfg.get("local_port", 8766),
-            project_dir=cfg.get("local_bridge_dir", ""),
-            rag_mode=cfg.get("tutorial_rag_mode") or cfg.get("mode", "local"),
-            gas_url=cfg.get("gas_url", ""),
-            gas_api_key=cfg.get("gas_api_key", ""),
-            model=cfg.get("tutorial_model", "claude-sonnet-5"),
-            claude_backend=cfg.get("tutorial_claude_backend", "gas"),
-            cf_url=cfg.get("cf_url", ""),
-            cf_api_key=cfg.get("cf_api_key", ""),
-            rag_namespace=cfg.get("tutorial_rag_namespace", ""),
-        )
+        return _build_light_agent(self._cfg_getter())
 
     def _on_open_lessons(self) -> None:
         project_dir = self._cfg_getter().get("local_bridge_dir", "")

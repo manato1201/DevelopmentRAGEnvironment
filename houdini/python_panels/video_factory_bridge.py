@@ -30,6 +30,7 @@ failed等）が一切見えなかった。ログをファイルに残すこと�
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -42,6 +43,8 @@ def launch_video_generation(
     exe_path: str,
     db_key: str = "",
     script_path: Path | None = None,
+    tts_url: str = "",
+    tts_key: str = "",
 ) -> tuple[str, Path | None]:
     """
     動画生成を非同期で起動する。戻り値は (状態メッセージ, ログファイルパス)。
@@ -51,6 +54,11 @@ def launch_video_generation(
     script_path（2026-10-19追加）: video_script.py が作った初心者向けの台本（<slug>_video_script.json）。
     あれば --houdini-script で渡す。エンジンは、手順ごとの解説で音声を作り、画面と同期させる。
     無い・存在しないときは、従来どおり（チュートリアル本文の朗読）になる。
+
+    tts_url / tts_key（2026-10-20追加）: 音声合成（Worker の /tts → Google Cloud TTS）の接続先とAPIキー。
+    Settingsタブの Cloudflare URL / APIキーをそのまま渡す。あれば、VOICEVOXを入れていなくても自然な声になる
+    （無い・失敗したときは、VOICEVOX、なければ従来の音声に切り替わる）。キーはコマンドラインではなく
+    環境変数で渡す（プロセス一覧に出ないように）。
     """
     if not exe_path:
         return "動画生成: video_factory_exe_path が未設定のためスキップしました（Settingsタブで設定してください）", None
@@ -93,9 +101,15 @@ def launch_video_generation(
     # パネル内プレビュー機能（tutorial_view.py._open_video_preview）がファイルを
     # 確実に見つけられるよう、常にexe自身のディレクトリを作業ディレクトリに固定する
     # （main_cloudrag.cppの出力パスはCWD相対のため、2026-08-31）。
+    env = os.environ.copy()
+    if tts_url and tts_key:
+        env["RAGREEL_CLOUD_TTS_URL"] = tts_url.strip()
+        env["RAGREEL_CLOUD_TTS_KEY"] = tts_key.strip()
     try:
         with open(log_path, "w", encoding="utf-8") as log_file:
-            subprocess.Popen(args, stdout=log_file, stderr=subprocess.STDOUT, cwd=str(Path(exe_path).parent))
+            subprocess.Popen(
+                args, stdout=log_file, stderr=subprocess.STDOUT, cwd=str(Path(exe_path).parent), env=env
+            )
     except OSError as exc:
         return f"動画生成の起動に失敗しました: {exc}", None
 
