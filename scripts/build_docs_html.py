@@ -41,6 +41,7 @@ DEFAULT_TARGETS: list[tuple[Path, str]] = [
     (DOCS / "houdini-beginner-guide.md", "Houdini入門"),
     (DOCS / "houdini-video-script.md", "動画の台本と音声"),
     (DOCS / "houdini-lesson-design.md", "レッスン設計"),
+    (DOCS / "houdini-distribution-plan.md", "配布計画"),
     (DOCS / "architecture-layering-plan.md", "設計案"),
     (DOCS / "cloudflare-vs-firebase-comparison.md", "比較資料"),
 ]
