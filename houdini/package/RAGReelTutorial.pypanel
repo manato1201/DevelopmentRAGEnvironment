@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pythonPanelDocument>
+  <interface name="RAGReelTutorial" label="RAGReel Tutorial" icon="MISC_python" showNetworkNavigationBar="false" help_url="">
+    <script><![CDATA[
+# A thin loader: the real panel lives in rag_chatbot.py, which the package puts on PYTHONPATH
+# (houdini/package/install.ps1). Updating the panel never needs this file to be edited again.
+def onCreateInterface():
+    import rag_chatbot
+    return rag_chatbot.onCreateInterface()
+]]></script>
+    <includeInToolbarMenu menu_position="210" create_separator="false"/>
+    <help><![CDATA[]]></help>
+  </interface>
+</pythonPanelDocument>

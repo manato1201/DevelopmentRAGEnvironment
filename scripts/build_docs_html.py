@@ -42,6 +42,12 @@ DEFAULT_TARGETS: list[tuple[Path, str]] = [
     (DOCS / "houdini-video-script.md", "動画の台本と音声"),
     (DOCS / "houdini-lesson-design.md", "レッスン設計"),
     (DOCS / "houdini-distribution-plan.md", "配布計画"),
+    (DOCS / "manual-houdini-tutorial.md", "取扱説明書（Houdini）"),
+    (DOCS / "manual-ragreel.md", "取扱説明書（RAGReel）"),
+    (DOCS / "operator-runbook.md", "運営者向け手順書"),
+    (DOCS / "cost-and-quota.md", "費用と利用枠"),
+    (DOCS / "houdini-tutorial-technical-report.md", "技術解説書（Houdini・動画）"),
+    (DOCS / "cloudflare-rag-technical-report.md", "技術解説書（Cloudflare）"),
     (DOCS / "architecture-layering-plan.md", "設計案"),
     (DOCS / "cloudflare-vs-firebase-comparison.md", "比較資料"),
 ]

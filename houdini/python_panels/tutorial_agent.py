@@ -397,6 +397,32 @@ def build_target_model_section(path: str) -> str:
 """
 
 
+# 2026-10-21: 公式ドキュメントの検索で、同名のノード（Transform / Merge / Null …）が複数の章（SOP / VOP / APEX …）に
+# あるため、トピックから「作業の章」を決めて Worker の /search に context として渡す（その章の結果を先に並べる。
+# 除外はしない: 判定が外れても、他の章の結果は残る）。生成は主に SOP の中で行うので、既定は SOP。
+_CONTEXT_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("APEX", re.compile(r"\bapex\b|リグ|\brig(ging)?\b|kinefx|スケルトン|\bskelet|ボーン|キャラクター", re.IGNORECASE)),
+    ("DOP", re.compile(r"\bdop\b|pyro|パイロ|煙|炎|火|爆発|流体|\bflip\b|剛体|\brbd\b|クロス|\bvellum\b|ベラム|パーティクル|\bpop\b|粒子|シミュレーション", re.IGNORECASE)),
+    ("VOP", re.compile(r"\bvop\b|シェーダ|\bshader|マテリアル|\bmaterial", re.IGNORECASE)),
+    ("LOP", re.compile(r"\blop\b|solaris|ソラリス|\busd\b|karma", re.IGNORECASE)),
+    ("COP", re.compile(r"\bcop2?\b|copernicus|コペルニクス|コンポジット", re.IGNORECASE)),
+    ("TOP", re.compile(r"\bpdg\b|\bTOPs?\b|一括処理|バッチ処理")),
+    ("CHOP", re.compile(r"\bchop\b|チャンネル", re.IGNORECASE)),
+    ("VEX", re.compile(r"\bvex\b|ラングル|wrangle|ベックス", re.IGNORECASE)),
+)
+
+
+def context_hint_for(topic: str, requirements: str = "", target_model: str = "") -> list[str]:
+    """トピック・条件・対象モデルから、検索で優先する章（SOP / DOP / APEX …）を決める。SOP が常に入る
+    （生成の作業は、geo の中の SOP が中心のため）。判定は、決まったキーワードだけ（LLMは使わない。毎回同じ結果）。"""
+    text = "\n".join((topic, requirements, target_model))
+    hint = ["SOP"]
+    for context, pattern in _CONTEXT_RULES:
+        if pattern.search(text) and context not in hint:
+            hint.append(context)
+    return hint
+
+
 _GSPLAT_PATTERN = re.compile(r"gaussian|gsplat|splat|3dgs|ガウシアン|スプラット|スプラッド", re.IGNORECASE)
 _ANIMATION_PATTERN = re.compile(
     r"animat|アニメ|\brig(ging)?\b|リグ|skelet|スケルトン|kinefx|\bapex\b|キーフレーム|keyframe|モーション|motion|ボーン|\bbones?\b|歩行|歩かせ|歩く|走らせ|キャラクター|\bwalk|\bcharacter",
@@ -980,6 +1006,8 @@ class TutorialAgent:
                 "limit": RAG_LIMIT,
                 "namespaces": [f"shared:{self._rag_name}"],
                 "level": level,
+                # 作業の章のヒント（同名ノードの章の混同を防ぐ。Worker側は、その章の結果を先に並べるだけで、除外はしない）
+                "context": context_hint_for(topic, self._requirements, self._target_model),
             }, ensure_ascii=False).encode("utf-8")
             req = urllib.request.Request(
                 f"{self._cf_url.rstrip('/')}/search",
@@ -1547,6 +1575,8 @@ class TutorialAgent:
             "cost_usd": round(result.cost_usd, 4),
             "input_tokens": result.input_tokens,
             "output_tokens": result.output_tokens,
+            "cache_write_tokens": result.cache_write_tokens,
+            "cache_read_tokens": result.cache_read_tokens,
             "elapsed_seconds": round(result.elapsed_seconds, 1),
             "rag_extraction_rate": result.rag_extraction_rate if result.rag_extraction_rate is not None else -1,
             "reference_images": result.reference_image_count,

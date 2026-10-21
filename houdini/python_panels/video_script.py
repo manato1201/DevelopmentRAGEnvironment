@@ -594,9 +594,12 @@ def prepare_script_file(
     """保存済みの .md から台本を作り、`<slug>_video_script.json` に書く。戻り値: (パス or None, 状態)。"""
     try:
         md_text = md_path.read_text(encoding="utf-8")
-        script, message, _usage = build_script(md_text, step_screenshots, complete, images)
+        script, message, usage = build_script(md_text, step_screenshots, complete, images)
         if script is None:
             return None, message
+        if usage:
+            # 台本づくりで使ったトークン（コストの集計用。動画エンジンは読まない）
+            script["usage"] = {k: int(v) for k, v in usage.items() if isinstance(v, (int, float))}
         out = md_path.with_name(md_path.stem + "_video_script.json")
         save_script(out, script)
         return out, message
