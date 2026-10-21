@@ -6,12 +6,12 @@ namespace RAGChatbot
     /// <summary>
     /// RAG クライアントの共通インターフェース。
     ///
-    /// Cloud モード（GAS WebApp への HTTPS リクエスト）と
+    /// Cloudflare モード（Cloudflare Worker への HTTPS リクエスト）と
     /// Local モード（localhost の Python ブリッジへの HTTP リクエスト）を
     /// 同じ呼び出し口で切り替えられるよう、依存性逆転の原則に従って抽象化している。
     ///
     /// 実装クラス:
-    ///   - CloudRAGClient : GAS WebApp (doPost) に問い合わせる
+    ///   - CloudflareRAGClient : Cloudflare Worker (/query) に問い合わせる
     ///   - LocalRAGClient : rag_local_bridge.py (localhost:8766) に問い合わせる
     ///
     /// RAGChatbotWindow は IRAGClient 型のフィールドを1つだけ持ち、
@@ -32,7 +32,7 @@ namespace RAGChatbot
 
         /// <summary>
         /// 回答に対して 👍/👎 の評価を送る。
-        /// Cloud モードでは GAS の RAG_Memory 行の rating/priority を更新する。
+        /// Cloudflare モードでは Worker の /memory/rate で、回答の履歴に評価を記録する。
         /// Local モードでは評価の永続化先がないため常に true を返す（no-op）。
         /// </summary>
         /// <param name="memoryId">QueryAsync が返した RAGResponse.memoryId</param>

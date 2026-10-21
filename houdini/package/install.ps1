@@ -144,8 +144,7 @@ if (Test-Path $ConfigPath) {
   Copy-Item $ConfigPath "$ConfigPath.backup_$stamp" -Force
 }
 # チュートリアル生成は、Claude も検索も、接続先（Cloudflare）経由にする
-Set-ConfigValue $config "tutorial_rag_mode" "cloudflare"
-Set-ConfigValue $config "tutorial_claude_backend" "cloudflare"
+Set-ConfigValue $config "mode" "cloudflare"
 if ($CloudflareUrl) { Set-ConfigValue $config "cf_url" $CloudflareUrl.Trim().TrimEnd("/") }
 if ($ApiKey) { Set-ConfigValue $config "cf_api_key" $ApiKey.Trim() }
 # 保存先（Bridge Directory）。すでに設定されていれば、そのまま使う。

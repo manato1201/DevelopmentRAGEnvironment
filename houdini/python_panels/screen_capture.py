@@ -167,8 +167,95 @@ def focus_network_on(node_path: str, log_path: Path | None = None) -> None:
         _log(f"focus_network_on failed: {exc!r}", log_path)
 
 
+
+# 2026-10-21: ビューポートの「見切れ」対策。以前は frameAll()（シーン全体）に合わせていたため、
+# ①サンドボックスの外にある、ユーザー自身のオブジェクトまで含めた範囲になり、作ったものが小さくなる／端に寄る、
+# ②出力（1280x720）の縦横比が、ビューポートの縦横比と違うと、上下（または左右）が切り落とされる、が起きていた。
+# 作ったジオメトリ（表示中のオブジェクト）の境界ボックスに、余白をつけて合わせ、出力の縦横比を、ビューポートに合わせる。
+_FRAME_PADDING = 0.18  # 境界ボックスの各辺に足す余白（大きさに対する割合）
+_MIN_ASPECT, _MAX_ASPECT = 0.6, 2.4
+
+
+def _displayed_bounds(container_path: str | None, log_path: Path | None):
+    """container_path（サンドボックス）の中の、表示中のオブジェクトのジオメトリの境界ボックス（ワールド座標）。
+    無い・求められないときは None。"""
+    if not container_path:
+        return None
+    container = hou.node(container_path)
+    if container is None:
+        return None
+    union = None
+    for child in container.children():
+        try:
+            if child.type().category() != hou.objNodeTypeCategory() or not child.isDisplayFlagSet():
+                continue
+            display = child.displayNode()
+            geometry = display.geometry() if display is not None else None
+            if geometry is None:
+                continue
+            box = geometry.boundingBox()
+            if not box.isValid():
+                continue
+            world = child.worldTransform()
+            lo, hi = box.minvec(), box.maxvec()
+            for x in (lo[0], hi[0]):
+                for y in (lo[1], hi[1]):
+                    for z in (lo[2], hi[2]):
+                        corner = hou.Vector3(x, y, z) * world
+                        if union is None:
+                            union = hou.BoundingBox(corner[0], corner[1], corner[2], corner[0], corner[1], corner[2])
+                        else:
+                            union.enlargeToContain(corner)
+        except Exception as exc:  # noqa: BLE001 -- 1つのノードが読めなくても、他で求める
+            _log(f"bounds of {child.path()} failed: {exc!r}", log_path)
+    if union is None or not union.isValid():
+        return None
+    size = union.sizevec()
+    if max(size[0], size[1], size[2]) <= 1e-6:
+        return None
+    return union
+
+
+def _frame_view(viewport, container_path: str | None, log_path: Path | None) -> str:
+    """ビューポートを、作ったものに合わせる。使った方法を返す（"bounds" / "all" / ""）。"""
+    try:
+        box = _displayed_bounds(container_path, log_path)
+        if box is not None:
+            size, center = box.sizevec(), box.center()
+            pad = max(size[0], size[1], size[2]) * _FRAME_PADDING
+            padded = hou.BoundingBox(
+                center[0] - size[0] / 2 - pad, center[1] - size[1] / 2 - pad, center[2] - size[2] / 2 - pad,
+                center[0] + size[0] / 2 + pad, center[1] + size[1] / 2 + pad, center[2] + size[2] / 2 + pad,
+            )
+            viewport.frameBoundingBox(padded)
+            return "bounds"
+    except Exception as exc:  # noqa: BLE001
+        _log(f"frameBoundingBox failed, falling back to frameAll(): {exc!r}", log_path)
+    try:
+        viewport.frameAll()
+        return "all"
+    except Exception as exc:  # noqa: BLE001
+        _log(f"frameAll() failed, capturing with current framing: {exc!r}", log_path)
+        return ""
+
+
+def _output_size(viewport, width: int, height: int, log_path: Path | None) -> tuple[int, int]:
+    """幅は指定のまま、高さを、ビューポートの縦横比に合わせる（縦横比が違うと、出力で上下・左右が切り落とされる）。
+    縦横比が読めない・極端なときは、指定のまま。"""
+    try:
+        size = tuple(viewport.size())
+        view_w, view_h = (size[-2], size[-1]) if len(size) >= 4 else (size[0], size[1])
+        aspect = float(view_w) / float(view_h)
+        if _MIN_ASPECT <= aspect <= _MAX_ASPECT:
+            return width, max(2, int(round(width / aspect / 2.0)) * 2)
+    except Exception as exc:  # noqa: BLE001
+        _log(f"viewport aspect unavailable, using {width}x{height}: {exc!r}", log_path)
+    return width, height
+
+
 def capture_viewport(
-    output_path: Path, width: int = 1280, height: int = 720, log_path: Path | None = None
+    output_path: Path, width: int = 1280, height: int = 720, log_path: Path | None = None,
+    frame_path: str | None = None,
 ) -> bool:
     """
     現在の3Dビューポートを1枚の静止画として output_path に保存する。
@@ -186,10 +273,10 @@ def capture_viewport(
         # a sea of background) -- fit the view to the sandbox's geometry
         # right before capturing. Best-effort: a failed frameAll() still
         # lets the capture proceed with whatever framing was already there.
-        try:
-            scene_viewer.curViewport().frameAll()
-        except Exception as exc:  # noqa: BLE001
-            _log(f"frameAll() failed, capturing with current framing: {exc!r}", log_path)
+        viewport = scene_viewer.curViewport()
+        method = _frame_view(viewport, frame_path, log_path)
+        width, height = _output_size(viewport, width, height, log_path)
+        _log(f"viewport framing: {method or 'unchanged'} ({width}x{height})", log_path)
         # hou.FlipbookSettings() is abstract and can't be constructed
         # directly (confirmed via real-Houdini AttributeError: "No
         # constructor defined - class is abstract") -- the documented
@@ -219,6 +306,7 @@ def capture_viewport_clip(
     width: int = 640,
     height: int = 360,
     log_path: Path | None = None,
+    frame_path: str | None = None,
 ) -> tuple[list[Path], int]:
     """
     現在フレームから frame_count 枚分、ビューポートを連番PNGとして撮影する
@@ -238,10 +326,9 @@ def capture_viewport_clip(
         if scene_viewer is None:
             _log("no SceneViewer pane found for clip capture", log_path)
             return [], 0
-        try:
-            scene_viewer.curViewport().frameAll()
-        except Exception as exc:  # noqa: BLE001
-            _log(f"frameAll() failed before clip capture: {exc!r}", log_path)
+        clip_viewport = scene_viewer.curViewport()
+        _frame_view(clip_viewport, frame_path, log_path)
+        width, height = _output_size(clip_viewport, width, height, log_path)
 
         original_frame = hou.frame()
         start_frame = original_frame

@@ -45,6 +45,7 @@ def launch_video_generation(
     script_path: Path | None = None,
     tts_url: str = "",
     tts_key: str = "",
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[str, Path | None]:
     """
     動画生成を非同期で起動する。戻り値は (状態メッセージ, ログファイルパス)。
@@ -59,6 +60,10 @@ def launch_video_generation(
     Settingsタブの Cloudflare URL / APIキーをそのまま渡す。あれば、VOICEVOXを入れていなくても自然な声になる
     （無い・失敗したときは、VOICEVOX、なければ従来の音声に切り替わる）。キーはコマンドラインではなく
     環境変数で渡す（プロセス一覧に出ないように）。
+
+    extra_env（2026-10-22追加）: エンジンの環境変数に足すもの。ダッシュボード（ギャラリー）への自動アップロード用の
+    GALLERY_UPLOAD_URL / GALLERY_UPLOAD_TOKEN（gallery_upload.gallery_env）を渡す。エンジンは、動画ができたあと、
+    自分でギャラリーへ送る（失敗しても、ローカルの動画は無事）。
     """
     if not exe_path:
         return "動画生成: video_factory_exe_path が未設定のためスキップしました（Settingsタブで設定してください）", None
@@ -105,6 +110,8 @@ def launch_video_generation(
     if tts_url and tts_key:
         env["RAGREEL_CLOUD_TTS_URL"] = tts_url.strip()
         env["RAGREEL_CLOUD_TTS_KEY"] = tts_key.strip()
+    if extra_env:
+        env.update(extra_env)
     try:
         with open(log_path, "w", encoding="utf-8") as log_file:
             subprocess.Popen(

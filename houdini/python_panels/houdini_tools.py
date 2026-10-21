@@ -677,7 +677,7 @@ class HoudiniToolExecutor:
             # 途中のcook_nodeで表示を中間ノードへ切り替えていても、自己確認画像は
             # 必ず最終（末端）ノードの結果を映す。
             self._restore_final_display()
-            if screen_capture.capture_viewport(path, log_path=log_path):
+            if screen_capture.capture_viewport(path, log_path=log_path, frame_path=self.sandbox_path):
                 try:
                     self.last_screenshot_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
                 except OSError:
@@ -827,7 +827,7 @@ class HoudiniToolExecutor:
             # (needed for its own capture to show the right content) --
             # doing that first would risk Scene View no longer being the
             # visible tab if the two share a pane group.
-            got_viewport = screen_capture.capture_viewport(viewport_path, log_path=log_path)
+            got_viewport = screen_capture.capture_viewport(viewport_path, log_path=log_path, frame_path=self.sandbox_path)
 
             # cook_node re-evaluates the graph, which for simulation nodes
             # (pyro, fire, cloth, particles) plays out over time -- a short
@@ -838,7 +838,8 @@ class HoudiniToolExecutor:
             clip_fps = 0
             if tool_name == "cook_node":
                 clip_frames, clip_fps = screen_capture.capture_viewport_clip(
-                    self._screenshot_dir, f"step_{step_index:03d}_clip", log_path=log_path
+                    self._screenshot_dir, f"step_{step_index:03d}_clip", log_path=log_path,
+                    frame_path=self.sandbox_path,
                 )
 
             network_kind = "network"

@@ -2,7 +2,7 @@
 youtube_transcribe.py — 字幕の無いYouTube動画から文字起こしを作る
 
 背景:
-  ナレッジ登録（Cloud RAGの adminKbImportYoutube / Local RAGの
+  ナレッジ登録（Cloudflare RAGの YouTube 取り込み / Local RAGの
   KnowledgeManager.import_youtube）は、どちらも「公式・自動生成の字幕」を
   YouTube側から取得することしかできない。技術解説・製品説明系の動画は
   字幕が無い、または動画側で焼き込み字幕になっているだけ（テキストとして
@@ -16,9 +16,9 @@ youtube_transcribe.py — 字幕の無いYouTube動画から文字起こしを�
   3. 文字起こし結果を標準出力・ファイルに出す。
      --local-namespace を指定すると、そのままrag_local_bridge.py（Local RAG）の
      /api/knowledge/import/youtube にPOSTして登録まで自動化する。
-     --cloud-url/--cloud-api-key/--cloud-db を指定すると、Cloud RAG（GAS）の
-     doPost action:'admin_kb_import_youtube'（管理者専用・要admin API key）に
-     POSTして登録まで自動化する。どちらも省略した場合は、文字起こし結果を
+     --cf-url/--cf-api-key/--cf-namespace を指定すると、Cloudflare RAG の
+     POST /ingest（そのナレッジへ書き込める権限のあるキーが必要）に
+     登録まで自動化する。どちらも省略した場合は、文字起こし結果を
      「ナレッジ登録」タブの「文字起こしを貼り付け」欄に手動で貼ってください。
 
 前提:
@@ -39,10 +39,10 @@ youtube_transcribe.py — 字幕の無いYouTube動画から文字起こしを�
   python scripts/youtube_transcribe.py "https://www.youtube.com/watch?v=..." \
       --local-namespace houdini21 --local-port 8766 --local-api-key <XAPIKEY>
 
-  # Cloud RAGへ自動登録まで行う場合（--cloud-api-keyは管理者キー）
+  # Cloudflare RAGへ自動登録まで行う場合（--cf-api-keyは、そのナレッジへ書き込める権限のあるキー）
   python scripts/youtube_transcribe.py "https://www.youtube.com/watch?v=..." \
-      --cloud-url https://script.google.com/macros/s/XXXX/exec \
-      --cloud-api-key <ADMIN_API_KEY> --cloud-db houdini21
+      --cf-url https://rag-poc.xxxx.workers.dev \
+      --cf-api-key <API_KEY> --cf-namespace shared:houdini22
 """
 
 from __future__ import annotations
@@ -209,25 +209,47 @@ def post_to_local_rag(url: str, namespace: str, transcript: str, port: int, api_
     return resp.json()
 
 
-def post_to_cloud_rag(gas_url: str, gas_api_key: str, db_key: str, video_url: str, transcript: str) -> dict:
-    """GAS（gas_cloud_rag.js）のdoPost action:'admin_kb_import_youtube'に登録する。
-    管理者権限のAPIキーが必要（adminKbImportYoutube同様、ナレッジ登録は管理者専用）。"""
+def split_transcript(transcript: str, max_chars: int = 1500) -> list[str]:
+    """文字起こしを、行の区切りを守りながら max_chars 以下のかたまりに分ける。"""
+    chunks: list[str] = []
+    current = ""
+    for line in transcript.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        while len(line) > max_chars:  # 1行が長すぎるときは、文字数で切る
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(line[:max_chars])
+            line = line[max_chars:]
+        if current and len(current) + len(line) + 1 > max_chars:
+            chunks.append(current)
+            current = ""
+        current = f"{current}\n{line}" if current else line
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def post_to_cloudflare_rag(cf_url: str, cf_api_key: str, namespace: str, video_url: str, transcript: str) -> dict:
+    """Cloudflare RAG（cloudflare-rag-poc）の POST /ingest に、文字起こしを登録する。
+    namespace は shared:<ナレッジ名>（例: shared:houdini22）。書き込める権限のあるキーが必要。"""
+    chunks = [
+        {"text": text, "file": f"youtube:{video_url}", "namespace": namespace}
+        for text in split_transcript(transcript)
+    ]
+    if not chunks:
+        raise TranscribeError("文字起こしが空のため、登録できません")
     resp = requests.post(
-        gas_url,
-        json={
-            "action": "admin_kb_import_youtube",
-            "apiKey": gas_api_key,
-            "dbKey": db_key,
-            "videoUrl": video_url,
-            "transcript": transcript,
-        },
+        cf_url.rstrip("/") + "/ingest",
+        json={"chunks": chunks},
+        headers={"Authorization": f"Bearer {cf_api_key}", "User-Agent": "youtube-transcribe/1.0"},
         timeout=120,
     )
-    resp.raise_for_status()
-    body = resp.json()
-    if body.get("status") != "ok":
-        raise TranscribeError((body.get("error") or {}).get("message") or f"Cloud RAGへの登録に失敗しました: {body}")
-    return body
+    if resp.status_code >= 400:
+        raise TranscribeError(f"Cloudflare RAGへの登録に失敗しました（{resp.status_code}）: {resp.text[:300]}")
+    return resp.json()
 
 
 def main() -> int:
@@ -238,13 +260,13 @@ def main() -> int:
     parser.add_argument("--local-namespace", help="指定するとLocal RAG（rag_local_bridge.py）へ自動登録する")
     parser.add_argument("--local-port", type=int, default=8766, help="rag_local_bridge.pyのポート（既定8766）")
     parser.add_argument("--local-api-key", default="", help="rag_local_bridge.pyのAPIキー（--no-authモードなら不要）")
-    parser.add_argument("--cloud-url", help="Cloud RAG（gas_cloud_rag.js）のGAS WebApp URL。指定すると--cloud-dbと合わせて自動登録する")
-    parser.add_argument("--cloud-api-key", help="Cloud RAGの管理者APIキー（ナレッジ登録は管理者専用）")
-    parser.add_argument("--cloud-db", help="Cloud RAGの登録先dbKey（例: houdini21）")
+    parser.add_argument("--cf-url", help="Cloudflare RAGのWorker URL。指定すると--cf-api-key・--cf-namespaceと合わせて自動登録する")
+    parser.add_argument("--cf-api-key", help="Cloudflare RAGのAPIキー（そのナレッジへ書き込める権限が必要）")
+    parser.add_argument("--cf-namespace", help="Cloudflare RAGの登録先namespace（例: shared:houdini22）")
     args = parser.parse_args()
 
-    if args.cloud_url and not (args.cloud_api_key and args.cloud_db):
-        parser.error("--cloud-urlを使う場合は--cloud-api-keyと--cloud-dbも必要です")
+    if args.cf_url and not (args.cf_api_key and args.cf_namespace):
+        parser.error("--cf-urlを使う場合は--cf-api-keyと--cf-namespaceも必要です")
 
     try:
         api_key = _gemini_key()
@@ -282,18 +304,18 @@ def main() -> int:
             print("rag_local_bridge.pyが起動しているか、--local-portを確認してください。", file=sys.stderr)
             return 1
 
-    if args.cloud_url:
-        print(f"\nCloud RAG（dbKey={args.cloud_db}）へ登録中...", file=sys.stderr)
+    if args.cf_url:
+        print(f"\nCloudflare RAG（namespace={args.cf_namespace}）へ登録中...", file=sys.stderr)
         try:
-            result = post_to_cloud_rag(args.cloud_url, args.cloud_api_key, args.cloud_db, args.url, transcript)
+            result = post_to_cloudflare_rag(args.cf_url, args.cf_api_key, args.cf_namespace, args.url, transcript)
             print(f"登録完了: {json.dumps(result, ensure_ascii=False)}", file=sys.stderr)
         except (requests.RequestException, TranscribeError) as exc:
-            print(f"Cloud RAGへの登録に失敗しました: {exc}", file=sys.stderr)
+            print(f"Cloudflare RAGへの登録に失敗しました: {exc}", file=sys.stderr)
             return 1
 
-    if not args.local_namespace and not args.cloud_url:
+    if not args.local_namespace and not args.cf_url:
         print(
-            "\n※ --local-namespaceまたは--cloud-url/--cloud-api-key/--cloud-dbを指定すると"
+            "\n※ --local-namespaceまたは--cf-url/--cf-api-key/--cf-namespaceを指定すると"
             "自動登録されます。省略した場合は上記の文字起こしを手動で貼り付けてください。",
             file=sys.stderr,
         )

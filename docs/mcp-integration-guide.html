@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>外部サービス連携（公式MCP）のメリットと、テストの進め方</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">外部サービス連携（MCP）</span>
+  <h1>外部サービス連携（公式MCP）のメリットと、テストの進め方</h1>
+  <div class="meta">HTML生成: 2026-10-22（元: docs/mcp-integration-guide.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-同期とmcpの違い">1. 「同期」と「MCP」の違い</a><ol><li><a href="#11-接続の2種類重要">1.1 接続の2種類（重要）</a></li></ol></li><li><a href="#2-サービス別-メリットと最初に試すこと">2. サービス別: メリットと、最初に試すこと</a><ol><li><a href="#21-cloudflare-docs">2.1 Cloudflare Docs（★★★）</a></li><li><a href="#22-microsoft-learn">2.2 Microsoft Learn（★★★）</a></li><li><a href="#23-github">2.3 GitHub（★★★）</a></li><li><a href="#24-notion">2.4 Notion（★★）</a></li><li><a href="#25-slack">2.5 Slack（★★）</a></li><li><a href="#26-google-drive-カレンダー-gmaildeveloper-preview">2.6 Google Drive / カレンダー / Gmail（★〜★★、Developer Preview）</a></li><li><a href="#27-atlassian-linear-sentry-figma">2.7 Atlassian / Linear / Sentry / Figma</a></li></ol></li><li><a href="#3-テストの進め方">3. テストの進め方</a><ol><li><a href="#31-順序安全で効果が見えやすい順">3.1 順序（安全で、効果が見えやすい順）</a></li><li><a href="#32-1サービスあたりの手順">3.2 1サービスあたりの手順</a></li><li><a href="#33-共通の合格基準">3.3 共通の合格基準</a></li></ol></li><li><a href="#4-評価シートコピーして使う">4. 評価シート（コピーして使う）</a></li><li><a href="#5-注意">5. 注意</a></li></ol></details></nav>
+<main>
+
+<p><strong>目的:</strong> サービスごとに、連携すると何が得られるかを先に決め、効果を測りながらテストする。 ／ <strong>版:</strong> 2026-10-21<br />
+<strong>注意:</strong> 画面の「連携中のシステム」は、現時点で<strong>すべて未連携</strong>です。ここに書いたメリットは、<strong>接続して測るまでは、見込み</strong>です（「見込み」と書いています）。</p>
+<h2 id="1-同期とmcpの違い">1. 「同期」と「MCP」の違い</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>同期（ナレッジへの取り込み）</th>
+<th>MCP（チャットからの直接参照）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>仕組み</td>
+<td>外部サービスの内容を、前もって取り込み、検索できる形にする</td>
+<td>質問のたびに、チャットが外部サービスの<strong>読み取り専用ツール</strong>を呼ぶ</td>
+</tr>
+<tr>
+<td>鮮度</td>
+<td>同期した時点の内容（再同期が必要）</td>
+<td><strong>常に最新</strong></td>
+</tr>
+<tr>
+<td>速さ・費用</td>
+<td>検索だけなので、速く、安い</td>
+<td>ツールの呼び出しが挟まり、遅く、Gemini のトークンが増える（結果は1回6,000文字まで、最大4往復・6回）</td>
+</tr>
+<tr>
+<td>検索の質</td>
+<td>他の資料と<strong>一緒に</strong>検索でき、出典の番号がつく</td>
+<td>質問に合うものを、サービス側の検索で探す（サービス側の検索の質次第）</td>
+</tr>
+<tr>
+<td>権限</td>
+<td>取り込んだ内容は、そのnamespaceを見られる人が読める</td>
+<td><strong>接続した人の権限</strong>で読む（<strong>接続のしかたで、誰が使えるかが決まる</strong>。下の §1.1）</td>
+</tr>
+<tr>
+<td>向いていること</td>
+<td>よく聞かれる、あまり変わらない知識（手順書・仕様）</td>
+<td>最新の状況・個別の事柄（今日の課題、直近のメール、予定）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="11-接続の2種類重要">1.1 接続の2種類（重要）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>接続のしかた</th>
+<th>誰のチャットで使われるか</th>
+<th>向いているもの</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>共有</strong>（管理 →「連携するシステムを追加」）</td>
+<td><strong>チャットで「外部サービスも使う」をオンにした、全員</strong></td>
+<td><strong>認証不要の公開ドキュメント</strong>（Cloudflare Docs・Microsoft Learn）。チームで共有してよい情報だけ</td>
+</tr>
+<tr>
+<td><strong>自分用</strong>（上部の「自分用の連携」）</td>
+<td><strong>本人だけ</strong>（他の人には見えない）</td>
+<td><strong>Slack・Gmail・Drive・カレンダー・GitHub の非公開リポジトリ</strong>など、個人の権限のもの</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>共有で、個人の権限のサービス（Gmail・Slack など）を接続しないでください。</strong> 接続した人の権限で、チャットを使う<strong>全員</strong>が読めてしまいます。同じサービスを両方持っているときは、本人専用が優先されます。</p>
+<ul>
+<li><strong>使い方:</strong> 画面の「<strong>外部サービスも使う</strong>」をオンにすると、検索結果だけで答えられないときに、接続済みのサービスで調べます。<strong>既定はオフ</strong>。回答に、使ったサービスが表示されます。</li>
+<li><strong>安全:</strong> 使えるのは、<strong>読み取り専用</strong>のツールだけです。書き込み系は、確認の手段が無いため、モデルに見せません。外部サービスの文章は、<strong>指示として扱いません</strong>（プロンプトインジェクション対策）。</li>
+</ul>
+<h2 id="2-サービス別-メリットと最初に試すこと">2. サービス別: メリットと、最初に試すこと</h2>
+<p>優先度は、<strong>このプロジェクト（Houdini・Unity・Cloudflare の開発）で、どれだけ役立ちそうか</strong>の見込みです。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>優先</th>
+<th>サービス</th>
+<th>接続に必要なもの</th>
+<th>できること（読み取り）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>★★★</td>
+<td><strong>Cloudflare Docs</strong></td>
+<td>なし（認証不要）</td>
+<td>Workers・D1・Vectorize などの<strong>公式ドキュメント</strong>の検索</td>
+</tr>
+<tr>
+<td>★★★</td>
+<td><strong>Microsoft Learn</strong></td>
+<td>なし（認証不要）</td>
+<td>.NET・<strong>C#</strong>・Azure の公式ドキュメントの検索</td>
+</tr>
+<tr>
+<td>★★★</td>
+<td><strong>GitHub</strong></td>
+<td>OAuth アプリを作り、Client ID／Secret を Worker のシークレットに登録</td>
+<td>リポジトリのコード・課題・プルリクエストの検索と閲覧</td>
+</tr>
+<tr>
+<td>★★</td>
+<td><strong>Notion</strong></td>
+<td>OAuth（自動登録）</td>
+<td>ページ・データベースの検索と閲覧</td>
+</tr>
+<tr>
+<td>★★</td>
+<td><strong>Slack</strong></td>
+<td>OAuth アプリ（通知用の既存アプリを流用可）</td>
+<td>メッセージ・チャンネル・キャンバスの検索と閲覧</td>
+</tr>
+<tr>
+<td>★★</td>
+<td><strong>Google Drive</strong></td>
+<td>Google の OAuth（Developer Preview）</td>
+<td>ファイルの検索と閲覧</td>
+</tr>
+<tr>
+<td>★★</td>
+<td><strong>Google カレンダー</strong></td>
+<td>同上</td>
+<td>予定の検索、空き時間の確認</td>
+</tr>
+<tr>
+<td>★</td>
+<td><strong>Gmail</strong></td>
+<td>同上</td>
+<td>メールの検索と閲覧</td>
+</tr>
+<tr>
+<td>★</td>
+<td><strong>Atlassian（Jira / Confluence）</strong></td>
+<td>OAuth（自動登録）</td>
+<td>課題・ページの検索と閲覧</td>
+</tr>
+<tr>
+<td>？</td>
+<td><strong>Linear</strong></td>
+<td>OAuth（自動登録）</td>
+<td>課題・プロジェクト・ドキュメントの閲覧</td>
+</tr>
+<tr>
+<td>？</td>
+<td><strong>Sentry</strong></td>
+<td>OAuth（自動登録）</td>
+<td>エラー・課題・リリースの閲覧</td>
+</tr>
+<tr>
+<td>？</td>
+<td><strong>Figma</strong></td>
+<td>OAuth（自動登録）</td>
+<td>デザインファイルの内容の閲覧</td>
+</tr>
+</tbody>
+</table></div>
+<p>？は、<strong>普段使っていなければ不要</strong>です（使っているかどうかで、価値が決まります）。</p>
+<h3 id="21-cloudflare-docs">2.1 Cloudflare Docs（★★★）</h3>
+<ul>
+<li><strong>メリット（見込み）:</strong> このシステムの保守は、Cloudflare の仕様（D1 の上限・Vectorize の制限・Workers の挙動）が頻繁に絡みます。「D1 の今の上限は？」「Vectorize の topK の上限は？」を、<strong>公式の最新の記述</strong>から答えられます。実際に、上限や料金を調べる場面が何度もありました。</li>
+<li><strong>試す質問:</strong> 「D1 の無料プランの1日の読み取り上限は？」「Vectorize の metadata filter で使える演算子は？」</li>
+<li><strong>合格の目安:</strong> 公式ドキュメントの内容に沿った答えで、<strong>数字が正しい</strong>（公式のページで照合）。</li>
+</ul>
+<h3 id="22-microsoft-learn">2.2 Microsoft Learn（★★★）</h3>
+<ul>
+<li><strong>メリット（見込み）:</strong> Unity は C# なので、<strong>C#・.NET の標準ライブラリの仕様</strong>を、最新の公式記述で確認できます。</li>
+<li><strong>試す質問:</strong> 「<code>Task.WhenAll</code> の例外の扱い」「<code>System.Text.Json</code> で、列挙型を文字列で出す方法」</li>
+<li><strong>注意:</strong> Unity が使う .NET のバージョンは限られるので、答えが <strong>Unity で使えるとは限りません</strong>。</li>
+</ul>
+<h3 id="23-github">2.3 GitHub（★★★）</h3>
+<ul>
+<li><strong>メリット（見込み）:</strong> 自分のリポジトリ（このプロジェクトなど）の<strong>コード・課題・PR</strong>を、チャットで横断検索できます。「この関数はどこで呼ばれている？」「最近のPRで何が変わった？」。<strong>ドキュメントに書かれていない、コードの現状</strong>を答えられるのが強みです。</li>
+<li><strong>試す質問:</strong> 「<code>houdini/python_panels</code> で、動画生成の進捗を読んでいるのはどのファイル？」「直近のコミットで、検索まわりは何が変わった？」</li>
+<li><strong>注意:</strong> 権限は、OAuth のスコープ（<code>repo</code> を含む）です。<strong>非公開リポジトリの内容が、回答に出ます。</strong> <strong>「自分用の連携」から接続してください</strong>（共有で接続すると、チャットを使う全員が読めます）。</li>
+</ul>
+<h3 id="24-notion">2.4 Notion（★★）</h3>
+<ul>
+<li><strong>メリット（見込み）:</strong> すでに「同期」でも取り込めます。MCP は、<strong>同期していない最新のページ</strong>や、個別のページを、すぐ引けます。</li>
+<li><strong>試す質問:</strong> 「（直近に更新したページの名前）の要点は？」</li>
+<li><strong>評価のポイント:</strong> <strong>同期済みのナレッジと、MCPの結果を比べる</strong>（答えの鮮度・正確さ・速さ）。差が小さければ、同期だけで足ります。</li>
+</ul>
+<h3 id="25-slack">2.5 Slack（★★）</h3>
+<ul>
+<li><strong>メリット（見込み）:</strong> 議論の経緯（「なぜこの仕様にしたか」）が、スレッドに残っていることが多いです。<strong>決定の理由を、後から引けます。</strong></li>
+<li><strong>試す質問:</strong> 「（チャンネル名）で、最近話題になっていたことは？」</li>
+<li><strong>注意（重要）:</strong> <strong>非公開チャンネル・DM の内容</strong>が、読める範囲に入ります（スコープに <code>private</code> の検索を含む）。<strong>本人の権限で読み、他の人には見えない</strong>設計ですが、回答をチームに共有するときは、内容に注意してください。</li>
+</ul>
+<h3 id="26-google-drive-カレンダー-gmaildeveloper-preview">2.6 Google Drive / カレンダー / Gmail（★〜★★、Developer Preview）</h3>
+<ul>
+<li><strong>Drive（見込み）:</strong> 同期済みの Drive と、同期していないファイルの両方を引ける。</li>
+<li><strong>カレンダー（見込み）:</strong> 「今週、実証実験の打ち合わせはいつ？」「来週の空き時間は？」。<strong>スケジュールの確認</strong>に便利。</li>
+<li><strong>Gmail（見込み）:</strong> 「（件名）のメールの要点は？」。<strong>メールは機微な内容が多い</strong>ので、最も慎重に。</li>
+<li><strong>注意:</strong> いずれも <strong>Google の Developer Preview</strong> です。仕様が変わる・不安定なことがあります。<strong>まず Drive とカレンダーで試し、Gmail は最後</strong>に。</li>
+</ul>
+<h3 id="27-atlassian-linear-sentry-figma">2.7 Atlassian / Linear / Sentry / Figma</h3>
+<ul>
+<li><strong>Atlassian（Jira / Confluence）:</strong> Jira を使っていれば、「未解決の課題の一覧」「この課題の経緯」。Backlog は、MCP ではなく、<strong>同期</strong>で対応済み。</li>
+<li><strong>Linear / Sentry / Figma:</strong> <strong>使っていなければ、接続の必要はありません。</strong> Sentry は、アプリの運用でエラーを追う場合に、Figma は、デザインの仕様を引く場合に有効です。</li>
+</ul>
+<h2 id="3-テストの進め方">3. テストの進め方</h2>
+<h3 id="31-順序安全で効果が見えやすい順">3.1 順序（安全で、効果が見えやすい順）</h3>
+<ol>
+<li><strong>Cloudflare Docs → Microsoft Learn</strong>（認証なし。接続の設定が要らず、すぐ効果が見える）</li>
+<li><strong>GitHub</strong>（OAuth アプリを1つ作る。価値が高い見込み）</li>
+<li><strong>Notion</strong>（同期との比較）</li>
+<li><strong>Google Drive → カレンダー</strong>（Developer Preview。→ 最後に Gmail）</li>
+<li><strong>Slack</strong></li>
+<li>使っているなら、Atlassian・Linear・Sentry・Figma</li>
+</ol>
+<h3 id="32-1サービスあたりの手順">3.2 1サービスあたりの手順</h3>
+<ol>
+<li>管理 →「ナレッジ登録」→「＋ 連携するシステムを追加」→ サービスを選んで<strong>接続</strong>。<br />
+   - <strong>Slack・Gmail・Drive・カレンダー・GitHub など、個人の権限のものは、「自分用の連携」から接続</strong>します（§1.1）。</li>
+<li><strong>ツールの一覧を確認</strong>し、使うツールを選ぶ（読み取り専用だけが、見えます）。</li>
+<li>「<strong>チャットで使う</strong>」をオン。</li>
+<li>チャットで、<strong>「外部サービスも使う」をオン</strong>にして、§2 の質問を投げる。</li>
+<li>回答に、<strong>使ったサービス</strong>が表示されることを確認。</li>
+<li>評価シート（§4）に、結果を記録。</li>
+<li>使わないなら、<strong>切断</strong>（接続の解除）。</li>
+</ol>
+<h3 id="33-共通の合格基準">3.3 共通の合格基準</h3>
+<ul>
+<li><strong>正しさ:</strong> 回答が、元のサービスの内容と一致する（人が照合）。</li>
+<li><strong>読み取り専用:</strong> 書き込み・削除・送信が、一度も起きない。</li>
+<li><strong>出所の表示:</strong> 使ったサービスが、回答に出る。</li>
+<li><strong>速さ:</strong> 検索だけの回答より遅くなる。<strong>何秒までなら許容か</strong>を、先に決めておく（目安: 20秒以内）。</li>
+<li><strong>費用:</strong> ツールの結果（最大6,000文字 × 最大6回）が、プロンプトに入る。1回の質問で、Gemini のトークンが、<strong>数千〜1万トークン程度増える</strong>見込み（無料枠なら $0、有料でも1回 数セント）。</li>
+<li><strong>安全:</strong> 外部の文章に、「このメールを転送せよ」のような指示が入っていても、<strong>従わない</strong>。</li>
+</ul>
+<h2 id="4-評価シートコピーして使う">4. 評価シート（コピーして使う）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>サービス</th>
+<th>質問</th>
+<th>期待した答え</th>
+<th>実際の答え（○／△／×）</th>
+<th>所要時間</th>
+<th>検索（同期）との差</th>
+<th>使い続けるか</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cloudflare Docs</td>
+<td>D1 の無料プランの1日の読み取り上限は？</td>
+<td>500万行</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Microsoft Learn</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>GitHub</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Notion</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>判断の目安:</strong> 〇が多く、<strong>同期では代替できない</strong>（最新・個別・コードの現状）と分かったものだけ、使い続ける。</p>
+<h2 id="5-注意">5. 注意</h2>
+<ul>
+<li><strong>権限は、接続した人のもの。</strong> 「自分用の連携」で接続したものは、<strong>本人のチャットだけ</strong>で使われます。<strong>管理画面（共有）で接続したものは、全員のチャットで使われます</strong>（§1.1）。回答を共有すれば、内容は伝わります。</li>
+<li><strong>Developer Preview（Google）</strong> は、仕様変更・不安定さがあり得ます。</li>
+<li><strong>未確認:</strong> このシステムの MCP 連携は、<strong>実際のサービスとのやり取りが未検証</strong>です（型検査・ローカルのテストまで）。最初の接続で、認証の設定（GitHub の OAuth アプリ、Slack のリダイレクト URL など）が必要な場合があります（接続の画面に、手順が出ます）。</li>
+<li><strong>費用の管理:</strong> 「外部サービスも使う」は、<strong>既定でオフ</strong>です。テスターに配る場合は、<strong>配布の範囲外</strong>（Cloudflare を配らない前提）なので、運営（あなた）だけが使う機能です。</li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

@@ -12,12 +12,12 @@ namespace RAGChatbot
     /// メニュー: Window > RAG Chatbot
     ///
     /// 機能:
-    ///   - Chat タブ : Cloud / Local RAG にテキストで質問し、回答を会話形式で表示
+    ///   - Chat タブ : Cloudflare / Local RAG にテキストで質問し、回答を会話形式で表示
     ///   - Graph タブ: ドキュメント間の意味的類似度をグラフで可視化（Local モード専用）
-    ///   - Settings タブ: GAS URL / API Key / DB Key / ブリッジポートを設定
+    ///   - Settings タブ: Cloudflare URL / API Key / ナレッジ名 / ブリッジポートを設定
     ///
     /// モード切り替え:
-    ///   Header のドロップダウンで Cloud ⇄ Local を切り替える。
+    ///   Header のドロップダウンで Cloudflare ⇄ Local を切り替える。
     ///   切り替え時に RebuildClient() で IRAGClient の実装を差し替える。
     /// </summary>
     public class RAGChatbotWindow : EditorWindow
@@ -25,11 +25,11 @@ namespace RAGChatbot
         // ── EditorPrefs キー ──────────────────────────────────────────────────────
         // Editor を再起動しても設定が残るよう EditorPrefs（レジストリ）に保存する。
         // キー名に "RAGChatbot_" プレフィックスを付けて他の拡張と衝突しないようにしている。
-        private const string PREF_GAS_URL    = "RAGChatbot_GasUrl";
+        private const string PREF_CF_URL     = "RAGChatbot_CfUrl";
         private const string PREF_API_KEY    = "RAGChatbot_ApiKey";
-        private const string PREF_DB_KEY     = "RAGChatbot_DbKey";
+        private const string PREF_NAMESPACES = "RAGChatbot_Namespaces";
         private const string PREF_LOCAL_PORT    = "RAGChatbot_LocalPort";
-        private const string PREF_MODE          = "RAGChatbot_Mode";   // "cloud" | "local"
+        private const string PREF_MODE          = "RAGChatbot_Mode";   // "cloudflare" | "local"（旧値 "cloud" は cloudflare として読む）
         private const string PREF_LLM_BACKEND   = "RAGChatbot_LlmBackend";
         private const string PREF_SCORE_USER_ID = "RAGChatbot_ScoreUserId";
 
@@ -45,9 +45,9 @@ namespace RAGChatbot
         private Vector2 _chatScroll;
 
         // ── モード / クライアント ────────────────────────────────────────────────
-        private enum Mode { Cloud, Local }
+        private enum Mode { Cloudflare, Local }
         private Mode       _mode   = Mode.Local;
-        private IRAGClient _client;  // 実際の通信実装（Cloud か Local かで差し替え）
+        private IRAGClient _client;  // 実際の通信実装（Cloudflare か Local かで差し替え）
 
         // ── ブリッジプロセス（Local モード） ────────────────────────────────────
         // Python ブリッジを Editor から自動起動した場合のプロセス参照。
@@ -55,9 +55,9 @@ namespace RAGChatbot
         private Process _bridgeProcess;
 
         // ── 設定フィールド ────────────────────────────────────────────────────────
-        private string _gasUrl       = "";
+        private string _cfUrl        = "";
         private string _apiKey       = "";
-        private string _dbKey        = "all";
+        private string _namespaces    = "";
         private string _localPortStr = "8766";
         private string _llmBackend   = "claude";
         private string _scoreUserId  = "";
@@ -82,11 +82,11 @@ namespace RAGChatbot
         /// </summary>
         private void OnEnable()
         {
-            _gasUrl       = EditorPrefs.GetString(PREF_GAS_URL, "");
+            _cfUrl        = EditorPrefs.GetString(PREF_CF_URL, "");
             _apiKey       = EditorPrefs.GetString(PREF_API_KEY, "");
-            _dbKey        = EditorPrefs.GetString(PREF_DB_KEY, "all");
+            _namespaces    = EditorPrefs.GetString(PREF_NAMESPACES, "");
             _localPortStr = EditorPrefs.GetString(PREF_LOCAL_PORT, "8766");
-            _mode         = EditorPrefs.GetString(PREF_MODE, "local") == "cloud" ? Mode.Cloud : Mode.Local;
+            _mode         = IsCloudflareMode(EditorPrefs.GetString(PREF_MODE, "local")) ? Mode.Cloudflare : Mode.Local;
             _llmBackend   = EditorPrefs.GetString(PREF_LLM_BACKEND, "claude");
             _scoreUserId  = EditorPrefs.GetString(PREF_SCORE_USER_ID, "");
 
@@ -107,10 +107,13 @@ namespace RAGChatbot
         /// </summary>
         private void RebuildClient()
         {
-            _client = _mode == Mode.Cloud
-                ? (IRAGClient)new CloudRAGClient(_gasUrl, _apiKey, _dbKey)
+            _client = _mode == Mode.Cloudflare
+                ? (IRAGClient)new CloudflareRAGClient(_cfUrl, _apiKey, _namespaces)
                 : new LocalRAGClient(ParsePort());
         }
+
+        /// <summary>保存されたモード名が Cloudflare か（旧版が保存した "cloud" も Cloudflare として読む）。</summary>
+        private static bool IsCloudflareMode(string saved) => saved == "cloudflare" || saved == "cloud";
 
         /// <summary>ポート文字列を int に変換し、不正値は 8766 にフォールバック。</summary>
         private int ParsePort()
@@ -200,7 +203,7 @@ namespace RAGChatbot
 
         /// <summary>
         /// ヘッダー行を描画する。
-        /// 左: タイトル、中央: Cloud/Local ドロップダウン、右: 送信中インジケーター（●）。
+        /// 左: タイトル、中央: Cloudflare/Local ドロップダウン、右: 送信中インジケーター（●）。
         /// モード変更を検知したら EditorPrefs に保存し RebuildClient() を呼ぶ。
         /// </summary>
         private void DrawHeader()
@@ -210,11 +213,11 @@ namespace RAGChatbot
                 GUILayout.Label("RAG Chatbot", EditorStyles.boldLabel);
                 GUILayout.FlexibleSpace();
 
-                var newMode = (Mode)EditorGUILayout.EnumPopup(_mode, GUILayout.Width(80));
+                var newMode = (Mode)EditorGUILayout.EnumPopup(_mode, GUILayout.Width(95));
                 if (newMode != _mode)
                 {
                     _mode = newMode;
-                    EditorPrefs.SetString(PREF_MODE, _mode == Mode.Cloud ? "cloud" : "local");
+                    EditorPrefs.SetString(PREF_MODE, _mode == Mode.Cloudflare ? "cloudflare" : "local");
                     RebuildClient();
                     if (_mode == Mode.Local) _ = EnsureBridgeAsync();
                 }
@@ -333,7 +336,7 @@ namespace RAGChatbot
 
         /// <summary>
         /// 質問を RAG クライアントに送り、回答を _chatHistory に追加する。
-        /// IRAGClient のインターフェース経由で呼ぶため Cloud / Local を意識しない。
+        /// IRAGClient のインターフェース経由で呼ぶため Cloudflare / Local を意識しない。
         /// 送信中フラグを立てることで二重送信を防ぐ。
         /// </summary>
         private async Task SendMessageAsync()
@@ -384,7 +387,7 @@ namespace RAGChatbot
         /// <summary>
         /// Graph タブの描画。ブリッジの /graph エンドポイントからデータを取得して描画する。
         /// グラフキャンバスは残りの全高さを使う。
-        /// Local モードでのみ利用可能（Cloud モードには /graph エンドポイントがない）。
+        /// Local モードでのみ利用可能（Cloudflare モードのグラフは Houdini パネル側にある）。
         /// </summary>
         private void DrawGraphTab()
         {
@@ -474,14 +477,14 @@ namespace RAGChatbot
         /// </summary>
         private void DrawSettingsTab()
         {
-            EditorGUILayout.LabelField("Cloud RAG 設定", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Cloudflare RAG 設定", EditorStyles.boldLabel);
 
-            // GAS WebApp URL
-            var newUrl = EditorGUILayout.TextField("GAS WebApp URL", _gasUrl);
-            if (newUrl != _gasUrl)
+            // Cloudflare Worker URL
+            var newUrl = EditorGUILayout.TextField("Worker URL", _cfUrl);
+            if (newUrl != _cfUrl)
             {
-                _gasUrl = newUrl;
-                EditorPrefs.SetString(PREF_GAS_URL, _gasUrl);
+                _cfUrl = newUrl;
+                EditorPrefs.SetString(PREF_CF_URL, _cfUrl);
                 RebuildClient();
             }
 
@@ -495,11 +498,11 @@ namespace RAGChatbot
             }
 
             // DB Key（検索対象の絞り込み。"all" で全 DB を対象にする）
-            var newDb = EditorGUILayout.TextField("DB Key (例: all, houdini21, tool_docs)", _dbKey);
-            if (newDb != _dbKey)
+            var newDb = EditorGUILayout.TextField("ナレッジ名（カンマ区切り。空欄=全部。例: houdini22）", _namespaces);
+            if (newDb != _namespaces)
             {
-                _dbKey = newDb;
-                EditorPrefs.SetString(PREF_DB_KEY, _dbKey);
+                _namespaces = newDb;
+                EditorPrefs.SetString(PREF_NAMESPACES, _namespaces);
                 RebuildClient();
             }
 

@@ -3,13 +3,13 @@ token_usage.py — houdini21チュートリアル生成のトークン消費量�
 
 表示するゲージは2種類ある:
   ① Claudeトークン残量（サーバー管理・実際に強制される上限）
-     GAS（gas_cloud_rag.js）が action:'claude_messages' の応答に含めて返す
-     claudeQuota（そのAPIキーの実際の残高/上限）をそのまま表示する。この値は
-     GAS の API_KEYS_CONFIG（claudeCapacity/claudeBalance）が唯一の正であり、
-     Houdini側ではローカルに上限を計算・改ざんできない（docs/cloud-rag.md §8.14）。
+     Cloudflare Worker の /me/budget が返す、そのAPIキーの実際の残高/上限
+     （tutorial_agent.py が生成の最後に取得する）をそのまま表示する。この値は
+     Worker の token_budgets（budget_type='claude'）が唯一の正であり、
+     Houdini側ではローカルに上限を計算・改ざんできない。
      直近の値は logs/houdini_claude_quota_cache.json にキャッシュし、Houdini
      再起動直後もパネルが空にならないようにするだけで、判定には使わない
-     （実際の許可/拒否は毎回GAS側が判定する）。
+     （実際の許可/拒否は毎回Cloudflare側が判定する）。
   ② ローカル生成ログ（このHoudiniでの累積、参考値）
      tutorial_agent.py が計測した usage を logs/houdini_token_usage.jsonl に
      追記し、このHoudiniからの累積トークン数・コストを表示する。これは
@@ -255,7 +255,7 @@ class TokenUsageWidget(QWidget):
     """
     Tutorialタブ上部に置くトークン使用量パネル。
 
-    ゲージ本体はGASが報告する「Claudeトークン残高（サーバー管理・実際の上限）」を
+    ゲージ本体はCloudflareが報告する「Claudeトークン残高（サーバー管理・実際の上限）」を
     表示する。生成のたびに tutorial_view.py が set_server_quota() を呼んで更新する。
     その下の小さいテキストは、このHoudiniからの累積送信量（ローカル記録・参考値）。
     """
@@ -308,7 +308,7 @@ class TokenUsageWidget(QWidget):
         reset_interval_hours: Optional[int] = None,
         reset_at: Optional[str] = None,
     ) -> None:
-        """GASから返された最新のClaudeトークン残高/上限/回復タイミングを表示する（唯一の正）。"""
+        """Cloudflareから返された最新のClaudeトークン残高/上限/回復タイミングを表示する（唯一の正）。"""
         if capacity is None:
             self._gauge.set_percent(100.0)
             self._detail.setText("無制限")

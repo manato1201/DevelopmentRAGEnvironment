@@ -1,5 +1,7 @@
 # クラウドRAG環境ガイド
 
+> **【2026-10-22】Google Apps Script（GAS）版は廃止しました。** Cloud RAG は、すべて Cloudflare Worker （[cloudflare-rag-poc/](../cloudflare-rag-poc/)）に置き換え済みです。`scripts/gas_cloud_rag.js` は削除しました（git の履歴に残っています）。**この文書は、GAS 時代の設計の記録です。現行の手順ではありません。** 現行の使い方は、[manual-houdini-tutorial.md](manual-houdini-tutorial.md)・[cloudflare-rag-operations-manual.md](cloudflare-rag-operations-manual.md) を参照してください。
+
 **統合元:** cloud-rag-setup.md + rag-system-design.md（Cloud RAG部分）
 **統合日:** 2026-06-30
 **構成:** Notion + Google Apps Script + Gemini gemini-embedding-001 + Google Sheets

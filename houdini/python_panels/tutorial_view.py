@@ -54,6 +54,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import gallery_upload
 import token_usage
 import video_progress
 from tutorial_graph_simplify import graph_to_mermaid, layered_positions, simplify_graph
@@ -232,6 +233,27 @@ class VideoScriptWorker(QThread):
             self.done.emit(str(path) if path else "", message)
         except Exception as exc:  # noqa: BLE001
             self.done.emit("", f"台本: 作成に失敗しました（{exc}）。従来の動画になります")
+
+
+class GalleryUploadWorker(QThread):
+    """動画を、ダッシュボードの「動画」ページ（ギャラリー）へアップロードする（数十MBを送るので、別スレッド）。"""
+    progress = Signal(str)
+    done = Signal(str)  # 画面に出す結果の1行
+
+    def __init__(self, url: str, token: str, output_dir: Path, only_ids: set[str] | None) -> None:
+        super().__init__()
+        self._url, self._token, self._output_dir, self._only_ids = url, token, output_dir, only_ids
+
+    def run(self) -> None:
+        try:
+            result = gallery_upload.upload_missing(
+                self._url, self._token, self._output_dir, self._only_ids, progress=self.progress.emit
+            )
+            self.done.emit(gallery_upload.describe_result(result))
+        except gallery_upload.GalleryUploadError as exc:
+            self.done.emit(f"アップロードできませんでした: {exc}")
+        except Exception as exc:  # noqa: BLE001 -- スレッドから例外を出さない
+            self.done.emit(f"アップロードに失敗しました: {exc}")
 
 
 class LessonDistillWorker(QThread):
@@ -424,11 +446,8 @@ def _build_light_agent(cfg: dict):
     return TutorialAgent(
         bridge_port=cfg.get("local_port", 8766),
         project_dir=cfg.get("local_bridge_dir", ""),
-        rag_mode=cfg.get("tutorial_rag_mode") or cfg.get("mode", "local"),
-        gas_url=cfg.get("gas_url", ""),
-        gas_api_key=cfg.get("gas_api_key", ""),
+        rag_mode=cfg.get("mode", "local"),
         model=cfg.get("tutorial_model", "claude-sonnet-5"),
-        claude_backend=cfg.get("tutorial_claude_backend", "gas"),
         cf_url=cfg.get("cf_url", ""),
         cf_api_key=cfg.get("cf_api_key", ""),
         rag_namespace=cfg.get("tutorial_rag_namespace", ""),
@@ -779,13 +798,9 @@ class TutorialGeneratePanel(QWidget):
             chain_kwargs = {
                 "bridge_port":    cfg.get("local_port", 8766),
                 "project_dir":    cfg.get("local_bridge_dir", ""),
-                # tutorial_rag_mode が未設定なら従来通りチャットの mode 設定に追随する
-                # （後方互換。既存ユーザーの挙動は変わらない）
-                "rag_mode":       cfg.get("tutorial_rag_mode") or cfg.get("mode", "local"),
-                "gas_url":        cfg.get("gas_url", ""),
-                "gas_api_key":    cfg.get("gas_api_key", ""),
+                # RAG検索先はチャットの mode 設定（local / cloudflare）に従う
+                "rag_mode":       cfg.get("mode", "local"),
                 "model":          cfg.get("tutorial_model", "claude-sonnet-5"),
-                "claude_backend": cfg.get("tutorial_claude_backend", "gas"),
                 "cf_url":         cfg.get("cf_url", ""),
                 "cf_api_key":     cfg.get("cf_api_key", ""),
                 "rag_namespace":  cfg.get("tutorial_rag_namespace", ""),
@@ -806,11 +821,8 @@ class TutorialGeneratePanel(QWidget):
         self._agent = TutorialAgent(
             bridge_port=cfg.get("local_port", 8766),
             project_dir=cfg.get("local_bridge_dir", ""),
-            rag_mode=cfg.get("tutorial_rag_mode") or cfg.get("mode", "local"),
-            gas_url=cfg.get("gas_url", ""),
-            gas_api_key=cfg.get("gas_api_key", ""),
+            rag_mode=cfg.get("mode", "local"),
             model=cfg.get("tutorial_model", "claude-sonnet-5"),
-            claude_backend=cfg.get("tutorial_claude_backend", "gas"),
             cf_url=cfg.get("cf_url", ""),
             cf_api_key=cfg.get("cf_api_key", ""),
             rag_namespace=cfg.get("tutorial_rag_namespace", ""),
@@ -839,11 +851,11 @@ class TutorialGeneratePanel(QWidget):
         self._result = result
         bridge_dir = self._cfg_getter().get("local_bridge_dir", "")
         token_usage.record_usage(bridge_dir, self._topic_edit.text().strip(), result)
-        # result.claude_balance/capacity はGAS（gas_cloud_rag.js）がclaude_messages
-        # 応答に含めて返した、そのAPIキーの実際の残高/上限。これが唯一の正なので、
+        # result.claude_balance/capacity は Cloudflare（/me/budget）が返した、そのAPIキーの
+        # 実際の残高/上限。これが唯一の正なので、
         # ローカルではキャッシュ（表示専用）に保存するだけで判定には使わない。
         # 無制限キーはbalance/capacityが両方Noneになるため、claude_quota_known
-        # （claudeQuotaが応答に含まれていたか）で判定する。
+        # （残高の取得に成功したか）で判定する。
         if result.claude_quota_known:
             token_usage.save_server_quota(
                 bridge_dir,
@@ -1067,6 +1079,8 @@ class TutorialGeneratePanel(QWidget):
                 # 音声合成（Worker経由のGoogle Cloud TTS）。Cloudflare版の設定をそのまま使う
                 tts_url=cfg.get("cf_url", ""),
                 tts_key=cfg.get("cf_api_key", ""),
+                # ダッシュボード（ギャラリー）へ、動画ができたら自動でアップロードする（設定があるときだけ）
+                extra_env=gallery_upload.gallery_env(cfg),
             )
             if log_path is not None:
                 self._start_video_progress_poll(log_path, Path(exe_path).parent, md_path)
@@ -1413,6 +1427,18 @@ class VideoLibraryPanel(QWidget):
         self._external_player_btn.clicked.connect(self._on_open_in_external_player)
         toolbar.addWidget(self._external_player_btn)
         self._current_video_path: Path | None = None
+        # ダッシュボードの「動画」ページ（ギャラリー）へのアップロード（2026-10-22追加）。
+        # 以前は、Houdini の中・ローカルで確認するだけで、ダッシュボードにはほとんど載っていなかった。
+        self._upload_btn = QPushButton("選択をダッシュボードへ")
+        self._upload_btn.setEnabled(False)
+        self._upload_btn.setToolTip("選択した動画を、ダッシュボードの動画ページへアップロードします（すでにあるものは省略）")
+        self._upload_btn.clicked.connect(lambda: self._start_upload(selected_only=True))
+        toolbar.addWidget(self._upload_btn)
+        self._upload_all_btn = QPushButton("未アップロードをすべて")
+        self._upload_all_btn.setToolTip("動画エンジンの出力にある動画のうち、ダッシュボードにまだ無いものを、すべてアップロードします")
+        self._upload_all_btn.clicked.connect(lambda: self._start_upload(selected_only=False))
+        toolbar.addWidget(self._upload_all_btn)
+        self._upload_worker: GalleryUploadWorker | None = None
         self._status = token_usage.fit_label(QLabel(""))
         self._status.setStyleSheet("color:#94a3b8;font-size:11px;")
         toolbar.addWidget(self._status)
@@ -1433,7 +1459,50 @@ class VideoLibraryPanel(QWidget):
         self._list.itemSelectionChanged.connect(
             lambda: self._delete_btn.setEnabled(len(self._list.selectedItems()) > 0)
         )
+        self._list.itemSelectionChanged.connect(self._update_upload_buttons)
         layout.addWidget(self._list, stretch=1)
+
+    def _update_upload_buttons(self) -> None:
+        busy = self._upload_worker is not None and self._upload_worker.isRunning()
+        self._upload_btn.setEnabled(not busy and len(self._list.selectedItems()) > 0)
+        self._upload_all_btn.setEnabled(not busy)
+
+    def _start_upload(self, selected_only: bool) -> None:
+        """動画をダッシュボードへアップロードする。selected_only=False なら、エンジンの出力にある未アップロードの全部。"""
+        cfg = self._cfg_getter()
+        url, token = cfg.get("gallery_url", ""), cfg.get("gallery_token", "")
+        exe_path = cfg.get("video_factory_exe_path", "")
+        if not url.strip() or not token.strip():
+            self._status.setText("Settings タブで、ギャラリーのURLとアップロードトークンを設定してください")
+            return
+        if not exe_path:
+            self._status.setText("Settings タブで、動画エンジン（video_factory_exe_path）を設定してください")
+            return
+        output_dir = gallery_upload.output_dir_for(exe_path)
+        only_ids: set[str] | None = None
+        if selected_only:
+            only_ids = set()
+            missing = []
+            for item in self._list.selectedItems():
+                entry = gallery_upload.find_local_entry(output_dir, Path(item.data(Qt.UserRole)))
+                if entry is None:
+                    missing.append(item.text().split("\n")[0])
+                else:
+                    only_ids.add(str(entry["id"]))
+            if not only_ids:
+                self._status.setText("動画エンジンの出力に、対応する動画が見つかりません: " + ", ".join(missing))
+                return
+        self._status.setText("アップロードを始めます…")
+        self._upload_worker = GalleryUploadWorker(url, token, output_dir, only_ids)
+        self._upload_worker.progress.connect(self._status.setText)
+        self._upload_worker.done.connect(self._on_upload_done)
+        self._upload_btn.setEnabled(False)
+        self._upload_all_btn.setEnabled(False)
+        self._upload_worker.start()
+
+    def _on_upload_done(self, message: str) -> None:
+        self._status.setText(message)
+        self._update_upload_buttons()
 
     def _tutorials_dir(self) -> Path | None:
         bridge_dir = self._cfg_getter().get("local_bridge_dir", "")

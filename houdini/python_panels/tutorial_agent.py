@@ -5,29 +5,18 @@ docs/content-generation.md §2 の設計に基づく:
   ① RAG検索: houdini21 namespace のみから取得（license-compliance のホワイト
      リスト方針。他 namespace は参照しない）。取得先は rag_mode で切り替える:
        - "local": ローカルブリッジ /search（rag_local_bridge.py）
-       - "cloud": GAS WebApp（gas_cloud_rag.js）を mode:'raw' で呼び、
-         最終回答生成をスキップして検索結果のみ取得する
-       - "cloudflare": Cloudflare Workers（cloudflare-rag-poc、/search）を呼ぶ
-         （2026-08-26追加。GAS Cloud RAGの後継）
-     "cloud"モードは取得後に db フィールドが houdini21 のものだけに絞り込む
-     （GAS側は許可namespaceが無いと "all" に自動フォールバックするため、呼び出し
-     側でも二重にホワイトリストを強制する）。"cloudflare"モードはサーバー側の
-     namespace許可制御がGASのような抜け道を持たないため二重フィルタ不要
+       - "cloudflare": Cloudflare Workers（cloudflare-rag-poc、/search）を呼ぶ。
+         サーバー側の namespace 許可制御が唯一のホワイトリストになる
   ② エージェントループ: DEFAULT_MODEL（既定claude-sonnet-5、TutorialAgent(model=...)で
      claude-sonnet-5-5 / claude-opus-5-5 / claude-haiku-4-5に変更可）+ HOUDINI_TOOLS（最大MAX_ITERATIONS回）
      プロンプトキャッシュ: システムプロンプト・ツール定義・RAGコンテキストを
      cache_control で固定
-     Claude API呼び出しは claude_backend で切り替える（既定"gas"、後方互換）:
-       - "gas": GAS（gas_cloud_rag.js、action:'claude_messages'）経由
-       - "cloudflare": Cloudflare Workers（cloudflare-rag-poc、/claude/messages）
-         経由（2026-08-26追加。GAS Claudeプロキシの後継）
-     どちらの場合も生のANTHROPIC_API_KEYはクライアントに持たせず、サーバー側が
-     APIキーごとのClaude専用トークン予算を強制する（GAS: claudeCapacity/claudeBalance、
-     Cloudflare: token_budgets/budget_type='claude'）。対応する gas_url/gas_api_key
-     または cf_url/cf_api_key（Settingsタブ）が未設定だと生成を開始できない
-     （docs/cloud-rag.md §8.14）
+     Claude API呼び出しは常に Cloudflare Workers（cloudflare-rag-poc、/claude/messages）経由。
+     生のANTHROPIC_API_KEYはクライアントに持たせず、サーバー側が
+     APIキーごとのClaude専用トークン予算を強制する（token_budgets/budget_type='claude'）。
+     cf_url/cf_api_key（Settingsタブ）が未設定だと生成を開始できない
   ③ コスト上限: 累積 COST_LIMIT_USD を超えたら自動打ち切り（usage から実測計算。
-     ローカル側の推定値であり、実際の課金上限はGAS側のclaudeCapacityが強制する）
+     ローカル側の推定値であり、実際の課金上限はCloudflare側のトークン予算が強制する）
   ④ 生成完了後 NodeGraphAsset JSON をエクスポート
   ⑤ Markdown はプレビュー用に返すだけ。保存は UI 側（ユーザー確認後）
 
@@ -63,8 +52,8 @@ DEFAULT_MODEL = "claude-sonnet-5"  # 設計判断（§4.1）。既定値。gener
 # （Sonnet 5.5で80回のループが概ね$2前後）。
 MAX_ITERATIONS = 80
 COST_LIMIT_USD = 5.00         # ローカル側の実測コスト打ち切り上限（§2.7）。実際の利用上限は
-                               # GAS側のclaudeCapacity（管理画面で調整）が唯一の正であり、
-                               # これはネットワーク断・GAS未応答時などに暴走を防ぐための
+                               # Cloudflare側のClaudeトークン予算（管理画面で調整）が唯一の正であり、
+                               # これはネットワーク断・サーバー未応答時などに暴走を防ぐための
                                # クライアント側のフェイルセーフに過ぎない
 GRACE_ITERATIONS = 5          # 反復上限までこの回数以内になったら仕上げを促す（§2.6打ち切り改善。3→5: 上限を上げたので余裕を持たせる）
 GRACE_COST_FRACTION = 0.85    # 累積コストがCOST_LIMIT_USDのこの割合を超えたら仕上げを促す
@@ -74,13 +63,8 @@ GRACE_COST_FRACTION = 0.85    # 累積コストがCOST_LIMIT_USDのこの割合�
 MAX_TOKENS_PER_TURN = 16000
 RAG_NAMESPACES = ["houdini21"]  # 生成機能が参照してよい namespace のホワイトリスト（§5）
 RAG_LIMIT = 6
-CLOUD_RAG_DB_KEY = "houdini21"  # Cloud RAG（GAS）に問い合わせる際の dbKey
-CLOUDFLARE_RAG_NAMESPACES = ["shared:houdini21"]  # Cloudflare RAG（cloudflare-rag-poc）側のnamespace名
-                                    # （2026-08-26追加。GASのCloud RAGの後継として、GAS/Cloudflare
-                                    # どちらも選べるようにした。RAG_NAMESPACESとは別名になっている点に注意）
-
 # 2026-10-04追加: 検索対象のナレッジ（Houdiniのバージョン別namespace）を決める。
-# 以前は上の定数（houdini21固定）を使っており、設定画面の「DB」欄（gas_db_key＝チャット用）を
+# 以前は上の定数（houdini21固定）を使っており、設定画面の「チャットで検索するナレッジ」欄（チャット用）を
 # houdini22にしても、チュートリアル生成は常にhoudini21を検索していた（Cloudflareには
 # shared:houdini22が8,700チャンク以上あるのに、houdini21は144チャンクだけだった）。
 # 設定値 tutorial_rag_namespace が空なら、起動中のHoudiniのメジャーバージョンに合わせる。
@@ -483,7 +467,7 @@ def build_requirements_section(requirements: str) -> str:
 # ─── 参考画像（テキスト＋画像での生成、2026-10-05追加） ───────────────────────────────
 # テキストのトピックだけだと、ユーザーの求める完成イメージからズレることがある。完成イメージの
 # 参考画像（スクショ・写真・ラフ等）を一緒に渡せるようにする。Claudeには画像ブロックとして
-# 最初のユーザーメッセージに載せる。GAS経由・Cloudflare経由のどちらも messages をそのまま
+# 最初のユーザーメッセージに載せる。Cloudflare は messages をそのまま
 # Claudeへ中継するので、追加の対応は要らない。
 MAX_REFERENCE_IMAGES = 4
 _REFERENCE_IMAGE_MAX_EDGE = 1280  # 長辺。1280x720 ≒ 1,200トークン程度に収まる（大きいほど高コスト）
@@ -570,15 +554,15 @@ class TutorialResult:
         self.output_tokens: int = 0
         self.cache_write_tokens: int = 0
         self.cache_read_tokens: int = 0
-        # GASが返す、このAPIキーの「実際の」Claudeトークン残高/上限（サーバー側で強制される値）。
-        # None = 未取得（GASが古い/claudeQuotaを返さなかった）または無制限キー。
+        # Cloudflare（/me/budget）が返す、このAPIキーの「実際の」Claudeトークン残高/上限（サーバー側で強制される値）。
+        # None = 未取得または無制限キー。
         self.claude_balance: int | None = None
         self.claude_capacity: int | None = None
         # 自動回復の間隔（時間）と次回回復予定時刻（ISO文字列）。null = 自動回復オフ
         # （無制限キー、または管理者が回復間隔を設定していない=手動チャージのみ）。
         self.claude_reset_interval_hours: int | None = None
         self.claude_reset_at: str | None = None
-        # GASがclaudeQuotaを一度でも返したか（無制限キーはbalance/capacityが両方Noneに
+        # 残高の取得に一度でも成功したか（無制限キーはbalance/capacityが両方Noneに
         # なるため、それだけでは「未取得」と「無制限」を区別できない。このフラグで判定する）。
         self.claude_quota_known: bool = False
         self.iterations: int = 0
@@ -635,10 +619,7 @@ class TutorialAgent:
         bridge_port: int = 8766,
         project_dir: str = "",
         rag_mode: str = "local",
-        gas_url: str = "",
-        gas_api_key: str = "",
         model: str = DEFAULT_MODEL,
-        claude_backend: str = "gas",
         cf_url: str = "",
         cf_api_key: str = "",
         rag_namespace: str = "",
@@ -650,14 +631,9 @@ class TutorialAgent:
     ) -> None:
         self._port = bridge_port
         self._project_dir = project_dir
-        self._rag_mode = rag_mode if rag_mode in ("local", "cloud", "cloudflare") else "local"
-        self._gas_url = gas_url
-        self._gas_api_key = gas_api_key
-        # claude_backend: Claude Messages APIをどちら経由で呼ぶか（2026-08-26追加）。
-        # 既定は既存動作を変えない"gas"。cloudflare-rag-poc側にClaude APIプロキシ
-        # （/claude/messages）を追加したことでの移行先。GASのようなCloudトークン予算
-        # 強制は、Cloudflare側ではtoken_budgets（budget_type='claude'）が担う。
-        self._claude_backend = claude_backend if claude_backend in ("gas", "cloudflare") else "gas"
+        self._rag_mode = rag_mode if rag_mode in ("local", "cloudflare") else "local"
+        # Claude Messages APIは常にCloudflare（/claude/messages）経由。トークン予算の強制は
+        # Cloudflare側のtoken_budgets（budget_type='claude'）が担う。
         self._cf_url = cf_url
         self._cf_api_key = cf_api_key
         # 検索対象のナレッジ（houdini21 / houdini22 ...）。resolve_rag_name参照。
@@ -728,20 +704,13 @@ class TutorialAgent:
                 self._progress(f"対象モデルが見つかりません（モデル無しで続行）: {self._target_model}")
                 self._target_model = ""
 
-        # Claude APIは必ずGASまたはCloudflare経由で呼ぶ（claude_backendで選択）。生の
-        # ANTHROPIC_API_KEYをクライアントに持たせない構成にすることで、APIキーごとの
-        # トークン上限をクライアント側から迂回できないようにしている
-        # （docs/cloud-rag.md §8.14、Cloudflare側はtoken_budgets/budget_type='claude'）。
-        if self._claude_backend == "cloudflare":
-            if not self._cf_url or not self._cf_api_key:
-                raise RuntimeError(
-                    "Cloudflare RAG WebApp URL / APIキーが未設定です。Settingsタブで設定してください"
-                    "（houdini21チュートリアル生成はClaude APIをCloudflare経由で呼ぶため必須です）。"
-                )
-        elif not self._gas_url or not self._gas_api_key:
+        # Claude APIは必ずCloudflare経由で呼ぶ。生のANTHROPIC_API_KEYをクライアントに持たせない
+        # 構成にすることで、APIキーごとのトークン上限をクライアント側から迂回できないようにしている
+        # （Cloudflare側はtoken_budgets/budget_type='claude'）。
+        if not self._cf_url or not self._cf_api_key:
             raise RuntimeError(
-                "GAS WebApp URL / APIキーが未設定です。Settingsタブで設定してください"
-                "（houdini21チュートリアル生成はClaude APIをGAS経由で呼ぶため必須です）。"
+                "Cloudflare の Worker URL / APIキーが未設定です。Settingsタブで設定してください"
+                "（チュートリアル生成はClaude APIをCloudflare経由で呼ぶため必須です）。"
             )
 
         # ① RAG検索（houdini<バージョン> namespace のみ）
@@ -824,6 +793,7 @@ class TutorialAgent:
         result.markdown = self._assemble_markdown(topic, finish, result)
         result.elapsed_seconds = time.monotonic() - start_time
         result.metrics = self._collect_metrics(result, topic)
+        self._fill_claude_quota(result)
 
         status = "完了" if result.completed else f"打ち切り（{result.abort_reason}）"
         self._progress(
@@ -831,6 +801,33 @@ class TutorialAgent:
             f"/ {result.elapsed_seconds:.0f}秒"
         )
         return result
+
+    def _fill_claude_quota(self, result: TutorialResult) -> None:
+        """
+        このAPIキーの「実際の」Claudeトークン残高/上限を、Cloudflare の /me/budget から取って結果に入れる
+        （サーバー側で強制される値。表示専用で、判定には使わない）。取れなくても生成の結果には影響させない。
+        limit が null のキーは無制限（balance/capacity が両方 None になるため、known フラグで区別する）。
+        """
+        if not self._cf_url or not self._cf_api_key:
+            return
+        try:
+            req = urllib.request.Request(
+                f"{self._cf_url.rstrip('/')}/me/budget",
+                data=b"{}",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self._cf_api_key}",
+                    "User-Agent": _HTTP_USER_AGENT,
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                claude = (json.loads(resp.read()) or {}).get("claude") or {}
+            result.claude_quota_known = True
+            result.claude_balance = claude.get("remaining")
+            result.claude_capacity = claude.get("limit")
+        except Exception:  # noqa: BLE001 -- 残高の表示だけの取得。失敗しても生成結果は有効
+            pass
 
     def destroy_sandbox(self) -> None:
         if self.executor is not None:
@@ -890,12 +887,10 @@ class TutorialAgent:
     # ── RAG検索 ─────────────────────────────────────────────────────────────────
 
     def _rag_search(self, topic: str, level: str = _DEFAULT_LEVEL) -> tuple[list[str], list[dict]]:
-        """rag_mode に応じてローカルブリッジ / GAS（Cloud RAG）/ Cloudflare（cloudflare-rag-poc）
-        いずれかから houdini21 namespace の生チャンクを取得する。"""
+        """rag_mode に応じてローカルブリッジ / Cloudflare（cloudflare-rag-poc）
+        いずれかから houdini<バージョン> namespace の生チャンクを取得する。"""
         if self._rag_mode == "cloudflare":
             return self._rag_search_cloudflare(topic, level)
-        if self._rag_mode == "cloud":
-            return self._rag_search_cloud(topic)
         return self._rag_search_local(topic, level)
 
     def _rag_search_local(self, topic: str, level: str = _DEFAULT_LEVEL) -> tuple[list[str], list[dict]]:
@@ -925,75 +920,14 @@ class TutorialAgent:
             self._progress(f"RAG検索エラー（続行します）: {exc}")
             return [], []
 
-    def _rag_search_cloud(self, topic: str) -> tuple[list[str], list[dict]]:
-        """
-        GAS WebApp を mode:'raw' で呼び、最終回答生成（Gemini呼び出し）をスキップして
-        houdini21 namespace の検索結果だけを取得する。
-
-        GAS 側は APIキーに houdini21 の権限がないと dbKey を "all" にフォールバック
-        してしまうため、応答の sources を db=="houdini21" のものだけに絞り込むことで
-        ホワイトリスト方針（他 namespace は参照しない）をクライアント側でも強制する。
-
-        Phase1レベリング（IMPROVEMENT_PLAN.md）の level フィルタは rag_local_bridge.py
-        （Local RAG）側にのみ実装されており、gas_cloud_rag.js（Cloud RAG）側は未対応の
-        ため、ここでは level を渡していない（Cloud モードでは全レベル対象のまま）。
-        """
-        if not self._gas_url:
-            self._progress("Cloud RAG検索エラー: GAS WebApp URLが未設定です（続行します）")
-            return [], []
-        try:
-            body = json.dumps({
-                "query": topic,
-                "dbKey": self._rag_name,
-                "history": [],
-                "apiKey": self._gas_api_key,
-                "mode": "raw",
-            }, ensure_ascii=False).encode("utf-8")
-            req = urllib.request.Request(
-                self._gas_url,
-                data=body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                data = json.loads(resp.read())
-
-            status = data.get("status", "error")
-            if status not in ("ok",):
-                self._progress(f"Cloud RAG検索エラー（{status}）。続行します: {data.get('answer', '')}")
-                return [], []
-
-            raw_sources = [
-                s for s in data.get("sources", [])
-                if s.get("db") == self._rag_name
-            ]
-            if not raw_sources:
-                self._progress(
-                    f"Cloud RAGに{self._rag_name}のドキュメントが見つかりませんでした"
-                    f"（APIキーに{self._rag_name}の権限があるか確認してください）"
-                )
-                return [], []
-
-            texts = [f"検索結果（{len(raw_sources)} 件）:"]
-            sources = []
-            for i, s in enumerate(raw_sources[:RAG_LIMIT]):
-                texts.append(f"\n[{i + 1}] ファイル: {s.get('title', '')}\n{s.get('text', '')}")
-                sources.append({"title": s.get("title", ""), "db": s.get("db", ""), "score": s.get("score", 0)})
-            return texts, sources
-        except Exception as exc:
-            self._progress(f"Cloud RAG検索エラー（続行します）: {exc}")
-            return [], []
-
     def _rag_search_cloudflare(self, topic: str, level: str = _DEFAULT_LEVEL) -> tuple[list[str], list[dict]]:
         """
         Cloudflare Workers RAG（cloudflare-rag-poc）の /search から
-        houdini21 相当のnamespace（shared:houdini21）の生チャンクを取得する
-        （GAS Cloud RAGの後継、2026-08-26追加）。
+        houdini<バージョン> のnamespace（shared:houdini22 など）の生チャンクを取得する。
 
-        Cloudflare側はnamespaceアクセス制御がAPIキーごとの許可リストで厳格に
-        行われ、GASのような「権限が無いと"all"に自動フォールバックする」挙動が
-        無いため、_rag_search_cloud のような応答側でのdb二重フィルタは不要（サーバー側の
-        namespaceパラメータそのものが唯一のホワイトリストとして機能する）。
+        Cloudflare側はnamespaceアクセス制御がAPIキーごとの許可リストで厳格に行われ、
+        権限が無くても別のナレッジへ自動で切り替わる挙動は無いため、応答側でのdb二重フィルタは
+        不要（サーバー側のnamespaceパラメータそのものが唯一のホワイトリストとして機能する）。
         レスポンス形式は rag_local_bridge.py の /search と同じ {texts, sources} なので、
         そのまま _rag_search_local と同じ扱いでよい。
         """
@@ -1150,13 +1084,6 @@ class TutorialAgent:
                     cache_marked_content = last_content
 
             response = self._call_api(system_blocks, tools, messages)
-            quota = response.get("claudeQuota")
-            if quota is not None:
-                result.claude_quota_known = True
-                result.claude_balance = quota.get("balance")
-                result.claude_capacity = quota.get("capacity")
-                result.claude_reset_interval_hours = quota.get("resetIntervalHours")
-                result.claude_reset_at = quota.get("resetAt")
             usage = response.get("usage", {})
             result.cost_usd += self._usage_cost(usage)
             result.input_tokens += usage.get("input_tokens", 0)
@@ -1337,15 +1264,13 @@ class TutorialAgent:
         self, system_blocks: list[dict],
         tools: list[dict], messages: list[dict],
     ) -> dict:
-        """claude_backend に応じてGASまたはCloudflare経由でClaude Messages APIを呼ぶ。"""
-        if self._claude_backend == "cloudflare":
-            return self._call_api_cloudflare(system_blocks, tools, messages)
-        return self._call_api_gas(system_blocks, tools, messages)
+        """Cloudflare経由でClaude Messages APIを呼ぶ。"""
+        return self._call_api_cloudflare(system_blocks, tools, messages)
 
     def complete_text(self, system: str, user: str) -> tuple[str, dict]:
         """
         ツールを使わない、1回きりのテキスト生成（動画の台本づくり: video_script.py）。
-        エージェントループと同じ経路（GAS/Cloudflare経由・トークン予算の対象）で呼ぶ。
+        エージェントループと同じ経路（Cloudflare経由・トークン予算の対象）で呼ぶ。
         戻り値: (本文, usage)。API呼び出しの失敗は例外のまま呼び出し元へ出す。
         """
         response = self._call_api(
@@ -1360,16 +1285,14 @@ class TutorialAgent:
     ) -> dict:
         """
         Claude Messages API を、Cloudflare Workers（cloudflare-rag-poc、/claude/messages）
-        経由で呼ぶ（GAS Claudeプロキシの後継、2026-08-26追加）。
+        経由で呼ぶ。
 
-        GAS版と同様、生のANTHROPIC_API_KEYはクライアントに持たせない。Cloudflare側は
+        生のANTHROPIC_API_KEYはクライアントに持たせない。Cloudflare側は
         APIキーごとのClaude専用トークン予算（token_budgets, budget_type='claude'）を
-        サーバー側で強制する。GASの{status:'quota_exceeded'|'rate_limited'|...}という
-        レスポンス内ステータスと異なり、Cloudflare側はHTTPステータスコード
+        サーバー側で強制する。Cloudflare側はHTTPステータスコード
         （429=予算超過/レート制限、401/403=認証エラー）でエラーを表現するため、
-        エラーハンドリングの構造がGAS版と異なる点に注意。
         成功時のレスポンスは生のAnthropic Messageオブジェクトそのもの
-        （contentやusageを直接読める）なので、呼び出し元（_run_loop）はGAS版と同じ
+        （contentやusageを直接読める）なので、呼び出し元（_run_loop）は
         コードでそのまま読める。
         """
         request_body = {
@@ -1444,62 +1367,6 @@ class TutorialAgent:
                         f" 応答本文の先頭: {message[:200]}"
                     ) from exc
                 raise RuntimeError(f"Cloudflare Claudeプロキシエラー {exc.code}: {message}") from exc
-
-    def _call_api_gas(
-        self, system_blocks: list[dict],
-        tools: list[dict], messages: list[dict],
-    ) -> dict:
-        """
-        Claude Messages API を、GAS WebApp（gas_cloud_rag.js）経由で呼ぶ。
-
-        このHoudiniクライアントは生のANTHROPIC_API_KEYを一切保持しない。実キーは
-        GASのスクリプトプロパティにのみ保存され、GAS側がAPIキーごとのClaude専用
-        トークン予算（claudeCapacity/claudeBalance）を強制する。クライアント側の
-        Settings設定を書き換えても上限を迂回できないようにするための構成
-        （docs/cloud-rag.md §8.14参照）。過負荷系リトライはGAS側で行うため、
-        ここでは単純に1回呼ぶだけでよい。
-        """
-        payload = json.dumps({
-            "action": "claude_messages",
-            "apiKey": self._gas_api_key,
-            "model": self._model,
-            "max_tokens": MAX_TOKENS_PER_TURN,
-            "system": system_blocks,
-            "tools": tools,
-            "messages": messages,
-            "purpose": "houdini21_tutorial_agent",
-        }, ensure_ascii=False).encode("utf-8")
-
-        req = urllib.request.Request(
-            self._gas_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                data = json.loads(resp.read())
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"GAS呼び出しエラー {exc.code}: {detail}") from exc
-
-        status = data.get("status", "error")
-        if status == "quota_exceeded":
-            raise RuntimeError(
-                data.get("error", {}).get("message")
-                or "Claudeトークンの利用上限に達しています。管理者にチャージを依頼してください。"
-            )
-        if status == "rate_limited":
-            raise RuntimeError(
-                data.get("error", {}).get("message") or "リクエストが多すぎます。しばらく待ってから再試行してください。"
-            )
-        if status == "auth_error":
-            raise RuntimeError(
-                data.get("error", {}).get("message") or "認証エラー: GAS APIキーが無効です。Settingsタブを確認してください。"
-            )
-        if status != "ok":
-            raise RuntimeError(data.get("error", {}).get("message") or f"GAS Claudeプロキシエラー: {data}")
-        return data
 
     def _usage_cost(self, usage: dict) -> float:
         price = _MODEL_PRICES[self._model]
@@ -1773,10 +1640,7 @@ def build_level_chain(
     bridge_port: int = 8766,
     project_dir: str = "",
     rag_mode: str = "local",
-    gas_url: str = "",
-    gas_api_key: str = "",
     model: str = DEFAULT_MODEL,
-    claude_backend: str = "gas",
     cf_url: str = "",
     cf_api_key: str = "",
     rag_namespace: str = "",
@@ -1811,10 +1675,7 @@ def build_level_chain(
             bridge_port=bridge_port,
             project_dir=project_dir,
             rag_mode=rag_mode,
-            gas_url=gas_url,
-            gas_api_key=gas_api_key,
             model=model,
-            claude_backend=claude_backend,
             cf_url=cf_url,
             cf_api_key=cf_api_key,
             rag_namespace=rag_namespace,
