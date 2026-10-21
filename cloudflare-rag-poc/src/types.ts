@@ -13,6 +13,11 @@ export interface Env {
   // Claude APIプロキシ用（2026-08-26追加。Houdiniチュートリアル生成エージェント（tutorial_agent.py）が
   // 従来GAS経由で呼んでいたclaude_messagesアクションの移行先。RAG自体はGeminiのまま変更しない）
   ANTHROPIC_API_KEY?: string;
+  // 音声合成プロキシ（POST /tts、src/tts.ts）。Google Cloud Text-to-Speech のAPIキーと、1日の文字数上限・既定の声
+  GOOGLE_TTS_API_KEY?: string;
+  TTS_DAILY_CHARS_PER_KEY?: string;
+  TTS_DAILY_CHARS_GLOBAL?: string;
+  TTS_VOICE?: string;
   // ヘルスチェックのアラート通知先（2026-08-26追加）。いずれも未設定なら該当チャンネルへは送らない
   SLACK_WEBHOOK_URL?: string;
   // Slackから質問する（slackBot.ts）。署名の検証用secretと、利用を許可するSlackワークスペースID（カンマ区切り）。
