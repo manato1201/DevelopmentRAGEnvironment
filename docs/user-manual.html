@@ -194,14 +194,14 @@
 <p>入力欄の<strong>クリップのボタン</strong>で、画像（<strong>8MBまで</strong>）を付けられる。「この画像のノードは何か」のような質問に使う。画像は検索には使われず、<strong>回答を作るときだけ</strong>AIに渡される。</p>
 <h3 id="25-会話スレッド">2.5 会話（スレッド）</h3>
 <ul>
-<li>同じ会話の中で続けて質問すると、**直近のやりとり（6件・800文字まで）**が文脈として渡る。</li>
+<li>同じ会話の中で続けて質問すると、<strong>直近のやりとり（6件・800文字まで）</strong>が文脈として渡る。</li>
 <li>話題を変えるときは、「<strong>新しい会話</strong>」を押す。これまでの会話は、履歴に残る。</li>
 <li>「<strong>会話全体をエクスポート</strong>」で、いまの会話をファイルにできる。</li>
 </ul>
 <h3 id="26-外部サービスも使う出るときだけ">2.6 外部サービスも使う（出るときだけ）</h3>
 <p>管理者が、外部サービス（公式MCP）をチャットで使う設定にしているときだけ、入力欄の上に「<strong>外部サービスも使う</strong>」が出る。オンにすると、検索結果で足りないときに、接続済みのサービス（GitHub・Slack・Googleなど）の<strong>読み取り専用</strong>のツールで調べる。回答に、<strong>使ったサービスが表示される</strong>。既定は、オフ。</p>
 <h3 id="27-評価する">2.7 評価する</h3>
-<p>回答に、**👍／👎**を付けられる。<strong>付けた評価は、検索の改善に使われる</strong>（低評価の質問は、管理者の「回答できなかった質問」に集計される）。</p>
+<p>回答に、<strong>👍／👎</strong>を付けられる。<strong>付けた評価は、検索の改善に使われる</strong>（低評価の質問は、管理者の「回答できなかった質問」に集計される）。</p>
 <h2 id="3-履歴お気に入りグラフ">3. 履歴・お気に入り・グラフ</h2>
 <h3 id="31-履歴">3.1 履歴</h3>
 <ul>
@@ -286,7 +286,7 @@
 <h3 id="53-namespaceごとの登録状況重複">5.3 namespaceごとの登録状況・重複</h3>
 <ul>
 <li>「<strong>namespaceごとのナレッジ登録状況</strong>」: ファイル数・チャンク数・同期元・最終更新。<strong>集計は、最大10分前の値</strong>。</li>
-<li>「<strong>重複コンテンツの確認・削除</strong>」→「重複チェック」: 内容が同じ資料の組を探す。**自動では消さない。**不要な方を、自分で選んで削除する。</li>
+<li>「<strong>重複コンテンツの確認・削除</strong>」→「重複チェック」: 内容が同じ資料の組を探す。<strong>自動では消さない。</strong>不要な方を、自分で選んで削除する。</li>
 </ul>
 <h3 id="54-同期履歴">5.4 同期履歴</h3>
 <p>「<strong>同期履歴</strong>」に、<strong>日時・実行者・種別・namespace・ファイル・状態</strong>が出る。<strong>実行者</strong>は、名前、「自動（Cron）」、「不明」。実行者・状態（失敗のみ）で絞り込める。<strong>他の人の個人用namespaceの履歴は、出ない。</strong></p>
@@ -353,7 +353,7 @@
 </table></div>
 <p><strong>操作の順序（安全のため）:</strong> ①<strong>接続テスト</strong>（登録せず、設定が正しいかだけ確認）→ ②<strong>プレビュー</strong>（何が登録されるかを見る）→ ③<strong>同期を実行</strong>。失敗したものは、「<strong>失敗○○だけ再同期</strong>」。</p>
 <h3 id="62-取り込み先namespaceへの配慮">6.2 取り込み先（namespace）への配慮</h3>
-<p>**取り込んだデータは、そのnamespaceで検索される。**関係のない資料が混ざると、回答の質が下がる。同期の前に、<strong>プレビューで内容を確認</strong>する。不安なときは、<strong>ステージング</strong>（§6.4）を使う。</p>
+<p><strong>取り込んだデータは、そのnamespaceで検索される。</strong>関係のない資料が混ざると、回答の質が下がる。同期の前に、<strong>プレビューで内容を確認</strong>する。不安なときは、<strong>ステージング</strong>（§6.4）を使う。</p>
 <h3 id="63-同期先の許可リストadmin">6.3 同期先の許可リスト（admin）</h3>
 <p>「<strong>連携の同期先（許可リスト）</strong>」に載せたnamespaceにしか、連携は書き込めない。管理者が「許可する」で足す。<strong>自分用（<code>personal:</code>）は、本人のものだけ、自動で許可</strong>される。</p>
 <h3 id="64-ステージングadmin">6.4 ステージング（admin）</h3>
@@ -382,7 +382,7 @@
 <tbody>
 <tr>
 <td><strong>APIキーを発行</strong></td>
-<td>「新しいAPIキーを発行」で、名前・権限（ロール）・RAGトークン上限・Claude予算・有効期限・アクセス可能なnamespaceを指定。**生のキーは、この画面で一度しか見られない。**コピーして、すぐ本人に渡す（60秒で隠れる）</td>
+<td>「新しいAPIキーを発行」で、名前・権限（ロール）・RAGトークン上限・Claude予算・有効期限・アクセス可能なnamespaceを指定。<strong>生のキーは、この画面で一度しか見られない。</strong>コピーして、すぐ本人に渡す（60秒で隠れる）</td>
 </tr>
 <tr>
 <td><strong>ロールの変更・失効・削除</strong></td>
@@ -507,7 +507,7 @@
 <h3 id="93-チュートリアルを生成する">9.3 チュートリアルを生成する</h3>
 <ol>
 <li><strong>Tutorial</strong>タブでトピックを入力。</li>
-<li>生成が始まる。AIが、Houdiniの**専用の場所（サンドボックス）**にノードを作り、つなぎ、パラメータを設定し、<strong>cook（評価）エラーが無いか</strong>を確かめる。進行ログが出る。</li>
+<li>生成が始まる。AIが、Houdiniの<strong>専用の場所（サンドボックス）</strong>にノードを作り、つなぎ、パラメータを設定し、<strong>cook（評価）エラーが無いか</strong>を確かめる。進行ログが出る。</li>
 <li>完了すると、<strong>Markdownのプレビュー</strong>が出る。内容を確認して、「<strong>保存</strong>」を押すと、<code>localRAG/tutorials/</code>に<code>.md</code>と<code>.json</code>が保存される。</li>
 <li>途中で止まるのは、<strong>反復の上限（80回）</strong>、<strong>費用の上限</strong>、<strong>予算</strong>のとき。</li>
 </ol>
@@ -522,10 +522,11 @@
 <li><strong>動画の生成（数分）:</strong> 手順ごとに音声を作り、<strong>画面の切り替えを、音声の長さに合わせる</strong>。進捗欄に「フレーム N/M」と<strong>使われた音声</strong>が出る。</li>
 <li>完了すると、「<strong>動画</strong>」タブに入り、「外部プレイヤーで開く」で見られる。</li>
 </ol>
-<p><strong>音声について</strong><br />
-- 自然な声（VOICEVOX・春日部つむぎ）を使うには、<strong>VOICEVOXが導入されている</strong>こと。<strong>止まっていれば、自動で起動する</strong>。<br />
-- 進捗欄に「音声: VOICEVOX:春日部つむぎ」と出れば、その声で作られている。「<strong>従来の音声（SAPI）…VOICEVOXを起動してください</strong>」と出たら、VOICEVOXが使えていない。<br />
-- 動画の最後に、<strong>「VOICEVOX:春日部つむぎ」のクレジット</strong>を、公開時に入れる（身内向けを超える場合は、声の利用規約を確認）。</p>
+<p><strong>音声について（2026-10-20〜）</strong><br />
+- <strong>何も入れなくてよい。</strong> Settingsタブの Cloudflare URL / APIキーが入っていれば、Worker経由で<strong>Google Cloud の音声合成</strong>が使われる（<code>POST /tts</code>）。進捗欄に「音声: Google Cloud TTS:ja-JP-…」と出る。<br />
+- 1日の文字数に上限がある（鍵ごと 50,000 文字、全体 300,000 文字。日本時間で切り替わる）。5分の動画で3,000〜4,000文字。上限に達すると、その日は次の音声に切り替わる。<br />
+- クラウドの音声が使えないときは、<strong>VOICEVOX（導入済みなら自動で起動）→ Windows標準の音声（SAPI）</strong>の順に切り替わる。「<strong>従来の音声（SAPI）…</strong>」と出たら、どちらも使えていない。<br />
+- VOICEVOX（春日部つむぎ）が使われたときは、公開時に<strong>「VOICEVOX:春日部つむぎ」のクレジット</strong>を入れる。クラウドの音声では不要。</p>
 <p><strong>注意</strong><br />
 - 台本の文章は、<strong>AIが書く</strong>。<strong>内容が正しいか、必ず見る</strong>。直したいときは、<code>_video_script.json</code>の<code>narration</code>（読む文）・<code>points</code>（画面の短い文）・<code>heading</code>（見出し）を直して、エンジンを直接実行する（<a href="houdini-video-script.html">houdini-video-script.md §4</a>）。<br />
 - AIに接続できないときは、<strong>定型の解説</strong>で台本を作る（同じ内容の繰り返しは避けるが、AIが書くものより、浅い）。<br />

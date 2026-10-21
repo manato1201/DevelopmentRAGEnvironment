@@ -167,7 +167,7 @@ export async function handleHello(req: Request, env: Env, user: AuthedUser): Pro
 <p><strong>落とし穴</strong><br />
 - 権限確認の<strong>付け忘れ</strong>が、最も危険。ハンドラの先頭に必ず書く（<code>requireAdmin</code> / <code>requireKnowledgeEditor</code>）。<br />
 - 入力は信用しない。数値は<code>clampInt</code>、文字は長さを確認。<br />
-- 認証不要のルート（<code>/health</code>など）は、<code>authenticate</code>より前にある。新しいルートは、**後ろ（<code>switch</code>の中）**に置く。</p>
+- 認証不要のルート（<code>/health</code>など）は、<code>authenticate</code>より前にある。新しいルートは、<strong>後ろ（<code>switch</code>の中）</strong>に置く。</p>
 <h3 id="レシピb-新しいテーブルマイグレーションを足す">レシピB: 新しいテーブル（マイグレーション）を足す</h3>
 <p><strong>例:</strong> 「お知らせ」を保存する<code>notices</code>表。</p>
 <ol>
