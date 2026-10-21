@@ -212,9 +212,10 @@ class VideoScriptWorker(QThread):
     台本が作れなくても、動画は従来どおり作れる（その場合 script_path は空）。"""
     done = Signal(str, str)  # (台本ファイルのパス or "", 状態の説明)
 
-    def __init__(self, make_agent, md_path: Path, step_screenshots: list) -> None:
+    def __init__(self, make_agent, md_path: Path, step_screenshots: list, images: dict | None = None) -> None:
         super().__init__()
         self._make_agent, self._md_path, self._steps = make_agent, md_path, step_screenshots
+        self._images = images or {}
 
     def run(self) -> None:
         try:
@@ -225,7 +226,7 @@ class VideoScriptWorker(QThread):
                 complete = self._make_agent().complete_text
             except Exception:  # noqa: BLE001 -- Claudeに繋がらなくても、定型の解説で台本は作れる
                 complete = None
-            path, message = video_script.prepare_script_file(self._md_path, self._steps, complete)
+            path, message = video_script.prepare_script_file(self._md_path, self._steps, complete, self._images)
             self.done.emit(str(path) if path else "", message)
         except Exception as exc:  # noqa: BLE001
             self.done.emit("", f"台本: 作成に失敗しました（{exc}）。従来の動画になります")
@@ -984,7 +985,18 @@ class TutorialGeneratePanel(QWidget):
         if not steps:
             return self._start_video_process(result, md_path, json_path, None)
         self._video_progress.setText("動画生成: 初心者向けの台本を作っています（数十秒かかります）…")
-        worker = VideoScriptWorker(self._make_agent, md_path, steps)
+        # ノードの関係図（保存したグラフから描く）。動画の「考え方」などの説明スライドに、空のぼやけた板の
+        # 代わりに出す。描けなければ、動画エンジンは完成画像で代用する。
+        images: dict = {}
+        try:
+            import screen_capture
+
+            diagram_path = md_path.with_name(md_path.stem + "_node_diagram.png")
+            if screen_capture.render_graph_diagram(getattr(result, "graph", None) or {}, diagram_path):
+                images["node_diagram"] = str(diagram_path)
+        except Exception:  # noqa: BLE001 -- 図が描けなくても動画は作る
+            images = {}
+        worker = VideoScriptWorker(self._make_agent, md_path, steps, images)
         self._script_workers.append(worker)
 
         def on_done(script_path: str, message: str, w: VideoScriptWorker = worker) -> None:

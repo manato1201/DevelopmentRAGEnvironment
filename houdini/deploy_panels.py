@@ -26,7 +26,7 @@ REPO = Path(__file__).resolve().parent / "python_panels"
 MODULES = [
     "graph_view", "houdini_tools", "screen_capture", "token_usage", "tutorial_agent",
     "tutorial_feedback", "tutorial_graph_simplify", "tutorial_view", "video_factory_bridge",
-    "video_script", "lesson_design", "tutorial_review",
+    "video_script", "lesson_design", "tutorial_review", "graph_diagram",
 ]
 _CDATA_OPEN = "<script><![CDATA["
 _CDATA_CLOSE = "]]></script>"

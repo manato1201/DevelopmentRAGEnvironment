@@ -545,9 +545,11 @@ def assemble_script(
 # ── 入口 ─────────────────────────────────────────────────────────────────
 
 def build_script(
-    md_text: str, step_screenshots: list[dict], complete: CompleteFn | None
+    md_text: str, step_screenshots: list[dict], complete: CompleteFn | None, images: dict | None = None
 ) -> tuple[dict | None, str, dict]:
-    """台本を作る。戻り値: (台本 or None, 状態の説明, usage)。例外は投げない。"""
+    """台本を作る。戻り値: (台本 or None, 状態の説明, usage)。例外は投げない。
+    images（任意）: 動画の説明スライドに使う画像のパス。{"node_diagram": "<ノードの関係図のPNG>"}。
+    台本の "images" として書き、動画エンジンが、画像の無いスライド（空のぼやけた板になっていた）に出す。"""
     steps = usable_steps(step_screenshots)
     if not steps:
         return None, "台本: 動画に出る手順が無いため、台本は作りませんでした", {}
@@ -570,7 +572,10 @@ def build_script(
                 detail = f"Claudeの呼び出しに失敗したため（{str(exc)[:60]}）"
                 break
     script, source, notes = assemble_script(model, steps, title, summary, sections)
-    label = {"claude": "Claudeが書いた台本", "claude+template": "Claudeの台本（一部は定型の解説）", "template": "定型の解説"}[source]
+    clean_images = {k: str(v) for k, v in (images or {}).items() if v}
+    if clean_images:
+        script["images"] = clean_images
+    label ={"claude": "Claudeが書いた台本", "claude+template": "Claudeの台本（一部は定型の解説）", "template": "定型の解説"}[source]
     message = f"台本: {label}（{len(steps)}手順）"
     if source == "template" and detail:
         message += f" — {detail}"
@@ -584,12 +589,12 @@ def save_script(path: Path, script: dict) -> None:
 
 
 def prepare_script_file(
-    md_path: Path, step_screenshots: list[dict], complete: CompleteFn | None
+    md_path: Path, step_screenshots: list[dict], complete: CompleteFn | None, images: dict | None = None
 ) -> tuple[Path | None, str]:
     """保存済みの .md から台本を作り、`<slug>_video_script.json` に書く。戻り値: (パス or None, 状態)。"""
     try:
         md_text = md_path.read_text(encoding="utf-8")
-        script, message, _usage = build_script(md_text, step_screenshots, complete)
+        script, message, _usage = build_script(md_text, step_screenshots, complete, images)
         if script is None:
             return None, message
         out = md_path.with_name(md_path.stem + "_video_script.json")

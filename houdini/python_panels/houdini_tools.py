@@ -853,10 +853,12 @@ class HoudiniToolExecutor:
                         if not p.isAtDefault() and p.name() not in changed and p.tuple().name() not in changed
                         and "\n" not in self._safe_eval(p)
                     ][:5]
-                    got_network = screen_capture.render_parameter_card(
-                        network_path, container_path, node.name(), node.type().description(),
+                    # 実際のパラメータ画面を撮れれば、それに変更点の一覧を添える。撮れなければ従来のカード。
+                    method = screen_capture.capture_parameter_screen(
+                        network_path, change["node_path"], container_path, node.name(), node.type().description(),
                         changes, others, log_path=log_path,
                     )
+                    got_network = bool(method)
                     network_kind = "parameter"
                 except Exception as exc:  # noqa: BLE001
                     screen_capture._log(f"parameter card failed: {exc!r}", log_path)
