@@ -1144,9 +1144,11 @@ class TutorialGeneratePanel(QWidget):
                         pass  # サイドカー書き出し失敗は致命的ではない（プレビュー再生自体は動く）
                     self._on_video_ready(md_path.stem, video_path)
                 return
-            if "ERROR" in text or "エラー" in text:
-                last_line = text.strip().splitlines()[-1] if text.strip() else ""
-                self._video_progress.setText(f"動画生成: 失敗の可能性（{last_line[:80]}）")
+            # 失敗の判定は、エンジンが「ERROR:」で始まる行を出したときだけ（video_progress.py）。以前は、ログのどこかに
+            # 「エラー」という文字があれば失敗扱いにしていたため、スライドの見出し（「エラーが出ないか確かめる」等）で
+            # 誤って失敗と表示され、進捗の監視も止まっていた（2026-10-21、実機で確認。動画は正常に完成していた）。
+            if progress.failed:
+                self._video_progress.setText(f"動画生成: {progress.label}")
                 return
 
             voice_note = self._voice_summary(text)

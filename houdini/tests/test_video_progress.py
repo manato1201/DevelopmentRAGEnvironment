@@ -80,6 +80,26 @@ class ProgressFromLogTest(unittest.TestCase):
         self.assertEqual(p.percent, 40)  # 30 + 40 * 5/20
         self.assertIn("cannot open file", p.label)
 
+    def test_the_word_error_in_slide_titles_is_not_a_failure(self) -> None:
+        """実機（2026-10-21）: 動画は正常なのに、スライドの見出し「エラーが出ないか確かめる」で赤くなり、監視が止まった。"""
+        log = "\n".join([
+            LOG_NARRATION.rstrip("\n"),
+            'Slide 17:  19.8 s,  111 chars spoken, kind=viewport, "手順 14　エラーが出ないか確かめる"',
+            'Slide 29:  19.8 s,  102 chars spoken, kind=viewport, "手順 26　pushのエラーを読む"',
+            "WARNING: something minor with ERROR in the middle of a line",
+            "Narration synthesized: 227s",
+            "Rendered frame 100 / 717",
+            "",
+        ])
+        p = vp.progress_from_log(log)
+        self.assertFalse(p.failed)
+        self.assertEqual(p.stage, "render")
+
+    def test_only_a_line_starting_with_error_is_a_failure(self) -> None:
+        p = vp.progress_from_log(LOG_NARRATION + "ERROR: rendering/encoding failed: disk full\nStage render: failed\n")
+        self.assertTrue(p.failed)
+        self.assertIn("disk full", p.label)
+
     def test_zero_totals_do_not_divide_by_zero(self) -> None:
         self.assertEqual(
             vp.progress_from_log(

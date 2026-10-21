@@ -78,7 +78,8 @@ export default {
     // Webチャット画面（既存GAS getChatHtml_相当）。認証はページ内のAPIキー入力で
     // クライアント側からfetchする各APIコール時に行う。
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/chat")) {
-      return new Response(chatUiHtml(), { headers: { "content-type": "text/html; charset=utf-8" } });
+      // 開いたままの古い画面が、デプロイ後も古いスクリプトで動き続けないよう、毎回サーバーに確認させる（2026-10-21）。
+      return new Response(chatUiHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
     }
 
     // OAuthクリック接続化（2026-09-22追加、oauthConnections.ts参照）。start/callbackは
