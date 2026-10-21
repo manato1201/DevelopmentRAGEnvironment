@@ -474,6 +474,11 @@ export function chatUiHtml(): string {
   .badge.error { color: var(--bad); border-color: var(--bad); }
   .progress-track { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; margin: .6rem 0; }
   .progress-bar { height: 100%; background: var(--accent); transition: width .25s; }
+  /* 終わりが読めない処理（1ファイルの変換・文字起こしなど）は、割合を出さず、動く帯にする（2026-10-21） */
+  .progress-bar.indeterminate { width: 35% !important; animation: progress-slide 1.2s ease-in-out infinite alternate; }
+  @keyframes progress-slide { from { margin-left: 0; } to { margin-left: 65%; } }
+  .item-bar { height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: .35rem; }
+  .item-bar > div { height: 100%; background: var(--accent); transition: width .25s; }
   .qa-pair { border: 1px solid var(--border); border-radius: 10px; padding: .6rem; margin-bottom: .6rem; background: var(--panel); }
   .qa-pair .head { display: flex; justify-content: space-between; align-items: center; font-size: .8rem; margin-bottom: .3rem; }
   .qa-pair textarea { width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: .4rem; font-family: inherit; font-size: .85rem; margin-bottom: .3rem; resize: vertical; }
@@ -5306,14 +5311,17 @@ export function chatUiHtml(): string {
         if (r.status === "skipped_existing") skipped++;
         if (r.status === "unchanged") unchanged++;
       });
-      opts.onProgress("取得中… " + processed + "/" + maxPages + "ページ（" + chunks + "チャンク登録" + (unchanged ? "・変更なし" + unchanged : "") + "）");
+      // 全体のページ数は、リンクをたどるほど増える。「処理済み + 待ち行列」を見込みにし、上限（最大ページ数）で打ち切る。
+      const estimatedTotal = Math.max(1, Math.min(maxPages || (processed + (data.queued || 0)), processed + (data.queued || 0)));
+      opts.onProgress("取得中… " + processed + "/" + (data.done ? processed : "約" + estimatedTotal) + "ページ（最大" + maxPages + "・" + chunks + "チャンク登録" + (unchanged ? "・変更なし" + unchanged : "") + "）");
+      if (opts.onFraction) opts.onFraction(data.done ? 1 : processed / estimatedTotal);
       if (data.done) break;
     }
     return { opId, processed, chunks, errors, skipped, unchanged, stopped, maxPages };
   }
 
   // 1件の登録を実行して、画面に出す詳細文字列を返す。失敗は例外。
-  async function kbRunItem(item, namespace, setDetail) {
+  async function kbRunItem(item, namespace, setDetail, setFraction) {
     if (item.kind === "file") {
       setDetail("アップロード・変換中…");
       const fileBase64 = await readFileAsBase64(item.file);
@@ -5337,6 +5345,7 @@ export function chatUiHtml(): string {
         namespace, url: item.url, options: item.options, opId: item.crawlOpId || null,
         onOpId: (id) => { item.crawlOpId = id; },
         onProgress: setDetail,
+        onFraction: setFraction,
       });
       item.crawlOpId = null;
       const summary = r.processed + "ページ処理・" + r.chunks + "チャンク登録" + (r.unchanged ? "・変更なし" + r.unchanged + "件" : "") + (r.skipped ? "・" + r.skipped + "件スキップ" : "") + (r.errors ? "・" + r.errors + "件エラー" : "") + "（opId: " + r.opId + "）" + (r.stopped ? " " + r.stopped : "");
@@ -5373,7 +5382,7 @@ export function chatUiHtml(): string {
       screen: "input", method: null, namespace: localStorage.getItem(KB_NS_STORAGE) || "", namespaces: [], customNs: false,
       files: [], urlText: "", urlTitle: "", crawl: false, depth: 1, maxPages: 30, pathPrefix: "", exclude: "", skipExisting: true,
       pairs: [{ question: "", answer: "" }], alsoNotion: false, csvName: "", csvText: "", csvRows: 0,
-      items: [], status: [], detail: [], message: [], error: "", stop: false,
+      items: [], status: [], frac: [], detail: [], message: [], error: "", stop: false,
     };
     if (preset && preset.method === "qa") {
       S.method = "qa";
@@ -5434,14 +5443,16 @@ export function chatUiHtml(): string {
       S.error = "";
       modal.setLocked(true);
       const targets = onlyIndexes || S.items.map((_, i) => i);
-      targets.forEach((i) => { S.status[i] = "pending"; S.detail[i] = ""; S.message[i] = ""; });
+      targets.forEach((i) => { S.status[i] = "pending"; S.detail[i] = ""; S.message[i] = ""; S.frac[i] = null; });
       render();
       for (const index of targets) {
         if (S.stop) break;
         S.status[index] = "running";
         render();
         try {
-          const result = await kbRunItem(S.items[index], S.namespace, (text) => { S.detail[index] = text; render(); });
+          // 割合が分かる処理（クロール）だけ、割合を持つ。後戻りはさせない（リンクをたどって見込みが増えても、バーは戻らない）。
+          const result = await kbRunItem(S.items[index], S.namespace, (text) => { S.detail[index] = text; render(); },
+            (f) => { S.frac[index] = Math.max(S.frac[index] || 0, Math.min(Math.max(f, 0), 1)); render(); });
           S.status[index] = "done";
           S.detail[index] = result;
           anyDone = true;
@@ -5727,6 +5738,13 @@ export function chatUiHtml(): string {
         }
         li.appendChild(line);
         if (showStatus && S.detail[index] && S.status[index] !== "error") li.appendChild(mk("div", "detail", S.detail[index]));
+        if (showStatus && S.status[index] === "running" && S.frac[index] !== null && S.frac[index] !== undefined) {
+          const itemBar = mk("div", "item-bar");
+          const itemFill = mk("div");
+          itemFill.style.width = Math.round(S.frac[index] * 100) + "%";
+          itemBar.appendChild(itemFill);
+          li.appendChild(itemBar);
+        }
         if (showStatus && S.status[index] === "error" && S.message[index]) li.appendChild(mk("div", "err", S.message[index]));
         list.appendChild(li);
       });
@@ -5745,7 +5763,7 @@ export function chatUiHtml(): string {
       modal.footer.innerHTML = "";
       if (S.screen === "input") {
         modal.footer.appendChild(modalButton("キャンセル", "", () => modal.close()));
-        const next = modalButton("次へ", "primary", () => { S.items = buildItems(); S.status = S.items.map(() => "pending"); S.detail = S.items.map(() => ""); S.message = S.items.map(() => ""); S.screen = "review"; S.error = ""; render(); });
+        const next = modalButton("次へ", "primary", () => { S.items = buildItems(); S.status = S.items.map(() => "pending"); S.frac = S.items.map(() => null); S.detail = S.items.map(() => ""); S.message = S.items.map(() => ""); S.screen = "review"; S.error = ""; render(); });
         next.disabled = !canProceed() || (S.method === "qa" && S.error !== "");
         modal.footer.appendChild(next);
       } else if (S.screen === "review") {
@@ -5807,13 +5825,18 @@ export function chatUiHtml(): string {
         const c = counts();
         const finished = c.done + c.error + c.skipped;
         if (S.screen === "progress") {
-          const percent = S.items.length ? Math.round(((finished + (S.status.indexOf("running") >= 0 ? 0.5 : 0)) / S.items.length) * 100) : 0;
+          // 全体の割合 = (完了した件数 + 実行中の件の進み具合) / 件数。実行中の件に割合が無い（ファイル変換など）ときは、
+          // 偽の50%を出さず、動く帯にして、割合は完了した件数だけで出す。
+          const runningIndex = S.status.indexOf("running");
+          const runningFrac = runningIndex >= 0 ? S.frac[runningIndex] : null;
+          const indeterminate = runningIndex >= 0 && (runningFrac === null || runningFrac === undefined);
+          const percent = S.items.length ? Math.round(((finished + (runningFrac || 0)) / S.items.length) * 100) : 0;
           const track = mk("div", "progress-track");
-          const bar = mk("div", "progress-bar");
+          const bar = mk("div", "progress-bar" + (indeterminate ? " indeterminate" : ""));
           bar.style.width = percent + "%";
           track.appendChild(bar);
           body.appendChild(track);
-          body.appendChild(mk("p", "modal-note", finished + "/" + S.items.length + " 件処理（" + percent + "%）"));
+          body.appendChild(mk("p", "modal-note", "全体: " + finished + "/" + S.items.length + " 件完了" + (indeterminate ? "（実行中の1件は、終わりまで時間を読めません）" : "（" + percent + "%）")));
         } else {
           body.appendChild(mk("p", "modal-note", c.error || c.skipped ? "登録結果（一部が完了していません）" : "登録が完了しました"));
         }
