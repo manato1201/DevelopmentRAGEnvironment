@@ -50,6 +50,7 @@ import { handleImportYoutube, handleUploadDoc } from "./mediaImport";
 import { handleHealthCheck, handleTestAlert, checkHealthAndAlert } from "./healthCheck";
 import { handleBackupExport } from "./backup";
 import { handleClaudeMessages } from "./claude";
+import { handleTts } from "./tts";
 import { handleMcpOAuthStart, handleMcpOAuthCallback, handleMcpStatus, handleMcpDisconnect, handleMcpTools, handleMcpSetTools, handleMcpSetChat, handleMcpCall, handleMyMcp } from "./mcp/routes";
 import { handleTutorialFeedbackSubmit, handleTutorialFeedbackList, handleTutorialFeedbackStats } from "./tutorialFeedback";
 import { handleMyNamespaces, handleMyBudget } from "./retrieve";
@@ -384,6 +385,8 @@ export default {
           return await handleBackupExport(req, env, user);
         case "/claude/messages":
           return await handleClaudeMessages(req, env, user);
+        case "/tts":
+          return await handleTts(req, env, user);
         // Houdiniチュートリアル生成への評価（migrations/0017）。送信は評価者本人、閲覧・集計はadminのみ。
         // 公式MCPサーバー連携（MCPクライアント、2026-10-08）。接続・ツール選択はadminのみ
         case "/admin/mcp/status":
