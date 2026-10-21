@@ -71,7 +71,7 @@
 <header class="hero">
   <span class="badge">レッスン設計</span>
   <h1>チュートリアル生成を「レッスン」にする（2026-10-20）</h1>
-  <div class="meta">HTML生成: 2026-10-20（元: docs/houdini-lesson-design.md）</div>
+  <div class="meta">HTML生成: 2026-10-21（元: docs/houdini-lesson-design.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-何が足りなかったか実データで確認">1. 何が足りなかったか（実データで確認）</a><ol><li><a href="#参考チャンネルに共通する型">参考チャンネルに共通する型</a></li></ol></li><li><a href="#2-どう直したか">2. どう直したか</a><ol><li><a href="#3段階の意味を変えた">3段階の意味を変えた</a></li><li><a href="#生成物の形新しい節">生成物の形（新しい節）</a></li><li><a href="#採点の10項目合計100点">採点の10項目（合計100点）</a></li></ol></li><li><a href="#3-動画は解説動画になっているか">3. 動画は「解説動画」になっているか</a></li><li><a href="#4-確認できたことできていないこと">4. 確認できたこと・できていないこと</a></li><li><a href="#5-使い方">5. 使い方</a></li></ol></details></nav>
 <main>
@@ -189,6 +189,11 @@
 <td>動画</td>
 <td><code>video_script.py</code></td>
 <td>新しい節（学ぶこと／考え方／実験／仕上げ／次回）をスライドにし、「前→後」「ここで〇〇が見えれば正しい」と話すルールを追加</td>
+</tr>
+<tr>
+<td>見た目の確認</td>
+<td><code>houdini_tools.py</code> <code>_tool_confirm_tutorial</code></td>
+<td><code>confirm_tutorial</code> の note に「見えていません」「枠のみ」などと書きながら <code>looks_correct=true</code> にした場合は、最大2回まで差し戻す（2026-10-21。煙のシミュレーションで、枠だけの画面のまま確定した事例への対応）。仕様で見えないときは、理由を書いてもう一度確定すれば通る</td>
 </tr>
 </tbody>
 </table></div>
