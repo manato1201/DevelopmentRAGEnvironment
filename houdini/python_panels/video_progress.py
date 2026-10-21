@@ -58,8 +58,11 @@ def progress_from_log(text: str) -> VideoProgress:
     if wrote:
         return VideoProgress(100, "done", "完了", done=True, webm=wrote.group(1))
 
-    failed = "ERROR" in text or "エラー" in text
-    last_line = text.strip().splitlines()[-1][:80] if text.strip() else ""
+    # 失敗は、エンジンが「ERROR:」で始まる行を出したときだけ。ログのどこかに「エラー」「ERROR」の文字があるだけでは、
+    # 失敗にしない（スライドの見出しに「エラーが出ないか確かめる」などが入るため。2026-10-21、実機で誤判定を確認）。
+    error_lines = [ln for ln in text.splitlines() if ln.startswith("ERROR:")]
+    failed = bool(error_lines)
+    last_line = error_lines[-1][:80] if error_lines else ""
 
     render = None
     for line in reversed(text.splitlines()):
