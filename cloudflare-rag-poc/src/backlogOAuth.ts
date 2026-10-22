@@ -20,13 +20,20 @@ import { scopeFor, startOwner } from "./syncTargets";
 // OAuth2アプリを作成し、コールバックURL（handleBacklogOAuthStartがリダイレクトする先）を
 // 登録する。得られたClient ID/SecretをBACKLOG_OAUTH_CLIENT_ID/BACKLOG_OAUTH_CLIENT_SECRET
 // としてsecret登録する。
-function normalizeSpaceUrl(raw: string): string | null {
+// 【2026-10-22】スペースのホストは、Nulab（Backlog）のドメインだけに限る。以前は、どんなホストでも通っていた。
+// コールバックは、このホストへ Client ID / Client Secret を送るため、任意のホストを許すと、自分専用の接続
+// （?owner=me。ゲスト以外の誰でも使える）を開始した人が、自分のサーバーを指定して、secretを受け取れてしまう。
+const BACKLOG_HOST_RE = /^[a-z0-9][a-z0-9-]*\.(backlog\.com|backlog\.jp|backlogtool\.com)$/;
+
+export function normalizeSpaceUrl(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const withScheme = /^https?:\/\//.test(trimmed) ? trimmed : `https://${trimmed}`;
   try {
     const url = new URL(withScheme);
-    return `https://${url.host}`;
+    if (url.username || url.password || url.port) return null;
+    const host = url.hostname.toLowerCase();
+    return BACKLOG_HOST_RE.test(host) ? `https://${host}` : null;
   } catch {
     return null;
   }
@@ -43,7 +50,7 @@ export async function handleBacklogOAuthStart(req: Request, env: Env): Promise<R
 
   const spaceUrl = normalizeSpaceUrl(new URL(req.url).searchParams.get("space") || "");
   if (!spaceUrl) {
-    return oauthResultPage(false, "Backlogのスペース名・URLを入力してください（例: yourspace.backlog.com）。");
+    return oauthResultPage(false, "Backlogのスペース名・URLを入力してください（例: yourspace.backlog.com。backlog.com / backlog.jp / backlogtool.com のスペースだけ使えます）。");
   }
 
   const state = await createPendingState(env, "backlog", { spaceUrl, owner_id: ownerId });
@@ -66,8 +73,8 @@ export async function handleBacklogOAuthCallback(req: Request, env: Env): Promis
   if (pending === null) {
     return oauthResultPage(false, "認可フローの有効期限が切れたか、不正なリクエストです。管理画面からやり直してください。");
   }
-  const spaceUrl = pending.spaceUrl as string | undefined;
-  if (!spaceUrl) return oauthResultPage(false, "スペースURLの情報が失われました。もう一度やり直してください。");
+  const spaceUrl = typeof pending.spaceUrl === "string" ? normalizeSpaceUrl(pending.spaceUrl) : null;
+  if (!spaceUrl) return oauthResultPage(false, "スペースURLの情報が失われたか、使えないホストです。もう一度やり直してください。");
   if (!env.BACKLOG_OAUTH_CLIENT_ID || !env.BACKLOG_OAUTH_CLIENT_SECRET) {
     return oauthResultPage(false, "Backlog OAuthアプリが未設定です。");
   }
@@ -131,7 +138,8 @@ const REFRESH_MARGIN_SEC = 300;
 export async function resolveBacklogOAuthContext(env: Env, ownerId = ""): Promise<BacklogAuth | null> {
   const conn = await getConnection(env, "backlog", ownerId);
   if (!conn || !conn.accessToken) return null;
-  const spaceUrl = conn.extra.spaceUrl as string | undefined;
+  const stored = conn.extra.spaceUrl;
+  const spaceUrl = typeof stored === "string" ? normalizeSpaceUrl(stored) : null; // 古い接続にも、同じ制限をかける
   if (!spaceUrl) return null;
 
   let accessToken = conn.accessToken;

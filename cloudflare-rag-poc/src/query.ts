@@ -192,6 +192,7 @@ async function finishQuery(
     extractionRate,
     extractionDetail: `${cited}/${sources.length}`,
     memoryId,
+    auditId,
     ...(toolCalls.length > 0 ? { toolCalls } : {}),
     ...(pendingActions.length > 0 ? { pendingActions } : {}),
   } satisfies QueryResponse;

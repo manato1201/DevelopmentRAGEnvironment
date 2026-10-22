@@ -507,6 +507,18 @@ export function chatUiHtml(): string {
   .pending-action pre { max-height: 10rem; overflow: auto; font-size: .76rem; margin: .4rem 0; padding: .4rem; background: var(--bg, transparent); border-radius: 6px; white-space: pre-wrap; word-break: break-all; }
   .pending-action small { display: block; color: var(--muted); font-size: .76rem; }
   .pending-action-buttons { display: flex; gap: .5rem; margin-top: .5rem; }
+  .ascii-critter { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .95rem; line-height: 1.25; color: var(--muted); margin: .6rem 0 0; white-space: pre; user-select: none; text-align: center; }
+  .shortcut-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  .shortcut-table td { padding: .35rem .5rem; border-bottom: 1px solid var(--border); }
+  .shortcut-table td:first-child { white-space: nowrap; }
+  .shortcut-table kbd { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; border: 1px solid var(--border); border-radius: 5px; padding: .05rem .35rem; background: var(--panel); }
+  .src-route { margin-top: 1rem; }
+  .src-route h4 { margin: 0 0 .3rem; font-size: .8rem; color: var(--muted); font-weight: 600; }
+  .route-tree, .route-tree ul { list-style: none; margin: 0; padding: 0; }
+  .route-tree ul { margin-left: .5rem; padding-left: .8rem; border-left: 1px solid var(--border); }
+  .route-tree li { font-size: .76rem; padding: .12rem 0; overflow-wrap: anywhere; }
+  .route-tree li.dim { color: var(--muted); }
+  .pinned-toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .6rem; }
 
   /* ---------- 別プロジェクトを参考にした画面構成（2026-10-08）：アクションバー・カード・システム選択・詳細 ---------- */
   .btn.outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
@@ -1337,6 +1349,7 @@ export function chatUiHtml(): string {
   // 状態ごとに違う文言を出すことで、少なくとも何が起きているかは分かるようにする。
   function setAuthGate(unlocked, role, message) {
     document.body.classList.toggle("locked", !unlocked);
+    if (unlocked && typeof openAnswerFromHash === "function") setTimeout(openAnswerFromHash, 0);
     // 権限の詳細化（2026-09-10追加）: セクション単位の表示/非表示はCSS側
     // （body[data-role="editor"] .admin-only-section）で行うため、ここでroleを
     // data属性として持たせておく。実際の権限チェックはサーバー側の各エンドポイントが
@@ -1882,6 +1895,12 @@ export function chatUiHtml(): string {
     span.appendChild(iconEl(name));
     return span;
   }
+  // innerHTML に文字列を入れる場所で、エラー文などをエスケープする（サーバーのエラー文に、入力の一部が入ることがあるため）。
+  function esc(text) {
+    const d = document.createElement("div");
+    d.textContent = String(text);
+    return d.innerHTML;
+  }
   function iconEl(name) {
     const NS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(NS, "svg");
@@ -2032,6 +2051,7 @@ export function chatUiHtml(): string {
     pill.textContent = source.namespace;
     meta.appendChild(pill);
     if (source.score != null) meta.appendChild(document.createTextNode("関連度 " + source.score + "%"));
+    meta.appendChild(document.createTextNode("種別 " + sourceKind(source) + "・言語 " + sourceLang(source)));
     meta.appendChild(document.createTextNode(source.cited ? "引用 " + (source.citationCount || 1) + "回" : "未引用"));
     const fresh = freshness(source.ingestedAt);
     if (fresh) meta.appendChild(document.createTextNode("最終登録 " + fresh.date + (fresh.stale ? "（" + fresh.days + "日前・古い可能性）" : "")));
@@ -2096,7 +2116,7 @@ export function chatUiHtml(): string {
       const sub = document.createElement("div");
       sub.className = "src-sub";
       const fresh = freshness(s.ingestedAt);
-      sub.textContent = s.namespace + (s.cited ? "・引用あり" : "・未引用") + (fresh ? "・更新 " + fresh.date + (fresh.stale ? "（古い可能性）" : "") : "");
+      sub.textContent = s.namespace + "・" + sourceKind(s) + "・" + sourceLang(s) + (s.cited ? "・引用あり" : "・未引用") + (fresh ? "・更新 " + fresh.date + (fresh.stale ? "（古い可能性）" : "") : "");
       text.appendChild(name);
       text.appendChild(sub);
       row.appendChild(text);
@@ -2118,6 +2138,7 @@ export function chatUiHtml(): string {
       panelState.rowRefs[i] = row;
       panel.appendChild(row);
     });
+    if (panelState.route) panel.appendChild(renderRouteTree(panelState.route));
   }
   function showSourcePanel(sources) {
     panelState = sources && sources.length > 0 ? { sources, rowRefs: [] } : null;
@@ -2217,6 +2238,22 @@ export function chatUiHtml(): string {
       }
     });
     meta.appendChild(exportBtn);
+    if (memoryId) {
+      // 回答へのリンク（自分の履歴の回答だけ開ける。2026-10-22追加）
+      const linkBtn = document.createElement("button");
+      linkBtn.className = "rate-btn";
+      linkBtn.textContent = "リンクをコピー";
+      linkBtn.title = "この回答を開くリンクです。開けるのは、あなた自身（同じAPIキー）だけです";
+      linkBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(location.origin + location.pathname + "#answer=" + memoryId);
+          showToast("回答へのリンクをコピーしました（自分だけが開けます）", "success");
+        } catch {
+          showToast("コピーに失敗しました", "error");
+        }
+      });
+      meta.appendChild(linkBtn);
+    }
     wrap.appendChild(meta);
 
     if (sources && sources.length > 0) {
@@ -2331,7 +2368,8 @@ export function chatUiHtml(): string {
     const foot = document.createElement("div");
     foot.className = "answer-foot";
     const staleCount = (sources || []).filter((s) => { const f = freshness(s.ingestedAt); return f && f.stale; }).length;
-    foot.textContent = "出典 " + (sources ? sources.length : 0) + "件・AIが生成した回答です" + (staleCount > 0 ? "・うち" + staleCount + "件は" + STALE_DAYS + "日以上前の情報です" : "");
+    foot.textContent = "出典 " + (sources ? sources.length : 0) + "件・AIが生成した回答です" + (staleCount > 0 ? "・うち" + staleCount + "件は" + STALE_DAYS + "日以上前の情報です" : "")
+      + (sources && sources.length > 0 ? "・回答は上の出典から作られています。出典の利用条件は、各出典で確認してください" : "・出典が見つからなかったため、登録した資料に基づく回答ではありません");
     wrap.appendChild(foot);
 
     // U5: 0件ヒット時だけ、小さな空状態を出す（通常画面には遊びを入れない）。
@@ -2339,10 +2377,7 @@ export function chatUiHtml(): string {
       const empty = document.createElement("div");
       empty.className = "empty-state";
       empty.appendChild(document.createTextNode("深い海に迷ってしまいました。別のキーワードを試してみてください"));
-      const dots = document.createElement("div");
-      dots.className = "empty-dots";
-      for (let i = 0; i < 3; i++) dots.appendChild(document.createElement("i"));
-      empty.appendChild(dots);
+      empty.appendChild(asciiCritter());
       wrap.appendChild(empty);
     }
     container.appendChild(wrap);
@@ -2528,6 +2563,7 @@ export function chatUiHtml(): string {
       streamUi = null;
       revealNext = !streamed; // 流れて表示済みの回答には、タイプライターは使わない
       renderAssistantMessage(messagesEl, text, data.answer, data.sources, data.extractionRate, data.extractionDetail, data.memoryId, null, false);
+      if (panelState) { panelState.route = buildRoute(data); renderSourcePanel(); }
       if (data.toolCalls && data.toolCalls.length > 0) {
         // 使った外部サービスのツールを回答の下に出す（textContentのみ）
         const note = document.createElement("div");
@@ -2607,6 +2643,240 @@ export function chatUiHtml(): string {
     });
     return card;
   }
+  // ---------- 2026-10-22 追加: 改善設計書の反映（T6・T7・T12・X13・X14） ----------
+
+  // X14: 空状態だけに置く、文字で描いた小さな生き物。動きを減らす設定のときは止める。
+  const CRITTER_GLYPHS = ["X", "S", "8", "@", "%"];
+  function critterText(step) {
+    const g = (k) => CRITTER_GLYPHS[(step + k) % CRITTER_GLYPHS.length];
+    return " " + g(0) + " " + g(1) + " " + g(1) + " " + g(0) + "\\n" + g(2) + " @ . . @ " + g(2) + "\\n " + g(3) + " ~ " + g(4) + " " + g(3);
+  }
+  function asciiCritter() {
+    const pre = document.createElement("pre");
+    pre.className = "ascii-critter";
+    pre.setAttribute("aria-hidden", "true");
+    let step = 0;
+    pre.textContent = critterText(step);
+    const calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!calm) {
+      const timer = setInterval(() => {
+        if (!pre.isConnected) { clearInterval(timer); return; }
+        step += 1;
+        pre.textContent = critterText(step);
+      }, 700);
+    }
+    return pre;
+  }
+
+  // T12: 出典の種別と言語（推定）。種別は、取り込み元の記録が回答に付いていないので、URLかどうかだけで分ける。
+  function sourceKind(s) {
+    const f = String((s && s.file) || "");
+    return f.indexOf("http://") === 0 || f.indexOf("https://") === 0 ? "Web" : "登録文書（同期を含む）";
+  }
+  function sourceLang(s) {
+    const t = String((s && s.excerpt) || "") + String((s && s.file) || "");
+    if (!t.trim()) return "不明";
+    for (let i = 0; i < t.length; i++) {
+      const c = t.charCodeAt(i);
+      if ((c >= 0x3040 && c <= 0x30ff) || (c >= 0x4e00 && c <= 0x9fff)) return "日本語";
+    }
+    return "英語など";
+  }
+
+  // X13: 根拠の経路（質問 → 検索 → 出典 → 外部サービス）。画面に出ている回答のデータだけから作る。
+  function buildRoute(data) {
+    return {
+      auditId: data.auditId,
+      namespaces: data.namespaces || [],
+      sources: (data.sources || []).map((s, i) => ({ n: i + 1, file: s.file, cited: !!s.cited })),
+      toolCalls: data.toolCalls || [],
+      pending: data.pendingActions || [],
+    };
+  }
+  function routeItem(text, dim) {
+    const li = document.createElement("li");
+    if (dim) li.className = "dim";
+    li.textContent = text;
+    return li;
+  }
+  function renderRouteTree(route) {
+    const box = document.createElement("div");
+    box.className = "src-route";
+    box.appendChild(Object.assign(document.createElement("h4"), { textContent: "根拠の経路" }));
+    const root = document.createElement("ul");
+    root.className = "route-tree";
+    const q = routeItem("質問" + (route.auditId ? "（記録ID " + route.auditId + "）" : ""));
+    const level1 = document.createElement("ul");
+    const search = routeItem("検索: " + (route.namespaces.length ? route.namespaces.join(", ") : "（対象なし）"));
+    const found = document.createElement("ul");
+    const cited = route.sources.filter((s) => s.cited);
+    if (cited.length === 0) found.appendChild(routeItem("引用された出典はありません", true));
+    cited.forEach((s) => found.appendChild(routeItem("[" + s.n + "] " + s.file)));
+    search.appendChild(found);
+    level1.appendChild(search);
+    route.toolCalls.forEach((c) => level1.appendChild(routeItem("外部サービス: " + c.providerLabel + "「" + c.tool + "」" + (c.ok ? "" : "（失敗）"))));
+    route.pending.forEach((c) => level1.appendChild(routeItem("確認待ち: " + c.providerLabel + "「" + c.tool + "」（まだ実行されていません）", true)));
+    q.appendChild(level1);
+    root.appendChild(q);
+    box.appendChild(root);
+    return box;
+  }
+
+  // T6: キーボード割り当て。入力欄の中では、/ と ? は効かない（Ctrl+K / ⌘K は、入力欄の中でも使える）。
+  function isTypingTarget(t) {
+    return !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable === true);
+  }
+  function focusMainField() {
+    const activeBtn = document.querySelector("nav.tabs button.active");
+    const tab = activeBtn ? activeBtn.dataset.tab : "chat";
+    if (tab === "chat") { inputEl.focus(); return; }
+    const panel = document.getElementById("tab-" + tab);
+    const field = panel && panel.querySelector("input[type=search], input[type=text], input:not([type])");
+    if (field) { field.focus(); return; }
+    const chatTab = document.querySelector('nav.tabs button[data-tab="chat"]');
+    if (chatTab) chatTab.click();
+    inputEl.focus();
+  }
+  const SHORTCUT_LIST = [
+    ["/", "質問欄へ移動（履歴・お気に入りでは検索欄）。入力欄の中では効きません"],
+    ["Ctrl + K / ⌘ + K", "同じ。入力欄の中でも使えます"],
+    ["?", "このキー一覧を開く"],
+    ["Enter", "質問を送る（Shift + Enter は改行）"],
+    ["Esc", "出典のドロワー・ポップアップを閉じる"],
+  ];
+  function openShortcutList() {
+    const modal = openModal({ title: "キーボード操作", subtitle: "入力欄の外で使えるキーです" });
+    const table = document.createElement("table");
+    table.className = "shortcut-table";
+    SHORTCUT_LIST.forEach(([key, text]) => {
+      const tr = document.createElement("tr");
+      const k = document.createElement("td");
+      const kbd = document.createElement("kbd");
+      kbd.textContent = key;
+      k.appendChild(kbd);
+      const d = document.createElement("td");
+      d.textContent = text;
+      tr.appendChild(k);
+      tr.appendChild(d);
+      table.appendChild(tr);
+    });
+    modal.body.appendChild(table);
+    modal.footer.appendChild(modalButton("閉じる", "", () => modal.close()));
+  }
+  document.addEventListener("keydown", (event) => {
+    if (document.querySelector(".modal-backdrop") || document.body.classList.contains("locked")) return;
+    const mod = event.ctrlKey || event.metaKey;
+    if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k") { event.preventDefault(); focusMainField(); return; }
+    if (mod || event.altKey || isTypingTarget(event.target)) return;
+    if (event.key === "/") { event.preventDefault(); focusMainField(); }
+    else if (event.key === "?") { event.preventDefault(); openShortcutList(); }
+  });
+  (function addShortcutButton() {
+    const themeBtn = document.getElementById("themeToggle");
+    if (!themeBtn || !themeBtn.parentElement) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = "shortcutBtn";
+    btn.title = "キーボード操作の一覧（?）";
+    btn.textContent = "キー一覧";
+    btn.addEventListener("click", openShortcutList);
+    themeBtn.parentElement.insertBefore(btn, themeBtn);
+  })();
+
+  // T7: 書き出しと読み込み。形式は { format: "rag-favorites", version: 1, entries: [...] }。出典も一緒に出す。
+  const EXPORT_FORMAT = "rag-favorites";
+  function downloadJson(filename, payload) {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  function dateStamp() { return new Date().toISOString().slice(0, 19).replace(/:/g, "-"); }
+  function buildPinnedToolbar(entries) {
+    const bar = document.createElement("div");
+    bar.className = "pinned-toolbar";
+    const exportBtn = document.createElement("button");
+    exportBtn.type = "button";
+    exportBtn.className = "btn";
+    exportBtn.textContent = "書き出し（JSON）";
+    exportBtn.disabled = entries.length === 0;
+    exportBtn.addEventListener("click", () => {
+      downloadJson("rag-favorites-" + dateStamp() + ".json", {
+        format: EXPORT_FORMAT, version: 1, exportedAt: new Date().toISOString(),
+        entries: entries.map((e) => ({ query: e.query, answer: e.answer, sources: e.sources || [], namespaces: e.namespaces || [], createdAt: e.createdAt })),
+      });
+      showToast("お気に入り " + entries.length + " 件を書き出しました（出典つき）", "success");
+    });
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json,.json";
+    input.style.display = "none";
+    input.addEventListener("change", async () => {
+      const file = input.files[0];
+      input.value = "";
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text());
+        if (!parsed || parsed.format !== EXPORT_FORMAT || !Array.isArray(parsed.entries)) throw new Error("このツールで書き出したJSONではありません");
+        const result = await api("/memory/import", { entries: parsed.entries.slice(0, 50) });
+        showToast(result.imported + " 件を読み込みました" + (parsed.entries.length > 50 ? "（先頭の50件のみ）" : "") + (result.skipped ? "（" + result.skipped + " 件は形式が合わず省略）" : ""), "success");
+        loadPinned();
+      } catch (e) {
+        showToast("読み込みに失敗しました: " + e.message, "error");
+      }
+    });
+    const importBtn = document.createElement("button");
+    importBtn.type = "button";
+    importBtn.className = "btn";
+    importBtn.textContent = "読み込み（JSON）";
+    importBtn.addEventListener("click", () => input.click());
+    bar.appendChild(exportBtn);
+    bar.appendChild(importBtn);
+    bar.appendChild(input);
+    return bar;
+  }
+  // 会話全体（いまのセッション）のJSON書き出し。既存のMarkdown書き出しの隣に置く。
+  (function addSessionJsonButton() {
+    const mdBtn = document.getElementById("exportSessionBtn");
+    if (!mdBtn || !mdBtn.parentElement) return;
+    const btn = document.createElement("button");
+    btn.className = "btn";
+    btn.id = "exportSessionJsonBtn";
+    btn.textContent = "会話をJSONで書き出し";
+    btn.addEventListener("click", () => {
+      if (sessionLog.length === 0) { showToast("まだ会話がありません", "error"); return; }
+      downloadJson("rag-chat-" + dateStamp() + ".json", {
+        format: EXPORT_FORMAT, version: 1, exportedAt: new Date().toISOString(),
+        entries: sessionLog.map((e) => ({ query: e.question, answer: e.answer, sources: e.sources || [] })),
+      });
+    });
+    mdBtn.parentElement.appendChild(btn);
+  })();
+  // 回答へのリンク（#answer=<id>）を開く。自分の回答だけ（他人のIDは404）。
+  let answerHashHandled = false;
+  async function openAnswerFromHash() {
+    if (answerHashHandled) return;
+    const m = /answer=(\\d+)/.exec(location.hash || "");
+    if (!m) return;
+    answerHashHandled = true;
+    try {
+      const res = await api("/memory/get", { id: Number(m[1]) });
+      const entry = res.entry;
+      stopChatHero();
+      renderUserMessage(messagesEl, entry.query);
+      const ext = computeExtraction(entry.sources);
+      renderAssistantMessage(messagesEl, entry.query, entry.answer, entry.sources, ext.rate, ext.detail, entry.id, entry.rating, entry.pinned);
+      history.replaceState(null, "", location.pathname + location.search);
+    } catch (e) {
+      showToast("リンクの回答を開けませんでした: " + e.message, "error");
+    }
+  }
+
   sendBtn.addEventListener("click", send);
   inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
   inputEl.addEventListener("input", () => { inputEl.style.height = "auto"; inputEl.style.height = Math.min(inputEl.scrollHeight, 128) + "px"; });
@@ -2635,6 +2905,7 @@ export function chatUiHtml(): string {
     const box = document.createElement("div");
     box.className = "empty-state";
     box.appendChild(document.createTextNode(message));
+    box.appendChild(asciiCritter());
     if (actionLabel) {
       const br = document.createElement("div");
       br.style.marginTop = ".8rem";
@@ -2789,14 +3060,19 @@ export function chatUiHtml(): string {
     try {
       const data = await api("/memory/pinned", {});
       pane.innerHTML = "";
-      if (data.entries.length === 0) { renderEmptyState(pane, "お気に入りはまだありません。回答の「お気に入り」を押すと、ここに集まります。", "チャットへ"); return; }
+      if (data.entries.length === 0) {
+        renderEmptyState(pane, "お気に入りはまだありません。回答の「お気に入り」を押すと、ここに集まります。", "チャットへ");
+        pane.insertBefore(buildPinnedToolbar(data.entries), pane.firstChild);
+        return;
+      }
+      pane.appendChild(buildPinnedToolbar(data.entries));
       data.entries.forEach((entry) => {
         renderUserMessage(pane, entry.query);
         const ext = computeExtraction(entry.sources);
         renderAssistantMessage(pane, entry.query, entry.answer, entry.sources, ext.rate, ext.detail, entry.id, entry.rating, entry.pinned);
       });
     } catch (e) {
-      pane.innerHTML = '<p class="hint error">読み込みに失敗しました: ' + e.message + '</p>';
+      pane.innerHTML = '<p class="hint error">読み込みに失敗しました: ' + esc(e.message) + '</p>';
     }
   }
 
@@ -3175,7 +3451,7 @@ export function chatUiHtml(): string {
         appendRow(tbody, [u.displayName || u.userId, u.queries, u.tokens]);
       });
     } catch (e) {
-      $("usageByUserTable").querySelector("tbody").innerHTML = '<tr><td colspan=3>取得に失敗しました: ' + e.message + '</td></tr>';
+      $("usageByUserTable").querySelector("tbody").innerHTML = '<tr><td colspan=3>取得に失敗しました: ' + esc(e.message) + '</td></tr>';
     }
   }
   $("refreshUsage").addEventListener("click", loadUsageStats);
@@ -3234,7 +3510,7 @@ export function chatUiHtml(): string {
         }
       } catch (e) {
         kpiBox.innerHTML = "";
-        tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + e.message + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + esc(e.message) + '</td></tr>';
       }
     };
   }
@@ -3293,7 +3569,7 @@ export function chatUiHtml(): string {
         });
       });
     } catch (err) {
-      tbody.innerHTML = '<tr><td colspan=8>取得に失敗しました: ' + err.message + '</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=8>取得に失敗しました: ' + esc(err.message) + '</td></tr>';
     }
   }
   $("refreshAuditLog").addEventListener("click", loadAuditLog);
@@ -3384,7 +3660,7 @@ export function chatUiHtml(): string {
         });
       }
     } catch (e) {
-      box.innerHTML = '<p class="hint error">Overviewの取得に失敗しました: ' + e.message + '</p>';
+      box.innerHTML = '<p class="hint error">Overviewの取得に失敗しました: ' + esc(e.message) + '</p>';
     }
   }
 
@@ -3484,7 +3760,7 @@ export function chatUiHtml(): string {
       loadKeys();
     } catch (e) {
       clearNewKey();
-      $("newKeyResult").innerHTML = '<p class="hint error">' + e.message + '</p>';
+      $("newKeyResult").innerHTML = '<p class="hint error">' + esc(e.message) + '</p>';
     }
   });
 
@@ -3685,7 +3961,7 @@ export function chatUiHtml(): string {
       renderUsersOverviewKpis(data.keys);
       applyKeysFilter();
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan=8>取得に失敗しました: ' + e.message + '</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=8>取得に失敗しました: ' + esc(e.message) + '</td></tr>';
     }
   }
   $("refreshKeys").addEventListener("click", loadKeys);
@@ -3741,7 +4017,7 @@ export function chatUiHtml(): string {
         actionsCell.appendChild(delBtn);
       });
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + e.message + '</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + esc(e.message) + '</td></tr>';
     }
   }
   $("refreshNs").addEventListener("click", loadNamespaces);
@@ -3807,7 +4083,7 @@ export function chatUiHtml(): string {
         setCell.appendChild(setBtn);
       });
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + e.message + '</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + esc(e.message) + '</td></tr>';
     }
   }
   $("refreshNsUsage").addEventListener("click", loadNamespaceUsage);
@@ -4677,10 +4953,18 @@ export function chatUiHtml(): string {
   }
   $("myConnBtn").addEventListener("click", openMyConnectionsModal);
 
-  function startOAuthConnect(service, extraParams) {
+  // 開始のURLには、APIキーそのものではなく、60秒・1回だけ使えるトークンを付ける（履歴・ログ・Refererにキーを残さない）。
+  async function startOAuthConnect(service, extraParams) {
     const key = (apiKeyEl.value || localStorage.getItem("ragPocApiKey") || "").trim();
     if (!key) { showToast("先にAPIキーを入力してください", "error"); return; }
-    let url = "/admin/oauth/" + service + "/start?key=" + encodeURIComponent(key);
+    let token;
+    try {
+      token = (await api("/me/oauth-start-token", {})).token;
+    } catch (e) {
+      showToast("接続を始められませんでした: " + e.message, "error");
+      return;
+    }
+    let url = "/admin/oauth/" + service + "/start?t=" + encodeURIComponent(token);
     if (extraParams) {
       for (const k in extraParams) url += "&" + k + "=" + encodeURIComponent(extraParams[k]);
     }
@@ -4798,7 +5082,7 @@ export function chatUiHtml(): string {
       kbHistoryEntries = data.entries;
       renderKbHistory();
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan=8>取得に失敗しました: ' + e.message + '</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=8>取得に失敗しました: ' + esc(e.message) + '</td></tr>';
     }
   }
   // 実行者・状態での絞り込み（読み込み済みの履歴の中で行う）
@@ -4854,7 +5138,7 @@ export function chatUiHtml(): string {
         appendRow(tbody, [n.namespace, n.fileCount, n.chunkCount, sourceLabel, lastUpdated]);
       });
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + e.message + '</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=5>取得に失敗しました: ' + esc(e.message) + '</td></tr>';
     }
   }
   $("refreshKbOverview").addEventListener("click", loadKbOverview);
@@ -5017,7 +5301,7 @@ export function chatUiHtml(): string {
         tbody.appendChild(tr);
       });
     } catch (e) {
-      tbody.innerHTML = "<tr><td colspan=5>取得に失敗しました: " + e.message + "</td></tr>";
+      tbody.innerHTML = "<tr><td colspan=5>取得に失敗しました: " + esc(e.message) + "</td></tr>";
     }
   }
   $("gapRefresh").addEventListener("click", loadKnowledgeGaps);
@@ -5103,7 +5387,7 @@ export function chatUiHtml(): string {
         tr.children[6].title = e.note || "";
       });
     } catch (err) {
-      tbody.innerHTML = "<tr><td colspan=8>取得に失敗しました: " + err.message + "</td></tr>";
+      tbody.innerHTML = "<tr><td colspan=8>取得に失敗しました: " + esc(err.message) + "</td></tr>";
     }
   }
   $("refreshTutorialFeedback").addEventListener("click", loadTutorialFeedback);

@@ -119,6 +119,8 @@ export interface QueryResponse {
   extractionRate: number;
   extractionDetail: string;
   memoryId?: number;
+  // この質問の監査ログ（audit_log）の行ID。画面の「根拠の経路」の根に出す（2026-10-22）
+  auditId?: number;
   // useMcp で実際に呼んだMCPツール（画面に「どの外部サービスを使ったか」を出すため）
   toolCalls?: Array<{ providerId: string; providerLabel: string; tool: string; ok: boolean; error?: string }>;
   // 利用者の確認を待っている書き込み（作成・更新・削除・送信など。まだ実行されていない）。画面が「実行」「やめる」を出す

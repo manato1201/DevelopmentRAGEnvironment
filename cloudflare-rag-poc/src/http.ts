@@ -45,6 +45,15 @@ export function oauthResultPage(ok: boolean, rawMessage: string): Response {
       `<p style="color:#888;font-size:.9rem;">このタブは自動的に管理画面へ戻ります…</p>` +
       `</div><script>setTimeout(function(){location.href="/";},2500);</script>` +
       `</body></html>`,
-    { status: ok ? 200 : 400, headers: { "content-type": "text/html; charset=utf-8" } },
+    {
+      status: ok ? 200 : 400,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "x-frame-options": "DENY",
+        "content-security-policy": "frame-ancestors 'none'",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
+      },
+    },
   );
 }

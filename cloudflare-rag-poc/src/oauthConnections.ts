@@ -6,7 +6,7 @@ import type { Env } from "./types";
 // 各サービス固有のOAuthフロー（jiraOAuth.ts/backlogOAuth.ts/calendarOAuth.ts/
 // slackOAuth.ts）はこのモジュールの関数だけを使ってトークンを読み書きする。
 
-export type OAuthService = "jira" | "backlog" | "google_calendar" | "google_drive" | "gmail" | "slack" | "mcp";
+export type OAuthService = "jira" | "backlog" | "google_calendar" | "google_drive" | "gmail" | "slack" | "mcp" | "start";
 
 export interface OAuthConnection {
   service: OAuthService;
@@ -133,27 +133,35 @@ export async function createPendingState(
 }
 
 // 呼び出しと同時にstateを消費（削除）する。同じstateでの再利用（リプレイ）を防ぐため。
+// 取り出しと削除は、1回のSQL（DELETE ... RETURNING）で行う（2026-10-22。以前は、読んでから消していたため、
+// 同時に2回届くと、両方が通る余地があった）。ttlSec は、stateの有効期間（既定10分）。
 export async function consumePendingState(
   env: Env,
   service: OAuthService,
   state: string,
+  ttlSec = PENDING_STATE_TTL_SEC,
 ): Promise<Record<string, unknown> | null> {
   const now = Math.floor(Date.now() / 1000);
   const row = await env.DB.prepare(
-    "SELECT extra_json, created_at FROM oauth_pending_state WHERE state = ? AND service = ?",
+    "DELETE FROM oauth_pending_state WHERE state = ? AND service = ? RETURNING extra_json, created_at",
   )
     .bind(state, service)
     .first<{ extra_json: string | null; created_at: number }>();
   if (!row) return null;
-  await env.DB.prepare("DELETE FROM oauth_pending_state WHERE state = ?")
-    .bind(state)
-    .run();
-  if (row.created_at < now - PENDING_STATE_TTL_SEC) return null; // 期限切れ
+  if (row.created_at < now - ttlSec) return null; // 期限切れ
   try {
     return row.extra_json ? JSON.parse(row.extra_json) : {};
   } catch {
     return {};
   }
+}
+
+// 【2026-10-22】OAuth開始のURLに、APIキーそのものを載せないための、使い捨てトークン（60秒・1回だけ）。
+// 開始URLは、ブラウザの履歴・アクセスログ・Refererに残るため、キーを載せると、そこから漏れる。
+// 画面は、先に POST /me/oauth-start-token でこのトークンを受け取り、開始URLには ?t=<トークン> だけを付ける。
+export const START_TOKEN_TTL_SEC = 60;
+export async function createStartToken(env: Env, userId: string): Promise<string> {
+  return createPendingState(env, "start", { user_id: userId });
 }
 
 // OAuth開始エンドポイント（ブラウザの直接ナビゲーションで叩かれるためAuthorizationヘッダーを
@@ -171,6 +179,15 @@ export function oauthRedirectUri(req: Request, service: OAuthService): string {
 
 export async function authenticateFromQueryKey(req: Request, env: Env) {
   const url = new URL(req.url);
+  // 使い捨てトークン（?t=）。画面は、こちらを使う。
+  const token = url.searchParams.get("t");
+  if (token) {
+    const pending = await consumePendingState(env, "start", token, START_TOKEN_TTL_SEC);
+    if (!pending || typeof pending.user_id !== "string") return null;
+    const { loadAuthedUser } = await import("./auth");
+    return loadAuthedUser(env, pending.user_id);
+  }
+  // 以前の方式（?key=<APIキー>）。古い画面・手作りのURLのために残してある（キーが履歴に残るので、非推奨）。
   const key = url.searchParams.get("key");
   if (!key) return null;
   // authenticate()と同じ検証ロジックを再利用するため、一時的にAuthorizationヘッダーを
@@ -180,4 +197,14 @@ export async function authenticateFromQueryKey(req: Request, env: Env) {
   });
   const { authenticate } = await import("./auth");
   return authenticate(cloned, env);
+}
+
+// POST /me/oauth-start-token — 開始用の使い捨てトークンを発行する（認証済みの全ユーザー。ゲストを除く）。
+export async function handleOAuthStartToken(_req: Request, env: Env, user: import("./types").AuthedUser): Promise<Response> {
+  if (user.role === "guest") return new Response(JSON.stringify({ error: "ゲストは連携を使えません" }), { status: 403, headers: { "content-type": "application/json; charset=utf-8" } });
+  const token = await createStartToken(env, user.userId);
+  return new Response(JSON.stringify({ token, expiresInSeconds: START_TOKEN_TTL_SEC, status: "ok" }), {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  });
 }
