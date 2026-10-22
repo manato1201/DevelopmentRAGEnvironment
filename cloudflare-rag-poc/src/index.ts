@@ -51,7 +51,8 @@ import { handleHealthCheck, handleTestAlert, checkHealthAndAlert } from "./healt
 import { handleBackupExport } from "./backup";
 import { handleClaudeMessages } from "./claude";
 import { handleTts } from "./tts";
-import { handleMcpOAuthStart, handleMcpOAuthCallback, handleMcpStatus, handleMcpDisconnect, handleMcpTools, handleMcpSetTools, handleMcpSetChat, handleMcpCall, handleMyMcp } from "./mcp/routes";
+import { handleMcpOAuthStart, handleMcpOAuthCallback, handleMcpStatus, handleMcpDisconnect, handleMcpTools, handleMcpSetTools, handleMcpSetChat, handleMcpCall, handleMyMcp, handleMcpConfirm, handleMcpCancel } from "./mcp/routes";
+import { purgeExpiredApprovals } from "./mcp/approval";
 import { handleTutorialFeedbackSubmit, handleTutorialFeedbackList, handleTutorialFeedbackStats } from "./tutorialFeedback";
 import { handleMyNamespaces, handleMyBudget } from "./retrieve";
 import { RateLimitedError } from "./rateLimit";
@@ -404,6 +405,10 @@ export default {
           return await handleMcpCall(req, env, user);
         case "/me/mcp":
           return await handleMyMcp(req, env, user);
+        case "/mcp/confirm":
+          return await handleMcpConfirm(req, env, user);
+        case "/mcp/cancel":
+          return await handleMcpCancel(req, env, user);
         case "/tutorial-feedback/submit":
           return await handleTutorialFeedbackSubmit(req, env, user);
         case "/admin/tutorial-feedback/list":
@@ -460,6 +465,7 @@ export default {
       const auditCutoff = Math.floor(Date.now() / 1000) - AUDIT_LOG_RETENTION_DAYS * 86400;
       await env.DB.prepare("DELETE FROM audit_log WHERE created_at < ?").bind(auditCutoff).run();
       await env.DB.prepare("DELETE FROM mcp_audit WHERE created_at < ?").bind(auditCutoff).run();
+      await purgeExpiredApprovals(env); // 期限が切れた「書き込みの確認待ち」（5分で失効）
       const crawlJobCutoff = Math.floor(Date.now() / 1000) - CRAWL_JOB_ABANDONED_DAYS * 86400;
       await env.DB.prepare("DELETE FROM crawl_jobs WHERE updated_at < ?").bind(crawlJobCutoff).run();
       return;

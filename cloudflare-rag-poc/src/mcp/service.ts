@@ -443,9 +443,9 @@ export async function toolSettings(
     name: tool.name,
     description: tool.description,
     readOnly: tool.readOnly,
-    enabled:
-      connection.enabledTools === null ||
-      connection.enabledTools.includes(tool.name),
+    // 初期状態（未選択）は「読み取り専用の全ツール」。書き込みツールは、明示的に選んだときだけ有効にする
+    // （保存の操作で、うっかり書き込みが有効にならないよう、画面のチェックの初期値もこれに合わせる）。
+    enabled: connection.enabledTools === null ? tool.readOnly : connection.enabledTools.includes(tool.name),
   }));
 }
 
@@ -478,8 +478,12 @@ export interface ChatTool {
   tool: ClassifiedTool;
 }
 
-// RAGチャットでモデルに見せるツール。「チャットで使う」がオンで接続中のサービスの、
-// 有効化された読み取り専用ツールだけ。書き込み系は（確認の手段がまだ無いので）出さない。
+// RAGチャットでモデルに見せるツール。「チャットで使う」がオンで接続中のサービスの、有効化されたツール。
+//   - 読み取り専用ツール: 従来どおり、確認なしで使える。
+//   - 書き込みツール（作成・更新・削除・送信など）: 次の3つをすべて満たすときだけ見せる（2026-10-22）。
+//       ① 本人専用の接続である（共有の接続では、誰の権限で書くのか分からなくなるため、書き込まない）
+//       ② ツールの有効化リストに、そのツールが明示的に入っている（初期状態の「全部」には含めない）
+//       ③ 実行の前に、必ず利用者の確認が入る（chat.ts / approval.ts。モデルが呼んでも、実行はされない）
 // 1つのサービスの失敗（通信エラー・要再認証）で、他のサービスのツールまで使えなくしない。
 export async function chatTools(
   env: Env,
@@ -506,7 +510,7 @@ export async function chatTools(
         row.owner_id,
       );
       for (const tool of offered(tools, connection.enabledTools)) {
-        if (tool.readOnly)
+        if (tool.readOnly || writeAllowedInChat(connection, tool.name))
           result.push({
             providerId: row.provider_id,
             ownerId: row.owner_id,
@@ -521,13 +525,18 @@ export async function chatTools(
   return result;
 }
 
+// チャットで書き込みツールを使ってよいか（chatTools の①②。③の確認は別）。
+export function writeAllowedInChat(connection: Connection, toolName: string): boolean {
+  return connection.ownerId !== "" && connection.enabledTools !== null && connection.enabledTools.includes(toolName);
+}
+
 export async function callTool(
   env: Env,
   userId: string | null,
   providerId: string,
   toolName: string,
   args: Record<string, unknown>,
-  options: { readOnlyOnly?: boolean; ownerId?: string } = {},
+  options: { readOnlyOnly?: boolean; ownerId?: string; confirmedWrite?: boolean } = {},
   fetchImpl: FetchLike = fetch,
 ): Promise<McpCallResult & { readOnly: boolean }> {
   const provider = getProvider(providerId);
@@ -543,6 +552,11 @@ export async function callTool(
     throw new McpToolNotAllowed(
       `このツールは書き込みを行う可能性があるため、ここでは実行できません: ${toolName}`,
     );
+  }
+  // 確認済みの書き込み（/mcp/confirm）: 呼び出しの時点でも、チャットで書き込んでよい条件を満たすことを確かめる
+  // （確認のあとに、管理者がツールを無効にした・接続を共有に変えた、などを反映するため）。
+  if (options.confirmedWrite && !selected.readOnly && !writeAllowedInChat(connection, toolName)) {
+    throw new McpToolNotAllowed(`このツールは、いまはチャットから書き込めない設定です: ${toolName}`);
   }
   try {
     const session = await open(env, connection, provider, fetchImpl);

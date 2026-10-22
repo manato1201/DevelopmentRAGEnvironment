@@ -200,16 +200,16 @@ const calCalls2 = calls.filter((c) => c.url.includes("/events"));
 assert.deepEqual(calCalls2.map((c) => c.auth).sort(), ["Bearer cal-mem", "Bearer cal-shared"]);
 
 // ---------------- per-user MCP ----------------
-await S.connectPublic(env, "mslearn", "mem", "mem");
-assert.equal((await S.statuses(env, "mem")).find((p) => p.id === "mslearn").connected, true);
-assert.equal((await S.statuses(env, "other")).find((p) => p.id === "mslearn").connected, false);
-assert.equal((await S.statuses(env)).find((p) => p.id === "mslearn").connected, false); // shared untouched
+await S.connectPublic(env, "cfdocs", "mem", "mem");
+assert.equal((await S.statuses(env, "mem")).find((p) => p.id === "cfdocs").connected, true);
+assert.equal((await S.statuses(env, "other")).find((p) => p.id === "cfdocs").connected, false);
+assert.equal((await S.statuses(env)).find((p) => p.id === "cfdocs").connected, false); // shared untouched
 assert.equal((await S.statuses(env)).find((p) => p.id === "notion").connected, true); // legacy shared connection survived the migration
-await S.setChatEnabled(env, "mslearn", true, "mem");
+await S.setChatEnabled(env, "cfdocs", true, "mem");
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (input, init = {}) => {
   const url = typeof input === "string" ? input : input.url;
-  if (url === "https://learn.microsoft.com/api/mcp") {
+  if (url === "https://docs.mcp.cloudflare.com/mcp") {
     const body = JSON.parse(init.body);
     if (body.method === "initialize") return json({ jsonrpc: "2.0", id: body.id, result: { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "x", version: "1" } } });
     if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
@@ -218,12 +218,12 @@ globalThis.fetch = async (input, init = {}) => {
   return realFetch(input, init);
 };
 const tools = await S.chatTools(env, fetch, "mem");
-assert.deepEqual(tools.map((t) => [t.providerId, t.ownerId]), [["mslearn", "mem"]]);
+assert.deepEqual(tools.map((t) => [t.providerId, t.ownerId]), [["cfdocs", "mem"]]);
 assert.deepEqual(await S.chatTools(env, fetch, "other"), []); // another user doesn't get mem's connection
 assert.deepEqual(await S.chatTools(env, fetch, ""), []);
 globalThis.fetch = realFetch;
-await S.disconnect(env, "mslearn", "mem", "mem");
-assert.equal((await S.statuses(env, "mem")).find((p) => p.id === "mslearn").connected, false);
+await S.disconnect(env, "cfdocs", "mem", "mem");
+assert.equal((await S.statuses(env, "mem")).find((p) => p.id === "cfdocs").connected, false);
 
 // ---------------- key deletion removes per-user connections ----------------
 const KA = await import("../src/keyAdmin");

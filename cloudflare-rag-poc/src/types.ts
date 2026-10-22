@@ -121,6 +121,8 @@ export interface QueryResponse {
   memoryId?: number;
   // useMcp で実際に呼んだMCPツール（画面に「どの外部サービスを使ったか」を出すため）
   toolCalls?: Array<{ providerId: string; providerLabel: string; tool: string; ok: boolean; error?: string }>;
+  // 利用者の確認を待っている書き込み（作成・更新・削除・送信など。まだ実行されていない）。画面が「実行」「やめる」を出す
+  pendingActions?: Array<{ approvalId: string; providerId: string; providerLabel: string; tool: string; arguments: Record<string, unknown>; expiresAt: number }>;
 }
 
 // "editor"（ナレッジ登録権限者）は2026-09-10追加。ナレッジ登録・KB同期のみ許可され、
