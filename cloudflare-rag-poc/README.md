@@ -571,7 +571,7 @@ curl.exe -X POST http://localhost:8787/admin/tutorial-feedback/list -H "Authoriz
 curl.exe -X POST http://localhost:8787/admin/tutorial-feedback/stats -H "Authorization: Bearer <adminのAPIキー>" -H "Content-Type: application/json" -d '{\"days\":90}'
 
 # 公式MCP連携（2026-10-08、migrations/0018、詳細は docs/mcp-client.md）。接続・ツール選択はadminのみ
-# 接続はブラウザで GET /admin/oauth/mcp/<notion|atlassian>/start?key=<adminのAPIキー> を開く（管理画面の「連携」タブのボタンが同じ）
+# 接続はブラウザで GET /admin/oauth/mcp/<notion|github|vercel|canva|…>/start?key=<adminのAPIキー> を開く（管理画面の「連携」タブのボタンが同じ）
 curl.exe -X POST http://localhost:8787/admin/mcp/status -H "Authorization: Bearer <adminのAPIキー>" -H "Content-Type: application/json" -d '{}'
 curl.exe -X POST http://localhost:8787/admin/mcp/tools -H "Authorization: Bearer <adminのAPIキー>" -H "Content-Type: application/json" -d '{\"provider\":\"notion\"}'
 curl.exe -X POST http://localhost:8787/admin/mcp/set-chat -H "Authorization: Bearer <adminのAPIキー>" -H "Content-Type: application/json" -d '{\"provider\":\"notion\",\"enabled\":true}'
@@ -719,7 +719,7 @@ with urllib.request.urlopen(req, timeout=30) as res:
 - [x] 評価（Houdiniチュートリアル）の受付と管理者限定の閲覧 → `src/tutorialFeedback.ts`・`migrations/0017`・管理画面「利用状況・コスト」タブ（2026-10-05）
 - [x] クロールの最大ページ数の上限（50）を撤廃（進行状態が約1.5MBを超えたら案内つきで正常終了、待ち行列は3000件で頭打ち） → `src/urlImport.ts`（2026-10-06）
 - [x] ナレッジ追加を3ステップのポップアップに統合（ファイル・URL・YouTube・クロール・Q&A・CSV） → `src/chatUi.ts`（2026-10-08）
-- [x] 公式MCP連携（MCPクライアント。Notion・Atlassian。OAuth 2.1・自動登録・PKCE、チャットから読み取り専用ツール） → `src/mcp/`・`migrations/0018`・[docs/mcp-client.md](docs/mcp-client.md)（2026-10-08）
+- [x] 公式MCP連携（MCPクライアント。Notion・GitHub・Slack・Google・Canva・Figma・Vercelなど。OAuth 2.1・自動登録・PKCE、チャットから読み取りツールと、確認つきの書き込み〔2026-10-22〕） → `src/mcp/`・`migrations/0018`・[docs/mcp-client.md](docs/mcp-client.md)（2026-10-08）
 - [x] システム全体のガイド → [../docs/system-guide.html](../docs/system-guide.html)
 - [x] ~~Google Drive側の実認証情報での同期検証~~ → サービスアカウント経由で実際のDriveフォルダ（houdini21・houdini22・cedecnotes）を同期。houdini22は8ドキュメント・67チャンク登録、cedecnotesはPDF/PPTX中心で大半スキップ（既知の未対応mimeType）、houdini21は対象フォルダが空だった（2026-08-26）
 - [x] ~~Webチャット画面のタブ構成（チャット／グラフ／履歴／管理）・グラフ表示・ブラウザ内Admin画面~~ → `src/chatUi.ts`を4タブ構成に全面刷新、新規`src/graph.ts`（`POST /graph`）でグラフ可視化を追加、既存Admin APIをブラウザから直接操作できるように（2026-08-25、実データで81ノード/239エッジを確認済み）

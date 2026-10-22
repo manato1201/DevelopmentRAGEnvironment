@@ -44,16 +44,14 @@ const proto = await import("../src/mcp/protocol");
 const ids = prov.providerIds();
 for (const id of [
   "notion",
-  "atlassian",
+  "vercel",
+  "canva",
   "github",
   "slack",
   "gmail",
   "gdrive",
   "gcalendar",
-  "linear",
-  "sentry",
   "figma",
-  "mslearn",
   "cfdocs",
 ])
   assert.ok(ids.includes(id), id);
@@ -64,8 +62,8 @@ for (const p of Object.values(prov.MCP_PROVIDERS))
 const bare = { DB: D1 };
 assert.equal(prov.setupFor(bare, prov.MCP_PROVIDERS.github).needed, true);
 assert.equal(prov.setupFor(bare, prov.MCP_PROVIDERS.gdrive).needed, true);
-assert.equal(prov.setupFor(bare, prov.MCP_PROVIDERS.linear).needed, false);
-assert.equal(prov.setupFor(bare, prov.MCP_PROVIDERS.mslearn).needed, false);
+assert.equal(prov.setupFor(bare, prov.MCP_PROVIDERS.vercel).needed, false);
+assert.equal(prov.setupFor(bare, prov.MCP_PROVIDERS.cfdocs).needed, false);
 const env = {
   DB: D1,
   GMAIL_OAUTH_CLIENT_ID: "gid",
@@ -105,7 +103,7 @@ const fakeFetch = async (input, init = {}) => {
     });
   if (url === "https://oauth2.googleapis.com/token")
     return json({ access_token: "A", refresh_token: "R", expires_in: 3600 });
-  if (url === "https://learn.microsoft.com/api/mcp") {
+  if (url === "https://docs.mcp.cloudflare.com/mcp") {
     const body = JSON.parse(init.body);
     return json({
       jsonrpc: "2.0",
@@ -171,30 +169,32 @@ await assert.rejects(
 );
 
 // ---- public server: connect without any OAuth, session sends no Authorization header
-const p = await svc.connectPublic(env, "mslearn", "u1");
-assert.equal(p.id, "mslearn");
+const p = await svc.connectPublic(env, "cfdocs", "u1");
+assert.equal(p.id, "cfdocs");
 const row = db
-  .prepare("SELECT * FROM mcp_connections WHERE provider_id = 'mslearn'")
+  .prepare("SELECT * FROM mcp_connections WHERE provider_id = 'cfdocs'")
   .get();
 assert.equal(row.status, "connected");
 await assert.rejects(
-  () => svc.connectPublic(env, "linear", "u1"),
+  () => svc.connectPublic(env, "vercel", "u1"),
   /認証が必要/,
 );
-await proto.openSession("https://learn.microsoft.com/api/mcp", "", fakeFetch);
+await proto.openSession("https://docs.mcp.cloudflare.com/mcp", "", fakeFetch);
 const initCall = calls.filter(
-  (c) => c.url === "https://learn.microsoft.com/api/mcp",
+  (c) => c.url === "https://docs.mcp.cloudflare.com/mcp",
 )[0];
 assert.equal(initCall.init.headers.Authorization, undefined);
 
 // ---- statuses
 const st = await svc.statuses(env);
 const by = Object.fromEntries(st.map((s) => [s.id, s]));
-assert.equal(by.mslearn.connected, true);
-assert.equal(by.mslearn.noAuth, true);
+assert.equal(by.cfdocs.connected, true);
+assert.equal(by.cfdocs.noAuth, true);
 assert.equal(by.github.setupRequired, true);
 assert.equal(by.github.setupHint.includes("callback"), true);
 assert.equal(by.gdrive.setupRequired, false);
-assert.equal(by.linear.setupRequired, false);
+assert.equal(by.vercel.setupRequired, false);
+// 2026-10-22に外した（使わない）サービスは、一覧に出ない
+for (const gone of ["linear", "sentry", "atlassian"]) assert.equal(prov.providerIds().includes(gone), false, gone);
 
 console.log("mcp extension tests passed");

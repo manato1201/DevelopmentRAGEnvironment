@@ -5,6 +5,9 @@
 //
 // セキュリティ: 接続先はこの登録簿にあるURLだけ（任意のURLは受け付けない＝SSRF防止）。
 // 新しいサービスを足すときは、公式のリモートMCPサーバーのURLを1件足すだけでよい。
+// 【2026-10-22】必要なものだけに絞った（企画書=Notion/Drive/Canva・UI=Figma/Canva・バージョン管理=GitHub・
+// 連絡=Slack/Gmail/カレンダー・配信=Vercel・開発資料=Cloudflare Docs）。使わないLinear・Sentry・Microsoft Learn・
+// Atlassianは外した。ローカルで動くMCP（Blender・Unity・Docker）は、Workerから届かないので対象外（docs/mcp-integration-guide.md）。
 // 認可に必要な情報（OAuthの探索・クライアントの自動登録・PKCE）は共通層が行うので、
 // 自動登録に対応したサーバーはOAuthアプリ登録もsecret設定も要らない。対応しないサーバー
 // （GitHub・Slack・Google）だけ staticClient でsecretを使う。認証が要らない公開サーバーは auth: "none"。
@@ -56,31 +59,20 @@ export const MCP_PROVIDERS: Record<string, McpProvider> = {
     blockedTools: [],
     toolHints: {},
   },
-  atlassian: {
-    id: "atlassian",
-    label: "Atlassian（Jira / Confluence）",
-    description: "Jiraの課題・Confluenceのページの検索と閲覧（公式MCP）",
-    url: "https://mcp.atlassian.com/v1/mcp",
-    scopes: [],
-    readOnlyTools: [],
-    writeTools: [],
-    blockedTools: [],
-    toolHints: {},
-  },
   // ---- 自動登録に対応するサーバー（secret不要）----
-  linear: {
-    id: "linear",
-    label: "Linear",
-    description: "課題・プロジェクト・ドキュメントの検索と閲覧（公式MCP）",
-    url: "https://mcp.linear.app/mcp",
-    scopes: ["read"],
+  vercel: {
+    id: "vercel",
+    label: "Vercel",
+    description: "プロジェクト・デプロイの確認、ログの調査、ドキュメントの検索（公式MCP）",
+    url: "https://mcp.vercel.com/",
+    scopes: [],
     ...NO_TOOLS,
   },
-  sentry: {
-    id: "sentry",
-    label: "Sentry",
-    description: "エラー・課題・リリースの検索と閲覧（公式MCP）",
-    url: "https://mcp.sentry.dev/mcp",
+  canva: {
+    id: "canva",
+    label: "Canva",
+    description: "デザインの検索・閲覧・作成、企画書やスライドの書き出し（公式MCP）",
+    url: "https://mcp.canva.com/mcp",
     scopes: [],
     ...NO_TOOLS,
   },
@@ -93,15 +85,6 @@ export const MCP_PROVIDERS: Record<string, McpProvider> = {
     ...NO_TOOLS,
   },
   // ---- 認証が要らない公開サーバー ----
-  mslearn: {
-    id: "mslearn",
-    label: "Microsoft Learn",
-    description: "Microsoftの公式ドキュメント（.NET・C#・Azureなど）の検索（公式MCP、認証なし）",
-    url: "https://learn.microsoft.com/api/mcp",
-    scopes: [],
-    auth: "none",
-    ...NO_TOOLS,
-  },
   cfdocs: {
     id: "cfdocs",
     label: "Cloudflare Docs",

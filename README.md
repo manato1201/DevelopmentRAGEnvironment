@@ -34,7 +34,7 @@
 | **houdini21チュートリアル自動生成** | 自然言語の依頼からHoudiniのノードグラフを実際に組み立て、cookエラーなしのチュートリアル（Markdown+ノードグラフJSON）を自動生成。ビューポート画像による視覚的自己検証（`confirm_tutorial`）・多段階の完了判定救済ロジックあり |
 | **チュートリアル動画の自動生成** | 保存したチュートリアルからLearningQt連携で解説動画を自動生成。各ステップのビューポート/ネットワークエディタのスクリーンショットが素材になる |
 | **チュートリアルの評価と学習**（2026-10） | 👍👎・理由タグ・メモと、生成時の自動指標を保存。集計・教訓（承認制）・成功例として次の生成に反映。評価はCloudflareにも送られ、管理者だけが閲覧できる |
-| **公式MCP連携**（2026-10） | Cloudflare WorkerをMCPクライアントにして、Notion・Atlassianの公式MCPサーバーへ接続（自動登録・PKCE）。RAGチャットから読み取り専用ツールを使える |
+| **公式MCP連携**（2026-10） | Cloudflare WorkerをMCPクライアントにして、公式MCPサーバー（Notion・GitHub・Slack・Google・Canva・Figma・Vercelなど）へ接続（自動登録・PKCE）。RAGチャットから、読み取りのツールと、**確認つきの書き込み**（本人専用の接続・明示的に許可したものだけ）を使える。選定と手順 → [docs/mcp-integration-guide.md](docs/mcp-integration-guide.md) |
 | **ナレッジ追加のポップアップ**（2026-10） | ファイル・URL（YouTube・クロール）・Q&Aを3ステップでまとめて登録。クロールの最大ページ数は上限なし |
 | **Cloudflare RAG**（クラウド RAG の現行実装） | Cloudflare Workers+D1+Vectorize。旧GAS版（2026-10-22に廃止・削除）の機能をすべて置き換え済み。GAS版には無い新機能（再帰URLクローラー・重複コンテンツ検出・Jira/Backlog/Googleカレンダー/Googleマップ連携・OAuthクリック接続化）も追加している |
 

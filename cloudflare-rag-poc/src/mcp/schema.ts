@@ -21,7 +21,33 @@ function isRecord(value: unknown): value is Schema {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// 一部のサーバー（Google・Vercelなど）は、入れ子の引数を局所参照（"$ref": "#/$defs/Waypoint"）で記述する。
+// Geminiの関数宣言には $defs が渡らないため、参照は、指す先のスキーマに置き換える
+// （しないと、入れ子のオブジェクトが、ただの文字列として見えてしまう）。循環・外部参照は文字列にする。
+// 別プロジェクト（AxChatD）の web/src/features/mcp/core/schema.ts の inlineRefs にならう（2026-10-22追加）。
+export function inlineRefs(node: unknown, root: Schema, trail: string[] = []): unknown {
+  if (Array.isArray(node)) return node.map((item) => inlineRefs(item, root, trail));
+  if (!isRecord(node)) return node;
+  const ref = node.$ref;
+  if (typeof ref === "string") {
+    if (!ref.startsWith("#/") || trail.includes(ref) || trail.length >= 8) return { type: "string" };
+    const target = ref
+      .slice(2)
+      .split("/")
+      .reduce<unknown>((current, key) => (isRecord(current) ? current[key.replace(/~1/g, "/").replace(/~0/g, "~")] : undefined), root);
+    if (!isRecord(target)) return { type: "string" };
+    const { $ref: _ref, ...own } = node;
+    return inlineRefs({ ...target, ...own }, root, [...trail, ref]);
+  }
+  return Object.fromEntries(
+    Object.entries(node)
+      .filter(([key]) => key !== "$defs" && key !== "definitions")
+      .map(([key, value]) => [key, inlineRefs(value, root, trail)]),
+  );
+}
+
 export function toGeminiSchema(schema: unknown, depth = 0): Schema {
+  if (depth === 0 && isRecord(schema)) schema = inlineRefs(schema, schema);
   if (!isRecord(schema) || depth > MAX_DEPTH) return { type: "STRING" };
   const alternatives = [schema.anyOf, schema.oneOf].find(Array.isArray) as unknown[] | undefined;
   if (alternatives) {

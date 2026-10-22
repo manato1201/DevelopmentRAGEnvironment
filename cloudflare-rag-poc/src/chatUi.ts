@@ -503,6 +503,10 @@ export function chatUiHtml(): string {
   .mcp-status-list { list-style: none; margin: .5rem 0; padding: 0; }
   .mcp-status-list li { display: flex; align-items: center; gap: .5rem; padding: .3rem 0; font-size: .85rem; }
   .tool-calls { font-size: .76rem; color: var(--muted); margin-top: .3rem; }
+  .pending-action { border: 1px solid var(--accent); border-radius: 10px; padding: .6rem .8rem; margin-top: .5rem; background: var(--panel); }
+  .pending-action pre { max-height: 10rem; overflow: auto; font-size: .76rem; margin: .4rem 0; padding: .4rem; background: var(--bg, transparent); border-radius: 6px; white-space: pre-wrap; word-break: break-all; }
+  .pending-action small { display: block; color: var(--muted); font-size: .76rem; }
+  .pending-action-buttons { display: flex; gap: .5rem; margin-top: .5rem; }
 
   /* ---------- 別プロジェクトを参考にした画面構成（2026-10-08）：アクションバー・カード・システム選択・詳細 ---------- */
   .btn.outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
@@ -2532,6 +2536,11 @@ export function chatUiHtml(): string {
         const last = messagesEl.lastElementChild;
         if (last) last.appendChild(note);
       }
+      if (data.pendingActions && data.pendingActions.length > 0) {
+        // 書き込みの確認（まだ実行されていない）。「実行」を押すまで、何も行われない
+        const last = messagesEl.lastElementChild;
+        if (last) data.pendingActions.forEach((action) => last.appendChild(renderPendingAction(action)));
+      }
       sessionLog.push({ question: text, answer: data.answer, sources: data.sources });
       currentThread.history.push({ role: "user", content: text }, { role: "assistant", content: data.answer });
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -2547,6 +2556,56 @@ export function chatUiHtml(): string {
       sendBtn.disabled = false;
       inputEl.focus();
     }
+  }
+  // 外部サービスへの書き込みの確認カード（textContentだけで組み立てる）。「実行」でサーバーが、保存してある
+  // 内容を1回だけ実行する（画面から送るのは確認のIDだけ）。期限は5分。
+  function renderPendingAction(action) {
+    const card = document.createElement("div");
+    card.className = "pending-action";
+    const title = document.createElement("strong");
+    title.textContent = action.providerLabel + "「" + action.tool + "」を実行しますか？";
+    card.appendChild(title);
+    const detail = document.createElement("pre");
+    detail.textContent = JSON.stringify(action.arguments, null, 2);
+    card.appendChild(detail);
+    const note = document.createElement("small");
+    note.textContent = "まだ実行されていません。内容を確かめて「実行」を押してください（5分で期限切れ）。";
+    card.appendChild(note);
+    const row = document.createElement("div");
+    row.className = "pending-action-buttons";
+    const runBtn = document.createElement("button");
+    runBtn.type = "button";
+    runBtn.className = "primary";
+    runBtn.textContent = "実行";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.textContent = "やめる";
+    row.appendChild(runBtn);
+    row.appendChild(cancelBtn);
+    card.appendChild(row);
+    const finish = (text, isError) => {
+      row.remove();
+      note.textContent = text;
+      if (isError) note.style.color = "var(--danger, #c0392b)";
+    };
+    runBtn.addEventListener("click", async () => {
+      runBtn.disabled = true;
+      cancelBtn.disabled = true;
+      try {
+        const res = await api("/mcp/confirm", { approvalId: action.approvalId });
+        const r = res.result || {};
+        finish(r.isError ? "実行しましたが、サービスがエラーを返しました: " + String(r.text || "").slice(0, 300) : "実行しました。" + (r.text ? " 結果: " + String(r.text).slice(0, 300) : ""), !!r.isError);
+      } catch (e) {
+        finish("実行できませんでした: " + e.message, true);
+      }
+    });
+    cancelBtn.addEventListener("click", async () => {
+      runBtn.disabled = true;
+      cancelBtn.disabled = true;
+      try { await api("/mcp/cancel", { approvalId: action.approvalId }); } catch { /* 期限で消えるので無視 */ }
+      finish("やめました。何も実行していません。", false);
+    });
+    return card;
   }
   sendBtn.addEventListener("click", send);
   inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
@@ -5864,37 +5923,31 @@ export function chatUiHtml(): string {
   const SYSTEM_DEFS = [
     { id: "mcp:notion", kind: "mcp", group: "mcp", provider: "notion", name: "Notion", brand: "Notion", icon: "note",
       description: "ページの検索・閲覧（公式MCP）",
-      access: "Notionのページ・データベースを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、書き込みを行うツールは使われません。" },
-    { id: "mcp:atlassian", kind: "mcp", group: "mcp", provider: "atlassian", name: "Atlassian（Jira / Confluence）", brand: "Atlassian", icon: "compass",
-      description: "課題・ページの検索と閲覧（公式MCP）",
-      access: "Jiraの課題・Confluenceのページを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新を行うツールは使われません。" },
+      access: "Notionのページ・データベースを検索・閲覧できます。読み取りのツールは確認なしで使えます。書き込み（作成・更新・削除・送信）のツールは、「自分用」の接続で、ツールの選択で許可したものだけが、実行の前に毎回、確認つきで使えます。" },
     { id: "mcp:github", kind: "mcp", group: "mcp", provider: "github", name: "GitHub", brand: "GitHub", icon: "branch",
       description: "リポジトリ・課題・プルリクエストの検索と閲覧（公式MCP）",
-      access: "リポジトリのコード・課題・プルリクエストを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。事前にGitHubのOAuthアプリを作り、Client ID/Secretをsecretに登録する必要があります。" },
+      access: "リポジトリのコード・課題・プルリクエストを検索・閲覧できます。読み取りのツールは確認なしで使えます。書き込み（作成・更新・削除・送信）のツールは、「自分用」の接続で、ツールの選択で許可したものだけが、実行の前に毎回、確認つきで使えます。事前にGitHubのOAuthアプリを作り、Client ID/Secretをsecretに登録する必要があります。" },
     { id: "mcp:slack", kind: "mcp", group: "mcp", provider: "slack", name: "Slack（公式MCP）", brand: "Slack", icon: "chat",
       description: "メッセージ・チャンネル・キャンバスの検索と閲覧（公式MCP）",
-      access: "自分が見られるチャンネルのメッセージとキャンバスを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。事前にSlackアプリでMCPを有効にし、Client ID/Secretをsecretに登録する必要があります。" },
+      access: "自分が見られるチャンネルのメッセージとキャンバスを検索・閲覧できます。読み取りのツールは確認なしで使えます。書き込み（作成・更新・削除・送信）のツールは、「自分用」の接続で、ツールの選択で許可したものだけが、実行の前に毎回、確認つきで使えます。事前にSlackアプリでMCPを有効にし、Client ID/Secretをsecretに登録する必要があります。" },
     { id: "mcp:gmail", kind: "mcp", group: "mcp", provider: "gmail", name: "Gmail（公式MCP）", brand: "Google", icon: "mail",
       description: "メールの検索と閲覧（Google公式MCP・Developer Preview）",
-      access: "接続したアカウントのメールを検索・閲覧できます（gmail.readonly）。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。Google Workspace Developer Previewへの参加が必要です。" },
+      access: "接続したアカウントのメールを検索・閲覧できます（gmail.readonly）。読み取りのツールは確認なしで使えます。書き込み（作成・更新・削除・送信）のツールは、「自分用」の接続で、ツールの選択で許可したものだけが、実行の前に毎回、確認つきで使えます。Google Workspace Developer Previewへの参加が必要です。" },
     { id: "mcp:gdrive", kind: "mcp", group: "mcp", provider: "gdrive", name: "Google Drive（公式MCP）", brand: "Google", icon: "drive",
       description: "ファイルの検索と閲覧（Google公式MCP・Developer Preview）",
-      access: "接続したアカウントのDriveのファイルを検索・閲覧できます（drive.readonly）。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。Google Workspace Developer Previewへの参加が必要です。" },
+      access: "接続したアカウントのDriveのファイルを検索・閲覧できます（drive.readonly）。読み取りのツールは確認なしで使えます。書き込み（作成・更新・削除・送信）のツールは、「自分用」の接続で、ツールの選択で許可したものだけが、実行の前に毎回、確認つきで使えます。Google Workspace Developer Previewへの参加が必要です。" },
     { id: "mcp:gcalendar", kind: "mcp", group: "mcp", provider: "gcalendar", name: "Google カレンダー（公式MCP）", brand: "Google", icon: "calendar",
       description: "予定の検索と空き時間の確認（Google公式MCP・Developer Preview）",
-      access: "予定の検索と空き時間の確認ができます（読み取り専用）。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。Google Workspace Developer Previewへの参加が必要です。" },
-    { id: "mcp:linear", kind: "mcp", group: "mcp", provider: "linear", name: "Linear", brand: "Linear", icon: "ticket",
-      description: "課題・プロジェクトの検索と閲覧（公式MCP）",
-      access: "Linearの課題・プロジェクト・ドキュメントを検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。" },
-    { id: "mcp:sentry", kind: "mcp", group: "mcp", provider: "sentry", name: "Sentry", brand: "Sentry", icon: "warn",
-      description: "エラー・課題の検索と閲覧（公式MCP）",
-      access: "Sentryのエラー・課題・リリース情報を検索・閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。" },
+      access: "予定の検索と空き時間の確認ができます（読み取り専用）。読み取りのツールは確認なしで使えます。書き込み（作成・更新・削除・送信）のツールは、「自分用」の接続で、ツールの選択で許可したものだけが、実行の前に毎回、確認つきで使えます。Google Workspace Developer Previewへの参加が必要です。" },
+    { id: "mcp:vercel", kind: "mcp", group: "mcp", provider: "vercel", name: "Vercel", brand: "Vercel", icon: "branch",
+      description: "プロジェクト・デプロイの確認とログの調査（公式MCP）",
+      access: "Vercelのプロジェクト・デプロイの状況、ビルドやランタイムのログを確認し、ドキュメントを検索できます。読み取りのツールは確認なしで使えます。書き込み（作成・更新・削除・送信）のツールは、「自分用」の接続で、ツールの選択で許可したものだけが、実行の前に毎回、確認つきで使えます。接続できるアプリはVercel側で承認されたものに限られる場合があります。" },
+    { id: "mcp:canva", kind: "mcp", group: "mcp", provider: "canva", name: "Canva", brand: "Canva", icon: "pen",
+      description: "デザインの検索・閲覧・作成、企画書・スライドの書き出し（公式MCP）",
+      access: "Canvaのデザインを検索・閲覧し、新しいデザインの作成や書き出しができます。読み取りのツールは確認なしで使えます。書き込み（作成・更新・削除・送信）のツールは、「自分用」の接続で、ツールの選択で許可したものだけが、実行の前に毎回、確認つきで使えます。" },
     { id: "mcp:figma", kind: "mcp", group: "mcp", provider: "figma", name: "Figma", brand: "Figma", icon: "pen",
       description: "デザインファイルの内容の閲覧（公式MCP）",
-      access: "Figmaのデザインファイルの構造・コンポーネント情報を閲覧できます。チャットで使えるのは読み取り専用のツールだけで、作成・更新・削除を行うツールは使われません。" },
-    { id: "mcp:mslearn", kind: "mcp", group: "mcp", provider: "mslearn", name: "Microsoft Learn", brand: "Microsoft", icon: "book",
-      description: "Microsoft公式ドキュメントの検索（公式MCP・認証なし）",
-      access: ".NET・C#・Azureなど、Microsoftが公開している公式ドキュメントを検索します。認証は不要で、公開情報だけを扱います。" },
+      access: "Figmaのデザインファイルの構造・コンポーネント情報を閲覧できます。読み取りのツールは確認なしで使えます。書き込み（作成・更新・削除・送信）のツールは、「自分用」の接続で、ツールの選択で許可したものだけが、実行の前に毎回、確認つきで使えます。" },
     { id: "mcp:cfdocs", kind: "mcp", group: "mcp", provider: "cfdocs", name: "Cloudflare Docs", brand: "Cloudflare", icon: "book",
       description: "Cloudflare公式ドキュメントの検索（公式MCP・認証なし）",
       access: "Workers・D1・Vectorizeなど、Cloudflareの公式ドキュメントを検索します。このシステム自身の基盤の資料に当たれます。認証は不要で、公開情報だけを扱います。" },
@@ -6174,7 +6227,7 @@ export function chatUiHtml(): string {
         const text = mk("span");
         const name = mk("strong", "", tool.name);
         name.appendChild(document.createTextNode(" "));
-        name.appendChild(mk("span", "badge " + (tool.readOnly ? "ok" : ""), tool.readOnly ? "読み取り" : "書き込みの可能性（チャットでは使われません）"));
+        name.appendChild(mk("span", "badge " + (tool.readOnly ? "ok" : ""), tool.readOnly ? "読み取り" : "書き込みの可能性（チェックすると、自分用の接続で、確認つきで使えます）"));
         text.appendChild(name);
         text.appendChild(mk("small", "", (tool.description || "").slice(0, 160)));
         label.appendChild(text);

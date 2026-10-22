@@ -11,6 +11,7 @@ import { authenticateFromQueryKey } from "../oauthConnections";
 import { ForbiddenError, requireAdmin, requireKnowledgeEditor } from "../auth";
 import { jsonResponse, oauthResultPage } from "../http";
 import { McpAuthError, McpError, McpNotConnectedError, McpToolNotAllowed, getProvider, MCP_PROVIDERS } from "./providers";
+import { McpApprovalError, cancelApproval, consumeApproval } from "./approval";
 import * as service from "./service";
 
 // 接続の持ち主を決める（2026-10-09〜）。scope:"user" なら本人専用の接続（ゲスト以外）、
@@ -27,6 +28,7 @@ function ownerOf(user: AuthedUser, scope: unknown): string {
 function friendly(err: unknown): { status: number; message: string } {
   if (err instanceof McpNotConnectedError || err instanceof McpAuthError) return { status: 409, message: err.message };
   if (err instanceof McpToolNotAllowed) return { status: 403, message: err.message };
+  if (err instanceof McpApprovalError) return { status: 409, message: err.message };
   if (err instanceof McpError) return { status: 502, message: err.message };
   return { status: 500, message: err instanceof Error ? err.message : String(err) };
 }
@@ -152,6 +154,38 @@ export async function handleMcpCall(req: Request, env: Env, user: AuthedUser): P
     const result = await service.callTool(env, user.userId, providerId, toolName, args, { ownerId });
     return jsonResponse(200, { result: { isError: result.isError, text: result.text, readOnly: result.readOnly }, status: "ok" });
   });
+}
+
+// POST /mcp/confirm — チャットで「実行」を押したとき（2026-10-22）。確認待ち（approval.ts）を1回だけ使って、
+// サーバーに保存した引数で、書き込みツールを実行する。本人（ゲスト以外）の確認だけが通る。
+// 画面から送られるのは確認のIDだけで、ツール名・引数は受け取らない（確認した内容と、実行する内容を一致させる）。
+export async function handleMcpConfirm(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  if (user.role === "guest") throw new ForbiddenError("ゲストは連携を使えません");
+  const body = (await req.json().catch(() => ({}))) as { approvalId?: string };
+  const id = String(body.approvalId || "");
+  if (!id) return jsonResponse(400, { error: "approvalId は必須です" });
+  return guarded(async () => {
+    const approval = await consumeApproval(env, id, user.userId);
+    const result = await service.callTool(env, user.userId, approval.providerId, approval.tool, approval.arguments, {
+      ownerId: approval.ownerId,
+      confirmedWrite: true,
+    });
+    return jsonResponse(200, {
+      result: { isError: result.isError, text: result.text.slice(0, 4000) },
+      providerId: approval.providerId,
+      tool: approval.tool,
+      status: "ok",
+    });
+  });
+}
+
+// POST /mcp/cancel — 「やめる」。確認待ちを消す（本人のものだけ）。
+export async function handleMcpCancel(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = (await req.json().catch(() => ({}))) as { approvalId?: string };
+  const id = String(body.approvalId || "");
+  if (!id) return jsonResponse(400, { error: "approvalId は必須です" });
+  await cancelApproval(env, id, user.userId);
+  return jsonResponse(200, { status: "ok" });
 }
 
 // POST /me/mcp — チャット画面が「外部サービスも使う」を出すかの判定用（全ユーザー可）。

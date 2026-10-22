@@ -1,7 +1,7 @@
 import type { AuthedUser, Env, QueryRequest, QueryResponse, SourceEntry } from "./types";
 import { jsonResponse } from "./http";
 import { buildAnswerPrompt, generateAnswer, generateAnswerStream, sha256Hex } from "./embeddings";
-import { answerWithMcpTools, type McpToolCallLog } from "./mcp/chat";
+import { answerWithMcpTools, type McpPendingAction, type McpToolCallLog } from "./mcp/chat";
 import { BudgetExceededError, reserveBudget, reconcileBudget } from "./budget";
 import { assertNotRateLimited } from "./rateLimit";
 import { buildContextTexts, resolveEffectiveNamespaces, retrieve } from "./retrieve";
@@ -123,6 +123,7 @@ async function finishQuery(
 ): Promise<QueryResponse> {
   const { query, history, image, effective, auditId, texts, sources, hydeTokensUsed } = prepared;
   let toolCalls: McpToolCallLog[] = [];
+  let pendingActions: McpPendingAction[] = [];
   let answerText: string;
   let sourcesWithCitation: SourceEntry[];
   let extractionRate: number;
@@ -140,7 +141,10 @@ async function finishQuery(
       : onDelta
         ? await generateAnswerStream(env, query, texts, history, onDelta, image)
         : await generateAnswer(env, query, texts, history, image);
-    if (mcpResult) toolCalls = mcpResult.toolCalls;
+    if (mcpResult) {
+      toolCalls = mcpResult.toolCalls;
+      pendingActions = mcpResult.pendingActions;
+    }
     const parsed = parseExtractionRate(answerResult.text, sources.length);
     cited = parsed.cited;
     sourcesWithCitation = sources.map((s, i) => ({
@@ -189,6 +193,7 @@ async function finishQuery(
     extractionDetail: `${cited}/${sources.length}`,
     memoryId,
     ...(toolCalls.length > 0 ? { toolCalls } : {}),
+    ...(pendingActions.length > 0 ? { pendingActions } : {}),
   } satisfies QueryResponse;
 }
 

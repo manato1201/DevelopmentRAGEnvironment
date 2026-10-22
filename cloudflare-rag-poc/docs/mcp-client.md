@@ -5,7 +5,7 @@ RAGチャットから使えるようにした。
 
 ## 何ができるか
 
-- 管理画面「ナレッジ登録」タブの「連携するシステムを追加」から、公式MCPサーバー（Notion・Atlassian・GitHub・Slack・Google・Linear・Sentry・Figma・Microsoft Learn・Cloudflare Docs）へ接続する。
+- 管理画面「ナレッジ登録」タブの「連携するシステムを追加」から、公式MCPサーバー（Notion・GitHub・Slack・Google・Canva・Figma・Vercel・Cloudflare Docs。2026-10-22 に、この10サービスへ整理）へ接続する。
 - 認証は**OAuth 2.1**。探索（RFC 9728 / 8414）、**クライアントの自動登録（RFC 7591）**、PKCE（S256）、リソース指定（RFC 8707）を
   Worker側で行うので、こちらでOAuthアプリを作る・secretを設定する必要は無い。
 - 接続したら、使うツールを選ぶ（未選択のツールは使われない）。「RAGチャットで使う」をオンにすると、チャット画面に
@@ -31,7 +31,7 @@ RAGチャットから使えるようにした。
 | 種類 | サーバー | 準備 |
 |---|---|---|
 | 自動登録に対応（secret不要） | Notion、Atlassian（Jira / Confluence）、Linear（`mcp.linear.app`）、Sentry（`mcp.sentry.dev`）、Figma（`mcp.figma.com`） | 不要。「認証する」を押すだけ |
-| 認証なしの公開サーバー | Microsoft Learn（`learn.microsoft.com/api/mcp`）、Cloudflare Docs（`docs.mcp.cloudflare.com`） | 不要。「有効にする」を押すだけ（トークンは持たない） |
+| 認証なしの公開サーバー | Cloudflare Docs（`docs.mcp.cloudflare.com`） | 不要。「有効にする」を押すだけ（トークンは持たない） |
 | 自動登録に**対応しない** | GitHub（`api.githubcopilot.com/mcp/`）、Slack（`mcp.slack.com/mcp`）、Google Gmail / Drive / カレンダー（`*mcp.googleapis.com/mcp/v1`） | 事前にOAuthアプリを作り、Client ID/Secretをsecretに登録する（下記） |
 
 ### 自動登録に対応しないサーバーの準備

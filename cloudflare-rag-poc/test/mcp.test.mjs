@@ -116,12 +116,12 @@ let conn = await svc.getConnection(env, "notion");
 assert.equal(conn.status, "connected"); assert.equal(conn.credential.accessToken, "at-1"); assert.equal(conn.chatEnabled, false, "chat use is opt-in"); assert.equal(conn.connectedBy, "admin-1");
 assert.ok(conn.credential.expiresAt > Date.now() / 1000 + 3000);
 let st = (await svc.statuses(env)).find((p) => p.id === "notion"); assert.equal(st.connected, true);
-assert.equal((await svc.statuses(env)).find((p) => p.id === "atlassian").status, "disconnected");
+assert.equal((await svc.statuses(env)).find((p) => p.id === "vercel").status, "disconnected");
 console.log("2 callback / PKCE / single-use state OK");
 
 // ------------------------------------------------------------------ 3. tools + policy + selection
 const settings = await svc.toolSettings(env, "notion", true, fakeFetch);
-assert.deepEqual(settings.map((t) => [t.name, t.readOnly, t.enabled]), [["search", true, true], ["fetch", true, true], ["create-page", false, true], ["mystery", false, true]], "pagination merged; hint missing = not read-only");
+assert.deepEqual(settings.map((t) => [t.name, t.readOnly, t.enabled]), [["search", true, true], ["fetch", true, true], ["create-page", false, false], ["mystery", false, false]], "pagination merged; hint missing = not read-only; unselected = read-only tools only (writes are opt-in)");
 assert.deepEqual(world.mcpCalls.slice(0, 4).map((c) => c.method), ["initialize", "notifications/initialized", "tools/list", "tools/list"]);
 assert.equal(world.mcpCalls[2].sid, "sess-1", "session id echoed back");
 // provider overrides
@@ -188,7 +188,7 @@ for (const fn of [routes.handleMcpDisconnect, routes.handleMcpTools, routes.hand
   await mustThrowForbidden(fn, "editor"); await mustThrowForbidden(fn, "member");
 }
 await mustThrowForbidden(routes.handleMcpStatus, "member");
-let r = await routes.handleMcpStatus(req({}), env, mkUser("editor")); assert.equal(r.status, 200); assert.equal((await r.json()).providers.length, 12);
+let r = await routes.handleMcpStatus(req({}), env, mkUser("editor")); assert.equal(r.status, 200); assert.equal((await r.json()).providers.length, 10);
 r = await routes.handleMcpSetChat(req({ provider: "notion", enabled: "yes" }), env, mkUser("admin")); assert.equal(r.status, 400);
 r = await routes.handleMcpSetChat(req({ provider: "notion", enabled: true }), env, mkUser("admin")); assert.equal(r.status, 200);
 r = await routes.handleMyMcp(req({}), env, mkUser("member")); let me = await r.json(); assert.deepEqual(me, { available: true, providers: [{ id: "notion", label: "Notion" }], status: "ok" });
