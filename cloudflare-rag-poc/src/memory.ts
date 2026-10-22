@@ -112,6 +112,68 @@ export async function handleMemoryPin(req: Request, env: Env, user: AuthedUser):
   return jsonResponse(200, { status: "ok" });
 }
 
+// 回答1件を、本人のものだけ取り出す（回答へのリンク「#answer=<id>」を開いたときに使う。2026-10-22追加）。
+export async function getMemoryById(env: Env, userId: string, id: number): Promise<MemoryEntry | null> {
+  const row = await env.DB.prepare(
+    "SELECT id, query, answer, sources_json, namespaces, rating, pinned, created_at FROM memory WHERE id = ? AND user_id = ?"
+  )
+    .bind(id, userId)
+    .first<MemoryRow>();
+  return row ? toMemoryEntry(row) : null;
+}
+
+export async function handleMemoryGet(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = (await req.json().catch(() => ({}))) as { id?: number };
+  if (typeof body.id !== "number" || !Number.isInteger(body.id)) return jsonResponse(400, { error: "id（整数）は必須です" });
+  const entry = await getMemoryById(env, user.userId, body.id);
+  if (!entry) return jsonResponse(404, { error: "該当する履歴が見つかりません（他の人の回答へのリンクは開けません）" });
+  return jsonResponse(200, { entry, status: "ok" });
+}
+
+// お気に入りの読み込み（書き出したJSONを戻す。2026-10-22追加）。本人の履歴として保存し、お気に入りにする。
+// 外から来た文字列なので、件数・長さ・形を絞る（出典は表示に使う項目だけを残す）。
+export const MAX_IMPORT_ENTRIES = 50;
+const MAX_IMPORT_QUERY = 2000;
+const MAX_IMPORT_ANSWER = 20000;
+const MAX_IMPORT_SOURCES = 20;
+
+function cleanSources(value: unknown): SourceEntry[] {
+  if (!Array.isArray(value)) return [];
+  const out: SourceEntry[] = [];
+  for (const item of value.slice(0, MAX_IMPORT_SOURCES)) {
+    if (!item || typeof item !== "object") continue;
+    const s = item as Record<string, unknown>;
+    if (typeof s.file !== "string" || typeof s.namespace !== "string") continue;
+    const entry: SourceEntry = { file: s.file.slice(0, 300), namespace: s.namespace.slice(0, 100), score: typeof s.score === "number" ? s.score : 0 };
+    if (typeof s.difficulty === "string") entry.difficulty = s.difficulty.slice(0, 20);
+    if (typeof s.cited === "boolean") entry.cited = s.cited;
+    if (typeof s.citationCount === "number") entry.citationCount = s.citationCount;
+    if (typeof s.excerpt === "string") entry.excerpt = s.excerpt.slice(0, 400);
+    if (typeof s.ingestedAt === "number") entry.ingestedAt = s.ingestedAt;
+    out.push(entry);
+  }
+  return out;
+}
+
+export async function handleMemoryImport(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  if (user.role === "guest") return jsonResponse(403, { error: "ゲストは読み込みを使えません" });
+  const body = (await req.json().catch(() => ({}))) as { entries?: unknown };
+  if (!Array.isArray(body.entries) || body.entries.length === 0) return jsonResponse(400, { error: "entries（1件以上の配列）は必須です" });
+  if (body.entries.length > MAX_IMPORT_ENTRIES) return jsonResponse(400, { error: `一度に読み込めるのは${MAX_IMPORT_ENTRIES}件までです` });
+  let imported = 0;
+  for (const raw of body.entries) {
+    if (!raw || typeof raw !== "object") continue;
+    const e = raw as Record<string, unknown>;
+    if (typeof e.query !== "string" || typeof e.answer !== "string" || !e.query.trim() || !e.answer.trim()) continue;
+    const sources = cleanSources(e.sources);
+    const namespaces = [...new Set(sources.map((s) => s.namespace))];
+    const id = await saveMemory(env, user.userId, e.query.slice(0, MAX_IMPORT_QUERY), e.answer.slice(0, MAX_IMPORT_ANSWER), sources, namespaces);
+    await setMemoryPinned(env, user.userId, id, true);
+    imported += 1;
+  }
+  return jsonResponse(200, { imported, skipped: body.entries.length - imported, status: "ok" });
+}
+
 export async function handlePinnedList(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   const entries = await getPinnedMemory(env, user.userId);
   return jsonResponse(200, { entries, status: "ok" });

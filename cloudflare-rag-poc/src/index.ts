@@ -3,7 +3,7 @@ import { authenticate, ForbiddenError, requireKnowledgeEditor } from "./auth";
 import { handleSearch } from "./search";
 import { handleQuery, handleQueryStream } from "./query";
 import { handleIngest } from "./ingest";
-import { handleMemoryList, handleMemoryRate, handleMemoryPin, handlePinnedList } from "./memory";
+import { handleMemoryList, handleMemoryRate, handleMemoryPin, handlePinnedList, handleMemoryGet, handleMemoryImport } from "./memory";
 import { handleSyncNotion, handleRetryFailedNotion, handlePreviewNotion } from "./notionSync";
 import { handleSyncDrive, handleRetryFailedDrive, handlePreviewDrive } from "./driveSync";
 import { handleSyncJira, handleRetryFailedJira, handleTestJiraConnection, handleListJiraProjects, runScheduledJiraSync, handlePreviewJira } from "./jiraSync";
@@ -51,6 +51,7 @@ import { handleHealthCheck, handleTestAlert, checkHealthAndAlert } from "./healt
 import { handleBackupExport } from "./backup";
 import { handleClaudeMessages } from "./claude";
 import { handleTts } from "./tts";
+import { handleOAuthStartToken } from "./oauthConnections";
 import { handleMcpOAuthStart, handleMcpOAuthCallback, handleMcpStatus, handleMcpDisconnect, handleMcpTools, handleMcpSetTools, handleMcpSetChat, handleMcpCall, handleMyMcp, handleMcpConfirm, handleMcpCancel } from "./mcp/routes";
 import { purgeExpiredApprovals } from "./mcp/approval";
 import { handleTutorialFeedbackSubmit, handleTutorialFeedbackList, handleTutorialFeedbackStats } from "./tutorialFeedback";
@@ -60,6 +61,12 @@ import { chatUiHtml } from "./chatUi";
 import { BudgetExceededError } from "./budget";
 
 const MEMORY_RETENTION_DAYS = 90;
+const SECURITY_HEADERS = {
+  "x-frame-options": "DENY",
+  "content-security-policy": "frame-ancestors 'none'",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+};
 // 既存GASのpurgeExpiredTokenUsage_/purgeExpiredClaudeUsage_相当。GAS版はGoogle Sheetsの
 // 行数上限を避けるための対策だったが、D1にはその制約は無いため、監査目的も踏まえて
 // memoryより長めの180日にしている（2026-08-27追加。以前はaudit_logが無期限に蓄積していた）。
@@ -80,7 +87,9 @@ export default {
     // クライアント側からfetchする各APIコール時に行う。
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/chat")) {
       // 開いたままの古い画面が、デプロイ後も古いスクリプトで動き続けないよう、毎回サーバーに確認させる（2026-10-21）。
-      return new Response(chatUiHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" } });
+      // 【2026-10-22】他のサイトの枠（iframe）に埋め込まれて、画面の上でボタンを押させる（クリックジャッキング）ことを防ぐ。
+      // 画面は、ブラウザに保存したAPIキーで動くため、枠の中でも、持ち主の権限で操作できてしまう。
+      return new Response(chatUiHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", ...SECURITY_HEADERS } });
     }
 
     // OAuthクリック接続化（2026-09-22追加、oauthConnections.ts参照）。start/callbackは
@@ -186,6 +195,10 @@ export default {
           return await handleMemoryPin(req, env, user);
         case "/memory/pinned":
           return await handlePinnedList(req, env, user);
+        case "/memory/get":
+          return await handleMemoryGet(req, env, user);
+        case "/memory/import":
+          return await handleMemoryImport(req, env, user);
         case "/graph":
           return await handleGraph(req, env, user);
         case "/admin/sync/notion":
@@ -405,6 +418,8 @@ export default {
           return await handleMcpCall(req, env, user);
         case "/me/mcp":
           return await handleMyMcp(req, env, user);
+        case "/me/oauth-start-token":
+          return await handleOAuthStartToken(req, env, user);
         case "/mcp/confirm":
           return await handleMcpConfirm(req, env, user);
         case "/mcp/cancel":
