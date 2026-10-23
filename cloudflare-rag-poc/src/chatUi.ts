@@ -1,6 +1,8 @@
 // Webチャット画面（既存GAS getChatHtml_相当）。GASは1,700行超のHTMLを内蔵し、
 // チャット/グラフ/履歴/管理の4タブ構成だった。このPOCも同じ4タブ構成に揃える
 // （2026-08-25、実際のGAS版UIとのスクリーンショット比較を受けて全面刷新）。
+import { LIST_SORT_JS } from "./listSort";
+
 export function chatUiHtml(): string {
   return /* html */ `<!DOCTYPE html>
 <html lang="ja">
@@ -518,7 +520,13 @@ export function chatUiHtml(): string {
   .route-tree ul { margin-left: .5rem; padding-left: .8rem; border-left: 1px solid var(--border); }
   .route-tree li { font-size: .76rem; padding: .12rem 0; overflow-wrap: anywhere; }
   .route-tree li.dim { color: var(--muted); }
-  .pinned-toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .6rem; }
+  .pinned-toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .6rem; align-items: center; }
+  .sort-select { font-size: .8rem; max-width: 14rem; }
+  th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  th.sortable:hover, th.sortable:focus-visible { color: var(--accent); outline: none; }
+  th.sortable::after { content: " ↕"; opacity: .35; font-size: .85em; }
+  th.sortable[aria-sort="ascending"]::after { content: " ▲"; opacity: 1; color: var(--accent); }
+  th.sortable[aria-sort="descending"]::after { content: " ▼"; opacity: 1; color: var(--accent); }
 
   /* ---------- 別プロジェクトを参考にした画面構成（2026-10-08）：アクションバー・カード・システム選択・詳細 ---------- */
   .btn.outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
@@ -801,9 +809,16 @@ export function chatUiHtml(): string {
           <h2>登録済みナレッジ</h2>
           <select id="kbListNs" aria-label="namespace"></select>
           <input type="search" id="kbListSearch" placeholder="ナレッジを検索…">
+          <select id="kbListSort" class="sort-select" aria-label="並べ替え">
+            <option value="name-asc">名前順（あ→ん・A→Z）</option>
+            <option value="name-desc">名前の逆順</option>
+            <option value="updated-desc">更新が新しい順</option>
+            <option value="updated-asc">更新が古い順</option>
+            <option value="kind-asc">種類順</option>
+          </select>
           <button class="btn" id="kbListRefresh">更新</button>
         </div>
-        <div class="table-scroll"><table class="admin-table" id="kbListTable"><thead><tr><th>ナレッジ名</th><th>種類</th><th>更新日時</th><th>操作</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table" id="kbListTable" data-sort-managed="1"><thead><tr><th data-sort-key="name">ナレッジ名</th><th data-sort-key="kind">種類</th><th data-sort-key="updated">更新日時</th><th>操作</th></tr></thead><tbody></tbody></table></div>
         <div class="pager">
           <span id="kbListCount"></span>
           <span class="pages"><button class="btn" id="kbListPrev">‹</button><span id="kbListPageNo">1 / 1</span><button class="btn" id="kbListNext">›</button></span>
@@ -2643,6 +2658,7 @@ export function chatUiHtml(): string {
     });
     return card;
   }
+${LIST_SORT_JS}
   // ---------- 2026-10-22 追加: 改善設計書の反映（T6・T7・T12・X13・X14） ----------
 
   // X14: 空状態だけに置く、文字で描いた小さな生き物。動きを減らす設定のときは止める。
@@ -2797,6 +2813,18 @@ export function chatUiHtml(): string {
     URL.revokeObjectURL(url);
   }
   function dateStamp() { return new Date().toISOString().slice(0, 19).replace(/:/g, "-"); }
+  function pinnedSortValue() {
+    let value = "created-desc";
+    try { value = localStorage.getItem("ragPocPinnedSort") || value; } catch { /* 既定のまま */ }
+    return ["created-desc", "created-asc", "query-asc"].indexOf(value) >= 0 ? value : "created-desc";
+  }
+  function sortPinnedEntries(entries) {
+    const parts = pinnedSortValue().split("-");
+    const spec = parts[0] === "query"
+      ? [{ get: (e) => e.query, type: "text" }, { get: (e) => e.createdAt, type: "number" }]
+      : [{ get: (e) => e.createdAt, type: "number" }, { get: (e) => e.query, type: "text" }];
+    return sortItems(entries, spec, parts[1] === "asc" ? 1 : -1);
+  }
   function buildPinnedToolbar(entries) {
     const bar = document.createElement("div");
     bar.className = "pinned-toolbar";
@@ -2838,6 +2866,20 @@ export function chatUiHtml(): string {
     bar.appendChild(exportBtn);
     bar.appendChild(importBtn);
     bar.appendChild(input);
+    const sortSel = document.createElement("select");
+    sortSel.className = "sort-select";
+    sortSel.setAttribute("aria-label", "並べ替え");
+    [["created-desc", "新しい順"], ["created-asc", "古い順"], ["query-asc", "質問の名前順"]].forEach(([value, label]) => {
+      const option = mk("option", "", label);
+      option.value = value;
+      sortSel.appendChild(option);
+    });
+    sortSel.value = pinnedSortValue();
+    sortSel.addEventListener("change", () => {
+      try { localStorage.setItem("ragPocPinnedSort", sortSel.value); } catch { /* 保存できなくても、並べ替えはできる */ }
+      loadPinned();
+    });
+    bar.appendChild(sortSel);
     return bar;
   }
   // 会話全体（いまのセッション）のJSON書き出し。既存のMarkdown書き出しの隣に置く。
@@ -2857,6 +2899,66 @@ export function chatUiHtml(): string {
     });
     mdBtn.parentElement.appendChild(btn);
   })();
+  // 管理画面の表（.admin-table）は、見出しをクリックすると並べ替えられる。表は、読み込みのたびに行が作り直されるので、
+  // 行が入れ替わったあとも、選んだ並べ替えを自動でかけ直す。「操作」などの列は、並べ替えない。
+  // 自前で並べ替える表（data-sort-managed）は、対象外。
+  const NO_SORT_HEADERS = ["", "操作", "選択", "詳細"];
+  function enableTableSort(table) {
+    if (!table || table.dataset.sortReady === "1" || table.dataset.sortManaged === "1") return;
+    const headRow = table.querySelector("thead tr");
+    const tbody = table.querySelector("tbody");
+    if (!headRow || !tbody) return;
+    table.dataset.sortReady = "1";
+    const state = { col: -1, dir: 1, applying: false };
+    const headers = Array.prototype.slice.call(headRow.children);
+    const dataRows = () => Array.prototype.filter.call(tbody.children, (tr) => tr.children.length === headers.length && !(tr.children[0] && tr.children[0].colSpan > 1));
+    function apply() {
+      if (state.col < 0) return;
+      const rows = dataRows();
+      if (rows.length < 2) return;
+      rows.forEach((tr, i) => { if (tr.dataset.origIndex === undefined) tr.dataset.origIndex = String(i); });
+      const texts = rows.map((tr) => Array.prototype.map.call(tr.children, (td) => (td.dataset.sort !== undefined ? td.dataset.sort : td.textContent)));
+      const order = sortedRowOrder(texts, state.col, state.dir);
+      state.applying = true;
+      order.forEach((i) => tbody.appendChild(rows[i]));
+      state.applying = false;
+    }
+    function mark() {
+      headers.forEach((th, i) => { if (th.classList.contains("sortable")) th.setAttribute("aria-sort", i === state.col ? (state.dir === -1 ? "descending" : "ascending") : "none"); });
+    }
+    headers.forEach((th, col) => {
+      if (NO_SORT_HEADERS.indexOf(th.textContent.trim()) >= 0) return;
+      th.classList.add("sortable");
+      th.tabIndex = 0;
+      th.setAttribute("role", "button");
+      th.title = "クリックで並べ替え";
+      th.setAttribute("aria-sort", "none");
+      const toggle = () => {
+        // 同じ列: 昇順 → 降順 → 元の並び。違う列: その列の昇順
+        if (state.col === col) {
+          if (state.dir === 1) state.dir = -1;
+          else { state.col = -1; state.dir = 1; }
+        } else { state.col = col; state.dir = 1; }
+        if (state.col < 0) {
+          const rows = dataRows();
+          rows.sort((a, b) => Number(a.dataset.origIndex || 0) - Number(b.dataset.origIndex || 0));
+          state.applying = true;
+          rows.forEach((tr) => tbody.appendChild(tr));
+          state.applying = false;
+        } else apply();
+        mark();
+      };
+      th.addEventListener("click", toggle);
+      th.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } });
+    });
+    new MutationObserver(() => { if (!state.applying) { dataRows().forEach((tr, i) => { if (tr.dataset.origIndex === undefined) tr.dataset.origIndex = String(i); }); apply(); } })
+      .observe(tbody, { childList: true });
+  }
+  function enableAllTableSorts() { document.querySelectorAll("table.admin-table").forEach(enableTableSort); }
+  enableAllTableSorts();
+  // あとから作られる表（ポップアップの中など）にも、かける
+  new MutationObserver(enableAllTableSorts).observe(document.body, { childList: true, subtree: true });
+
   // 回答へのリンク（#answer=<id>）を開く。自分の回答だけ（他人のIDは404）。
   let answerHashHandled = false;
   async function openAnswerFromHash() {
@@ -2994,6 +3096,22 @@ export function chatUiHtml(): string {
     newBtn.addEventListener("click", () => { resetConversation(); document.querySelector('nav.tabs button[data-tab="chat"]').click(); });
     bar.appendChild(search);
     bar.appendChild(searchBtn);
+    // 並べ替え（選んだ状態は、ブラウザに覚えておく）
+    const threadSortSel = document.createElement("select");
+    threadSortSel.className = "sort-select";
+    threadSortSel.setAttribute("aria-label", "並べ替え");
+    [["updated-desc", "更新が新しい順"], ["updated-asc", "更新が古い順"], ["title-asc", "名前順"], ["turns-desc", "質問が多い順"]].forEach(([value, label]) => {
+      const option = mk("option", "", label);
+      option.value = value;
+      threadSortSel.appendChild(option);
+    });
+    try { threadSortSel.value = localStorage.getItem("ragPocThreadSort") || "updated-desc"; } catch { /* 既定のまま */ }
+    if (!threadSortSel.value) threadSortSel.value = "updated-desc";
+    threadSortSel.addEventListener("change", () => {
+      try { localStorage.setItem("ragPocThreadSort", threadSortSel.value); } catch { /* 保存できなくても、並べ替えはできる */ }
+      loadHistory(search.value.trim());
+    });
+    bar.appendChild(threadSortSel);
     bar.appendChild(newBtn);
     pane.appendChild(bar);
     const list = document.createElement("ul");
@@ -3008,7 +3126,13 @@ export function chatUiHtml(): string {
         return;
       }
       if (data.threads.length === 0) list.appendChild(mk("li", "conn-empty", query ? "該当する会話はありません。" : "会話のまとまりはまだありません。"));
-      data.threads.forEach((th) => {
+      const THREAD_SORT_SPECS = {
+        updated: [{ get: (t) => t.updatedAt, type: "number" }, { get: (t) => t.title, type: "text" }],
+        title: [{ get: (t) => t.title, type: "text" }, { get: (t) => t.updatedAt, type: "number" }],
+        turns: [{ get: (t) => t.turns, type: "number" }, { get: (t) => t.updatedAt, type: "number" }],
+      };
+      const threadParts = threadSortSel.value.split("-");
+      sortItems(data.threads, THREAD_SORT_SPECS[threadParts[0]] || THREAD_SORT_SPECS.updated, threadParts[1] === "asc" ? 1 : -1).forEach((th) => {
         const li = mk("li", "conn-row thread-row");
         const title = mk("strong", "thread-title", th.title);
         li.appendChild(title);
@@ -3066,7 +3190,7 @@ export function chatUiHtml(): string {
         return;
       }
       pane.appendChild(buildPinnedToolbar(data.entries));
-      data.entries.forEach((entry) => {
+      sortPinnedEntries(data.entries).forEach((entry) => {
         renderUserMessage(pane, entry.query);
         const ext = computeExtraction(entry.sources);
         renderAssistantMessage(pane, entry.query, entry.answer, entry.sources, ext.rate, ext.detail, entry.id, entry.rating, entry.pinned);
@@ -4927,13 +5051,24 @@ export function chatUiHtml(): string {
     const docs = mk("div", "mine-block");
     docs.appendChild(mk("h4", "", "取り込んだ自分用ナレッジ"));
     const docsList = mk("ul", "conn-list");
+    const docsSort = document.createElement("select");
+    docsSort.className = "sort-select";
+    docsSort.setAttribute("aria-label", "並べ替え");
+    [["name-asc", "名前順"], ["updated-desc", "更新が新しい順"], ["updated-asc", "更新が古い順"], ["kind-asc", "種類順"]].forEach(([value, label]) => {
+      const option = mk("option", "", label);
+      option.value = value;
+      docsSort.appendChild(option);
+    });
+    docs.appendChild(docsSort);
     docs.appendChild(docsList);
-    docs.appendChild(modalButton("一覧を表示", "", async () => {
+    let docsItems = [];
+    const renderDocs = () => {
       docsList.innerHTML = "";
-      try {
-        const data = await api("/admin/kb/list-documents", { namespace });
-        if (data.files.length === 0) docsList.appendChild(mk("li", "conn-empty", "まだ取り込んでいません"));
-        data.files.forEach((file) => {
+      if (docsItems.length === 0) docsList.appendChild(mk("li", "conn-empty", "まだ取り込んでいません"));
+      const parts = docsSort.value.split("-");
+      sortItems(docsItems, KB_SORT_SPECS[parts[0]](), parts[1] === "desc" ? -1 : 1).forEach((item) => {
+        const file = item.file;
+        {
           const li = mk("li", "conn-row");
           li.appendChild(mk("span", "kb-name", file));
           const del = mk("button", "btn danger", "削除");
@@ -4945,7 +5080,16 @@ export function chatUiHtml(): string {
           });
           li.appendChild(del);
           docsList.appendChild(li);
-        });
+        }
+      });
+    };
+    docsSort.addEventListener("change", renderDocs);
+    docs.appendChild(modalButton("一覧を表示", "", async () => {
+      docsList.innerHTML = "";
+      try {
+        const data = await api("/admin/kb/list-documents", { namespace });
+        docsItems = data.documents || (data.files || []).map((file) => ({ file, source: null, updatedAt: null }));
+        renderDocs();
       } catch (e) { docsList.appendChild(mk("li", "conn-empty", "取得に失敗しました: " + e.message)); }
     }));
     modal.body.appendChild(docs);
@@ -6562,7 +6706,41 @@ export function chatUiHtml(): string {
   // 以前は「登録済みファイル一覧・個別削除」でnamespaceを手入力して読み込む形だった。
   // 別プロジェクトの「登録済みナレッジ」カードを参考に、namespaceを選択式にし、検索・ページ送り・
   // 種類と更新日時の表示を足した。削除は従来どおり1件ずつ（opId単位の一括取り消しはシステムタブ）。
-  const kbList = { items: [], page: 1, size: 20, query: "", ns: "", ready: false };
+  const KB_SORT_STORAGE = "ragPocKbSort";
+  const KB_SORT_SPECS = {
+    name: () => [{ get: (i) => i.file, type: "text" }],
+    updated: () => [{ get: (i) => i.updatedAt, type: "number" }, { get: (i) => i.file, type: "text" }],
+    kind: () => [{ get: (i) => kbKind(i), type: "text" }, { get: (i) => i.file, type: "text" }],
+  };
+  // 並べ替えの状態（key: name / updated / kind、dir: 1 昇順・-1 降順）。選んだ状態は、ブラウザに覚えておく。
+  function loadKbSort() {
+    try {
+      const parts = String(localStorage.getItem(KB_SORT_STORAGE) || "").split("-");
+      if (KB_SORT_SPECS[parts[0]] && (parts[1] === "asc" || parts[1] === "desc")) return { key: parts[0], dir: parts[1] === "desc" ? -1 : 1 };
+    } catch { /* 保存できない環境では、既定のまま */ }
+    return { key: "name", dir: 1 };
+  }
+  const kbList = { items: [], page: 1, size: 20, query: "", ns: "", ready: false, sort: loadKbSort() };
+  function sortKbItems(items, sort) {
+    return sortItems(items, KB_SORT_SPECS[sort.key](), sort.dir);
+  }
+  // 選択肢と、見出しの▲▼を、いまの状態に合わせる
+  function syncKbSortUi() {
+    const select = $("kbListSort");
+    if (select) select.value = kbList.sort.key + "-" + (kbList.sort.dir === -1 ? "desc" : "asc");
+    document.querySelectorAll("#kbListTable th[data-sort-key]").forEach((th) => {
+      const active = th.dataset.sortKey === kbList.sort.key;
+      th.classList.add("sortable");
+      th.setAttribute("aria-sort", active ? (kbList.sort.dir === -1 ? "descending" : "ascending") : "none");
+    });
+  }
+  function setKbSort(key, dir) {
+    kbList.sort = { key, dir };
+    try { localStorage.setItem(KB_SORT_STORAGE, key + "-" + (dir === -1 ? "desc" : "asc")); } catch { /* 保存できなくても、並べ替えはできる */ }
+    kbList.page = 1;
+    syncKbSortUi();
+    renderKbList("");
+  }
   const KB_SOURCE_LABELS = { manual: "手動登録", notion: "Notion", drive: "Google Drive", jira: "Jira", backlog: "Backlog", calendar: "カレンダー" };
   function kbKind(item) {
     const ext = kbExt(item.file);
@@ -6604,7 +6782,7 @@ export function chatUiHtml(): string {
     const tbody = $("kbListTable").querySelector("tbody");
     tbody.innerHTML = "";
     const query = kbList.query.trim().toLowerCase();
-    const filtered = kbList.items.filter((item) => !query || item.file.toLowerCase().indexOf(query) >= 0);
+    const filtered = sortKbItems(kbList.items.filter((item) => !query || item.file.toLowerCase().indexOf(query) >= 0), kbList.sort);
     const pages = Math.max(1, Math.ceil(filtered.length / kbList.size));
     kbList.page = Math.min(kbList.page, pages);
     const start = (kbList.page - 1) * kbList.size;
@@ -6658,6 +6836,24 @@ export function chatUiHtml(): string {
     $("kbListPrev").addEventListener("click", () => { kbList.page -= 1; renderKbList(""); });
     $("kbListNext").addEventListener("click", () => { kbList.page += 1; renderKbList(""); });
     $("kbListRefresh").addEventListener("click", () => { kbList.ready ? loadKbList() : initKbList(); });
+    $("kbListSort").addEventListener("change", () => {
+      const parts = $("kbListSort").value.split("-");
+      setKbSort(parts[0], parts[1] === "desc" ? -1 : 1);
+    });
+    // 見出しのクリック: 同じ列なら、昇順と降順を入れ替える。違う列なら、その列の昇順（更新日時だけは、新しい順から）。
+    document.querySelectorAll("#kbListTable th[data-sort-key]").forEach((th) => {
+      th.tabIndex = 0;
+      th.setAttribute("role", "button");
+      th.title = "クリックで並べ替え";
+      const toggle = () => {
+        const key = th.dataset.sortKey;
+        if (kbList.sort.key === key) setKbSort(key, kbList.sort.dir * -1);
+        else setKbSort(key, key === "updated" ? -1 : 1);
+      };
+      th.addEventListener("click", toggle);
+      th.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } });
+    });
+    syncKbSortUi();
   }
 
   // チャットの「外部サービスも使う」スイッチ。管理者が「チャットで使う」をオンにしたサービスが
