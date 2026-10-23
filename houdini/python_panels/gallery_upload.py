@@ -107,8 +107,18 @@ def _connection(base_url: str, timeout: float) -> tuple[http.client.HTTPConnecti
 class _MultipartStream:
     """multipart/form-data の本文を、ファイルを少しずつ読みながら作る。read() を持つので http.client がそのまま送れる。"""
 
-    def __init__(self, fields: list[tuple[str, str]], files: list[tuple[str, Path, str, str]]) -> None:
+    def __init__(
+        self,
+        fields: list[tuple[str, str]],
+        files: list[tuple[str, Path, str, str]],
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> None:
         self.boundary = uuid.uuid4().hex
+        self._on_progress = on_progress
+        self._sent = 0
+        self._reported = 0
+        self._chunk = b""  # いま読んでいるかたまりと、その読み位置（余りは、ここに残す）
+        self._pos = 0
         self._parts: list[bytes | Path] = []
         self._length = 0
         b = self.boundary
@@ -148,24 +158,33 @@ class _MultipartStream:
                         yield chunk
 
     def read(self, size: int = -1) -> bytes:
-        if size is None or size < 0:
-            return b"".join(self._iter)
-        out = b""
-        while len(out) < size:
-            try:
-                out += next(self._iter)
-            except StopIteration:
-                break
-        if len(out) > size:  # 余りは、次の read() の先頭へ戻す
-            rest = out[size:]
-            out = out[:size]
-            self._iter = _chain(rest, self._iter)
+        """最大 size バイトを返す。余りは次の read() へ持ち越す（かたまりと読み位置だけを持つので、何回呼んでも深くならない）。"""
+        parts: list[bytes] = []
+        want = size if (size is not None and size >= 0) else None
+        got = 0
+        while want is None or got < want:
+            if self._pos >= len(self._chunk):
+                try:
+                    self._chunk, self._pos = next(self._iter), 0
+                except StopIteration:
+                    break
+            take = len(self._chunk) - self._pos if want is None else min(want - got, len(self._chunk) - self._pos)
+            parts.append(self._chunk[self._pos:self._pos + take])
+            self._pos += take
+            got += take
+        out = b"".join(parts)
+        self._sent += len(out)
+        self._report()
         return out
 
-
-def _chain(first: bytes, rest: Iterable[bytes]) -> Iterable[bytes]:
-    yield first
-    yield from rest
+    def _report(self, force: bool = False) -> None:
+        """進み具合を通知する。細かすぎないよう、1%（または256KB）ごと。"""
+        if self._on_progress is None:
+            return
+        step = max(self._length // 100, _CHUNK)
+        if force or self._sent - self._reported >= step or self._sent >= self._length:
+            self._reported = self._sent
+            self._on_progress(min(self._sent, self._length), self._length)
 
 
 def _explain_http_error(status: int, body: bytes) -> str:
@@ -187,10 +206,13 @@ def upload_entry(
     output_dir: Path,
     entry: dict,
     timeout: float = 600,
-) -> None:
+    progress: Callable[[int, int], None] | None = None,
+) -> int:
     """
     output/ の1本（entry）を、ギャラリーへ送る。失敗は GalleryUploadError（メッセージはそのまま画面に出せる）。
     動画が無い・大きすぎる・認証できない・通信できない、のいずれでも、他の動画には影響しない。
+    progress(送ったバイト数, 全体のバイト数) が、送りながら呼ばれる（どのスレッドから呼ばれても構わない作りにすること）。
+    戻り値: 送ったバイト数（本文の全体）。
     """
     if not base_url.strip() or not token.strip():
         raise GalleryUploadError("ギャラリーの URL とアップロードトークンを、Settings タブで設定してください")
@@ -221,6 +243,7 @@ def upload_entry(
             ("metadata", metadata_text),
         ],
         files,
+        on_progress=progress,
     )
 
     conn, prefix = _connection(base_url, timeout)
@@ -244,6 +267,7 @@ def upload_entry(
         conn.close()
     if resp.status >= 400:
         raise GalleryUploadError(_explain_http_error(resp.status, body))
+    return stream.length
 
 
 def fetch_gallery_ids(base_url: str, timeout: float = 30) -> set[str]:
@@ -272,11 +296,13 @@ def upload_missing(
     output_dir: Path,
     only_ids: set[str] | None = None,
     progress: Callable[[str], None] | None = None,
+    on_bytes: Callable[[int, int, str], None] | None = None,
 ) -> dict[str, list]:
     """
     output/ の中で、まだギャラリーに無い動画（only_ids があれば、その id のうち、無いもの）を、古い順に送る。
     戻り値: {"uploaded": [id…], "skipped": [id…]（すでにある）, "failed": [(id, 理由)…]}。
     1本の失敗で止めず、残りを続ける（認証エラーだけは、全部が同じ結果になるので、そこで止める）。
+    on_bytes(送った合計, 送る合計, 題名) は、全体の進み具合（プログレスバー用）。送る合計は、送る対象のファイルの大きさの和。
     """
     say = progress or (lambda _msg: None)
     existing = fetch_gallery_ids(base_url)
@@ -284,14 +310,31 @@ def upload_missing(
     entries = read_local_manifest(output_dir)
     entries.sort(key=lambda e: str(e.get("created_at", "")))  # 古い順（ギャラリーは新しいものを先頭に置く）
     targets = [e for e in entries if only_ids is None or str(e["id"]) in only_ids]
+    # 送る対象の、全体の大きさ（すでにある動画・ファイルが無い動画は、含めない）
+    plan = [e for e in targets if str(e["id"]) not in existing]
+    total_bytes = 0
+    for e in plan:
+        for f in entry_files(output_dir, e)[:2]:
+            try:
+                total_bytes += f.stat().st_size
+            except OSError:
+                pass
+    done_bytes = 0
+    if on_bytes and total_bytes:
+        on_bytes(0, total_bytes, "")
     for n, entry in enumerate(targets, 1):
         vid = str(entry["id"])
         if vid in existing:
             result["skipped"].append(vid)
             continue
-        say(f"アップロード中 {n}/{len(targets)}: {entry.get('title') or vid}")
+        title = str(entry.get("title") or vid)
+        say(f"アップロード中 {n}/{len(targets)}: {title}")
         try:
-            upload_entry(base_url, token, output_dir, entry)
+            def _file_progress(sent: int, _total: int, base: int = done_bytes, label: str = title) -> None:
+                if on_bytes:
+                    on_bytes(min(base + sent, total_bytes), total_bytes, label)
+
+            done_bytes += upload_entry(base_url, token, output_dir, entry, progress=_file_progress)
             result["uploaded"].append(vid)
         except GalleryUploadError as exc:
             result["failed"].append((vid, str(exc)))

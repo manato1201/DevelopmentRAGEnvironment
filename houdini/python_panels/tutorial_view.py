@@ -238,6 +238,7 @@ class VideoScriptWorker(QThread):
 class GalleryUploadWorker(QThread):
     """動画を、ダッシュボードの「動画」ページ（ギャラリー）へアップロードする（数十MBを送るので、別スレッド）。"""
     progress = Signal(str)
+    bytes_progress = Signal(int, str)  # (全体の進み具合 0〜100, 送っている動画の題名)
     done = Signal(str)  # 画面に出す結果の1行
 
     def __init__(self, url: str, token: str, output_dir: Path, only_ids: set[str] | None) -> None:
@@ -246,8 +247,12 @@ class GalleryUploadWorker(QThread):
 
     def run(self) -> None:
         try:
+            def on_bytes(sent: int, total: int, label: str) -> None:
+                self.bytes_progress.emit(int(sent * 100 / total) if total else 0, label)
+
             result = gallery_upload.upload_missing(
-                self._url, self._token, self._output_dir, self._only_ids, progress=self.progress.emit
+                self._url, self._token, self._output_dir, self._only_ids,
+                progress=self.progress.emit, on_bytes=on_bytes,
             )
             self.done.emit(gallery_upload.describe_result(result))
         except gallery_upload.GalleryUploadError as exc:
@@ -1444,6 +1449,15 @@ class VideoLibraryPanel(QWidget):
         toolbar.addWidget(self._status)
         toolbar.addStretch()
         layout.addLayout(toolbar)
+        # アップロードの進み具合（0〜100%）。アップロード中だけ表示する。
+        self._upload_bar = QProgressBar()
+        self._upload_bar.setRange(0, 100)
+        self._upload_bar.setTextVisible(True)
+        self._upload_bar.setFormat("%p%")
+        self._upload_bar.setFixedHeight(16)
+        self._upload_bar.setStyleSheet(self._UPLOAD_BAR_STYLE % "#22c55e")
+        self._upload_bar.setVisible(False)
+        layout.addWidget(self._upload_bar)
 
         # 一覧だけをパネル全幅で見せる。右側にあった「外部プレイヤーで開いてください」という
         # 案内だけのペインは、埋め込みプレイヤーを撤去した後は何も表示できず、一覧の幅を
@@ -1461,6 +1475,12 @@ class VideoLibraryPanel(QWidget):
         )
         self._list.itemSelectionChanged.connect(self._update_upload_buttons)
         layout.addWidget(self._list, stretch=1)
+
+    _UPLOAD_BAR_STYLE = (
+        "QProgressBar{border:1px solid #334155;border-radius:4px;background:#0f172a;color:#e2e8f0;"
+        "text-align:center;font-size:10px;}"
+        "QProgressBar::chunk{background:%s;border-radius:3px;}"
+    )
 
     def _update_upload_buttons(self) -> None:
         busy = self._upload_worker is not None and self._upload_worker.isRunning()
@@ -1493,15 +1513,30 @@ class VideoLibraryPanel(QWidget):
                 self._status.setText("動画エンジンの出力に、対応する動画が見つかりません: " + ", ".join(missing))
                 return
         self._status.setText("アップロードを始めます…")
+        self._upload_bar.setValue(0)
+        self._upload_bar.setFormat("%p%")
+        self._upload_bar.setStyleSheet(self._UPLOAD_BAR_STYLE % "#22c55e")
+        self._upload_bar.setVisible(True)
         self._upload_worker = GalleryUploadWorker(url, token, output_dir, only_ids)
         self._upload_worker.progress.connect(self._status.setText)
+        self._upload_worker.bytes_progress.connect(self._on_upload_progress)
         self._upload_worker.done.connect(self._on_upload_done)
         self._upload_btn.setEnabled(False)
         self._upload_all_btn.setEnabled(False)
         self._upload_worker.start()
 
+    def _on_upload_progress(self, percent: int, label: str) -> None:
+        self._upload_bar.setValue(percent)
+        if label:
+            self._upload_bar.setFormat(f"%p%  {label}")
+
     def _on_upload_done(self, message: str) -> None:
         self._status.setText(message)
+        # 完了（または失敗）を、バーの色でも示す。すべて送れていれば満タンのまま少し残し、次の操作で隠れる
+        failed = "失敗" in message or "できませんでした" in message
+        self._upload_bar.setStyleSheet(self._UPLOAD_BAR_STYLE % ("#ef4444" if failed else "#22c55e"))
+        if not failed:
+            self._upload_bar.setValue(100)
         self._update_upload_buttons()
 
     def _tutorials_dir(self) -> Path | None:
