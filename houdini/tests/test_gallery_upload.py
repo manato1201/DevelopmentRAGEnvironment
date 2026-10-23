@@ -232,6 +232,77 @@ class FindLocalEntryTest(_Case):
         self.assertEqual(gu.read_local_manifest(self.output), [])
 
 
+class StreamAndProgressTest(_Case):
+    """実機で RecursionError になった（数十MBの動画を、小さな単位で読むと、入れ子が深くなった）不具合の再発防止と、進み具合。"""
+
+    def test_a_large_body_read_in_small_pieces_does_not_recurse_and_is_intact(self) -> None:
+        folder = self.output / "videos" / "big"
+        folder.mkdir(parents=True)
+        data = bytes(i % 251 for i in range(6 * 1024 * 1024))  # 8KB ずつ読むと、約800回（以前は、数千回で落ちた）
+        (folder / "video.webm").write_bytes(data * 3)  # 18MB → 約2,300回の read
+        stream = gu._MultipartStream([("id", "big")], [("video", folder / "video.webm", "video.webm", "video/webm")])
+        reads = 0
+        total = bytearray()
+        while True:
+            chunk = stream.read(8192)
+            if not chunk:
+                break
+            reads += 1
+            total += chunk
+        self.assertGreater(reads, 2000)
+        self.assertEqual(len(total), stream.length, "Content-Length matches what is actually sent")
+        self.assertIn(data * 3, bytes(total))
+
+    def test_read_all_and_odd_sizes(self) -> None:
+        entry = self.add_video("v1", size=1000)
+        video, _, _ = gu.entry_files(self.output, entry)
+        for size in (1, 7, 255, 4096, 10_000_000):
+            stream = gu._MultipartStream([("id", "v1")], [("video", video, "video.webm", "video/webm")])
+            out = b""
+            while chunk := stream.read(size):
+                out += chunk
+            self.assertEqual(len(out), stream.length, size)
+        stream = gu._MultipartStream([("id", "v1")], [("video", video, "video.webm", "video/webm")])
+        self.assertEqual(len(stream.read()), stream.length, "read() with no size returns everything")
+
+    def test_progress_is_monotonic_and_ends_at_the_total(self) -> None:
+        entry = self.add_video("v1", size=3 * 1024 * 1024)
+        seen: list[tuple[int, int]] = []
+        sent = gu.upload_entry(self.url, TOKEN, self.output, entry, progress=lambda a, b: seen.append((a, b)))
+        self.assertGreater(len(seen), 3)
+        values = [a for a, _ in seen]
+        self.assertEqual(values, sorted(values))
+        self.assertEqual(seen[-1][0], seen[-1][1])
+        self.assertEqual(seen[-1][1], sent)
+        self.assertEqual(len(_Gallery.uploads), 1)
+
+    def test_upload_missing_reports_overall_percent_across_videos(self) -> None:
+        self.add_video("a", size=2 * 1024 * 1024, created="2026-09-01T00:00:00")
+        self.add_video("b", size=1 * 1024 * 1024, created="2026-09-02T00:00:00")
+        self.add_video("have", size=500_000, created="2026-09-03T00:00:00")
+        _Gallery.manifest = [{"id": "have"}]
+        calls: list[tuple[int, int, str]] = []
+        result = gu.upload_missing(self.url, TOKEN, self.output, on_bytes=lambda d, t, label: calls.append((d, t, label)))
+        self.assertEqual(result["uploaded"], ["a", "b"])
+        total = calls[0][1]
+        self.assertTrue(all(t == total for _, t, _ in calls), "one fixed total (what will be sent)")
+        self.assertLess(total, 3 * 1024 * 1024 + 20_000, "the video the gallery already has is not counted")
+        self.assertEqual(calls[0][0], 0)
+        done = [d for d, _, _ in calls]
+        self.assertEqual(done, sorted(done))
+        self.assertEqual(done[-1], total, "ends at 100%")
+        self.assertTrue(any("動画 b" in label for _, _, label in calls), "the title of the video being sent is reported")
+
+    def test_a_failed_upload_does_not_break_the_progress_total(self) -> None:
+        self.add_video("a", size=1000, created="2026-09-01T00:00:00")
+        _Gallery.status_override = 500
+        calls: list[tuple[int, int, str]] = []
+        result = gu.upload_missing(self.url, TOKEN, self.output, on_bytes=lambda d, t, label: calls.append((d, t, label)))
+        self.assertEqual(result["uploaded"], [])
+        self.assertEqual(len(result["failed"]), 1)
+        self.assertTrue(all(d <= t for d, t, _ in calls))
+
+
 class GalleryEnvTest(unittest.TestCase):
     def test_env_is_given_to_the_engine_only_when_complete_and_enabled(self) -> None:
         cfg = {"gallery_url": " https://g.example.workers.dev ", "gallery_token": " T ", "gallery_auto_upload": True}
