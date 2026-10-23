@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,13 +75,15 @@
 <header class="hero">
   <span class="badge">取扱説明書（RAGReel）</span>
   <h1>RAGReel（動画生成）取扱説明書</h1>
-  <div class="meta">HTML生成: 2026-10-21（元: docs/manual-ragreel.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/manual-ragreel.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-これは何か">1. これは何か</a></li><li><a href="#2-インストール">2. インストール</a></li><li><a href="#3-houdini-と一緒に使う">3. Houdini と一緒に使う</a></li><li><a href="#4-画面つきランチャーragreelexe">4. 画面つきランチャー（RAGReel.exe）</a></li><li><a href="#5-動画の保存先">5. 動画の保存先</a></li><li><a href="#6-音声">6. 音声</a></li><li><a href="#7-進み具合">7. 進み具合</a></li><li><a href="#8-困ったとき">8. 困ったとき</a></li><li><a href="#9-アンインストール">9. アンインストール</a></li><li><a href="#10-ライセンスと表記">10. ライセンスと表記</a></li></ol></details></nav>
 <main>
 
 <p><strong>対象:</strong> 実証実験に参加する方、運営 ／ <strong>版:</strong> RAGReel 1.1.0（2026-10-21）／ 技術的な詳細は、RAGReel リポジトリの <code>docs/technical-reference.md</code></p>
 <h2 id="1-これは何か">1. これは何か</h2>
+<p><a href="images/05-video-flow.svg"><img alt="動画ができるまで（RAGReel）" src="images/05-video-flow.svg" /></a></p>
+<p><em>図: 動画ができるまで（RAGReel）。手順書から、音声つきの WebM を作り、ダッシュボードに載せる。</em></p>
 <p>Houdini チュートリアル（手順書＋スクリーンショット＋初心者向けの台本）から、<strong>説明つきの解説動画</strong>（<code>.webm</code>）を作るツールです。</p>
 <div class="table-scroll"><table>
 <thead>

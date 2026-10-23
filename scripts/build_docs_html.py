@@ -51,6 +51,8 @@ DEFAULT_TARGETS: list[tuple[Path, str]] = [
     (DOCS / "cloudflare-rag-technical-report.md", "技術解説書（Cloudflare）"),
     (DOCS / "architecture-layering-plan.md", "設計案"),
     (DOCS / "cloudflare-vs-firebase-comparison.md", "比較資料"),
+    (DOCS / "comparison-houdini-mcp.md", "比較資料（Houdini × AI）"),
+    (DOCS / "security-audit-2026-10-22.md", "セキュリティ点検"),
 ]
 
 CSS = """
@@ -100,6 +102,10 @@ CSS = """
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }

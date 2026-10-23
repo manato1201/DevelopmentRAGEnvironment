@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,7 +75,7 @@
 <header class="hero">
   <span class="badge">座学資料</span>
   <h1>06. 保守ランブック</h1>
-  <div class="meta">HTML生成: 2026-10-21（元: docs/learning/06-maintenance-runbook.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/learning/06-maintenance-runbook.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-定期点検">1. 定期点検</a><ol><li><a href="#毎日1分画面で">毎日（1分。画面で）</a></li><li><a href="#毎週10分">毎週（10分）</a></li><li><a href="#毎月30分">毎月（30分）</a></li></ol></li><li><a href="#2-症状別の切り分け">2. 症状別の切り分け</a></li><li><a href="#3-障害記録">3. 障害記録</a><ol><li><a href="#a-2026-10-16-d1の読み取り枠を使い切り全apiが500">A. 2026-10-16 D1の読み取り枠を使い切り、全APIが500</a></li><li><a href="#b-2026-08-29-グラフ表示がd1の日次枠の9割を消費">B. 2026-08-29 グラフ表示がD1の日次枠の9割を消費</a></li><li><a href="#c-検索が常に0件メタデータインデックスの作り忘れ">C. 検索が常に0件（メタデータインデックスの作り忘れ）</a></li><li><a href="#d-2026-09-04-検索語の記号でfts5が構文エラー">D. 2026-09-04 検索語の記号でFTS5が構文エラー</a></li><li><a href="#e-同期中のunexpected-token-error-1102">E. 同期中のUnexpected token &#x27;&amp;lt;&#x27;／Error 1102</a></li><li><a href="#f-サービスアカウントのキーが作れないgcpの組織ポリシー">F. サービスアカウントのキーが作れない（GCPの組織ポリシー）</a></li><li><a href="#g-2026-10-17-再クロールが503で止まるページの9割がサイドバーの目次">G. 2026-10-17 再クロールが503で止まる（ページの9割がサイドバーの目次）</a></li><li><a href="#h-2026-10-19-動画の音声が良くならない導入済みのvoicevoxが黙って使われていなかった">H. 2026-10-19 動画の音声が良くならない（導入済みのVOICEVOXが、黙って使われていなかった）</a></li><li><a href="#i-2026-10-19-動画エンジンが起動直後のvoicevoxへの確認でクラッシュ終了コード139">I. 2026-10-19 動画エンジンが、起動直後のVOICEVOXへの確認でクラッシュ（終了コード139）</a></li><li><a href="#j-2026-10-21-動画生成がattributeerrorで始まらない画面コードの呼び出し先が無い">J. 2026-10-21 動画生成が、AttributeErrorで始まらない（画面コードの呼び出し先が無い）</a></li><li><a href="#k-2026-10-21-チャットのあとパネルがペインからはみ出し区切りが動かせない">K. 2026-10-21 チャットのあと、パネルがペインからはみ出し、区切りが動かせない</a></li><li><a href="#l-2026-10-21-登録済みのhoudiniドキュメントの本文に解析のスクリプトが混ざり同名ノードが上書きされる">L. 2026-10-21 登録済みのHoudiniドキュメントの本文に、解析のスクリプトが混ざり、同名ノードが上書きされる</a></li><li><a href="#m-2026-10-21-あいまいな質問で回答がぶれる仮の回答の検索が実行のたびに違う">M. 2026-10-21 あいまいな質問で、回答がぶれる（仮の回答の検索が、実行のたびに違う）</a></li></ol></li><li><a href="#4-やってはいけないこと">4. やってはいけないこと</a></li><li><a href="#5-復旧の基本手順全部が止まったとき">5. 復旧の基本手順（「全部が止まった」とき）</a></li><li><a href="#6-バックアップと復旧">6. バックアップと復旧</a></li><li><a href="#7-連絡エスカレーション">7. 連絡・エスカレーション</a></li></ol></details></nav>
 <main>

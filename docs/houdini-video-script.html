@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,7 +75,7 @@
 <header class="hero">
   <span class="badge">動画の台本と音声</span>
   <h1>Houdiniチュートリアル動画: 初心者向け台本と音声の改善</h1>
-  <div class="meta">HTML生成: 2026-10-21（元: docs/houdini-video-script.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/houdini-video-script.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-何が問題だったか実データで確認">1. 何が問題だったか（実データで確認）</a></li><li><a href="#2-どう直したか">2. どう直したか</a><ol><li><a href="#21-台本houdini側">2.1 台本（Houdini側）</a></li><li><a href="#22-動画エンジン側">2.2 動画エンジン側</a></li><li><a href="#23-音声">2.3 音声</a></li></ol></li><li><a href="#3-実データでの確認ブラックホールのチュートリアル16手順">3. 実データでの確認（ブラックホールのチュートリアル、16手順）</a></li><li><a href="#4-使い方設定">4. 使い方・設定</a></li><li><a href="#5-未確認のこと">5. 未確認のこと</a></li><li><a href="#6-関連して見つかった不具合動画エンジン">6. 関連して見つかった不具合（動画エンジン）</a></li><li><a href="#7-テスト">7. テスト</a></li><li><a href="#8-2026-10-21の追加-ぼやけた画面の解消パラメータの実画面チャットのレイアウト崩れ">8. 2026-10-21の追加: ぼやけた画面の解消、パラメータの実画面、チャットのレイアウト崩れ</a><ol><li><a href="#81-説明スライドのぼやけた画面をなくした">8.1 説明スライドの「ぼやけた画面」をなくした</a></li><li><a href="#82-パラメータ画面を実画面で見せる撮れなければ従来のカード">8.2 パラメータ画面を、実画面で見せる（撮れなければ従来のカード）</a></li><li><a href="#83-チャットのあとにレイアウトが崩れる不具合">8.3 チャットのあとにレイアウトが崩れる不具合</a></li></ol></li></ol></details></nav>
 <main>
@@ -124,6 +128,8 @@
 </tbody>
 </table></div>
 <h2 id="2-どう直したか">2. どう直したか</h2>
+<p><a href="images/05-video-flow.svg"><img alt="動画ができるまで（RAGReel）" src="images/05-video-flow.svg" /></a></p>
+<p><em>図: 動画ができるまで（RAGReel）。手順書から、音声つきの WebM を作り、ダッシュボードに載せる。</em></p>
 <div class="mermaid">flowchart LR
     A[&quot;保存したチュートリアル&lt;br/&gt;(.md)&quot;] --&gt; S[&quot;video_script.py&lt;br/&gt;初心者向けの台本を作る&quot;]
     B[&quot;手順ごとの&lt;br/&gt;スクリーンショット一覧&quot;] --&gt; S

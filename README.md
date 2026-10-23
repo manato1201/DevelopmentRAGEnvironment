@@ -40,6 +40,12 @@
 
 ---
 
+## システム全体の構成
+
+[![システム全体の構成](docs/images/01-system-overview.svg)](docs/images/01-system-overview.svg)
+
+*図: システム全体の構成。手元の Houdini とパネル、Cloudflare の Worker、外部の AI・サービスの関係。*
+
 ## クイックスタート
 
 ### クラウド RAG を使いたい

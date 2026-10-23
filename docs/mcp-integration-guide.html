@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,7 +75,7 @@
 <header class="hero">
   <span class="badge">外部サービス連携（MCP）</span>
   <h1>外部サービス連携（公式MCP）の選定と、使い方</h1>
-  <div class="meta">HTML生成: 2026-10-22（元: docs/mcp-integration-guide.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/mcp-integration-guide.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-同期とmcpの違い">1. 「同期」と「MCP」の違い</a></li><li><a href="#2-接続の2種類と書き込みの安全装置">2. 接続の2種類と、書き込みの安全装置</a><ol><li><a href="#21-誰の権限で動くか">2.1 誰の権限で動くか</a></li><li><a href="#22-書き込みは3つの条件がそろったときだけ2026-10-22-追加">2.2 書き込みは、3つの条件がそろったときだけ（2026-10-22 追加）</a></li></ol></li><li><a href="#3-目的別の選定">3. 目的別の選定</a><ol><li><a href="#31-現行の10サービス2026-10-22-に整理">3.1 現行の10サービス（2026-10-22 に整理）</a></li><li><a href="#32-外したもの使わないため">3.2 外したもの（使わないため）</a></li><li><a href="#33-追加の候補今は入れていません">3.3 追加の候補（今は入れていません）</a></li></ol></li><li><a href="#4-確認できていないこと接続の画面で確かめてください">4. 確認できていないこと（接続の画面で確かめてください）</a></li><li><a href="#5-テストの進め方">5. テストの進め方</a><ol><li><a href="#51-順序安全で効果が見えやすい順">5.1 順序（安全で、効果が見えやすい順）</a></li><li><a href="#52-1サービスあたりの手順">5.2 1サービスあたりの手順</a></li><li><a href="#53-試す質問の例">5.3 試す質問の例</a></li><li><a href="#54-共通の合格基準">5.4 共通の合格基準</a></li></ol></li><li><a href="#6-評価シートコピーして使う">6. 評価シート（コピーして使う）</a></li><li><a href="#7-注意">7. 注意</a></li></ol></details></nav>
 <main>
@@ -126,6 +130,8 @@
 </tbody>
 </table></div>
 <h2 id="2-接続の2種類と書き込みの安全装置">2. 接続の2種類と、書き込みの安全装置</h2>
+<p><a href="images/04-mcp-flow.svg"><img alt="外部サービス（MCP）の使い方と、書き込みの確認" src="images/04-mcp-flow.svg" /></a></p>
+<p><em>図: 外部サービス（MCP）の使い方と、書き込みの確認。読み取りはそのまま、書き込みは毎回「実行」を押したときだけ。</em></p>
 <h3 id="21-誰の権限で動くか">2.1 誰の権限で動くか</h3>
 <div class="table-scroll"><table>
 <thead>

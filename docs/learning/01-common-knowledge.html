@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,7 +75,7 @@
 <header class="hero">
   <span class="badge">座学資料</span>
   <h1>01. 常識編</h1>
-  <div class="meta">HTML生成: 2026-10-21（元: docs/learning/01-common-knowledge.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/learning/01-common-knowledge.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-コンピュータとosの常識">1. コンピュータとOSの常識</a></li><li><a href="#2-ネットワークとwebの常識">2. ネットワークとWebの常識</a><ol><li><a href="#21-urlとhttp">2.1 URLとHTTP</a></li><li><a href="#22-応答がjsonではありませんの正体">2.2 「応答がJSONではありません」の正体</a></li><li><a href="#23-dnshttpscorsを一言で">2.3 DNS・HTTPS・CORSを一言で</a></li></ol></li><li><a href="#3-データ形式の常識">3. データ形式の常識</a></li><li><a href="#4-セキュリティの常識">4. セキュリティの常識</a></li><li><a href="#5-gitの常識">5. Gitの常識</a></li><li><a href="#6-仕事の進め方の常識">6. 仕事の進め方の常識</a></li><li><a href="#7-費用と上限の常識">7. 費用と上限の常識</a></li><li><a href="#練習">練習</a></li><li><a href="#確認">確認</a></li></ol></details></nav>
 <main>

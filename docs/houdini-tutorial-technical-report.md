@@ -4,6 +4,10 @@
 
 ## 1. 全体像
 
+[![チュートリアルと動画ができるまで](images/02-tutorial-flow.svg)](images/02-tutorial-flow.svg)
+
+*図: チュートリアルと動画ができるまで。トピックを入れてから、ダッシュボードに載るまでの8段階。*
+
 ```mermaid
 flowchart LR
   subgraph PC["テスターのPC"]
@@ -119,6 +123,10 @@ sequenceDiagram
 
 ## 5. 動画生成
 
+[![動画ができるまで（RAGReel）](images/05-video-flow.svg)](images/05-video-flow.svg)
+
+*図: 動画ができるまで（RAGReel）。手順書から、音声つきの WebM を作り、ダッシュボードに載せる。*
+
 ### 5.1 流れ
 
 ```mermaid
@@ -166,6 +174,10 @@ flowchart LR
 失敗（ログに `ERROR`）は、赤で止まる。
 
 ## 6. 配布（Houdini パッケージ）
+
+[![配布と、キー・予算の管理](images/06-distribution.svg)](images/06-distribution.svg)
+
+*図: 配布と、キー・予算の管理。運営が配り、鍵と予算は運営の Worker で管理する。*
 
 `houdini/package/` と `scripts/build_houdini_package.py`。zip を展開して `install.cmd` を実行する。
 

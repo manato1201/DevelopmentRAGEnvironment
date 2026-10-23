@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,13 +75,15 @@
 <header class="hero">
   <span class="badge">取扱説明書（Houdini）</span>
   <h1>Houdini チュートリアル生成パネル 取扱説明書</h1>
-  <div class="meta">HTML生成: 2026-10-22（元: docs/manual-houdini-tutorial.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/manual-houdini-tutorial.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-これは何か">1. これは何か</a></li><li><a href="#2-必要なもの">2. 必要なもの</a></li><li><a href="#3-導入約5分">3. 導入（約5分）</a></li><li><a href="#4-はじめての1本">4. はじめての1本</a></li><li><a href="#5-画面の説明tutorial-タブ">5. 画面の説明（Tutorial タブ）</a><ol><li><a href="#レベルの意味">レベルの意味</a></li></ol></li><li><a href="#6-生成結果の読み方">6. 生成結果の読み方</a></li><li><a href="#7-解説動画">7. 解説動画</a><ol><li><a href="#ダッシュボードの動画ページに載せる">ダッシュボードの「動画」ページに載せる</a></li></ol></li><li><a href="#8-履歴と評価ご協力のお願い">8. 履歴と評価（ご協力のお願い）</a></li><li><a href="#9-費用と上限">9. 費用と上限</a></li><li><a href="#10-データの扱い送られるもの">10. データの扱い（送られるもの）</a></li><li><a href="#11-困ったとき">11. 困ったとき</a></li><li><a href="#12-アンインストール">12. アンインストール</a></li></ol></details></nav>
 <main>
 
 <p><strong>対象:</strong> 実証実験に参加する方（企業の技術者・学生）／ <strong>版:</strong> 2026-10-21</p>
 <h2 id="1-これは何か">1. これは何か</h2>
+<p><a href="images/02-tutorial-flow.svg"><img alt="チュートリアルと動画ができるまで" src="images/02-tutorial-flow.svg" /></a></p>
+<p><em>図: チュートリアルと動画ができるまで。トピックを入れてから、ダッシュボードに載るまでの8段階。</em></p>
 <p>Houdini の中で、トピック（例:「煙のシミュレーション」）を入れるだけで、AI が次のものを作ります。</p>
 <ol>
 <li><strong>チュートリアル:</strong> AI が実際に Houdini のノードを組み、動かして確かめながら、手順書（Markdown）を作ります。</li>
@@ -232,6 +238,8 @@
 <li><strong>打ち切り:</strong> 「この生成は途中で打ち切られました」と出たときは、未完成です（反復の上限・費用の上限・予算の不足など）。</li>
 </ul>
 <h2 id="7-解説動画">7. 解説動画</h2>
+<p><a href="images/05-video-flow.svg"><img alt="動画ができるまで（RAGReel）" src="images/05-video-flow.svg" /></a></p>
+<p><em>図: 動画ができるまで（RAGReel）。手順書から、音声つきの WebM を作り、ダッシュボードに載せる。</em></p>
 <p>保存すると、自動で動画が作られます。<strong>プログレスバー</strong>に、全体の進み具合が出ます。</p>
 <div class="table-scroll"><table>
 <thead>

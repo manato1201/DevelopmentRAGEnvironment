@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,7 +75,7 @@
 <header class="hero">
   <span class="badge">レッスン設計</span>
   <h1>チュートリアル生成を「レッスン」にする（2026-10-20）</h1>
-  <div class="meta">HTML生成: 2026-10-21（元: docs/houdini-lesson-design.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/houdini-lesson-design.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-何が足りなかったか実データで確認">1. 何が足りなかったか（実データで確認）</a><ol><li><a href="#参考チャンネルに共通する型">参考チャンネルに共通する型</a></li></ol></li><li><a href="#2-どう直したか">2. どう直したか</a><ol><li><a href="#3段階の意味を変えた">3段階の意味を変えた</a></li><li><a href="#生成物の形新しい節">生成物の形（新しい節）</a></li><li><a href="#採点の10項目合計100点">採点の10項目（合計100点）</a></li></ol></li><li><a href="#3-動画は解説動画になっているか">3. 動画は「解説動画」になっているか</a></li><li><a href="#4-確認できたことできていないこと">4. 確認できたこと・できていないこと</a></li><li><a href="#5-使い方">5. 使い方</a></li></ol></details></nav>
 <main>
@@ -149,6 +153,8 @@
 </tbody>
 </table></div>
 <h2 id="2-どう直したか">2. どう直したか</h2>
+<p><a href="images/02-tutorial-flow.svg"><img alt="チュートリアルと動画ができるまで" src="images/02-tutorial-flow.svg" /></a></p>
+<p><em>図: チュートリアルと動画ができるまで。トピックを入れてから、ダッシュボードに載るまでの8段階。</em></p>
 <pre><code>トピック
   └─ ① レッスン設計（lesson_design.py）  … ノードを組む前に、章立て・確認・実験を決める（Claude 1回）
        └─ ② エージェントが組む             … 設計と「教え方のルール」をシステムプロンプトに入れる

@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,7 +75,7 @@
 <header class="hero">
   <span class="badge">技術解説書（Cloudflare）</span>
   <h1>Cloudflare RAG POC 技術解説書</h1>
-  <div class="meta">HTML生成: 2026-10-21（元: docs/cloudflare-rag-technical-report.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/cloudflare-rag-technical-report.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-概要">1. 概要</a></li><li><a href="#2-なぜcloudflareか">2. なぜCloudflareか</a></li><li><a href="#3-システム全体構成">3. システム全体構成</a></li><li><a href="#4-データモデル">4. データモデル</a></li><li><a href="#5-主要フロー">5. 主要フロー</a><ol><li><a href="#51-ragクエリquery">5.1 RAGクエリ（/query）</a></li><li><a href="#52-知識ベース同期バッチ処理パターン">5.2 知識ベース同期（バッチ処理パターン）</a></li><li><a href="#53-oauthクリック接続2026-09-22追加">5.3 OAuthクリック接続（2026-09-22追加）</a></li></ol></li><li><a href="#6-セキュリティアクセス制御">6. セキュリティ・アクセス制御</a></li><li><a href="#7-知識ベース取り込みパイプライン">7. 知識ベース取り込みパイプライン</a></li><li><a href="#8-実装上の技術的な工夫と実際に発見修正したバグ">8. 実装上の技術的な工夫と、実際に発見・修正したバグ</a></li><li><a href="#9-gas版との機能対応表サマリ">9. GAS版との機能対応表（サマリ）</a></li><li><a href="#10-今後の課題">10. 今後の課題</a></li><li><a href="#11-追補2026-10-21-音声合成章つきのドキュメント有料プラン">11. 追補（2026-10-21）: 音声合成、章つきのドキュメント、有料プラン</a><ol><li><a href="#111-音声合成の中継post-ttssrcttsts">11.1 音声合成の中継（POST /tts、src/tts.ts）</a></li><li><a href="#112-houdini-公式ドキュメントの章srchoudinicontextts">11.2 Houdini 公式ドキュメントの章（src/houdiniContext.ts）</a></li><li><a href="#113-クライアントの章のヒント">11.3 クライアントの章のヒント</a></li><li><a href="#114-プラン">11.4 プラン</a></li><li><a href="#115-テスト">11.5 テスト</a></li></ol></li></ol></details></nav>
 <main>
@@ -93,6 +97,8 @@
 </ul>
 <p>ただし実装を進める中で、Workers特有の制約（Vectorizeバインディングを実行時に動的生成できない、サブリクエスト数上限、npm依存関係がedge-compatibleである必要がある等）も明らかになった。詳細は<a href="#8-実装上の技術的な工夫と実際に発見修正したバグ">§8</a>、および<a href="cloudflare-vs-firebase-comparison.html">Firebaseで実装した場合との比較資料</a>を参照。</p>
 <h2 id="3-システム全体構成">3. システム全体構成</h2>
+<p><a href="images/01-system-overview.svg"><img alt="システム全体の構成" src="images/01-system-overview.svg" /></a></p>
+<p><em>図: システム全体の構成。手元の Houdini とパネル、Cloudflare の Worker、外部の AI・サービスの関係。</em></p>
 <div class="mermaid">graph TB
     subgraph Client[&quot;クライアント&quot;]
         Browser[&quot;ブラウザ（Webチャット画面）&quot;]
@@ -270,6 +276,8 @@
 <p><strong><code>oauth_connections</code>/<code>oauth_pending_state</code></strong>（2026-09-22追加）は、他のテーブルと異なり<code>namespace_id</code>を持たない＝<strong>デプロイ単位で1接続</strong>という設計（<code>JIRA_API_TOKEN</code>等の既存secretと同じスコープ感）。<code>oauth_pending_state</code>はOAuth認可フロー中の一時データで、コールバック受信時に検証・削除される（10分で自動失効）。</p>
 <p><strong><code>crawl_jobs</code></strong>（2026-09追加）は再帰URLクローラーのBFSキュー・訪問済みURL集合の継続状態を保持する一時テーブルで、クロール完了時に削除される。Cloudflare Workers Freeプランの CPU時間制限により1クロールを複数リクエストに分割して処理する必要があるため導入した（<a href="#7-知識ベース取り込みパイプライン">§7</a>）。</p>
 <h2 id="5-主要フロー">5. 主要フロー</h2>
+<p><a href="images/03-rag-flow.svg"><img alt="質問から回答までの流れ（RAG）" src="images/03-rag-flow.svg" /></a></p>
+<p><em>図: 質問から回答までの流れ（RAG）。検索は意味とキーワードの両方。回答には、出典の番号がつく。</em></p>
 <h3 id="51-ragクエリquery">5.1 RAGクエリ（<code>/query</code>）</h3>
 <div class="mermaid">sequenceDiagram
     participant C as クライアント
@@ -340,6 +348,8 @@
 <p>OAuth開始エンドポイント（<code>GET /admin/oauth/&lt;service&gt;/start</code>）はブラウザの直接ナビゲーションで叩かれるため、他の全エンドポイントと異なり<code>Authorization</code>ヘッダーを付与できない。管理UIが既にlocalStorageに保持しているAPIキーをこの1回だけクエリパラメータとして渡す設計にしており、これに伴うトレードオフ（APIキーが一時的にブラウザ履歴・サーバーログに残りうる）は認識のうえで許容している（管理者専用の内部ツールという性質上）。コールバック（<code>GET /admin/oauth/&lt;service&gt;/callback</code>）はAuthorizationヘッダーを一切持たないため、<code>oauth_pending_state</code>のstate（10分で失効・1回限り消費）が認可の正当性を保証する唯一の手段になっている。</p>
 <p>各連携の同期処理（<code>jiraSync.ts</code>等）は、OAuth接続があればそれを（有効期限が近ければ自動更新して）優先し、無ければ従来のsecret方式にフォールバックする設計にしているため、既存の設定を持つ環境は無変更で動作し続ける。GoogleカレンダーはGmail送信（<code>gmailOAuth.ts</code>）で登録済みのOAuthクライアントをスコープ違いでそのまま流用でき、新規のOAuthアプリ登録が不要な点が実装上の工夫。</p>
 <h2 id="6-セキュリティアクセス制御">6. セキュリティ・アクセス制御</h2>
+<p><a href="images/07-security-layers.svg"><img alt="守りの層" src="images/07-security-layers.svg" /></a></p>
+<p><em>図: 守りの層。リクエストが通る順に、7つの層で確認する。</em></p>
 <ul>
 <li><strong>APIキー認証</strong>：生キーは発行時にしか表示されず、以後はSHA-256ハッシュのみをDBに保持する</li>
 <li><strong>namespace RBAC</strong>：<code>key_namespace_grants</code>テーブルで「どのキーがどのshared namespaceを見られるか」を明示的に管理。adminロールは無条件に全shared namespaceを閲覧可能、それ以外は許可リストに無いnamespaceには一切アクセスできない</li>
