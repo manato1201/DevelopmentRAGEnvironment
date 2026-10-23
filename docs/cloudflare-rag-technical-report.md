@@ -40,6 +40,10 @@ GAS版（`gas_cloud_rag.js`、約3,450行・100関数超）が持つRAG機能一
 
 ## 3. システム全体構成
 
+[![システム全体の構成](images/01-system-overview.svg)](images/01-system-overview.svg)
+
+*図: システム全体の構成。手元の Houdini とパネル、Cloudflare の Worker、外部の AI・サービスの関係。*
+
 ```mermaid
 graph TB
     subgraph Client["クライアント"]
@@ -229,6 +233,10 @@ erDiagram
 
 ## 5. 主要フロー
 
+[![質問から回答までの流れ（RAG）](images/03-rag-flow.svg)](images/03-rag-flow.svg)
+
+*図: 質問から回答までの流れ（RAG）。検索は意味とキーワードの両方。回答には、出典の番号がつく。*
+
 ### 5.1 RAGクエリ（`/query`）
 
 ```mermaid
@@ -313,6 +321,10 @@ OAuth開始エンドポイント（`GET /admin/oauth/<service>/start`）はブ�
 各連携の同期処理（`jiraSync.ts`等）は、OAuth接続があればそれを（有効期限が近ければ自動更新して）優先し、無ければ従来のsecret方式にフォールバックする設計にしているため、既存の設定を持つ環境は無変更で動作し続ける。GoogleカレンダーはGmail送信（`gmailOAuth.ts`）で登録済みのOAuthクライアントをスコープ違いでそのまま流用でき、新規のOAuthアプリ登録が不要な点が実装上の工夫。
 
 ## 6. セキュリティ・アクセス制御
+
+[![守りの層](images/07-security-layers.svg)](images/07-security-layers.svg)
+
+*図: 守りの層。リクエストが通る順に、7つの層で確認する。*
 
 - **APIキー認証**：生キーは発行時にしか表示されず、以後はSHA-256ハッシュのみをDBに保持する
 - **namespace RBAC**：`key_namespace_grants`テーブルで「どのキーがどのshared namespaceを見られるか」を明示的に管理。adminロールは無条件に全shared namespaceを閲覧可能、それ以外は許可リストに無いnamespaceには一切アクセスできない

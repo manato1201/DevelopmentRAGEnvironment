@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,13 +75,15 @@
 <header class="hero">
   <span class="badge">技術解説書（Houdini・動画）</span>
   <h1>Houdini チュートリアル生成と動画生成 — 技術解説書</h1>
-  <div class="meta">HTML生成: 2026-10-21（元: docs/houdini-tutorial-technical-report.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/houdini-tutorial-technical-report.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-チュートリアル生成tutorialagentpy">2. チュートリアル生成（tutorial_agent.py）</a><ol><li><a href="#21-生成の流れ">2.1 生成の流れ</a></li><li><a href="#22-ツールhoudinitoolspy">2.2 ツール（houdini_tools.py）</a></li><li><a href="#23-安全装置暴走打ち切りの扱い">2.3 安全装置（暴走・打ち切りの扱い）</a></li><li><a href="#24-レベル学習の道すじ">2.4 レベル（学習の道すじ）</a></li></ol></li><li><a href="#3-品質を上げる仕組み2026-10-2021">3. 品質を上げる仕組み（2026-10-20〜21）</a></li><li><a href="#4-スクリーンショットscreencapturepy">4. スクリーンショット（screen_capture.py）</a></li><li><a href="#5-動画生成">5. 動画生成</a><ol><li><a href="#51-流れ">5.1 流れ</a></li><li><a href="#52-台本videoscriptpy">5.2 台本（video_script.py）</a></li><li><a href="#53-画像の無いスライド2026-10-21">5.3 画像の無いスライド（2026-10-21）</a></li><li><a href="#54-音声">5.4 音声</a></li><li><a href="#55-進捗プログレスバー">5.5 進捗（プログレスバー）</a></li></ol></li><li><a href="#6-配布houdini-パッケージ">6. 配布（Houdini パッケージ）</a></li><li><a href="#7-検証の状況">7. 検証の状況</a></li><li><a href="#8-既知の制限">8. 既知の制限</a></li></ol></details></nav>
 <main>
 
 <p><strong>版:</strong> 2026-10-21 ／ <strong>対象読者:</strong> 保守・拡張する開発者 ／ <strong>関連:</strong> <a href="content-generation.md">content-generation.md</a>（機能の経緯）、<a href="houdini-lesson-design.html">houdini-lesson-design.md</a>（レッスン設計）、<a href="houdini-video-script.html">houdini-video-script.md</a>（台本）、<a href="cloudflare-rag-technical-report.html">cloudflare-rag-technical-report.md</a>（サーバー側）、RAGReel の <code>docs/technical-reference.md</code>（動画エンジン）</p>
 <h2 id="1-全体像">1. 全体像</h2>
+<p><a href="images/02-tutorial-flow.svg"><img alt="チュートリアルと動画ができるまで" src="images/02-tutorial-flow.svg" /></a></p>
+<p><em>図: チュートリアルと動画ができるまで。トピックを入れてから、ダッシュボードに載るまでの8段階。</em></p>
 <div class="mermaid">flowchart LR
   subgraph PC[&quot;テスターのPC&quot;]
     subgraph HOU[&quot;Houdini（Python パネル）&quot;]
@@ -293,6 +299,8 @@
 <li>実機で確認済み: ネットワーク画面の切り出し、ビューポート。<strong>未確認:</strong> Parm ペインの切り出し（合成と、フォールバックのカードは、hython のオフスクリーンで確認）。</li>
 </ul>
 <h2 id="5-動画生成">5. 動画生成</h2>
+<p><a href="images/05-video-flow.svg"><img alt="動画ができるまで（RAGReel）" src="images/05-video-flow.svg" /></a></p>
+<p><em>図: 動画ができるまで（RAGReel）。手順書から、音声つきの WebM を作り、ダッシュボードに載せる。</em></p>
 <h3 id="51-流れ">5.1 流れ</h3>
 <div class="mermaid">flowchart LR
   S[&quot;保存（md / json）&quot;] --&gt; D[&quot;関係図を描く\ngraph_diagram&quot;]
@@ -378,6 +386,8 @@
 </table></div>
 <p>失敗（ログに <code>ERROR</code>）は、赤で止まる。</p>
 <h2 id="6-配布houdini-パッケージ">6. 配布（Houdini パッケージ）</h2>
+<p><a href="images/06-distribution.svg"><img alt="配布と、キー・予算の管理" src="images/06-distribution.svg" /></a></p>
+<p><em>図: 配布と、キー・予算の管理。運営が配り、鍵と予算は運営の Worker で管理する。</em></p>
 <p><code>houdini/package/</code> と <code>scripts/build_houdini_package.py</code>。zip を展開して <code>install.cmd</code> を実行する。</p>
 <ul>
 <li>パネルの Python ファイルを <code>%LOCALAPPDATA%\RAGReelTutorial\python</code> に置き、<strong>Houdini のパッケージ（<code>Documents\houdiniXX.X\packages\ragreel_tutorial.json</code>）</strong>で、<code>PYTHONPATH</code> とパネル定義の場所を登録する。パネル定義（<code>.pypanel</code>）は、<code>import rag_chatbot</code> するだけの<strong>薄い読み込み用</strong>（ASCII のみ。Latin-1 の落とし穴を避ける）。更新は、ファイルの置き換えだけで済む。</li>

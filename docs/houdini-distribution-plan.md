@@ -2,6 +2,10 @@
 
 ## 1. 範囲と相手
 
+[![配布と、キー・予算の管理](images/06-distribution.svg)](images/06-distribution.svg)
+
+*図: 配布と、キー・予算の管理。運営が配り、鍵と予算は運営の Worker で管理する。*
+
 | 項目 | 内容 |
 |---|---|
 | 配るもの | Houdiniチュートリアル生成パネルと、動画生成エンジン（RAGReel） |

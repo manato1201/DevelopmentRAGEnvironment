@@ -6,6 +6,10 @@
 
 ## 1. 全体の構成
 
+[![システム全体の構成](images/01-system-overview.svg)](images/01-system-overview.svg)
+
+*図: システム全体の構成。手元の Houdini とパネル、Cloudflare の Worker、外部の AI・サービスの関係。*
+
 ```
 テスターのPC                         あなたのCloudflare（Worker）                 外部サービス
 Houdini パネル ──(鍵)──▶ /claude/messages ─────────────────────────────▶ Anthropic（Claude）
@@ -125,6 +129,10 @@ npx wrangler deploy
 - シークレットの登録: `npx wrangler secret put <名前>`（値は、画面に出ません）。
 
 ## 7. 配布物を作る
+
+[![配布と、キー・予算の管理](images/06-distribution.svg)](images/06-distribution.svg)
+
+*図: 配布と、キー・予算の管理。運営が配り、鍵と予算は運営の Worker で管理する。*
 
 | 配布物 | 作り方 | 渡し方 |
 |---|---|---|

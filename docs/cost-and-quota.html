@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,13 +75,15 @@
 <header class="hero">
   <span class="badge">費用と利用枠</span>
   <h1>トークン・費用の見積もりと、配る量の決め方</h1>
-  <div class="meta">HTML生成: 2026-10-21（元: docs/cost-and-quota.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/cost-and-quota.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-結論実験の設定値">1. 結論（実験の設定値）</a></li><li><a href="#2-実測1回の生成">2. 実測（1回の生成）</a></li><li><a href="#3-予算のトークンと費用は比例しない">3. 「予算のトークン」と「費用」は比例しない</a></li><li><a href="#4-先確保の余裕429-の誤作動を防ぐ">4. 先確保の余裕（429 の誤作動を防ぐ）</a></li><li><a href="#5-サーバー外部サービスの月額">5. サーバー・外部サービスの月額</a><ol><li><a href="#cloudflareworkers-paid">Cloudflare（Workers Paid）</a></li><li><a href="#gemini検索の埋め込み仮の回答チャットの回答">Gemini（検索の埋め込み・仮の回答・チャットの回答）</a></li><li><a href="#google-cloud-text-to-speech">Google Cloud Text-to-Speech</a></li><li><a href="#claudeanthropic">Claude（Anthropic）</a></li></ol></li><li><a href="#6-再計算の方法">6. 再計算の方法</a></li><li><a href="#7-前提と確認できていないこと">7. 前提と、確認できていないこと</a></li></ol></details></nav>
 <main>
 
 <p><strong>目的:</strong> 実証実験で、1人にどれだけの利用枠（Claude 予算・音声の文字数）を配るかを、実測から決める。<strong>版:</strong> 2026-10-21</p>
 <h2 id="1-結論実験の設定値">1. 結論（実験の設定値）</h2>
+<p><a href="images/08-cost-flow.svg"><img alt="費用と上限の流れ" src="images/08-cost-flow.svg" /></a></p>
+<p><em>図: 費用と上限の流れ。処理ごとに「確保 → 実行 → 精算」。足りなければ、実行の前に止める。</em></p>
 <div class="table-scroll"><table>
 <thead>
 <tr>

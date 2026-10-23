@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,7 +75,7 @@
 <header class="hero">
   <span class="badge">比較資料</span>
   <h1>Cloudflareで作った場合とFirebaseで作った場合の違い</h1>
-  <div class="meta">HTML生成: 2026-10-21（元: docs/cloudflare-vs-firebase-comparison.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/cloudflare-vs-firebase-comparison.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-結論">1. 結論</a></li><li><a href="#2-コンポーネント対応表">2. コンポーネント対応表</a></li><li><a href="#3-違いが設計に直結する3つのポイント">3. 違いが設計に直結する3つのポイント</a><ol><li><a href="#31-フルテキスト検索d1-fts5-vs-firestoreに検索機能が無い">3.1 フルテキスト検索：D1 FTS5 vs Firestoreに検索機能が無い</a></li><li><a href="#32-ベクトル検索vectorize-vs-vertex-ai-vector-search">3.2 ベクトル検索：Vectorize vs Vertex AI Vector Search</a></li><li><a href="#33-cloudflare-workers特有の実行制約が生んだバッチ処理化という設計">3.3 Cloudflare Workers特有の実行制約が生んだ「バッチ処理化」という設計</a></li></ol></li><li><a href="#4-逆にfirebaseの方が簡単になる点">4. 逆にFirebaseの方が簡単になる点</a><ol><li><a href="#41-google-api認証">4.1 Google API認証</a></li><li><a href="#42-バイナリ文書の変換">4.2 バイナリ文書の変換</a></li></ol></li><li><a href="#5-コスト構造の違い">5. コスト構造の違い</a></li><li><a href="#6-総合的にどちらが向いていたか">6. 総合的にどちらが向いていたか</a></li><li><a href="#7-追記2026-10-17-cloudflare-workersfirebase-hostingcloud-run-の比較">7. 追記（2026-10-17）: Cloudflare Workers／Firebase Hosting／Cloud Run の比較</a><ol><li><a href="#71-まずこの3つは同じ階層のものではない">7.1 まず、この3つは「同じ階層のもの」ではない</a></li><li><a href="#72-それぞれの利点">7.2 それぞれの利点</a></li><li><a href="#73-このプロジェクトでは">7.3 このプロジェクトでは</a></li><li><a href="#74-配布の観点architecture-layering-planmdと合わせて">7.4 配布の観点（architecture-layering-plan.mdと合わせて）</a></li></ol></li></ol></details></nav>
 <main>

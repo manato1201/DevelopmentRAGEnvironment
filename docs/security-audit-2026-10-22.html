@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Worker のセキュリティ点検（2026-10-22）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">セキュリティ点検</span>
+  <h1>Worker のセキュリティ点検（2026-10-22）</h1>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/security-audit-2026-10-22.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-結果の一覧">1. 結果の一覧</a></li><li><a href="#2-確定した問題">2. 確定した問題</a><ol><li><a href="#f1-backlog-の-oauth-が任意のホストへ-client-secret-を送る高">F1. Backlog の OAuth が、任意のホストへ Client Secret を送る（高）</a></li><li><a href="#f2-oauth-の開始urlにapiキーを載せている中">F2. OAuth の開始URLに、APIキーを載せている（中）</a></li><li><a href="#f3-エラー文をエスケープせずに-innerhtml-へ低">F3. エラー文を、エスケープせずに innerHTML へ（低）</a></li><li><a href="#f4-state-の消費が2回の操作低">F4. state の消費が、2回の操作（低）</a></li><li><a href="#f5-クリックジャッキング中">F5. クリックジャッキング（中）</a></li></ol></li><li><a href="#3-却下要確認">3. 却下・要確認</a></li><li><a href="#4-点検した範囲問題が見つからなかったもの">4. 点検した範囲（問題が見つからなかったもの）</a></li><li><a href="#5-見ていないもの次の点検の対象">5. 見ていないもの（次の点検の対象）</a></li></ol></details></nav>
+<main>
+
+<p><strong>対象:</strong> <code>cloudflare-rag-poc/</code>（認証・OAuth・同期の許可・MCP・画面）。<strong>手法:</strong> <code>cloudflare/security-audit-skill</code> の6段階（偵察 → 探索 → 候補の反証 → 構造化 → 検証 → 報告）を参考にした。<br />
+<strong>範囲の限界:</strong> このリポジトリのコードだけ。実際のCloudflareの設定（WAF・アクセス制御）、秘密（キー・トークン）の値、他のリポジトリは見ていない。<strong>秘密の値は、出力にも記録にも含めていない。</strong><br />
+<strong>検証の限界:</strong> 「検証役は別のエージェント」という手順は、<strong>この点検では、別のエージェントを立てていない</strong>。代わりに、各「確定」は、<strong>コードを読んで攻撃の筋を組み立て</strong>、直したあとに、その筋が通らないことを<strong>テスト</strong>（<code>test/security_oauth.test.mjs</code>）で確かめた。<strong>直す前の状態に対して、実際に攻撃を試したわけではない</strong>（本番のコードに対して試すのは避けた）。</p>
+<h2 id="1-結果の一覧">1. 結果の一覧</h2>
+<p><a href="images/07-security-layers.svg"><img alt="守りの層" src="images/07-security-layers.svg" /></a></p>
+<p><em>図: 守りの層。リクエストが通る順に、7つの層で確認する。</em></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>ID</th>
+<th>内容</th>
+<th>判定</th>
+<th>深刻度</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F1</td>
+<td>Backlog の OAuth が、<strong>任意のホスト</strong>へ Client Secret を送る</td>
+<td><strong>確定</strong></td>
+<td>高</td>
+<td><strong>修正済み</strong></td>
+</tr>
+<tr>
+<td>F2</td>
+<td>OAuth の開始URLに、<strong>APIキーそのもの</strong>を載せている（履歴・ログ・Referer に残る）</td>
+<td><strong>確定</strong></td>
+<td>中</td>
+<td><strong>修正済み</strong>（使い捨てトークン）</td>
+</tr>
+<tr>
+<td>F3</td>
+<td>画面が、サーバーのエラー文を、エスケープせずに <code>innerHTML</code> へ入れている（13か所）</td>
+<td><strong>確定</strong>（悪用の筋は狭い）</td>
+<td>低</td>
+<td><strong>修正済み</strong></td>
+</tr>
+<tr>
+<td>F4</td>
+<td>OAuth の <code>state</code> の消費が、「読む → 消す」の2回の操作で、同時に2回届くと両方通る余地がある</td>
+<td><strong>確定</strong>（悪用は難しい）</td>
+<td>低</td>
+<td><strong>修正済み</strong></td>
+</tr>
+<tr>
+<td>F5</td>
+<td>画面（HTML）が、他のサイトの枠（iframe）に埋め込める（クリックジャッキング）</td>
+<td><strong>確定</strong></td>
+<td>中</td>
+<td><strong>修正済み</strong></td>
+</tr>
+<tr>
+<td>F6</td>
+<td><code>urlImport</code> が、任意の公開URLを取りに行く</td>
+<td><strong>却下</strong>（機能の仕様）</td>
+<td>—</td>
+<td>変更なし</td>
+</tr>
+<tr>
+<td>F7</td>
+<td>APIキーのハッシュが、ソルトなしの SHA-256</td>
+<td><strong>却下</strong></td>
+<td>—</td>
+<td>変更なし</td>
+</tr>
+<tr>
+<td>F8</td>
+<td>旧式の <code>?key=&lt;APIキー&gt;</code> を、まだ受け付けている</td>
+<td><strong>要確認</strong></td>
+<td>低</td>
+<td>残してある（互換のため）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-確定した問題">2. 確定した問題</h2>
+<h3 id="f1-backlog-の-oauth-が任意のホストへ-client-secret-を送る高">F1. Backlog の OAuth が、任意のホストへ Client Secret を送る（高）</h3>
+<ul>
+<li><strong>経路:</strong> <code>GET /admin/oauth/backlog/start?owner=me&amp;space=&lt;任意のホスト&gt;</code>。<code>owner=me</code>（自分専用の接続）は、<strong>ゲスト以外の誰でも</strong>使える。以前の <code>normalizeSpaceUrl</code> は、<code>https://&lt;入力されたホスト&gt;</code> を、そのまま通していた。</li>
+<li><strong>悪用:</strong> 開始 → Worker が <code>&lt;ホスト&gt;/OAuth2AccessRequest.action</code> へリダイレクト → そのホスト（攻撃者のサーバー）が、<code>code</code> と <code>state</code> をつけてコールバックへ戻す → Worker が、<code>&lt;ホスト&gt;/api/v2/oauth2/token</code> へ <strong><code>client_id</code> と <code>client_secret</code> を POST</strong>。<strong>攻撃者が、Backlog アプリの Client Secret を受け取れる。</strong> 保存済みの接続のトークン更新にも、同じ経路があった。</li>
+<li><strong>前提:</strong> <code>BACKLOG_OAUTH_CLIENT_SECRET</code> が設定されていること（この環境で設定済みかは、未確認）。</li>
+<li><strong>修正:</strong> スペースのホストを、<code>*.backlog.com</code> / <code>*.backlog.jp</code> / <code>*.backlogtool.com</code> に限った（ポート・ユーザー情報つきも拒否）。開始・コールバック・トークン更新の<strong>3か所</strong>で検査する。</li>
+<li><strong>確認:</strong> 13種類の細工したホスト（<code>backlog.com.evil.com</code>・ポート付き・<code>@</code> 付きなど）を拒否するテスト。細工した <code>state</code> と、保存済みの悪いホストでも、<strong>何も送られない</strong>ことを確認。</li>
+<li><strong>推奨（あなたの作業）:</strong> すでに Backlog の OAuth アプリを登録していたなら、<strong>念のため Client Secret を作り直す</strong>ことを検討してください（漏れた形跡は、私には確認できません）。</li>
+</ul>
+<h3 id="f2-oauth-の開始urlにapiキーを載せている中">F2. OAuth の開始URLに、APIキーを載せている（中）</h3>
+<ul>
+<li>開始は、ブラウザの直接の移動なので、<code>Authorization</code> ヘッダーを付けられず、<code>?key=&lt;APIキー&gt;</code> を使っていた。URL は、ブラウザの履歴・アクセスログ・Referer に残る。</li>
+<li><strong>修正:</strong> <code>POST /me/oauth-start-token</code> で、<strong>60秒・1回だけ</strong>使えるトークンを発行し、開始URLには <code>?t=&lt;トークン&gt;</code> を付ける。画面は、これを使うように変えた。トークンは、別のサービス用の <code>state</code> では使えない。</li>
+<li><strong>残り:</strong> F8。</li>
+</ul>
+<h3 id="f3-エラー文をエスケープせずに-innerhtml-へ低">F3. エラー文を、エスケープせずに <code>innerHTML</code> へ（低）</h3>
+<ul>
+<li><code>innerHTML = '…' + e.message + '…'</code> が13か所。サーバーのエラー文には、入力の一部（例: ツール名）が入ることがある。悪用には、被害者の画面で、攻撃者の文字列が入るエラーを起こす必要があり、筋は狭い。ただし、画面は <code>localStorage</code> の APIキーで動くため、成立すると影響は大きい。</li>
+<li><strong>修正:</strong> <code>esc()</code> を通す。</li>
+</ul>
+<h3 id="f4-state-の消費が2回の操作低">F4. <code>state</code> の消費が、2回の操作（低）</h3>
+<ul>
+<li><code>SELECT</code> のあと <code>DELETE</code>。同じ <code>state</code> のコールバックが同時に2回届くと、両方が通る余地。<code>state</code> を知るのは、本人のブラウザだけなので、悪用は難しい。</li>
+<li><strong>修正:</strong> <code>DELETE ... RETURNING</code> の1回の操作に。</li>
+</ul>
+<h3 id="f5-クリックジャッキング中">F5. クリックジャッキング（中）</h3>
+<ul>
+<li>画面に <code>X-Frame-Options</code> も <code>frame-ancestors</code> も無かった。他のサイトが、この画面を枠に入れ、見えない状態で重ねてボタン（管理の削除・書き込みの「実行」など）を押させられる。<strong>画面は、ブラウザに保存したキーで動くため、枠の中でも、持ち主の権限で動く。</strong></li>
+<li><strong>修正:</strong> 画面と OAuth の結果ページに、<code>X-Frame-Options: DENY</code>・<code>Content-Security-Policy: frame-ancestors 'none'</code>・<code>X-Content-Type-Options: nosniff</code>・<code>Referrer-Policy: no-referrer</code>。</li>
+</ul>
+<h2 id="3-却下要確認">3. 却下・要確認</h2>
+<ul>
+<li><strong>F6（却下）:</strong> <code>urlImport</code> は、ナレッジ登録権限者が、任意の公開URLを取り込む機能。Workers は、内部のネットワーク（メタデータの宛先など）へ届かない。取り込んだ内容は、ナレッジとして保存される（仕様どおり）。</li>
+<li><strong>F7（却下）:</strong> APIキーは、<code>crypto.getRandomValues</code> の32バイト（256ビット）。総当たりが成り立たないので、ソルトは要らない。</li>
+<li><strong>F8（要確認）:</strong> <code>?key=</code> を残してあるのは、古い画面・手作りのURLのため。<strong>使われていないと確認できたら、削除してください</strong>（削除すると、キーが URL に載る経路が、完全になくなります）。</li>
+</ul>
+<h2 id="4-点検した範囲問題が見つからなかったもの">4. 点検した範囲（問題が見つからなかったもの）</h2>
+<ul>
+<li><strong>認証（<code>auth.ts</code>）:</strong> キーの照合は、ハッシュの完全一致。期限切れは、「存在しない」と同じ応答（キーの存在を教えない）。個人用 namespace は、本人だけ。</li>
+<li><strong>OAuth の <code>state</code>（<code>oauthConnections.ts</code>）:</strong> ランダムな UUID・10分で失効・1回だけ・サービスごと。接続の持ち主（<code>owner_id</code>）は、開始時に決めて <code>state</code> に入れる。</li>
+<li><strong>MCP（<code>src/mcp/</code>）:</strong> 接続先は、登録簿の URL だけ（任意の URL は受け付けない）。書き込みは、本人専用・明示的な許可・確認（1回だけ・5分・本人のみ・保存した引数だけを実行）。監査ログに引数を残さない。</li>
+<li><strong>秘密の扱い:</strong> コードに、秘密の値は入っていない（<code>wrangler secret</code> で保存）。</li>
+</ul>
+<h2 id="5-見ていないもの次の点検の対象">5. 見ていないもの（次の点検の対象）</h2>
+<ul>
+<li>Google 系 OAuth（<code>calendarOAuth.ts</code>・Drive・Gmail）と Jira・Slack の<strong>コールバックの細部</strong>（共通の <code>state</code> の部分は確認したが、各サービス固有の処理は、深くは見ていない）。</li>
+<li><code>kbAdmin.ts</code>・<code>keyAdmin.ts</code> の権限（<code>requireAdmin</code> の付け忘れ）の網羅的な確認。</li>
+<li>Cloudflare 側の設定（WAF・レート制限・Bot Fight Mode）。</li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

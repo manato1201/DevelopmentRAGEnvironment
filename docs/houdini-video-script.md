@@ -21,6 +21,10 @@
 
 ## 2. どう直したか
 
+[![動画ができるまで（RAGReel）](images/05-video-flow.svg)](images/05-video-flow.svg)
+
+*図: 動画ができるまで（RAGReel）。手順書から、音声つきの WebM を作り、ダッシュボードに載せる。*
+
 ```mermaid
 flowchart LR
     A["保存したチュートリアル<br/>(.md)"] --> S["video_script.py<br/>初心者向けの台本を作る"]

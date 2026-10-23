@@ -51,6 +51,10 @@
   table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
   th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
   th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
   .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
     padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
   ul, ol { padding-left:1.5rem; }
@@ -71,12 +75,14 @@
 <header class="hero">
   <span class="badge">配布計画</span>
   <h1>Houdiniチュートリアル・動画生成の配布計画（2026-10-20）</h1>
-  <div class="meta">HTML生成: 2026-10-21（元: docs/houdini-distribution-plan.md）</div>
+  <div class="meta">HTML生成: 2026-10-23（元: docs/houdini-distribution-plan.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-範囲と相手">1. 範囲と相手</a></li><li><a href="#2-音声-インストール不要のクラウド音声実装済み">2. 音声: インストール不要のクラウド音声（実装済み）</a><ol><li><a href="#費用公式の料金は契約前に確認">費用（公式の料金は契約前に確認）</a></li><li><a href="#google側の安全装置あなたの作業">Google側の安全装置（あなたの作業）</a></li><li><a href="#導入の手順運営側">導入の手順（運営側）</a></li></ol></li><li><a href="#3-ターゲット別のレビュー">3. ターゲット別のレビュー</a></li><li><a href="#4-残りの作業と状態2026-10-21">4. 残りの作業と状態（2026-10-21）</a></li></ol></details></nav>
 <main>
 
 <h2 id="1-範囲と相手">1. 範囲と相手</h2>
+<p><a href="images/06-distribution.svg"><img alt="配布と、キー・予算の管理" src="images/06-distribution.svg" /></a></p>
+<p><em>図: 配布と、キー・予算の管理。運営が配り、鍵と予算は運営の Worker で管理する。</em></p>
 <div class="table-scroll"><table>
 <thead>
 <tr>

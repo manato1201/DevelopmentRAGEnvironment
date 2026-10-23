@@ -6,6 +6,10 @@
 
 ## 1. 結果の一覧
 
+[![守りの層](images/07-security-layers.svg)](images/07-security-layers.svg)
+
+*図: 守りの層。リクエストが通る順に、7つの層で確認する。*
+
 | ID | 内容 | 判定 | 深刻度 | 状態 |
 |---|---|---|---|---|
 | F1 | Backlog の OAuth が、**任意のホスト**へ Client Secret を送る | **確定** | 高 | **修正済み** |
