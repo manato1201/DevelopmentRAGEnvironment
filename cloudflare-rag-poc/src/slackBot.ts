@@ -84,11 +84,65 @@ export function toSlackMrkdwn(markdown: string): string {
     .join("");
 }
 
-// Slackのmrkdwnに載せる出典つきの文面にする。
-export function formatSlackAnswer(answer: string, sources: Array<{ file: string; namespace: string; cited?: boolean }>): string {
-  const lines = sources.slice(0, 8).map((s, i) => `${s.cited ? "•" : "◦"} [${i + 1}] ${escapeSlack(s.file)}（${escapeSlack(s.namespace)}）`);
-  const body = `${toSlackMrkdwn(answer)}${lines.length > 0 ? `\n\n*出典*\n${lines.join("\n")}` : ""}\n\n_AIが生成した回答です。出典を確認してください。_`;
-  return body.length > SLACK_TEXT_MAX ? body.slice(0, SLACK_TEXT_MAX - 1) + "…" : body;
+// 「shared:houdini22」→「houdini22」、「personal:…」→「自分用」。Slackでは、接頭辞は要らない。
+function namespaceLabel(namespace: string): string {
+  if (namespace.startsWith("personal:")) return "自分用";
+  return namespace.replace(/^shared:/, "");
+}
+
+const NL = String.fromCharCode(10);
+
+function clip(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max - 1) + "…" : text;
+}
+
+export interface SlackSource {
+  file: string;
+  namespace: string;
+  cited?: boolean;
+  citationCount?: number;
+}
+
+// 出典の欄。「回答の中で [n] と引用された資料」と、「検索で見つかったが、回答では使われなかった資料」を分けて出す。
+//   *出典*　回答で使った資料: 3件（検索で見つかった5件のうち）
+//   • [1] 資料名（houdini22）　引用2回
+//   _回答では使わなかった資料: [3] … ／ [5] …_
+// 回答の中に [n] が1つも無いときは、「出典を示さずに答えている可能性」を伝える（知ったかぶりに気づけるように）。
+export function formatSlackSources(sources: SlackSource[]): string {
+  const list = sources.slice(0, 10);
+  if (list.length === 0) return "";
+  const line = (s: SlackSource, i: number) => {
+    const times = (s.citationCount ?? 0) > 1 ? `　引用${s.citationCount}回` : "";
+    return `• [${i + 1}] ${escapeSlack(clip(s.file, 60))}（${escapeSlack(namespaceLabel(s.namespace))}）${times}`;
+  };
+  const used = list.map((s, i) => ({ s, i })).filter(({ s }) => s.cited);
+  const unused = list.map((s, i) => ({ s, i })).filter(({ s }) => !s.cited);
+  if (used.length === 0) {
+    return [
+      `*出典*　回答の中で、資料の番号（[1] など）による引用がありませんでした。`,
+      `_出典を示さずに答えている可能性があります。内容は、資料で確認してください。検索で見つかった資料:_`,
+      ...list.map((s, i) => line(s, i)),
+    ].join(NL);
+  }
+  const out = [`*出典*　回答で使った資料: ${used.length}件（検索で見つかった${list.length}件のうち）`, ...used.map(({ s, i }) => line(s, i))];
+  if (unused.length > 0) {
+    const names = unused.slice(0, 5).map(({ s, i }) => `[${i + 1}] ${escapeSlack(clip(s.file, 30))}`).join(" ／ ");
+    out.push(`_回答では使わなかった資料: ${names}${unused.length > 5 ? ` ほか${unused.length - 5}件` : ""}_`);
+  }
+  return out.join(NL);
+}
+
+// Slackのmrkdwnに載せる出典つきの文面にする。長いときは、回答を縮めて、出典の欄は残す。
+export function formatSlackAnswer(answer: string, sources: SlackSource[]): string {
+  const sourceBlock = formatSlackSources(sources);
+  const footer = `${sourceBlock ? `
+
+${sourceBlock}` : ""}
+
+_AIが生成した回答です。出典を確認してください。_`;
+  const room = Math.max(200, SLACK_TEXT_MAX - footer.length);
+  const text = toSlackMrkdwn(answer);
+  return `${text.length > room ? text.slice(0, room - 1) + "…（長いため、ここまで）" : text}${footer}`;
 }
 
 // 質問に答える。Cloudflare側の一時的なデータベースの不調（D1_ERROR）のときだけ、1回やり直す。

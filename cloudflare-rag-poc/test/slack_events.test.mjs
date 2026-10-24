@@ -191,3 +191,31 @@ const formatted = sbx.formatSlackAnswer("**太字**です", [{ file: "<!here>.md
 assert.match(formatted, /^\*太字\*です/);
 assert.ok(formatted.includes("&lt;!here&gt;.md") && !formatted.includes("<!here>"));
 console.log("slack mrkdwn tests passed");
+
+// ---- 出典の欄: 「回答で使った資料」と「使わなかった資料」を分ける
+const src = (n, cited, count) => ({ file: `資料${n}.md`, namespace: n % 2 ? "shared:houdini22" : "shared:houdini21", cited, citationCount: count });
+const block = sbx.formatSlackSources([src(1, true, 2), src(2, true, 1), src(3, false, 0), src(4, true, 1), src(5, false, 0)]);
+assert.match(block, /回答で使った資料: 3件（検索で見つかった5件のうち）/);
+assert.match(block, /• \[1\] 資料1\.md（houdini22）　引用2回/);
+assert.ok(!block.includes("引用1回"), "a single citation is not annotated");
+assert.match(block, /• \[4\] 資料4\.md（houdini21）/);
+assert.match(block, /回答では使わなかった資料: \[3\] 資料3\.md ／ \[5\] 資料5\.md/);
+assert.ok(!block.includes("shared:"), "no namespace prefix");
+// 引用が1つも無い（番号が回答に出ない）ときは、出典を示さない可能性を伝える
+const none = sbx.formatSlackSources([src(1, false, 0), src(2, false, 0)]);
+assert.match(none, /引用がありませんでした/);
+assert.match(none, /出典を示さずに答えている可能性/);
+assert.match(none, /\[1\] 資料1\.md/);
+assert.equal(sbx.formatSlackSources([]), "");
+// 全部使われたときは、「使わなかった資料」の行は出ない
+assert.ok(!sbx.formatSlackSources([src(1, true, 1)]).includes("使わなかった"));
+// 使わなかった資料が多いときは、5件まで＋「ほか」
+const many = sbx.formatSlackSources([src(1, true, 1), ...[2, 3, 4, 5, 6, 7, 8].map((n) => src(n, false, 0))]);
+assert.match(many, /ほか2件/);
+// 長い回答は、回答を縮めて、出典の欄は残す
+const long = sbx.formatSlackAnswer("あ".repeat(5000), [src(1, true, 1)]);
+assert.ok(long.length <= 2800 + 40);
+assert.match(long, /長いため、ここまで/);
+assert.match(long, /回答で使った資料: 1件/);
+assert.match(long, /AIが生成した回答です/);
+console.log("slack sources tests passed");
