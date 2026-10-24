@@ -77,6 +77,12 @@ assert.deepEqual(prov.staticClientFor(env, prov.MCP_PROVIDERS.slack), {
   client_id: "sid",
   client_secret: "ssec",
 }); // 通知用アプリのsecretを流用
+// Google専用のクライアントがあれば、Gmail通知用より優先。IDとSecretは同じ組で使う
+assert.deepEqual(prov.staticClientFor({ ...env, MCP_GOOGLE_CLIENT_ID: "mid", MCP_GOOGLE_CLIENT_SECRET: "msec" }, prov.MCP_PROVIDERS.gdrive), {
+  client_id: "mid",
+  client_secret: "msec",
+});
+assert.deepEqual(prov.staticClientFor({ ...env, MCP_GOOGLE_CLIENT_ID: "mid" }, prov.MCP_PROVIDERS.gdrive), { client_id: "mid" }, "never pairs the MCP id with the Gmail secret");
 
 // ---- fake world
 const calls = [];

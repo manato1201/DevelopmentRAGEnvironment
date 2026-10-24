@@ -92,6 +92,11 @@ export default {
       return new Response(chatUiHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", ...SECURITY_HEADERS } });
     }
 
+    // ブラウザが自動で取りに来る /favicon.ico に、405（開発者ツールの赤いエラー）を返さない。アイコンは無いので、中身なしで返す。
+    if (req.method === "GET" && url.pathname === "/favicon.ico") {
+      return new Response(null, { status: 204, headers: { "cache-control": "public, max-age=86400" } });
+    }
+
     // OAuthクリック接続化（2026-09-22追加、oauthConnections.ts参照）。start/callbackは
     // 外部サービスへのブラウザ直接ナビゲーション（リダイレクト）で叩かれるため、
     // 他の全エンドポイントと違いGETかつAuthorizationヘッダー無しで届く。そのためこの
