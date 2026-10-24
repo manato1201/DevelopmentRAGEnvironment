@@ -60,10 +60,34 @@ function randomCode(): string {
   return [...bytes].map((b) => alphabet[b % alphabet.length]).join("");
 }
 
+function escapeSlack(text: string): string {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// モデルの回答（Markdown）を、Slackのmrkdwnに直す。コード（``` と `）の中はそのまま。
+//   **太字** → *太字*　／　# 見出し → *見出し*　／　- 項目・* 項目 → • 項目　／　[文字](URL) → <URL|文字>
+//   & < > はSlackの記法と紛れないように、エスケープする（回答に <@U…> や <!channel> が混ざっても、メンションにならない）。
+export function toSlackMrkdwn(markdown: string): string {
+  return String(markdown)
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+    .map((part, i) => {
+      if (i % 2 === 1) return part; // コード
+      return part
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/^(\s*)[-*]\s+/gm, "$1• ")
+        .replace(/^#{1,6}\s+(.+)$/gm, "*$1*")
+        .replace(/\*\*([^*\n]+)\*\*/g, "*$1*")
+        .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, "<$2|$1>");
+    })
+    .join("");
+}
+
 // Slackのmrkdwnに載せる出典つきの文面にする。
 export function formatSlackAnswer(answer: string, sources: Array<{ file: string; namespace: string; cited?: boolean }>): string {
-  const lines = sources.slice(0, 8).map((s, i) => `${s.cited ? "•" : "◦"} [${i + 1}] ${s.file}（${s.namespace}）`);
-  const body = `${answer}${lines.length > 0 ? `\n\n*出典*\n${lines.join("\n")}` : ""}\n\n_AIが生成した回答です。出典を確認してください。_`;
+  const lines = sources.slice(0, 8).map((s, i) => `${s.cited ? "•" : "◦"} [${i + 1}] ${escapeSlack(s.file)}（${escapeSlack(s.namespace)}）`);
+  const body = `${toSlackMrkdwn(answer)}${lines.length > 0 ? `\n\n*出典*\n${lines.join("\n")}` : ""}\n\n_AIが生成した回答です。出典を確認してください。_`;
   return body.length > SLACK_TEXT_MAX ? body.slice(0, SLACK_TEXT_MAX - 1) + "…" : body;
 }
 
