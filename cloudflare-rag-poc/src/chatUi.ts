@@ -101,6 +101,22 @@ export function chatUiHtml(): string {
   .admin-toc a.current { color: var(--accent); border-left-color: var(--accent); }
   @media (max-width: 720px) { .admin-toc { display: none; } }
   @media (prefers-reduced-motion: reduce) { #sourceDrawer { transition: none; } }
+  /* ---- 動きの追補（2026-10-23、IMPROVEMENT_DESIGN_2026-10.md「外部リソースの追補 第2弾」Y2。名前は motion-prompt の番号）。
+     #125 Pulse = 処理中（回答の枠）／#124 Wiggle = エラー（短く1回）／#137 Push = タブの切り替え（短く1回）。
+     どれも、同時には1つだけ（Pulse は回答が出るまで、タイプライターは回答が出てから）。動きを減らす設定では、すべて止める。 ---- */
+  @keyframes pulse-soft { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+  @keyframes wiggle-soft { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-4px); } 40% { transform: translateX(4px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
+  @keyframes push-in-next { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes push-in-prev { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
+  @media (prefers-reduced-motion: no-preference) {
+    .msg.skeleton i { animation: pulse-soft 1.4s ease-in-out infinite; }
+    .msg.skeleton i:nth-child(2) { animation-delay: .12s; }
+    .msg.skeleton i:nth-child(3) { animation-delay: .24s; }
+    #status.wiggle, .toast.error.show { animation: wiggle-soft .42s ease-in-out 1; }
+    .toast.error.show { animation-delay: .22s; } /* 出現の動き（.2秒）が終わってから */
+    .tabpanel.push-next { animation: push-in-next .18s ease-out; }
+    .tabpanel.push-prev { animation: push-in-prev .18s ease-out; }
+  }
   #themeToggle, #myConnBtn { white-space: nowrap; }
   #myConnBtn.hidden { display: none; }
   * { box-sizing: border-box; }
@@ -1622,10 +1638,20 @@ export function chatUiHtml(): string {
   const tabPanels = document.querySelectorAll(".tabpanel");
   tabButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
+      const buttonList = Array.prototype.slice.call(tabButtons);
+      const previousIndex = buttonList.findIndex((b) => b.classList.contains("active"));
       tabButtons.forEach((b) => b.classList.remove("active"));
-      tabPanels.forEach((p) => p.classList.remove("active"));
+      tabPanels.forEach((p) => { p.classList.remove("active"); p.classList.remove("push-next"); p.classList.remove("push-prev"); });
       btn.classList.add("active");
-      document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+      const nextPanel = document.getElementById("tab-" + btn.dataset.tab);
+      nextPanel.classList.add("active");
+      // 開く向きに合わせて、短く1回だけ滑り込ませる（#137 Push）。同じタブの再クリックでは動かさない。
+      const nextIndex = buttonList.indexOf(btn);
+      if (previousIndex >= 0 && previousIndex !== nextIndex) {
+        void nextPanel.offsetWidth;
+        nextPanel.classList.add(nextIndex > previousIndex ? "push-next" : "push-prev");
+        setTimeout(() => { nextPanel.classList.remove("push-next"); nextPanel.classList.remove("push-prev"); }, 300);
+      }
       if (btn.dataset.tab === "history") loadHistory();
       if (btn.dataset.tab === "pinned") loadPinned();
       if (btn.dataset.tab === "graph") loadGraph();
@@ -1953,6 +1979,12 @@ export function chatUiHtml(): string {
   function setStatus(text, isError) {
     statusEl.textContent = text || "";
     statusEl.className = isError ? "error" : "";
+    if (isError && text) {
+      // エラーは、短く1回だけ揺らして気づかせる（#124 Wiggle）。クラスを付け直して、続けて起きても揺れる。
+      void statusEl.offsetWidth;
+      statusEl.classList.add("wiggle");
+      setTimeout(() => statusEl.classList.remove("wiggle"), 600);
+    }
   }
 
   // 履歴/お気に入りタブでは、クエリ実行時に計算されたextractionRate/extractionDetailを
@@ -2536,7 +2568,7 @@ export function chatUiHtml(): string {
     messagesEl.scrollTop = messagesEl.scrollHeight;
     sendBtn.disabled = true;
     setStatus("検索・回答生成中…");
-    // 回答の形の灰色の枠（スケルトン）。動かさない（動きは増やさない）。
+    // 回答の形の灰色の枠（スケルトン）。処理中の合図として、ゆっくり明滅させる（#125 Pulse。CSS側）。
     const skeleton = document.createElement("div");
     skeleton.className = "msg assistant skeleton";
     skeleton.setAttribute("aria-hidden", "true");
