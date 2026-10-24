@@ -150,7 +150,16 @@ async function clientFor(env: Env, provider: McpProvider, metadata: AuthServerMe
     throw new McpError(`クライアント登録に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (response.status !== 200 && response.status !== 201) {
-    throw new McpError(`クライアント登録に失敗しました: HTTP ${response.status}`);
+    // 理由（認可サーバーの error_description）を添える。400・403 は、登録できるアプリを限定しているサービスで起きる。
+    let reason = "";
+    try {
+      const body = (await response.json()) as Record<string, unknown>;
+      reason = String(body.error_description ?? body.error ?? "").slice(0, 200);
+    } catch {
+      // 本文がJSONでなければ、状態コードだけ出す
+    }
+    const limited = response.status === 400 || response.status === 403 ? "（このサービスは、承認済みのアプリしか登録できない可能性があります）" : "";
+    throw new McpError(`クライアント登録に失敗しました: HTTP ${response.status}${reason ? " " + reason : ""}${limited}`);
   }
   const data = (await response.json()) as Record<string, unknown>;
   if (!data.client_id) throw new McpError("クライアント登録の応答が不正です");

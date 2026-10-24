@@ -31,6 +31,8 @@ export interface Env {
   MCP_GITHUB_CLIENT_SECRET?: string;
   MCP_SLACK_CLIENT_ID?: string;
   MCP_SLACK_CLIENT_SECRET?: string;
+  MCP_GOOGLE_CLIENT_ID?: string; // Google公式MCP専用のOAuthクライアント（Gmail通知用のGMAIL_OAUTH_*とは別にできる）
+  MCP_GOOGLE_CLIENT_SECRET?: string;
   GMAIL_OAUTH_CLIENT_SECRET?: string;
   GMAIL_OAUTH_REFRESH_TOKEN?: string;
   GMAIL_ALERT_TO?: string; // アラートの送信先メールアドレス

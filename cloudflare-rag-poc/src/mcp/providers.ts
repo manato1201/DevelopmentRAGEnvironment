@@ -38,11 +38,13 @@ export interface McpProvider {
 }
 
 const GOOGLE_STATIC = {
-  idEnv: ["GMAIL_OAUTH_CLIENT_ID"],
-  secretEnv: ["GMAIL_OAUTH_CLIENT_SECRET"],
+  // MCP専用のクライアント（MCP_GOOGLE_*）があればそれを使う。なければ、Gmail通知用と共用する。
+  idEnv: ["MCP_GOOGLE_CLIENT_ID", "GMAIL_OAUTH_CLIENT_ID"],
+  secretEnv: ["MCP_GOOGLE_CLIENT_SECRET", "GMAIL_OAUTH_CLIENT_SECRET"],
   setupHint:
     "Google Cloudで当該MCP APIを有効にし（Google Workspace Developer Previewへの参加が必要）、" +
-    "OAuthクライアントの承認済みリダイレクトURIに https://<このWorkerのドメイン>/admin/oauth/mcp/callback を追加してください。",
+    "「ウェブ アプリケーション」のOAuthクライアントを作り、承認済みリダイレクトURIに https://<このWorkerのドメイン>/admin/oauth/mcp/callback を追加して、" +
+    "Client IDとSecretを MCP_GOOGLE_CLIENT_ID / MCP_GOOGLE_CLIENT_SECRET としてWorkerのsecretに登録してください。",
 };
 const GOOGLE_PARAMS = { access_type: "offline", prompt: "consent" };
 const NO_TOOLS = { readOnlyTools: [], writeTools: [], blockedTools: [], toolHints: {} };
@@ -175,9 +177,11 @@ export function staticClientFor(env: Env, provider: McpProvider): { client_id: s
   const spec = provider.staticClient;
   if (!spec) return null;
   const vars = env as unknown as Record<string, string | undefined>;
-  const id = spec.idEnv.map((k) => vars[k]).find(Boolean);
-  if (!id) return null;
-  const secret = spec.secretEnv.map((k) => vars[k]).find(Boolean);
+  // IDとSecretは、同じ位置の組で使う（MCP専用のIDに、別のアプリのSecretが組み合わさらないように）。
+  const index = spec.idEnv.findIndex((k) => Boolean(vars[k]));
+  if (index < 0) return null;
+  const id = vars[spec.idEnv[index]] as string;
+  const secret = vars[spec.secretEnv[index]];
   return secret ? { client_id: id, client_secret: secret } : { client_id: id };
 }
 
