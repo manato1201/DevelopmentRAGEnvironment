@@ -177,3 +177,17 @@ assert.equal((await sb.answerWithRetry(env, { userId: "u1" }, { query: "q" }, ot
 assert.equal(n, 1, "other errors are not retried");
 
 console.log("slack_events tests passed");
+
+// ---- Slackの表記への変換（太字・見出し・箇条書き・リンク・エスケープ。コードの中はそのまま）
+const sbx = await import("../src/slackBot");
+assert.equal(sbx.toSlackMrkdwn("**概要**: TOP は…"), "*概要*: TOP は…");
+assert.equal(sbx.toSlackMrkdwn("* **主な機能**: x\n- 項目\n  - 入れ子"), "• *主な機能*: x\n• 項目\n  • 入れ子");
+assert.equal(sbx.toSlackMrkdwn("## 見出し\n本文"), "*見出し*\n本文");
+assert.equal(sbx.toSlackMrkdwn("[資料](https://example.com/a?x=1&y=2)"), "<https://example.com/a?x=1&amp;y=2|資料>");
+assert.equal(sbx.toSlackMrkdwn("<!channel> と <@U123> と a & b"), "&lt;!channel&gt; と &lt;@U123&gt; と a &amp; b", "no accidental mentions");
+assert.equal(sbx.toSlackMrkdwn("`**x** <a>` と ```\n- a\n**b**\n```"), "`**x** <a>` と ```\n- a\n**b**\n```", "code is untouched");
+assert.equal(sbx.toSlackMrkdwn("*すでにSlack形式*"), "*すでにSlack形式*");
+const formatted = sbx.formatSlackAnswer("**太字**です", [{ file: "<!here>.md", namespace: "shared:x", cited: true }]);
+assert.match(formatted, /^\*太字\*です/);
+assert.ok(formatted.includes("&lt;!here&gt;.md") && !formatted.includes("<!here>"));
+console.log("slack mrkdwn tests passed");
