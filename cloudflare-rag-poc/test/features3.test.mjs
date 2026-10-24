@@ -180,7 +180,8 @@ assert.equal(posted.length, 1);
 assert.equal(posted[0].url, "https://hooks.slack.com/commands/T1/1/abc");
 assert.equal(posted[0].body.response_type, "ephemeral");
 assert.match(posted[0].body.text, /答えです/);
-assert.match(posted[0].body.text, /\[1\] ガイド\.md（shared:docs）/);
+assert.match(posted[0].body.text, /\[1\] ガイド\.md（docs）/); // 名前空間の接頭辞（shared:）は、Slackでは出さない
+assert.match(posted[0].body.text, /回答で使った資料: 1件/);
 assert.match(posted[0].body.text, /AIが生成した回答です/);
 const mem = db.prepare("SELECT user_id FROM memory WHERE query = 'VEXで座標を動かすには'").get();
 assert.equal(mem.user_id, "u1", "asked under the linked user's identity (history, budget, audit)");
