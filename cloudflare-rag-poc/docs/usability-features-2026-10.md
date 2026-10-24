@@ -25,6 +25,23 @@
 3. 質問は、紐づいたユーザーの権限（アクセスできるnamespace・トークン予算・レート制限）で動く。ゲストは紐づけられない。
 4. 答えは、Slackが発行したURL（`hooks.slack.com` など）へだけ送る。署名の時刻が5分以上ずれたリクエストは拒否する。
 
+### チャットで答える（メンション・DM。2026-10-25追加）
+
+`/rag` のほかに、ボットへのメンション（`@ボット 質問`）とDMでも質問できる。`src/slackEvents.ts`、`POST /slack/events`。
+
+1. Slackのアプリの「Event Subscriptions」をオンにし、Request URL を `https://<このWorkerのドメイン>/slack/events` にする（「Verified」になる）。
+2. 「Subscribe to bot events」に `app_mention` と `message.im` を追加する。
+3. 「OAuth & Permissions」の Bot Token Scopes に、`app_mentions:read`・`chat:write`・`im:history`・`im:read` を追加する（スレッドの履歴を読むなら、`channels:history`、非公開チャンネルなら `groups:history` も）。
+4. 「App Home」で、「Messages Tab」をオンにし、「Allow users to send Slash commands and messages from the messages tab」にチェックを入れる（DMのため）。
+5. アプリを再インストールし、「Bot User OAuth Token」（`xoxb-…`）を `SLACK_BOT_TOKEN` として登録する。
+
+動き:
+- 受け付けたらすぐ「調べています…」を出し、答えができたらその発言を書き換える。スレッド（DMでは直近の発言）の内容を、会話の履歴として使う。
+- **外部サービス（MCP）を使うのは、DMだけ。** チャンネルの返信は、その場の全員に見えるため、チャンネルでは社内の検索（RAG）だけで答える。
+- 書き込み（MCP）は、Slackからは実行しない。確認が必要な操作は、ウェブ画面のチャットで確認する。
+- ボット自身・他のボットの発言、Slackの再送には答えない。連携していないユーザー・許可していないワークスペースには、案内だけを返す。
+- 質問が、Cloudflare側のデータベースの一時的な不調（`D1_ERROR`）で失敗したときは、1回だけやり直す（`/rag` も同じ）。
+
 ## 注意
 
 - **ステージング**: 本番側を連携の許可リストに入れたままにすると、連携は本番へ直接書ける。組を登録したときに、その旨を表示する。
