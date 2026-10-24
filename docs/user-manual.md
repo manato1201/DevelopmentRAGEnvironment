@@ -288,6 +288,7 @@ namespaceの**作成**、**参考資料数の上限**（複数のnamespaceを横
 **使う**
 - `/rag 質問文` … **答えは、聞いた本人にだけ見える**（チャンネルには出ない）。あなたの権限（見られるnamespace・予算）で動く。
 - `/rag unlink` … 連携の解除。`/rag help` … 使い方。
+- **メンション・DM（チャット）** … チャンネルで `@ボット 質問` と送ると、スレッドに答えが付く（スレッドの全員に見える）。ボットへのDMは、そのまま質問できる（答えは本人だけ）。**外部サービス（MCP）を使うのはDMだけ**で、Slackからの書き込みはできない。設定は[usability-features-2026-10.md](../cloudflare-rag-poc/docs/usability-features-2026-10.md)の「チャットで答える」。キャンバスに貼る案内の下書きは、[slack-canvas-guide.md](slack-canvas-guide.md)。
 
 ## 9. Houdiniパネル
 
