@@ -1,7 +1,7 @@
 import type { AuthedUser, Env } from "./types";
 import { jsonResponse } from "./http";
 import { ForbiddenError, loadAuthedUser } from "./auth";
-import { answerQuestion } from "./query";
+import { answerQuestion, type AnswerResult } from "./query";
 
 // Slackから質問する（2026-10-16追加、migrations/0028）。スラッシュコマンド「/rag」を受ける。
 //   /rag 質問文          … 質問する（答えは、聞いた本人にだけ見える。チャンネルには流れない）
@@ -49,7 +49,7 @@ function ephemeral(text: string): Response {
   return jsonResponse(200, { response_type: "ephemeral", text });
 }
 
-function allowedTeams(env: Env): string[] {
+export function allowedTeams(env: Env): string[] {
   return (env.SLACK_TEAM_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
@@ -65,6 +65,21 @@ export function formatSlackAnswer(answer: string, sources: Array<{ file: string;
   const lines = sources.slice(0, 8).map((s, i) => `${s.cited ? "•" : "◦"} [${i + 1}] ${s.file}（${s.namespace}）`);
   const body = `${answer}${lines.length > 0 ? `\n\n*出典*\n${lines.join("\n")}` : ""}\n\n_AIが生成した回答です。出典を確認してください。_`;
   return body.length > SLACK_TEXT_MAX ? body.slice(0, SLACK_TEXT_MAX - 1) + "…" : body;
+}
+
+// 質問に答える。Cloudflare側の一時的なデータベースの不調（D1_ERROR）のときだけ、1回やり直す。
+export async function answerWithRetry(
+  env: Env,
+  user: AuthedUser,
+  body: Parameters<typeof answerQuestion>[2],
+  answer: (env: Env, user: AuthedUser, body: Parameters<typeof answerQuestion>[2]) => Promise<AnswerResult> = answerQuestion,
+): Promise<AnswerResult> {
+  let result = await answer(env, user, body);
+  if (!result.ok && result.error.includes("D1_ERROR")) {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    result = await answer(env, user, body);
+  }
+  return result;
 }
 
 async function postToResponseUrl(responseUrl: string, text: string): Promise<void> {
@@ -138,7 +153,7 @@ export async function handleSlackCommand(req: Request, env: Env, ctx?: Execution
   const work = (async () => {
     let reply: string;
     try {
-      const result = await answerQuestion(env, user, { query: text, limit: 5 });
+      const result = await answerWithRetry(env, user, { query: text, limit: 5 });
       reply = result.ok ? formatSlackAnswer(result.answer, result.sources) : `質問できませんでした: ${result.error}`;
     } catch (err) {
       reply = `質問できませんでした: ${err instanceof Error ? err.message : String(err)}`;
@@ -177,6 +192,7 @@ export async function handleSlackStatus(_req: Request, env: Env, user: AuthedUse
     status: "ok",
     configured: !!env.SLACK_SIGNING_SECRET && allowedTeams(env).length > 0,
     linked: rows?.c ?? 0,
+    chatConfigured: !!env.SLACK_BOT_TOKEN, // メンション・DMで答える設定（SLACK_BOT_TOKEN）があるか
   });
 }
 

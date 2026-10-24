@@ -15,6 +15,7 @@ import { handleBacklogOAuthStart, handleBacklogOAuthCallback, handleBacklogOAuth
 import { handleCalendarOAuthStart, handleCalendarOAuthCallback, handleCalendarOAuthDisconnect } from "./calendarOAuth";
 import { handleListCrawlSchedules, handleSaveCrawlSchedule, handleDeleteCrawlSchedule, runScheduledCrawls } from "./crawlSchedules";
 import { handleSlackCommand, handleSlackLinkCode, handleSlackStatus, handleSlackUnlink } from "./slackBot";
+import { handleSlackEvents } from "./slackEvents";
 import { handlePresetList, handlePresetSave, handlePresetDelete } from "./presets";
 import { handleThreadList, handleThreadGet, handleThreadRename, handleThreadDelete } from "./threads";
 import { handleKnowledgeGaps } from "./insights";
@@ -153,6 +154,14 @@ export default {
     // handleBootstrapAdmin自身が「管理者が1人でも存在すれば403」を強制するため、
     // 認証をバイパスしても既存環境を乗っ取れるわけではない。
     // Slackのスラッシュコマンド。APIキーではなくSlackの署名で確認するため、authenticate()より前に置く。
+    // Slackのチャット（メンション・DM）。同じく署名で確認するため、authenticate()より前に置く。
+    if (url.pathname === "/slack/events") {
+      try {
+        return await handleSlackEvents(req, env, ctx);
+      } catch (err) {
+        return json(500, { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
     if (url.pathname === "/slack/command") {
       try {
         return await handleSlackCommand(req, env, ctx);

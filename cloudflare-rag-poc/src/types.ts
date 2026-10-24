@@ -22,6 +22,7 @@ export interface Env {
   SLACK_WEBHOOK_URL?: string;
   // Slackから質問する（slackBot.ts）。署名の検証用secretと、利用を許可するSlackワークスペースID（カンマ区切り）。
   SLACK_SIGNING_SECRET?: string;
+  SLACK_BOT_TOKEN?: string; // Slackのチャット（メンション・DM）で返信するボットのトークン（xoxb-…）。src/slackEvents.ts
   SLACK_TEAM_IDS?: string;
   // Gmail送信は個人アカウントのOAuthリフレッシュトークン方式（Domain-Wide Delegationは
   // Google Workspace限定のため、個人のgmail.comアカウントでは使えなかった。src/gmailOAuth.ts参照）

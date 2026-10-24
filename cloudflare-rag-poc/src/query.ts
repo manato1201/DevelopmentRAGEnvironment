@@ -271,11 +271,11 @@ function parseExtractionRate(answer: string, total: number): { cited: number; ci
 
 // 画面を介さずに（Slackなどから）質問して、回答と出典を得る。レート制限・トークン予算・namespaceの権限は
 // 通常の質問と同じ。失敗は例外ではなく { ok: false, error } で返す。
-export async function answerQuestion(
-  env: Env,
-  user: AuthedUser,
-  body: QueryRequest,
-): Promise<{ ok: true; answer: string; sources: SourceEntry[] } | { ok: false; error: string }> {
+export type AnswerResult =
+  | { ok: true; answer: string; sources: SourceEntry[]; toolCalls?: McpToolCallLog[]; pendingActions?: McpPendingAction[] }
+  | { ok: false; error: string };
+
+export async function answerQuestion(env: Env, user: AuthedUser, body: QueryRequest): Promise<AnswerResult> {
   try {
     const prep = await prepareQuery(env, user, body);
     if ("response" in prep) {
@@ -283,7 +283,7 @@ export async function answerQuestion(
       return prep.response.status === 200 && data.answer ? { ok: true, answer: data.answer, sources: data.sources ?? [] } : { ok: false, error: data.error || "質問を処理できませんでした" };
     }
     const result = await finishQuery(env, user, body, prep.prepared);
-    return { ok: true, answer: result.answer, sources: result.sources };
+    return { ok: true, answer: result.answer, sources: result.sources, toolCalls: result.toolCalls, pendingActions: result.pendingActions };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
