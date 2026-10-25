@@ -149,6 +149,9 @@ export async function handleMyNamespaces(
     JSON.stringify({
       namespaces: user.allowedNamespaces,
       role: user.role,
+      // どのキーで入っているかを、画面に出すため（名前と、IDの先頭。IDは、キーのハッシュで、キー自体ではない）
+      displayName: user.displayName ?? "",
+      userIdShort: user.userId.slice(0, 6),
       status: "ok",
     }),
     {

@@ -59,6 +59,8 @@ except ImportError:
     _TUTORIAL_AVAILABLE = False
 
 from rag_client import RAGClient, migrate_config as _migrate_config
+from panel_info import format_user as _format_user, summarize_sources as _summarize_sources
+from panel_widgets import CollapsibleBox as _CollapsibleBox
 from rag_client import post_json as _post_json
 from PySide6.QtCore import Qt, QSize, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -205,13 +207,22 @@ class _ConnectionCheckWorker(QThread):
     """接続確認を別スレッドで行うワーカー（HTTP待機でUIをブロックしないため）。"""
 
     result = Signal(bool)
+    user_info = Signal(dict)  # どのユーザーで入っているか（接続OKのときだけ）。失敗は {"error": 理由}
 
     def __init__(self, client: RAGClient) -> None:
         super().__init__()
         self._client = client
 
     def run(self) -> None:
-        self.result.emit(self._client.health())
+        ok = self._client.health()
+        self.result.emit(ok)
+        if ok and self._client.cfg.get("mode") == "cloudflare":
+            try:
+                self.user_info.emit(self._client.whoami())
+            except Exception as exc:  # 401（キーが無効）など。表示だけの機能なので、落とさない
+                self.user_info.emit({"error": str(exc)[:80]})
+        elif ok:
+            self.user_info.emit({})
 
 
 class BridgeStartWorker(QThread):
@@ -461,7 +472,12 @@ class RAGChatbotPanel(QWidget):
         # 素直な行として独立させても「どのタブを開いていても見える」という
         # 目的は変わらず達成できる。
         self._conn_lamp = _ConnectionLamp()
+        # どのユーザーで入っているか（キーの名前・役割）。接続確認のたびに更新する。
+        self._user_label = QLabel("")
+        self._user_label.setStyleSheet("color:#cbd5e1;font-size:11px;")
+        self._apply_user_label(None)
         lamp_row = QHBoxLayout()
+        lamp_row.addWidget(self._user_label)
         lamp_row.addStretch()
         lamp_row.addWidget(self._conn_lamp)
         root.addLayout(lamp_row)
@@ -978,7 +994,16 @@ class RAGChatbotPanel(QWidget):
         self._conn_worker.result.connect(
             lambda ok, ml=mode_label: self._conn_lamp.set_state("ok" if ok else "fail", ml)
         )
+        self._conn_worker.user_info.connect(self._apply_user_label)
         self._conn_worker.start()
+
+    def _apply_user_label(self, info: dict | None) -> None:
+        """「ユーザー: 名前（役割）」の表示を更新する。info=None は未確認、{} は Local モード。"""
+        mode = self._cfg.get("mode", "cloudflare")
+        shown = _format_user(info if info else None, mode)
+        self._user_label.setText(shown["text"])
+        self._user_label.setToolTip(shown["tooltip"])
+        self._user_role = shown["role"]  # 次の段階（設定者の画面の出し分け）で使う
 
     def _on_send(self) -> None:
         """
@@ -1037,14 +1062,10 @@ class RAGChatbotPanel(QWidget):
         answer    = result.get("answer", "(空の回答)")
         sources   = result.get("sources", [])
         memory_id = result.get("memoryId", "")
-        self._add_rag_bubble(answer, memory_id)
+        self._add_rag_bubble(answer, memory_id, sources)
         self._history.append({"role": "assistant", "text": answer})
-        if sources:
-            # Cloudflare は出典を {"file": ...}、Local ブリッジは {"title": ...} で返す
-            titles = ", ".join(s.get("file") or s.get("title", "") for s in sources)
-            self._set_status(f"参照: {titles}")
-        else:
-            self._set_status("")
+        # 出典と採用比率は、回答の下の折りたたみに出す。下部のステータスには、短い要約だけ。
+        self._set_status(_summarize_sources(sources)["summary"])
         self._send_btn.setEnabled(True)
         self._scroll_to_bottom()
         # 理解度スコアを自動更新
@@ -1179,7 +1200,7 @@ class RAGChatbotPanel(QWidget):
         insert_at = max(0, self._chat_layout.count() - 1)
         self._chat_layout.insertLayout(insert_at, row)
 
-    def _add_rag_bubble(self, text: str, memory_id) -> None:
+    def _add_rag_bubble(self, text: str, memory_id, sources: list | None = None) -> None:
         """
         RAG 回答専用バブル。テキストの下に 👍/👎 ボタンを追加する。
         memory_id が空（None・""）の場合（Local モードなど）はボタンを表示しない。
@@ -1195,6 +1216,18 @@ class RAGChatbotPanel(QWidget):
         bubble_row.addWidget(ChatBubble(text, is_user=False))
         bubble_row.addStretch()
         v.addLayout(bubble_row)
+
+        # 出典と採用比率（回答で使った資料／検索で見つかった資料）。見出しに要約、中身は折りたたみ。
+        # 出典の番号による引用が無いときは、警告として最初から開いておく。
+        info = _summarize_sources(sources or [])
+        if info["state"] != "empty":
+            body = QLabel(info["html"])
+            body.setTextFormat(Qt.RichText)
+            body.setWordWrap(True)
+            body.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            body.setStyleSheet("color:#cbd5e1;font-size:11px;padding:2px 6px;")
+            body.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)  # 長いファイル名で、ペインを広げない
+            v.addWidget(_CollapsibleBox(info["summary"], body, collapsed=info["state"] != "none"))
 
         # 評価ボタン行（Cloudflare モードで memoryId がある場合のみ）
         if memory_id:

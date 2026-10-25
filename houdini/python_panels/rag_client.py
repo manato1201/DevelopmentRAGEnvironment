@@ -131,6 +131,16 @@ class RAGClient:
         except Exception:
             return False
 
+    def whoami(self) -> dict:
+        """
+        どのユーザーで入っているか（Cloudflare モードのみ）。/me/namespaces の応答
+        {"displayName", "role", "userIdShort", "namespaces"} を返す。失敗は例外（APIキーが無効など）。
+        """
+        base = _cf_base(self.cfg)
+        if self.cfg["mode"] != "cloudflare" or not base:
+            return {}
+        return post_json(f"{base}/me/namespaces", {}, timeout=10, api_key=self.cfg.get("cf_api_key", ""))
+
     def rate(self, memory_id, rating: str) -> bool:
         """
         Cloudflare モードのみ有効。回答の履歴に 👍/👎 評価を送る（/memory/rate）。

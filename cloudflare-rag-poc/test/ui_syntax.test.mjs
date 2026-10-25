@@ -54,3 +54,12 @@ for (const name of [
 assert.match(code, /classList\.add\("wiggle"\)/);
 assert.match(code, /nextIndex > previousIndex \? "push-next" : "push-prev"/);
 console.log("ui_syntax tests passed");
+
+// 段階①（2026-10-25）: どのユーザーで入っているかの表示と、折りたたみ
+assert.match(html, /id="whoami"/);
+assert.match(code, /function showWhoAmI\(/);
+assert.match(code, /showWhoAmI\(data\);/);
+assert.match(code, /if \(!unlocked\) showWhoAmI\(null\);/);
+assert.match(code, /function enableFolding\(/);
+assert.match(code, /ragPocFolded/);
+assert.match(html, /\.section\.collapsed > \*:not\(\.card-head\):not\(h2\)/);
