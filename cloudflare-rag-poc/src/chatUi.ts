@@ -538,6 +538,17 @@ export function chatUiHtml(): string {
   .route-tree li.dim { color: var(--muted); }
   .pinned-toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .6rem; align-items: center; }
   .sort-select { font-size: .8rem; max-width: 14rem; }
+  /* 「どのユーザーで入っているか」の表示（キーの名前・役割・IDの先頭）。 */
+  .whoami { font-size: .78rem; color: var(--muted); white-space: nowrap; padding: .12rem .6rem; border: 1px solid var(--border); border-radius: 999px; }
+  .whoami:empty { display: none; }
+  .whoami.role-admin { color: var(--accent); border-color: var(--accent); }
+  /* 折りたたみ（管理画面のセクション）。見出しのボタンか見出しの文字で開閉。選んだ状態は、ブラウザに覚えておく。 */
+  .fold-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 .45rem 0 0; font: inherit; }
+  .fold-btn::before { content: "▾"; display: inline-block; }
+  .section.collapsed .fold-btn::before { content: "▸"; }
+  .section.foldable h2 { cursor: pointer; user-select: none; }
+  .section.collapsed > *:not(.card-head):not(h2) { display: none; }
+  .section.collapsed { padding-bottom: .6rem; }
   th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
   th.sortable:hover, th.sortable:focus-visible { color: var(--accent); outline: none; }
   th.sortable::after { content: " ↕"; opacity: .35; font-size: .85em; }
@@ -618,6 +629,7 @@ export function chatUiHtml(): string {
   <div class="header-row">
     <h1>RAG Chat（Cloudflare POC）</h1>
     <input type="password" id="apiKey" placeholder="APIキー（Bearer トークン）" autocomplete="off">
+    <span id="whoami" class="whoami" title="いま入っているユーザー（キーの名前・役割・IDの先頭）"></span>
     <select id="namespaceFocus" title="検索対象を個別DBに絞り込む（精度向上）">
       <option value="">全DB横断検索</option>
     </select>
@@ -1378,7 +1390,19 @@ export function chatUiHtml(): string {
   // キーが拒否された場合も全く同じ「APIキーを入力してください」のままで、ユーザーから
   // 見ると「入力しても何も起きない」ようにしか見えなかった（実機報告、2026-08-31）。
   // 状態ごとに違う文言を出すことで、少なくとも何が起きているかは分かるようにする。
+  // 「どのユーザーで入っているか」を、ヘッダーに出す。表示名は、キーを発行したときの名前。
+  const WHOAMI_ROLE_LABELS = { admin: "管理者", editor: "編集者", member: "一般ユーザー", guest: "ゲスト" };
+  function showWhoAmI(info) {
+    const el = $("whoami");
+    if (!el) return;
+    if (!info) { el.textContent = ""; el.className = "whoami"; el.title = "いま入っているユーザー（キーの名前・役割・IDの先頭）"; return; }
+    const name = info.displayName || "（名前なし）";
+    el.textContent = "ユーザー: " + name + "（" + (WHOAMI_ROLE_LABELS[info.role] || info.role || "?") + "）";
+    el.className = "whoami role-" + (info.role || "");
+    el.title = "キーの名前: " + name + " ／ 役割: " + (WHOAMI_ROLE_LABELS[info.role] || info.role) + " ／ ID: " + (info.userIdShort || "-") + "…（キーのハッシュの先頭）";
+  }
   function setAuthGate(unlocked, role, message) {
+    if (!unlocked) showWhoAmI(null);
     document.body.classList.toggle("locked", !unlocked);
     if (unlocked && typeof openAnswerFromHash === "function") setTimeout(openAnswerFromHash, 0);
     // 権限の詳細化（2026-09-10追加）: セクション単位の表示/非表示はCSS側
@@ -1545,6 +1569,7 @@ export function chatUiHtml(): string {
     try {
       const data = await api("/me/namespaces", {});
       setAuthGate(true, data.role);
+      showWhoAmI(data);
       namespaceFocusEl.innerHTML = '<option value="">全DB横断検索</option>';
       data.namespaces.slice().sort().forEach((ns) => {
         const opt = document.createElement("option");
@@ -2990,6 +3015,39 @@ ${LIST_SORT_JS}
   enableAllTableSorts();
   // あとから作られる表（ポップアップの中など）にも、かける
   new MutationObserver(enableAllTableSorts).observe(document.body, { childList: true, subtree: true });
+
+  // 管理画面のセクションを、見出しのクリックで折りたためるようにする。選んだ状態は、ブラウザに覚えておく。
+  const FOLD_STORAGE = "ragPocFolded";
+  function loadFolded() {
+    try { return JSON.parse(localStorage.getItem(FOLD_STORAGE) || "{}") || {}; } catch { return {}; }
+  }
+  function enableFolding() {
+    const folded = loadFolded();
+    document.querySelectorAll(".section").forEach((sec) => {
+      const heading = sec.querySelector(":scope > h2, :scope > .card-head > h2");
+      if (!heading || heading.dataset.foldReady === "1") return;
+      heading.dataset.foldReady = "1";
+      const key = sec.id || ("h:" + heading.textContent.trim());
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "fold-btn";
+      btn.setAttribute("aria-label", "折りたたむ・開く");
+      const apply = (collapsed) => { sec.classList.toggle("collapsed", collapsed); btn.setAttribute("aria-expanded", String(!collapsed)); };
+      apply(Boolean(folded[key]));
+      const toggle = () => {
+        const collapsed = !sec.classList.contains("collapsed");
+        apply(collapsed);
+        const all = loadFolded();
+        if (collapsed) all[key] = 1; else delete all[key];
+        try { localStorage.setItem(FOLD_STORAGE, JSON.stringify(all)); } catch { /* 保存できなくても、開閉はできる */ }
+      };
+      btn.addEventListener("click", (event) => { event.stopPropagation(); toggle(); });
+      heading.addEventListener("click", (event) => { if (event.target === heading) toggle(); });
+      sec.classList.add("foldable");
+      heading.insertBefore(btn, heading.firstChild);
+    });
+  }
+  enableFolding();
 
   // 回答へのリンク（#answer=<id>）を開く。自分の回答だけ（他人のIDは404）。
   let answerHashHandled = false;

@@ -22,10 +22,10 @@ export async function authenticate(
 // APIキー認証（authenticate）のほか、Slackの紐づけ済みユーザーとして質問するとき（slackBot.ts）にも使う。
 export async function loadAuthedUser(env: Env, userId: string): Promise<AuthedUser | null> {
   const userRow = await env.DB.prepare(
-    "SELECT user_id, role, expires_at FROM users WHERE user_id = ?",
+    "SELECT user_id, role, expires_at, display_name FROM users WHERE user_id = ?",
   )
     .bind(userId)
-    .first<{ user_id: string; role: UserRole; expires_at: number | null }>();
+    .first<{ user_id: string; role: UserRole; expires_at: number | null; display_name: string | null }>();
 
   if (!userRow) return null;
   // キーの有効期限（2026-09-12追加、migrations/0012）。期限切れは「キーが存在しない」
@@ -56,6 +56,7 @@ export async function loadAuthedUser(env: Env, userId: string): Promise<AuthedUs
     userId,
     role: userRow.role,
     allowedNamespaces: (nsRows.results ?? []).map((r) => r.namespace_id),
+    displayName: userRow.display_name ?? undefined,
   };
 }
 

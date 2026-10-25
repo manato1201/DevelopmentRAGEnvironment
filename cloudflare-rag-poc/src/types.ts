@@ -142,6 +142,7 @@ export interface AuthedUser {
   userId: string;
   role: UserRole;
   allowedNamespaces: string[]; // 'shared:*' 相当は個別に解決する
+  displayName?: string; // キーの名前（管理画面で付けた名前）。「どのユーザーで入っているか」の表示に使う
 }
 
 // Vectorizeに保存するチャンクのメタデータ（namespace/difficultyは既存契約のsourcesへそのまま反映する）
