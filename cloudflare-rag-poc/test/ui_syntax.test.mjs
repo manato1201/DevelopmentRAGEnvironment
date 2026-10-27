@@ -63,3 +63,9 @@ assert.match(code, /if \(!unlocked\) showWhoAmI\(null\);/);
 assert.match(code, /function enableFolding\(/);
 assert.match(code, /ragPocFolded/);
 assert.match(html, /\.section\.collapsed > \*:not\(\.card-head\):not\(h2\)/);
+
+// 段階③（2026-10-27）: 説明のレベル（おまかせ＝成長）
+assert.match(html, /id="explain"/);
+assert.match(code, /explain: explainEl\.value \|\| undefined/);
+assert.match(code, /ragPocExplain/);
+assert.match(code, /data\.explain\.introduced/);

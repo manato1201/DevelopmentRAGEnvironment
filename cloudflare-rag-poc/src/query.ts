@@ -2,6 +2,7 @@ import type { AuthedUser, Env, QueryRequest, QueryResponse, SourceEntry } from "
 import { jsonResponse } from "./http";
 import { buildAnswerPrompt, generateAnswer, generateAnswerStream, sha256Hex } from "./embeddings";
 import { answerWithMcpTools, type McpPendingAction, type McpToolCallLog } from "./mcp/chat";
+import { buildExplainPlan, introducedIn, loadGrowth, parseExplain, recordQueryTerms, type ExplainPlan } from "./growth";
 import { BudgetExceededError, reserveBudget, reconcileBudget } from "./budget";
 import { assertNotRateLimited } from "./rateLimit";
 import { buildContextTexts, resolveEffectiveNamespaces, retrieve } from "./retrieve";
@@ -31,6 +32,7 @@ interface PreparedQuery {
   excerpts: string[]; // 各出典の本文の抜粋（ドロワー用。生成の後でsourcesに付ける）
   ingestedAts: Array<number | undefined>; // 各出典の登録日時（鮮度表示用）
   hydeTokensUsed: number;
+  explain?: ExplainPlan; // 説明のレベル（explain を付けた質問だけ）
 }
 
 // 入力の確認・レート制限・予算の確保・検索まで（生成の前）。早期に返す応答（入力不備・アクセス可能な
@@ -90,6 +92,18 @@ async function prepareQuery(
   try {
     const { ranked, hydeTokensUsed, contextNote } = await retrieve(env, user, query, effective, level, limit, normalizeContextHint(body.context));
     const { texts, sources } = buildContextTexts(ranked, contextNote);
+    // 説明のレベル（explain を付けた質問だけ）。習熟度の読み込みと用語の記録に失敗しても、質問そのものは続ける。
+    let explain: ExplainPlan | undefined;
+    const explainRequested = parseExplain(body.explain);
+    if (explainRequested) {
+      try {
+        const profile = explainRequested === "auto" ? await loadGrowth(env, user.userId) : null; // 今回の質問を数える前の習熟度
+        await recordQueryTerms(env, user.userId, query);
+        explain = buildExplainPlan(explainRequested, profile, texts);
+      } catch {
+        explain = buildExplainPlan(explainRequested === "auto" ? "basic" : explainRequested, null, texts);
+      }
+    }
     return {
       prepared: {
         query,
@@ -103,6 +117,7 @@ async function prepareQuery(
         excerpts: ranked.map((r) => (r.metadata.text ?? "").slice(0, 400)),
         ingestedAts: ranked.map((r) => r.metadata.ingested_at),
         hydeTokensUsed,
+        explain,
       },
     };
   } catch (err) {
@@ -134,13 +149,13 @@ async function finishQuery(
   try {
     // 外部サービスのMCPツールも使う指定（useMcp）。使えるツールが無ければ従来どおり検索結果だけで答える。
     const mcpResult = body.useMcp
-      ? await answerWithMcpTools(env, user.userId, buildAnswerPrompt(query, texts, history, true), image)
+      ? await answerWithMcpTools(env, user.userId, buildAnswerPrompt(query, texts, history, true, prepared.explain?.note ?? ""), image)
       : null;
     const answerResult = mcpResult
       ? { text: mcpResult.text, promptTokens: mcpResult.promptTokens, candidateTokens: mcpResult.candidateTokens }
       : onDelta
-        ? await generateAnswerStream(env, query, texts, history, onDelta, image)
-        : await generateAnswer(env, query, texts, history, image);
+        ? await generateAnswerStream(env, query, texts, history, onDelta, image, prepared.explain?.note ?? "")
+        : await generateAnswer(env, query, texts, history, image, prepared.explain?.note ?? "");
     if (mcpResult) {
       toolCalls = mcpResult.toolCalls;
       pendingActions = mcpResult.pendingActions;
@@ -195,6 +210,9 @@ async function finishQuery(
     auditId,
     ...(toolCalls.length > 0 ? { toolCalls } : {}),
     ...(pendingActions.length > 0 ? { pendingActions } : {}),
+    ...(prepared.explain
+      ? { explain: { level: prepared.explain.level, mode: prepared.explain.mode, introduced: introducedIn(answerText, prepared.explain.candidates), score: prepared.explain.score } }
+      : {}),
   } satisfies QueryResponse;
 }
 

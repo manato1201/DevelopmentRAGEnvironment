@@ -272,7 +272,7 @@ _GRACE_NUDGE_TEXT = (
 # 2026-10-20: 3段階を「難しさ」ではなく1つの学習の道すじ（レッスン1→2→3）として定義し直した
 # （中身は lesson_design.LESSON_PATH）。キー名（basic/applied/advanced）は互換のため変えない。
 _LEVEL_INSTRUCTIONS: dict[str, str] = {
-    level: f"{title}。{role}" for level, (title, role) in lesson_design.LESSON_PATH.items()
+    level: f"{title}。{role}\n\n{lesson_design.explanation_style(level)}" for level, (title, role) in lesson_design.LESSON_PATH.items()
 }
 _DEFAULT_LEVEL = "basic"
 

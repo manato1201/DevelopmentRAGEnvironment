@@ -15,6 +15,36 @@ import html
 
 ROLE_LABELS = {"admin": "管理者", "editor": "編集者", "member": "一般ユーザー", "guest": "ゲスト"}
 
+# 設定者（接続先・モデル・ギャラリーなどの設定と、デバッグ情報を見る人）。一般ユーザーには、これらの画面を出さない。
+# サーバー側の権限が正で、これは画面の出し分けだけ。
+SETUP_ROLES = ("admin", "editor")
+
+
+def is_setup_user(role: str, mode: str = "cloudflare") -> bool:
+    """設定者の画面（設定・デバッグ）を出すか。Local モードは、自分のPCのブリッジを動かす開発者なので、出す。"""
+    return mode == "local" or role in SETUP_ROLES
+
+
+def friendly_error(raw: str) -> str:
+    """利用者に見せる、短く分かりやすい文にする。生の詳細は、デバッグのログ（panel_debug）に残す。"""
+    text = str(raw or "")
+    low = text.lower()
+    if "401" in text or "unauthorized" in low or "認証" in text:
+        return "APIキーが無効か、期限が切れています。「接続」タブで、APIキーを確認してください。"
+    if "403" in text or "forbidden" in low:
+        return "この操作をする権限がありません。管理者に確認してください。"
+    if "429" in text or "予算" in text or "上限" in text or "budget" in low or "rate" in low and "limit" in low:
+        return "利用の上限に達しました。しばらく待つか、管理者に上限を確認してください。"
+    if "timed out" in low or "timeout" in low or "タイムアウト" in text:
+        return "サーバーの応答が遅れています。少し待って、もう一度試してください。"
+    if any(w in low for w in ("urlopen error", "connection refused", "connection reset", "name or service", "getaddrinfo", "unreachable", "winerror 10061", "接続できません")):
+        return "サーバーに接続できません。ネットワークと、「接続」タブの URL を確認してください。"
+    if "url が未設定" in low or "urlが未設定" in low or "未設定" in text:
+        return "接続の設定が足りません。「接続」タブで、URL と APIキーを入力してください。"
+    if text.startswith("HTTP Error 5") or "500" in text or "502" in text or "503" in text:
+        return "サーバーで問題が起きています。少し待って、もう一度試してください。続く場合は管理者に連絡してください。"
+    return "うまくいきませんでした。もう一度試してください。続く場合は、管理者に連絡してください。"
+
 
 def _name(source: dict) -> str:
     # Cloudflare は出典を {"file": ...}、Local ブリッジは {"title": ...} で返す
@@ -85,6 +115,39 @@ def summarize_sources(sources: list[dict]) -> dict:
         "used": len(used),
         "total": total,
     }
+
+
+EXPLAIN_CHOICES = [
+    ("auto", "おまかせ（成長）"),
+    ("basic", "basic（やさしく）"),
+    ("applied", "applied（仕組みまで）"),
+    ("advanced", "advanced（専門的に）"),
+]
+
+
+def format_explain(explain: dict | None) -> str:
+    """回答の下に出す、「説明レベル」と「今回紹介した用語」。explain は /query の応答の explain。"""
+    if not explain or not explain.get("level"):
+        return ""
+    text = f"説明レベル: {explain['level']}" + ("（おまかせ）" if explain.get("mode") == "auto" else "")
+    introduced = [str(t) for t in (explain.get("introduced") or [])]
+    return text + (f" ／ 紹介した用語: {'、'.join(introduced)}" if introduced else "")
+
+
+def format_growth(growth: dict | None) -> str:
+    """接続タブに出す、自分の習熟度。growth は /me/growth の応答。"""
+    if not growth or not growth.get("level"):
+        return ""
+    known = [str(k.get("term")) for k in (growth.get("knownTerms") or [])[:8]]
+    lines = [f"習熟度: {growth['level']}（用語 {int(growth.get('termCount') or 0)}個・{growth.get('score', 0)}点）"]
+    if growth.get("nextAt") is not None:
+        remain = max(0.0, float(growth["nextAt"]) - float(growth.get("score") or 0))
+        lines.append(f"次のレベルまで あと {remain:.1f}点（質問で専門用語を使うほど上がります）")
+    if growth.get("lowered"):
+        lines.append("※「役に立たなかった」が続いたため、一段やさしく説明しています。")
+    if known:
+        lines.append("使いこなしている用語: " + "、".join(known))
+    return "\n".join(lines)
 
 
 def format_user(info: dict | None, mode: str = "cloudflare") -> dict:

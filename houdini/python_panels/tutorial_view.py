@@ -554,7 +554,9 @@ class TutorialGeneratePanel(QWidget):
         self._level_combo.addItems(["basic", "applied", "advanced"])
         self._level_combo.setToolTip(
             "basic: 初心者向け最小構成 / applied: basicにパラメータ調整・分岐を追加\n"
-            "advanced: appliedにVEX/式等の実務パターンを追加"
+            "advanced: appliedにVEX/式等の実務パターンを追加\n"
+            "説明の言葉の難しさと深さも、段階に合わせて変わります（basic=用語を説明しながら、"
+            "applied=仕組みと理由まで、advanced=専門用語のまま設計判断まで）"
         )
         level_row.addWidget(self._level_combo)
         self._chain_checkbox = QCheckBox("3段階連続生成（basic→applied→advanced、自動保存）")
@@ -958,7 +960,7 @@ class TutorialGeneratePanel(QWidget):
         if not bridge_dir:
             QMessageBox.warning(
                 self, "保存先未設定",
-                "Settings タブで Bridge Directory（DevelopmentRAGEnvironment のパス）を設定してください。",
+                "設定タブ（Local RAG）で Bridge Directory（DevelopmentRAGEnvironment のパス）を設定してください。",
             )
             return None
         return Path(bridge_dir) / "localRAG" / "tutorials"
@@ -1103,7 +1105,7 @@ class TutorialGeneratePanel(QWidget):
         if voice:
             name = voice[-1].strip()
             if name.startswith("SAPI"):
-                return f"音声: 従来の音声（{name}）。自然な声にするには、Settingsタブの Cloudflare URL / APIキーを設定するか、VOICEVOXを起動してください"
+                return f"音声: 従来の音声（{name}）。自然な声にするには、接続タブの URL / APIキーを設定するか、VOICEVOXを起動してください"
             return f"音声: {name}"
         engine = re.findall(r"Narration engine: (.+)", log_text)
         return f"音声: {engine[-1].strip()[:90]}" if engine else ""
@@ -1493,10 +1495,10 @@ class VideoLibraryPanel(QWidget):
         url, token = cfg.get("gallery_url", ""), cfg.get("gallery_token", "")
         exe_path = cfg.get("video_factory_exe_path", "")
         if not url.strip() or not token.strip():
-            self._status.setText("Settings タブで、ギャラリーのURLとアップロードトークンを設定してください")
+            self._status.setText("設定者に、設定タブでギャラリーのURLとアップロードトークンを設定してもらってください")
             return
         if not exe_path:
-            self._status.setText("Settings タブで、動画エンジン（video_factory_exe_path）を設定してください")
+            self._status.setText("設定者に、設定タブで動画エンジン（video_factory_exe_path）を設定してもらってください")
             return
         output_dir = gallery_upload.output_dir_for(exe_path)
         only_ids: set[str] | None = None
@@ -1586,7 +1588,7 @@ class VideoLibraryPanel(QWidget):
 
         tutorials_dir = self._tutorials_dir()
         if tutorials_dir is None:
-            self._status.setText("Settings タブで Bridge Directory を設定してください")
+            self._status.setText("設定タブ（Local RAG）で Bridge Directory を設定してください")
             return
         if not tutorials_dir.exists():
             self._status.setText("まだ保存されたチュートリアルがありません")
@@ -2208,7 +2210,7 @@ class TutorialHistoryPanel(QWidget):
     def _on_open_lessons(self) -> None:
         project_dir = self._cfg_getter().get("local_bridge_dir", "")
         if not project_dir:
-            self._fb_status.setText("Settings タブで Bridge Directory を設定してください")
+            self._fb_status.setText("設定タブ（Local RAG）で Bridge Directory を設定してください")
             return
         dialog = LessonsDialog(self, project_dir, self._tutorials_dir(), self._make_agent)
         if dialog.exec():
@@ -2254,7 +2256,7 @@ class TutorialHistoryPanel(QWidget):
         self._list.clear()
         tutorials_dir = self._tutorials_dir()
         if tutorials_dir is None:
-            self._status.setText("Settings タブで Bridge Directory を設定してください")
+            self._status.setText("設定タブ（Local RAG）で Bridge Directory を設定してください")
             return
         if not tutorials_dir.exists():
             self._status.setText("まだ保存されたチュートリアルがありません")

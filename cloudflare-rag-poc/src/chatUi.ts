@@ -639,6 +639,13 @@ export function chatUiHtml(): string {
       <option value="applied">applied</option>
       <option value="advanced">advanced</option>
     </select>
+    <select id="explain" title="回答の説明の深さ。おまかせ＝これまでの質問（使った専門用語）から、だんだん高度になります。">
+      <option value="">説明: 指定なし</option>
+      <option value="auto">説明: おまかせ（成長）</option>
+      <option value="basic">説明: basic（やさしく）</option>
+      <option value="applied">説明: applied（仕組みまで）</option>
+      <option value="advanced">説明: advanced（専門的に）</option>
+    </select>
     <span id="myBudget" class="hint" title="自分のAPIキーのトークン予算残量"></span>
     <button type="button" id="myConnBtn" class="hidden" title="自分専用の連携（Gmail・Drive・カレンダー・Jira・Backlog・公式MCP）。他の人からは見えません">自分用の連携</button>
     <button type="button" id="themeToggle" title="テーマ切替（自動 / ライト / ダーク）">テーマ: 自動</button>
@@ -1359,6 +1366,10 @@ export function chatUiHtml(): string {
 
   const apiKeyEl = $("apiKey");
   const levelEl = $("level");
+  // 説明のレベル（おまかせ＝成長）。選んだ状態は、ブラウザに覚えておく。
+  const explainEl = $("explain");
+  try { const saved = localStorage.getItem("ragPocExplain"); if (saved !== null && explainEl.querySelector('option[value="' + saved + '"]')) explainEl.value = saved; } catch { /* 保存できなくても、使える */ }
+  explainEl.addEventListener("change", () => { try { localStorage.setItem("ragPocExplain", explainEl.value); } catch { /* 保存できなくても、使える */ } });
   const namespaceFocusEl = $("namespaceFocus");
   const selectedNs = new Set(); // 検索対象に選んだnamespace（チップ）。空 = 全DB横断
   let revealNext = false; // 次に描画する回答を、タイプライターで表示する
@@ -2627,7 +2638,7 @@ export function chatUiHtml(): string {
           if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 160) messagesEl.scrollTop = messagesEl.scrollHeight;
         },
       };
-      const data = await queryStream({ query: text, limit: 5, level: levelEl.value, namespaces: picked.length > 0 ? picked : (focusNs ? [focusNs] : undefined), image: imageToSend || undefined, useMcp: useMcp || undefined, threadId: currentThread.id, history: currentThread.history.slice(-6) });
+      const data = await queryStream({ query: text, limit: 5, level: levelEl.value, explain: explainEl.value || undefined, namespaces: picked.length > 0 ? picked : (focusNs ? [focusNs] : undefined), image: imageToSend || undefined, useMcp: useMcp || undefined, threadId: currentThread.id, history: currentThread.history.slice(-6) });
       skeleton.remove();
       // ストリーミングで表示した途中の回答を、出典リンク・評価ボタンつきの完成した表示に置き換える
       const streamed = !!liveBubble;
@@ -2635,6 +2646,17 @@ export function chatUiHtml(): string {
       streamUi = null;
       revealNext = !streamed; // 流れて表示済みの回答には、タイプライターは使わない
       renderAssistantMessage(messagesEl, text, data.answer, data.sources, data.extractionRate, data.extractionDetail, data.memoryId, null, false);
+      if (data.explain) {
+        // 使った説明のレベルと、今回の回答で紹介した用語を、回答の下に出す
+        const metas = messagesEl.querySelectorAll(".meta");
+        const lastMeta = metas[metas.length - 1];
+        if (lastMeta) {
+          const tag = document.createElement("span");
+          tag.className = "hint";
+          tag.textContent = "説明レベル: " + data.explain.level + (data.explain.mode === "auto" ? "（おまかせ）" : "") + (data.explain.introduced && data.explain.introduced.length > 0 ? " ／ 紹介した用語: " + data.explain.introduced.join("、") : "");
+          lastMeta.appendChild(tag);
+        }
+      }
       if (panelState) { panelState.route = buildRoute(data); renderSourcePanel(); }
       if (data.toolCalls && data.toolCalls.length > 0) {
         // 使った外部サービスのツールを回答の下に出す（textContentのみ）
