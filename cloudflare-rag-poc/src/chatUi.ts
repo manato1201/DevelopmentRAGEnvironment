@@ -1297,6 +1297,16 @@ export function chatUiHtml(): string {
         <div class="table-scroll"><table class="admin-table" id="pilotParticipants"><thead><tr><th>ユーザー</th><th>質問数</th><th>チャット評価</th><th>チュートリアル評価</th><th>最後の質問</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="section">
+        <h2>課題の記録（固定課題・自由課題）</h2>
+        <p class="hint" id="pilotTaskNote">-</p>
+        <div class="field-row"><button class="btn" id="pilotTasksCsv">課題ごとのCSV（P01 などの番号。氏名なし）</button></div>
+        <h3>回・種類・条件ごと（中央値）</h3>
+        <div class="table-scroll"><table class="admin-table" id="pilotTaskGroups"><thead><tr><th>回</th><th>種類</th><th>条件</th><th>人数</th><th>到達</th><th>難しさ</th><th>わかりやすさ</th><th>所要(分)</th><th>質問数</th><th>操作ミス</th></tr></thead><tbody></tbody></table></div>
+        <h3>公式ドキュメントのみ（対照）と本システムの比較（固定課題・同じ参加者の中）</h3>
+        <p class="hint">差 = 本システムの回の平均 − 対照の回。効果量は、対応のある rank-biserial（−1〜1。0に近いほど差なし）。人数が少ないうちは、参考です。</p>
+        <div class="table-scroll"><table class="admin-table" id="pilotPaired"><thead><tr><th>指標</th><th>組の数</th><th>差の中央値</th><th>良い向きになった人</th><th>効果量</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="section">
         <h2>説明レベル別のチャット評価</h2>
         <p class="hint">「auto:applied」＝おまかせで applied になった回答、「fixed:basic」＝利用者が basic を選んだ回答、「指定なし」＝説明レベルを使わなかった回答。好評率は、評価が付いた回答だけで計算します。</p>
         <div class="table-scroll"><table class="admin-table" id="pilotExplain"><thead><tr><th>説明レベル</th><th>回答数</th><th>良い / 悪い</th><th>好評率</th></tr></thead><tbody></tbody></table></div>
@@ -3190,7 +3200,47 @@ ${ASCII_ART_JS}
         fill("pilotTerms", g.topTerms.map((t) => [t.term, t.users, t.total]), 3);
       }
     } catch (e) { showToast("実証実験の集計を読み込めませんでした: " + e.message, "error"); }
+    loadPilotTasks();
   }
+  // 課題の記録（/admin/pilot/tasks。期間では絞らない: 3回ぶんの全体で見る）
+  let lastPilotTaskRows = [];
+  async function loadPilotTasks() {
+    const num = (v, digits) => (v == null ? "-" : Number(v).toFixed(digits));
+    const kinds = { fixed: "固定", free: "自由" };
+    const conds = { docs_only: "公式ドキュメントのみ", system: "本システム" };
+    const fillRows = (tableId, rows, columns) => {
+      const tbody = $(tableId).querySelector("tbody");
+      tbody.innerHTML = "";
+      if (rows.length === 0) { tbody.innerHTML = "<tr><td colspan=" + columns + ">データがありません</td></tr>"; return; }
+      rows.forEach((cells) => appendRow(tbody, cells));
+    };
+    try {
+      const data = await api("/admin/pilot/tasks", {});
+      lastPilotTaskRows = data.rows;
+      const f = data.mistakeFormula;
+      $("pilotTaskNote").textContent = "登録した参加者 " + data.registered + "人／終えた課題 " + data.sessions + "件。操作ミス = cookエラー（上限" + f.cookCap + "ノードで1）×" + f.cook + " ＋ 自己申告 ×" + f.self + "（0〜1。大きいほどミスが多い）。到達 = 課題の題材として、作品物ができていること。"
+        + (data.contaminated.length > 0 ? " ⚠ 対照の回に質問が記録された参加者: " + data.contaminated.map((p) => "P" + String(p).padStart(2, "0")).join("、") + "（本システムを使った可能性。除外を検討）" : "");
+      fillRows("pilotTaskGroups", data.byGroup.map((g) => [
+        "第" + g.round + "回", kinds[g.kind] || g.kind, conds[g.condition] || g.condition, g.n,
+        g.reachedRate == null ? "-" : Math.round(g.reachedRate * 100) + "%",
+        num(g.median.difficulty, 1), num(g.median.clarity, 1), num(g.median.durationMin, 1), num(g.median.queries, 0), num(g.median.mistake, 2),
+      ]), 10);
+      fillRows("pilotPaired", data.paired.map((p) => [
+        p.label, p.pairs, num(p.medianDiff, 2), p.pairs === 0 ? "-" : p.improved + " / " + p.pairs, num(p.rankBiserial, 2),
+      ]), 5);
+    } catch (e) { showToast("課題の記録を読み込めませんでした: " + e.message, "error"); }
+  }
+  $("pilotTasksCsv").addEventListener("click", () => {
+    if (lastPilotTaskRows.length === 0) { showToast("エクスポートする課題の記録がありません", "error"); return; }
+    downloadCsv(
+      "pilot-tasks-" + new Date().toISOString().slice(0, 10) + ".csv",
+      ["参加者", "回", "種類", "題材", "条件", "所要(分)", "質問数", "cookエラーのノード数", "操作ミス自己申告", "操作ミス(合成)", "到達", "難しさ", "わかりやすさ", "集中を妨げた", "正確性の不安", "出典が役立った", "また使いたい", "自由記述"],
+      lastPilotTaskRows.map((r) => [r.participant, r.round, r.kind, r.taskId, r.condition, r.durationMin == null ? "" : r.durationMin, r.queryCount == null ? "" : r.queryCount,
+        r.cookErrorNodes == null ? "" : r.cookErrorNodes, r.selfMistakes == null ? "" : r.selfMistakes, r.mistake == null ? "" : r.mistake, r.reached == null ? "" : r.reached,
+        r.difficulty == null ? "" : r.difficulty, r.clarity == null ? "" : r.clarity, r.focus == null ? "" : r.focus, r.accuracyWorry == null ? "" : r.accuracyWorry,
+        r.sourceUseful == null ? "" : r.sourceUseful, r.reuse == null ? "" : r.reuse, r.comment]),
+    );
+  });
   $("pilotRefresh").addEventListener("click", loadPilotSummary);
   $("pilotDays").addEventListener("change", loadPilotSummary);
   $("pilotExportCsv").addEventListener("click", () => {

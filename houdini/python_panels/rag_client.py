@@ -158,6 +158,29 @@ class RAGClient:
             return False
         return post_json(f"{base}/me/growth/reset", {}, timeout=10, api_key=self.cfg.get("cf_api_key", "")).get("status") == "ok"
 
+    def _pilot(self, path: str, body: dict) -> dict:
+        """実証実験の課題 API（Cloudflare モードのみ）。失敗は例外（APIキーが無効・事前アンケート前など）。"""
+        base = _cf_base(self.cfg)
+        if self.cfg["mode"] != "cloudflare" or not base:
+            raise RuntimeError("Cloudflare モードで、URL と APIキーを設定してください")
+        return post_json(f"{base}{path}", body, timeout=15, api_key=self.cfg.get("cf_api_key", ""))
+
+    def pilot_plan(self) -> dict:
+        """自分の次の課題（/pilot/plan）。{"profile": False} なら、事前アンケートがまだ。"""
+        return self._pilot("/pilot/plan", {})
+
+    def pilot_profile(self, answers: dict) -> dict:
+        """事前アンケートを送る（/pilot/profile）。応答は plan と同じ。"""
+        return self._pilot("/pilot/profile", answers)
+
+    def pilot_session_start(self, kind: str) -> dict:
+        """課題を始める（/pilot/session/start）。kind は "fixed"（固定課題）か "free"（自由課題）。"""
+        return self._pilot("/pilot/session/start", {"kind": kind})
+
+    def pilot_session_end(self, payload: dict) -> dict:
+        """課題を終える（/pilot/session/end）。到達・自己申告のミス・cook エラーのノード数・課題後アンケートを送る。"""
+        return self._pilot("/pilot/session/end", payload)
+
     def rate(self, memory_id, rating: str) -> bool:
         """
         Cloudflare モードのみ有効。回答の履歴に 👍/👎 評価を送る（/memory/rate）。

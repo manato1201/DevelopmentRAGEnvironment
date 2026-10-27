@@ -248,6 +248,58 @@ def upload_feedback(cf_url: str, cf_api_key: str, payload: dict, timeout: int = 
         return False, f"Cloudflareへの送信に失敗: {exc}。ローカルには保存済み"
 
 
+# ─── 送信の取りこぼし防止（2026-10-28） ──────────────────────────────────────────────
+# 評価ファイルに uploaded_at（送信に成功した時刻）を残す。無い評価は「未送信」で、次の起動時に
+# 自動で再送する（Cloudflareのほうは tutorialKey ごとの上書きなので、二重に送っても増えない）。
+
+def mark_uploaded(md_path: Path, rated_at: str = "") -> bool:
+    """評価を送信済みにする。rated_at を渡すと、送信中に評価が変わっていないときだけ印を付ける。"""
+    path = feedback_path(md_path)
+    data = _read_json(path)
+    if not isinstance(data, dict) or data.get("rating") not in (1, -1):
+        return False
+    if rated_at and data.get("rated_at") != rated_at:
+        return False  # 送っている間に、評価を付け直した（新しい評価は、まだ未送信）
+    data["uploaded_at"] = datetime.datetime.now().isoformat(timespec="seconds")
+    return _write_json(path, data)
+
+
+def pending_uploads(tutorials_dir: Path) -> list[Path]:
+    """評価があるのに、まだ送信に成功していないチュートリアル。"""
+    if not tutorials_dir.exists():
+        return []
+    pending = []
+    for md in sorted(tutorials_dir.glob("*.md")):
+        entry = read_feedback(md)
+        if entry and not entry.get("uploaded_at"):
+            pending.append(md)
+    return pending
+
+
+def resend_pending(
+    tutorials_dir: Path, cf_url: str, cf_api_key: str, limit: int = 20, uploader: Callable | None = None
+) -> dict:
+    """未送信の評価を、古いものから送る。最初の失敗で止める（つながらないときに、何度も叩かない）。
+
+    {"sent": 成功数, "remaining": まだ未送信の数, "skipped": 接続先が未設定}
+    """
+    pending = pending_uploads(tutorials_dir)
+    if not cf_url or not cf_api_key:
+        return {"sent": 0, "remaining": len(pending), "skipped": True}
+    send = uploader or upload_feedback
+    sent = 0
+    for md in pending[:limit]:
+        entry = read_feedback(md)
+        if not entry:
+            continue
+        ok, _ = send(cf_url, cf_api_key, build_upload_payload(md, entry))
+        if not ok:
+            break
+        if mark_uploaded(md, entry.get("rated_at", "")):
+            sent += 1
+    return {"sent": sent, "remaining": len(pending_uploads(tutorials_dir)), "skipped": False}
+
+
 # ─── 一覧と集計 ──────────────────────────────────────────────────────────────────
 
 def list_entries(tutorials_dir: Path) -> list[dict]:
@@ -268,6 +320,7 @@ def list_entries(tutorials_dir: Path) -> list[dict]:
             "domain": str(metrics.get("domain") or ""),
             "metrics": metrics,
             "rating": feedback.get("rating", 0),
+            "unsent": bool(feedback.get("rating") and not feedback.get("uploaded_at")),
             "tags": feedback.get("tags", []),
             "note": feedback.get("note", ""),
             "status": frontmatter.get("status", ""),
@@ -301,6 +354,106 @@ def summarize(entries: list[dict], keys_of: Callable[[dict], list[str]]) -> list
         })
     rows.sort(key=lambda r: -r["total"])
     return rows
+
+
+# ─── 集計画面用のデータ（Qt に依存しない。表示は report_dialog.py） ─────────────────────
+
+MIN_RATED_FOR_RATE = 3        # 評価がこれ未満の行は、好評率を出さない（1件で100%になるのを避ける）
+LOW_COVERAGE = 0.3            # 評価済みが全体のこの割合を下回ると、注意を出す
+ENOUGH_RATED = 20             # 評価がこれ未満のうちは、傾向は参考程度
+UNKNOWN_LABEL = "未記録（指標を残す前の生成物）"
+
+REPORT_COLUMNS = (
+    ("key", "項目", ""),
+    ("total", "件数", "この項目に当てはまる、保存したチュートリアルの数"),
+    ("rated", "評価", "👍か👎を付けた数"),
+    ("good_rate", "好評率", f"👍 ÷（👍＋👎）。評価が{MIN_RATED_FOR_RATE}件未満のときは出しません"),
+    ("avg_iterations", "平均反復", "生成のやり直しの平均回数。少ないほど一発でできている"),
+    ("avg_cost", "平均コスト", "1本あたりのClaude費用（USD）"),
+    ("avg_cook_errors", "cookエラー", "生成中にノードのcookで出たエラーの平均数"),
+    ("abort_rate", "打ち切り", "途中で打ち切られた生成の割合"),
+)
+
+REPORT_SECTIONS = (
+    ("model", "モデル別", lambda e: [e["model"]]),
+    ("level", "レベル別", lambda e: [e["level"]]),
+    ("domain", "領域別", lambda e: [e["domain"]]),
+    ("tag", "理由タグ別", lambda e: list(e["tags"])),
+)
+
+
+def build_report(entries: list[dict]) -> dict:
+    """集計画面に出すデータ。数値は数値のまま持つ（並べ替えできるように）。
+
+    {"kpis": {...}, "warnings": [文], "sections": [{"id", "title", "rows": [...]}], "recent_bad": [{"title","tags","note"}]}
+    行: key・total・rated・good・bad・good_rate(評価が少ないときは None)・平均類・abort_rate・unknown(未記録の行か)
+    """
+    rated = [e for e in entries if e["rating"]]
+    good = sum(1 for e in rated if e["rating"] == 1)
+    bad = len(rated) - good
+    total = len(entries)
+    kpis = {
+        "total": total,
+        "rated": len(rated),
+        "unrated": total - len(rated),
+        "good": good,
+        "bad": bad,
+        "good_rate": good / len(rated) if rated else None,
+        "coverage": len(rated) / total if total else None,
+        "unsent": sum(1 for e in rated if e.get("unsent")),
+        "total_cost": sum(
+            e["metrics"]["cost_usd"] for e in entries if isinstance(e["metrics"].get("cost_usd"), (int, float))
+        ),
+    }
+
+    sections = []
+    for section_id, title, keys_of in REPORT_SECTIONS:
+        rows = []
+        for r in summarize(entries, keys_of):
+            n_rated = r["good"] + r["bad"]
+            unknown = r["key"] == "（不明）"
+            rows.append({
+                **r,
+                "key": UNKNOWN_LABEL if unknown else r["key"],
+                "unknown": unknown,
+                "rated": n_rated,
+                "good_rate": r["good_rate"] if n_rated >= MIN_RATED_FOR_RATE else None,
+            })
+        if rows:
+            sections.append({"id": section_id, "title": title, "rows": rows})
+
+    warnings = []
+    if total and kpis["coverage"] < LOW_COVERAGE:
+        warnings.append(
+            f"評価済みは {len(rated)} / {total} 件（{kpis['coverage'] * 100:.0f}%）です。"
+            "評価を付けたものだけの集計なので、全体の傾向とは限りません。"
+        )
+    if kpis["unsent"]:
+        warnings.append(f"Cloudflareへ未送信の評価が {kpis['unsent']} 件あります。接続できる状態で、パネルを開き直すと自動で再送します。")
+    if rated and len(rated) < ENOUGH_RATED:
+        warnings.append(f"評価が {ENOUGH_RATED} 件に届くまでは、好評率は参考程度です。")
+    if any(row["unknown"] for s in sections for row in s["rows"]):
+        warnings.append("「未記録」は、指標（モデル・領域など）を残す前に作った生成物です。新しく作ったものから、項目が埋まります。")
+
+    recent_bad = [
+        {"title": e["title"], "tags": list(e["tags"]), "note": e["note"]}
+        for e in rated if e["rating"] == -1 and (e["note"] or e["tags"])
+    ][-5:]
+    return {"kpis": kpis, "warnings": warnings, "sections": sections, "recent_bad": recent_bad}
+
+
+def report_csv(report: dict) -> str:
+    """集計をCSV（Excelで開ける）にする。区分・項目・各列。好評率が出せない行は空欄。"""
+    import csv
+    import io
+
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow(["区分", *[label for key, label, _ in REPORT_COLUMNS]])
+    for section in report["sections"]:
+        for row in section["rows"]:
+            writer.writerow([section["title"], *["" if row.get(key) is None else row[key] for key, _, _ in REPORT_COLUMNS]])
+    return out.getvalue()
 
 
 def _fmt(value, digits: int = 1, prefix: str = "") -> str:

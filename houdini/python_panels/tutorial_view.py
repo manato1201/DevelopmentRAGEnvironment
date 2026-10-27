@@ -57,6 +57,7 @@ from PySide6.QtWidgets import (
 import gallery_upload
 import token_usage
 import video_progress
+from report_dialog import ReportDialog
 from tutorial_graph_simplify import graph_to_mermaid, layered_positions, simplify_graph
 
 # ノード数がこれを超えるチュートリアルを開いたときは既定で「簡易表示」にする
@@ -199,15 +200,38 @@ class FeedbackUploadWorker(QThread):
     """評価をCloudflareへ送る（ベストエフォート。UIを止めないよう別スレッド）。"""
     finished_with = Signal(bool, str)
 
-    def __init__(self, cf_url: str, cf_api_key: str, payload: dict) -> None:
+    def __init__(self, cf_url: str, cf_api_key: str, payload: dict, md_path: Path | None = None, rated_at: str = "") -> None:
         super().__init__()
         self._cf_url, self._cf_api_key, self._payload = cf_url, cf_api_key, payload
+        self._md_path, self._rated_at = md_path, rated_at
 
     def run(self) -> None:
         import tutorial_feedback
 
         ok, message = tutorial_feedback.upload_feedback(self._cf_url, self._cf_api_key, self._payload)
+        if self._md_path is not None:
+            if ok:
+                tutorial_feedback.mark_uploaded(self._md_path, self._rated_at)  # 送信済みの印（これが無い評価は、次の起動で再送）
+            else:
+                message += "（未送信として残しました。次にパネルを開いたとき、自動で再送します）"
         self.finished_with.emit(ok, message)
+
+
+class FeedbackResendWorker(QThread):
+    """起動時に、未送信の評価をまとめて再送する（静かに。失敗しても、画面には出さない）。"""
+    finished_with = Signal(dict)
+
+    def __init__(self, tutorials_dir: Path, cf_url: str, cf_api_key: str) -> None:
+        super().__init__()
+        self._tutorials_dir, self._cf_url, self._cf_api_key = tutorials_dir, cf_url, cf_api_key
+
+    def run(self) -> None:
+        import tutorial_feedback
+
+        try:
+            self.finished_with.emit(tutorial_feedback.resend_pending(self._tutorials_dir, self._cf_url, self._cf_api_key))
+        except Exception:  # noqa: BLE001 -- 再送の失敗で、パネルを止めない
+            self.finished_with.emit({"sent": 0, "remaining": -1, "skipped": False})
 
 
 class VideoScriptWorker(QThread):
@@ -652,6 +676,27 @@ class TutorialGeneratePanel(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
+        # 保存した直後だけ出す、控えめな評価の行（2026-10-28）。評価は任意。ポップアップにはせず、保存1回につき1度だけ。
+        # 押さなければ、そのまま消える（履歴タブでも、あとから付けられる）。次の生成を始める・破棄するときにも消える。
+        self._rate_row = QWidget()
+        rate_layout = QHBoxLayout(self._rate_row)
+        rate_layout.setContentsMargins(0, 0, 0, 0)
+        rate_hint = QLabel("保存しました。よければ評価を（任意。履歴タブでもあとから付けられます）")
+        rate_hint.setStyleSheet("color:#94a3b8;font-size:11px;")
+        self._rate_good_btn = QPushButton("👍")
+        self._rate_bad_btn = QPushButton("👎")
+        for btn, rating in ((self._rate_good_btn, 1), (self._rate_bad_btn, -1)):
+            btn.setFixedWidth(40)
+            btn.clicked.connect(lambda _checked=False, r=rating: self._on_quick_rate(r))
+        rate_layout.addWidget(rate_hint)
+        rate_layout.addWidget(self._rate_good_btn)
+        rate_layout.addWidget(self._rate_bad_btn)
+        rate_layout.addStretch()
+        self._rate_row.setVisible(False)
+        layout.addWidget(self._rate_row)
+        self._rate_md_path: Path | None = None
+        self._rate_worker: FeedbackUploadWorker | None = None
+
         self._status = token_usage.fit_label(QLabel(""))
         self._status.setStyleSheet("color:#aaa;font-size:11px;")
         layout.addWidget(self._status)
@@ -790,6 +835,7 @@ class TutorialGeneratePanel(QWidget):
             self._status.setText(f"tutorial_agent の読み込みに失敗: {exc}")
             return
 
+        self._hide_rating_row()
         self._progress_log.clear()
         self._preview.clear()
         self._result = None
@@ -1295,8 +1341,38 @@ class TutorialGeneratePanel(QWidget):
             video_status = self._launch_video_for_result(self._result, md_path, json_path)
             self._status.setText(f"{self._status.text()} / {video_status}")
         self._index_screenshots_async(self._result)
+        self._show_rating_row(md_path)
+
+    def _show_rating_row(self, md_path: Path) -> None:
+        self._rate_md_path = md_path
+        self._rate_row.setVisible(True)
+
+    def _hide_rating_row(self) -> None:
+        self._rate_md_path = None
+        self._rate_row.setVisible(False)
+
+    def _on_quick_rate(self, rating: int) -> None:
+        """保存直後の1クリック評価。履歴タブの評価と同じ保存・送信を使う（タグ・メモは、履歴タブで付けられる）。"""
+        import tutorial_feedback
+
+        md_path = self._rate_md_path
+        self._hide_rating_row()
+        if md_path is None:
+            return
+        entry = tutorial_feedback.save_feedback(md_path, rating, [], "")
+        if entry is None:
+            self._status.setText(f"{self._status.text()} / 評価を保存できませんでした")
+            return
+        cfg = self._cfg_getter()
+        self._rate_worker = FeedbackUploadWorker(
+            cfg.get("cf_url", ""), cfg.get("cf_api_key", ""),
+            tutorial_feedback.build_upload_payload(md_path, entry), md_path, entry.get("rated_at", ""),
+        )
+        self._rate_worker.finished_with.connect(lambda ok, message: self._status.setText(f"評価を保存しました / {message}"))
+        self._rate_worker.start()
 
     def _on_discard(self) -> None:
+        self._hide_rating_row()
         self._result = None
         self._preview.clear()
         self._save_btn.setEnabled(False)
@@ -1899,6 +1975,8 @@ class TutorialHistoryPanel(QWidget):
         self._selected_video_log_path: Path | None = None
         self._build_ui()
         self.refresh()
+        # 未送信の評価の再送は、パネルが落ち着いてから、裏で1回だけ（画面は止めない）
+        QTimer.singleShot(4000, self._resend_pending_feedback)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -1917,6 +1995,13 @@ class TutorialHistoryPanel(QWidget):
         self._search_box.setPlaceholderText("タイトル・難易度で検索…")
         self._search_box.textChanged.connect(self._apply_filter)
         toolbar.addWidget(self._search_box, stretch=1)
+
+        # 評価の付け忘れを探すための絞り込み（2026-10-28）。促しはせず、探したいときに押してもらう。
+        self._unrated_btn = QPushButton("未評価のみ")
+        self._unrated_btn.setCheckable(True)
+        self._unrated_btn.setToolTip("まだ👍/👎を付けていないチュートリアルだけを一覧に出します")
+        self._unrated_btn.toggled.connect(lambda _checked: self._apply_filter(self._search_box.text()))
+        toolbar.addWidget(self._unrated_btn)
 
         # 簡易（直列チェーンを折り畳んだ集約表示） / 詳細（全ノード表示）の切替。
         # ノード数が多い（既定 30 超）チュートリアルを開いたときは簡易を既定選択にする
@@ -2010,6 +2095,7 @@ class TutorialHistoryPanel(QWidget):
         self._fb = tutorial_feedback
         self._feedback_tags: set[str] = set()
         self._upload_worker: FeedbackUploadWorker | None = None
+        self._resend_worker: FeedbackResendWorker | None = None
         self._loading_feedback = False
 
         row = QHBoxLayout()
@@ -2155,9 +2241,27 @@ class TutorialHistoryPanel(QWidget):
         payload = self._fb.build_upload_payload(md_path, entry) if entry.get("rating") else {
             "tutorialKey": md_path.stem, "rating": 0,
         }
-        self._upload_worker = FeedbackUploadWorker(cfg.get("cf_url", ""), cfg.get("cf_api_key", ""), payload)
+        self._upload_worker = FeedbackUploadWorker(
+            cfg.get("cf_url", ""), cfg.get("cf_api_key", ""), payload,
+            md_path if entry.get("rating") else None, entry.get("rated_at", ""),
+        )
         self._upload_worker.finished_with.connect(lambda ok, message: self._fb_status.setText(message))
         self._upload_worker.start()
+
+    def _resend_pending_feedback(self) -> None:
+        """未送信の評価を、バックグラウンドで再送する。送れたときだけ、状態欄に一言出す。"""
+        tutorials_dir, cfg = self._tutorials_dir(), self._cfg_getter()
+        if tutorials_dir is None or not cfg.get("cf_url") or not cfg.get("cf_api_key"):
+            return
+        if not self._fb.pending_uploads(tutorials_dir):
+            return
+        self._resend_worker = FeedbackResendWorker(tutorials_dir, cfg["cf_url"], cfg["cf_api_key"])
+        self._resend_worker.finished_with.connect(self._on_resend_done)
+        self._resend_worker.start()
+
+    def _on_resend_done(self, result: dict) -> None:
+        if result.get("sent"):
+            self._fb_status.setText(f"未送信だった評価 {result['sent']}件を送信しました")
 
     def _refresh_current_label(self, md_path: Path) -> None:
         item = self._list.currentItem()
@@ -2178,30 +2282,11 @@ class TutorialHistoryPanel(QWidget):
 
     def _on_show_report(self) -> None:
         tutorials_dir = self._tutorials_dir()
-        dialog = QDialog(self)
-        dialog.setWindowTitle("評価の集計")
-        dialog.resize(760, 520)
-        layout = QVBoxLayout(dialog)
-        view = QTextEdit()
-        view.setReadOnly(True)
-        view.setStyleSheet("font-family:Consolas,'Yu Gothic UI',monospace;font-size:12px;")
 
-        def load() -> None:
-            entries = self._fb.list_entries(tutorials_dir) if tutorials_dir is not None else []
-            view.setPlainText(self._fb.format_report(entries))
+        def load() -> list[dict]:
+            return self._fb.list_entries(tutorials_dir) if tutorials_dir is not None else []
 
-        load()
-        layout.addWidget(view)
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        refresh = QPushButton("更新")
-        refresh.clicked.connect(load)
-        close = QPushButton("閉じる")
-        close.clicked.connect(dialog.accept)
-        buttons.addWidget(refresh)
-        buttons.addWidget(close)
-        layout.addLayout(buttons)
-        dialog.exec()
+        ReportDialog(self, load).exec()
 
     def _make_agent(self):
         """教訓の候補作りでClaudeを呼ぶためのエージェント（生成時と同じ設定。サンドボックスは作らない）。"""
@@ -2274,24 +2359,28 @@ class TutorialHistoryPanel(QWidget):
                 archived_count += 1
             item = QListWidgetItem(label)
             item.setData(Qt.UserRole, str(path))
+            item.setData(Qt.UserRole + 1, self._fb.read_feedback(path) is not None)  # 評価済みか（「未評価のみ」の絞り込み用）
             self._list.addItem(item)
-        status_text = f"{len(files)} 件"
+        unrated = sum(1 for i in range(self._list.count()) if not self._list.item(i).data(Qt.UserRole + 1))
+        status_text = f"{len(files)} 件（未評価 {unrated}件）"
         if archived_count:
             status_text += f"（うち打ち切り ⚠ {archived_count}件）"
         self._status.setText(status_text)
         self._apply_filter(self._search_box.text())
 
     def _apply_filter(self, text: str) -> None:
-        """検索ボックスの文字列でリストの表示/非表示を切り替える（大文字小文字区別なし）。"""
+        """検索ボックスの文字列と「未評価のみ」で、リストの表示/非表示を切り替える（大文字小文字区別なし）。"""
         needle = text.strip().lower()
+        only_unrated = self._unrated_btn.isChecked()
         visible = 0
         for i in range(self._list.count()):
             item = self._list.item(i)
-            hit = not needle or needle in item.text().lower()
+            hit = (not needle or needle in item.text().lower()) and not (only_unrated and item.data(Qt.UserRole + 1))
             item.setHidden(not hit)
             visible += 1 if hit else 0
-        if needle:
-            self._status.setText(f"{visible} / {self._list.count()} 件（「{text}」で絞り込み中）")
+        if needle or only_unrated:
+            how = "・".join(part for part in (f"「{text}」で絞り込み中" if needle else "", "未評価のみ" if only_unrated else "") if part)
+            self._status.setText(f"{visible} / {self._list.count()} 件（{how}）")
 
     @staticmethod
     def _peek_difficulty(path: Path) -> str:
