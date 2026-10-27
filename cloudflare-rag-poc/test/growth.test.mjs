@@ -17,6 +17,7 @@ const D1 = {
     };
   },
 };
+D1.batch = async (statements) => { const out = []; for (const s of statements) out.push(await s.run()); return out; };
 const env = { DB: D1 };
 db.prepare("INSERT INTO users (user_id, display_name, role, created_at) VALUES ('u1','a','member',1),('u2','b','member',1)").run();
 

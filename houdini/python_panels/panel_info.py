@@ -12,6 +12,7 @@ panel_info.py — パネルに出す文面の組み立て（Qt に依存しな�
 from __future__ import annotations
 
 import html
+import re
 
 ROLE_LABELS = {"admin": "管理者", "editor": "編集者", "member": "一般ユーザー", "guest": "ゲスト"}
 
@@ -29,11 +30,16 @@ def friendly_error(raw: str) -> str:
     """利用者に見せる、短く分かりやすい文にする。生の詳細は、デバッグのログ（panel_debug）に残す。"""
     text = str(raw or "")
     low = text.lower()
-    if "401" in text or "unauthorized" in low or "認証" in text:
+
+    def has_status(*codes: str) -> bool:
+        # HTTP ステータスは、前後に数字が続かないときだけ（"15000ms" の "500" などに反応しない）
+        return any(re.search(rf"(?<!\d){code}(?!\d)", text) for code in codes)
+
+    if has_status("401") or "unauthorized" in low or "認証" in text:
         return "APIキーが無効か、期限が切れています。「接続」タブで、APIキーを確認してください。"
-    if "403" in text or "forbidden" in low:
+    if has_status("403") or "forbidden" in low:
         return "この操作をする権限がありません。管理者に確認してください。"
-    if "429" in text or "予算" in text or "上限" in text or "budget" in low or "rate" in low and "limit" in low:
+    if has_status("429") or "予算" in text or "上限" in text or "budget" in low or ("rate" in low and "limit" in low):
         return "利用の上限に達しました。しばらく待つか、管理者に上限を確認してください。"
     if "timed out" in low or "timeout" in low or "タイムアウト" in text:
         return "サーバーの応答が遅れています。少し待って、もう一度試してください。"
@@ -41,7 +47,7 @@ def friendly_error(raw: str) -> str:
         return "サーバーに接続できません。ネットワークと、「接続」タブの URL を確認してください。"
     if "url が未設定" in low or "urlが未設定" in low or "未設定" in text:
         return "接続の設定が足りません。「接続」タブで、URL と APIキーを入力してください。"
-    if text.startswith("HTTP Error 5") or "500" in text or "502" in text or "503" in text:
+    if text.startswith("HTTP Error 5") or has_status("500", "502", "503"):
         return "サーバーで問題が起きています。少し待って、もう一度試してください。続く場合は管理者に連絡してください。"
     return "うまくいきませんでした。もう一度試してください。続く場合は、管理者に連絡してください。"
 

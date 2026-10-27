@@ -83,10 +83,12 @@ export function buildProfile(rows: TermRow[], recentRatings: number[]): GrowthPr
 }
 
 export async function loadGrowth(env: Env, userId: string): Promise<GrowthProfile> {
-  const terms = await env.DB.prepare("SELECT term, count FROM user_terms WHERE user_id = ?").bind(userId).all<TermRow>();
-  const ratings = await env.DB.prepare("SELECT rating FROM memory WHERE user_id = ? AND rating IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 3")
-    .bind(userId)
-    .all<{ rating: number }>();
+  const [terms, ratings] = await Promise.all([
+    env.DB.prepare("SELECT term, count FROM user_terms WHERE user_id = ?").bind(userId).all<TermRow>(),
+    env.DB.prepare("SELECT rating FROM memory WHERE user_id = ? AND rating IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 3")
+      .bind(userId)
+      .all<{ rating: number }>(),
+  ]);
   return buildProfile(terms.results ?? [], (ratings.results ?? []).map((r) => r.rating));
 }
 
@@ -94,13 +96,16 @@ export async function loadGrowth(env: Env, userId: string): Promise<GrowthProfil
 export async function recordQueryTerms(env: Env, userId: string, query: string): Promise<string[]> {
   const found = findTerms(query).slice(0, MAX_TERMS_PER_QUERY);
   const now = Math.floor(Date.now() / 1000);
-  for (const term of found) {
-    await env.DB.prepare(
-      `INSERT INTO user_terms (user_id, term, count, first_seen, last_seen) VALUES (?, ?, 1, ?, ?)
-       ON CONFLICT(user_id, term) DO UPDATE SET count = count + 1, last_seen = excluded.last_seen`,
-    )
-      .bind(userId, term.term, now, now)
-      .run();
+  if (found.length > 0) {
+    // 1回の往復でまとめて書く（用語ごとに待たない）
+    await env.DB.batch(
+      found.map((term) =>
+        env.DB.prepare(
+          `INSERT INTO user_terms (user_id, term, count, first_seen, last_seen) VALUES (?, ?, 1, ?, ?)
+           ON CONFLICT(user_id, term) DO UPDATE SET count = count + 1, last_seen = excluded.last_seen`,
+        ).bind(userId, term.term, now, now),
+      ),
+    );
   }
   return found.map((t) => t.term);
 }

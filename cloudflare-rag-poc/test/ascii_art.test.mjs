@@ -84,6 +84,29 @@ for (const code of scripts) new vm.Script(code);
 const code = scripts.join("\n");
 assert.match(code, /function critterFrame\(/);
 assert.match(code, /function asciiCritter\(/);
-assert.match(code, /if \(calm\) \{\s*pre\.textContent = critterFrame\(CRITTER_W, CRITTER_H, 0, 1, ART_RAMPS\.critter\);\s*return pre;/, "reduced motion: a still, finished frame; no timer");
+assert.match(code, /if \(calm\) \{\s*paintCritter\(pre, critterFrame\(CRITTER_W, CRITTER_H, 0, 1, ART_RAMPS\.critter\)\);\s*return pre;/, "reduced motion: a still, finished frame; no timer");
 assert.ok(!/critterText\(/.test(code), "the old rotating-glyph code is gone");
+
+// 追補（ASCII モチーフ）: 回答待ちにも出す。画面の外・非表示のタブでは描かない。取り除かれたら止まる
+assert.match(code, /skeleton\.appendChild\(asciiCritter\(\)\)/, "the waiting skeleton shows the creature");
+assert.match(code, /if \(document\.hidden \|\| !onScreen\) return;/, "no drawing while hidden or off screen");
+assert.match(code, /if \(!pre\.isConnected\) \{ clearInterval\(timer\);/, "the timer stops when the creature is removed");
+assert.match(html, /\.msg\.skeleton i:nth-of-type\(1\)/,"skeleton bars are counted by type, so the creature does not shift them");
+assert.ok(!/\.msg\.skeleton i:nth-child/.test(html), "no nth-child on the skeleton bars");
+// 色は既存トークンだけ（紫 --accent と、濃いマスのアンバー --highlight）
+assert.match(html, /\.ascii-critter \{[^}]*color: var\(--accent\)/);
+assert.match(html, /\.ascii-critter \.ascii-glow \{ color: var\(--highlight\); \}/);
+
+// paintCritter: 濃いマス（X と @）だけを span にする。文字は欠けない
+const paintStart = code.indexOf("function paintCritter(");
+const paintSrc = code.slice(paintStart, code.indexOf("// 空状態と、回答待ち", paintStart));
+const fakeDoc = {
+  createElement: (tag) => ({ tag, className: "", textContent: "" }),
+  createTextNode: (text) => ({ text }),
+};
+const fakePre = { children: [], appendChild(n) { this.children.push(n); }, set textContent(v) { this.children = []; } };
+vm.runInNewContext(paintSrc + "\npaintCritter(pre, text);", { document: fakeDoc, pre: fakePre, text: "ot X@8 o" });
+assert.equal(fakePre.children.map((n) => n.text ?? n.textContent).join(""), "ot X@8 o", "no character is lost");
+assert.deepEqual(fakePre.children.filter((n) => n.tag === "span").map((n) => n.textContent), ["X@"], "only the dense cells glow");
+assert.ok(fakePre.children.filter((n) => n.tag === "span").every((n) => n.className === "ascii-glow"));
 console.log("ascii_art tests passed");

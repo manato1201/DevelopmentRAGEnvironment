@@ -81,7 +81,7 @@ export function chatUiHtml(): string {
   .count-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.15rem; height: 1.15rem; padding: 0 .3rem; margin-left: .4rem; border-radius: 999px; background: var(--bad); color: #fff; font-size: .68rem; font-weight: 700; font-variant-numeric: var(--font-num); }
   .msg.skeleton { max-width: 70%; }
   .msg.skeleton i { display: block; height: .7rem; border-radius: 6px; background: var(--panel); margin: .55rem 0; }
-  .msg.skeleton i:nth-child(1) { width: 90%; } .msg.skeleton i:nth-child(2) { width: 75%; } .msg.skeleton i:nth-child(3) { width: 55%; }
+  .msg.skeleton i:nth-of-type(1) { width: 90%; } .msg.skeleton i:nth-of-type(2) { width: 75%; } .msg.skeleton i:nth-of-type(3) { width: 55%; }
   #drawerBackdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 880; display: none; }
   #drawerBackdrop.open { display: block; }
   #sourceDrawer { position: fixed; top: 0; right: 0; height: 100%; width: min(420px, 100vw); background: var(--bg); border-left: 1px solid var(--border); z-index: 890; display: flex; flex-direction: column; transform: translateX(100%); transition: transform .18s ease-out; visibility: hidden; }
@@ -111,8 +111,8 @@ export function chatUiHtml(): string {
   @keyframes push-in-prev { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
   @media (prefers-reduced-motion: no-preference) {
     .msg.skeleton i { animation: pulse-soft 1.4s ease-in-out infinite; }
-    .msg.skeleton i:nth-child(2) { animation-delay: .12s; }
-    .msg.skeleton i:nth-child(3) { animation-delay: .24s; }
+    .msg.skeleton i:nth-of-type(2) { animation-delay: .12s; }
+    .msg.skeleton i:nth-of-type(3) { animation-delay: .24s; }
     #status.wiggle, .toast.error.show { animation: wiggle-soft .42s ease-in-out 1; }
     .toast.error.show { animation-delay: .22s; } /* 出現の動き（.2秒）が終わってから */
     .tabpanel.push-next { animation: push-in-next .18s ease-out; }
@@ -526,7 +526,9 @@ export function chatUiHtml(): string {
   .pending-action pre { max-height: 10rem; overflow: auto; font-size: .76rem; margin: .4rem 0; padding: .4rem; background: var(--bg, transparent); border-radius: 6px; white-space: pre-wrap; word-break: break-all; }
   .pending-action small { display: block; color: var(--muted); font-size: .76rem; }
   .pending-action-buttons { display: flex; gap: .5rem; margin-top: .5rem; }
-  .ascii-critter { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; line-height: 1.1; color: var(--muted); margin: .6rem 0 0; white-space: pre; user-select: none; text-align: center; }
+  .ascii-critter { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; line-height: 1.1; color: var(--accent); margin: .6rem 0 0; white-space: pre; user-select: none; text-align: center; }
+  .ascii-critter .ascii-glow { color: var(--highlight); }
+  .msg.skeleton .ascii-critter { margin: 0 0 .4rem; text-align: left; }
   .shortcut-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
   .shortcut-table td { padding: .35rem .5rem; border-bottom: 1px solid var(--border); }
   .shortcut-table td:first-child { white-space: nowrap; }
@@ -2656,6 +2658,7 @@ export function chatUiHtml(): string {
     const skeleton = document.createElement("div");
     skeleton.className = "msg assistant skeleton";
     skeleton.setAttribute("aria-hidden", "true");
+    skeleton.appendChild(asciiCritter()); // 回答待ちの生き物（動きは待機の間だけ。原則 P8）
     for (let i = 0; i < 3; i++) skeleton.appendChild(document.createElement("i"));
     messagesEl.appendChild(skeleton);
     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -2794,23 +2797,47 @@ ${ASCII_ART_JS}
   const CRITTER_W = 30;
   const CRITTER_H = 9;
   const CRITTER_REVEAL_MS = 1400;
+  // 濃いマス（X と @）だけ、アンバー（--highlight）にする。ほかは紫（--accent）。textContent と文字ノードだけで組み立てる。
+  function paintCritter(pre, text) {
+    pre.textContent = "";
+    const parts = text.split(/([X@]+)/);
+    for (let i = 0; i < parts.length; i++) {
+      if (!parts[i]) continue;
+      if (i % 2 === 1) {
+        const glow = document.createElement("span");
+        glow.className = "ascii-glow";
+        glow.textContent = parts[i];
+        pre.appendChild(glow);
+      } else {
+        pre.appendChild(document.createTextNode(parts[i]));
+      }
+    }
+  }
+  // 空状態と、回答待ち（スケルトンの上）に出す。画面から取り除かれたら止まり、画面の外・非表示のタブでは描かない。
   function asciiCritter() {
     const pre = document.createElement("pre");
     pre.className = "ascii-critter";
     pre.setAttribute("aria-hidden", "true");
     const calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (calm) {
-      pre.textContent = critterFrame(CRITTER_W, CRITTER_H, 0, 1, ART_RAMPS.critter);
+      paintCritter(pre, critterFrame(CRITTER_W, CRITTER_H, 0, 1, ART_RAMPS.critter));
       return pre;
     }
     const started = Date.now();
+    let onScreen = true;
+    let watcher = null;
+    if ("IntersectionObserver" in window) {
+      watcher = new IntersectionObserver((entries) => { onScreen = entries[entries.length - 1].isIntersecting; });
+      watcher.observe(pre);
+    }
     const draw = () => {
       const elapsed = Date.now() - started;
-      pre.textContent = critterFrame(CRITTER_W, CRITTER_H, elapsed / 1000, elapsed / CRITTER_REVEAL_MS, ART_RAMPS.critter);
+      paintCritter(pre, critterFrame(CRITTER_W, CRITTER_H, elapsed / 1000, elapsed / CRITTER_REVEAL_MS, ART_RAMPS.critter));
     };
     draw();
     const timer = setInterval(() => {
-      if (!pre.isConnected) { clearInterval(timer); return; }
+      if (!pre.isConnected) { clearInterval(timer); if (watcher) watcher.disconnect(); return; }
+      if (document.hidden || !onScreen) return;
       draw();
     }, 140);
     return pre;
