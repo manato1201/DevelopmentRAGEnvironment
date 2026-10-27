@@ -197,7 +197,7 @@ async function finishQuery(
   });
 
   const threadId = await touchThread(env, user.userId, body.threadId, query);
-  const memoryId = await saveMemory(env, user.userId, query, answerText, sourcesWithCitation, effective, threadId);
+  const memoryId = await saveMemory(env, user.userId, query, answerText, sourcesWithCitation, effective, threadId, prepared.explain ? `${prepared.explain.mode === "auto" ? "auto" : "fixed"}:${prepared.explain.level}` : null);
 
   return {
     answer: answerText,

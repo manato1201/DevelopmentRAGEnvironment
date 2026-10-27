@@ -760,6 +760,7 @@ export function chatUiHtml(): string {
       <button data-subtab="users" class="admin-only-section">ユーザー・権限</button>
       <button data-subtab="namespaces" class="admin-only-section">namespace管理</button>
       <button data-subtab="usage" class="admin-only-section">利用状況・コスト</button>
+      <button data-subtab="pilot" class="admin-only-section">実証実験</button>
       <button data-subtab="system" class="admin-only-section">システム</button>
     </nav>
 
@@ -1269,6 +1270,50 @@ export function chatUiHtml(): string {
       </div>
     </div>
 
+    <!-- 実証実験の集計: admin専用（2026-10-27）。Houdiniパネルから上がった評価・利用を、1か所で見る -->
+    <div class="admin-subpanel admin-only-section" data-subtab="pilot">
+      <div class="section">
+        <h2>実証実験の集計</h2>
+        <p class="hint">Houdiniパネルから上がった評価と利用を、1か所で集計します。<b>管理者だけ</b>が見られます。管理者アカウント自身の利用（運営のテスト）は、数えません。習熟度（用語）は、人を特定できない形で、参加者が3人以上のときだけ表示します。</p>
+        <div class="field-row">
+          <label>期間</label>
+          <select id="pilotDays">
+            <option value="7">直近7日間</option>
+            <option value="30" selected>直近30日間</option>
+            <option value="90">直近90日間</option>
+            <option value="365">直近1年</option>
+          </select>
+          <button class="btn" id="pilotRefresh">再読み込み</button>
+          <button class="btn" id="pilotExportCsv">参加者ごとのCSV</button>
+        </div>
+        <div class="kpi-grid" id="pilotKpis"></div>
+      </div>
+      <div class="section">
+        <h2>参加者ごと</h2>
+        <p class="hint">期間内に、質問か評価があった人です（管理者・ゲストを除く）。評価は「良い / 悪い」。</p>
+        <div class="table-scroll"><table class="admin-table" id="pilotParticipants"><thead><tr><th>ユーザー</th><th>質問数</th><th>チャット評価</th><th>チュートリアル評価</th><th>最後の質問</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="section">
+        <h2>説明レベル別のチャット評価</h2>
+        <p class="hint">「auto:applied」＝おまかせで applied になった回答、「fixed:basic」＝利用者が basic を選んだ回答、「指定なし」＝説明レベルを使わなかった回答。好評率は、評価が付いた回答だけで計算します。</p>
+        <div class="table-scroll"><table class="admin-table" id="pilotExplain"><thead><tr><th>説明レベル</th><th>回答数</th><th>良い / 悪い</th><th>好評率</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="section">
+        <h2>チュートリアルの評価</h2>
+        <p class="hint">理由タグ・メモ・生成時の自動指標など、詳しい内容は「利用状況・コスト」の「Houdiniチュートリアルの評価」にあります。</p>
+        <h3>段階別</h3>
+        <div class="table-scroll"><table class="admin-table" id="pilotTutorialLevel"><thead><tr><th>段階</th><th>件数</th><th>良い / 悪い</th><th>好評率</th></tr></thead><tbody></tbody></table></div>
+        <h3>Houdiniの版別</h3>
+        <div class="table-scroll"><table class="admin-table" id="pilotTutorialHoudini"><thead><tr><th>版</th><th>件数</th><th>良い / 悪い</th><th>好評率</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="section">
+        <h2>習熟度の分布とよく使われた用語（匿名）</h2>
+        <p class="hint" id="pilotGrowthNote">-</p>
+        <div class="table-scroll"><table class="admin-table" id="pilotGrowthLevels"><thead><tr><th>習熟度（おまかせの段階）</th><th>人数</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table" id="pilotTerms"><thead><tr><th>用語（2人以上が使ったもの）</th><th>使った人数</th><th>のべ回数</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+
     <!-- システム: admin専用 -->
     <div class="admin-subpanel admin-only-section" data-subtab="system">
       <div class="section">
@@ -1773,6 +1818,7 @@ export function chatUiHtml(): string {
       // 「連携」タブを開くたびに接続状況を再確認する（OAuth接続直後の戻り先でもあるため、
       // 2026-09-22追加）。
       if (btn.dataset.subtab === "knowledge") { initKbList(); refreshConnectedSystems(); loadOAuthStatus(); loadSyncTargets(); loadStaging(); loadCrawlJobs(); loadCrawlSchedules(); }
+      if (btn.dataset.subtab === "pilot") loadPilotSummary();
       setTimeout(buildAdminToc, 0);
     });
   });
@@ -1791,6 +1837,7 @@ export function chatUiHtml(): string {
     else if (subtab === "usage") { loadUsageStats(); loadClaudeCostStats(); loadGeminiCostStats(); loadAuditLog(); loadRatingStats(); loadTutorialFeedback(); loadKnowledgeGaps(); }
     else if (subtab === "namespaces") { loadNamespaces(); loadNamespaceUsage(); }
     else if (subtab === "users") loadKeys();
+    else if (subtab === "pilot") loadPilotSummary();
     else if (subtab === "knowledge") { loadKbOverview(); loadKbHistory(); }
   }
   function stopAutoRefresh() {
@@ -3070,6 +3117,57 @@ ${LIST_SORT_JS}
     });
   }
   enableFolding();
+
+  // 実証実験の集計（管理者だけ。サーバー側の /admin/pilot/summary も管理者だけ）
+  let lastPilotParticipants = [];
+  async function loadPilotSummary() {
+    const days = Number($("pilotDays").value) || 30;
+    const fill = (tableId, rows, columns) => {
+      const tbody = $(tableId).querySelector("tbody");
+      tbody.innerHTML = "";
+      if (rows.length === 0) { tbody.innerHTML = "<tr><td colspan=" + columns + ">データがありません</td></tr>"; return; }
+      rows.forEach((cells) => appendRow(tbody, cells));
+    };
+    try {
+      const data = await api("/admin/pilot/summary", { days });
+      const k = data.kpis;
+      const kpis = $("pilotKpis");
+      kpis.innerHTML = "";
+      kpis.appendChild(kpiCard("参加者", k.participants, "期間内に質問か評価があった人"));
+      kpis.appendChild(kpiCard("チャットの質問", k.questions));
+      kpis.appendChild(kpiCard("チャットの好評率", feedbackPct(k.chatGoodRate), "評価 " + k.chatRated + "件"));
+      kpis.appendChild(kpiCard("チュートリアルの好評率", feedbackPct(k.tutorialGoodRate), "評価 " + k.tutorialRated + "件"));
+      lastPilotParticipants = data.participants;
+      fill("pilotParticipants", data.participants.map((p) => [
+        p.displayName || p.userId.slice(0, 8), p.questions, p.chatGood + " / " + p.chatBad, p.tutorialGood + " / " + p.tutorialBad,
+        p.lastQuestionAt ? new Date(p.lastQuestionAt * 1000).toLocaleString() : "-",
+      ]), 5);
+      const bucketRows = (list) => list.map((b) => [b.key, b.total, b.good + " / " + b.bad, feedbackPct(b.goodRate)]);
+      fill("pilotExplain", bucketRows(data.byExplain), 4);
+      fill("pilotTutorialLevel", bucketRows(data.tutorialByLevel), 4);
+      fill("pilotTutorialHoudini", bucketRows(data.tutorialByHoudini), 4);
+      const g = data.growth;
+      if (g.hidden) {
+        $("pilotGrowthNote").textContent = g.reason;
+        fill("pilotGrowthLevels", [], 2);
+        fill("pilotTerms", [], 3);
+      } else {
+        $("pilotGrowthNote").textContent = "習熟度を記録している参加者 " + g.users + "人。1人あたりの用語数の平均 " + g.avgTerms + "個。";
+        fill("pilotGrowthLevels", [["basic", g.levels.basic], ["applied", g.levels.applied], ["advanced", g.levels.advanced]], 2);
+        fill("pilotTerms", g.topTerms.map((t) => [t.term, t.users, t.total]), 3);
+      }
+    } catch (e) { showToast("実証実験の集計を読み込めませんでした: " + e.message, "error"); }
+  }
+  $("pilotRefresh").addEventListener("click", loadPilotSummary);
+  $("pilotDays").addEventListener("change", loadPilotSummary);
+  $("pilotExportCsv").addEventListener("click", () => {
+    if (lastPilotParticipants.length === 0) { showToast("エクスポートする参加者がいません", "error"); return; }
+    downloadCsv(
+      "pilot-participants-" + new Date().toISOString().slice(0, 10) + ".csv",
+      ["ユーザー", "質問数", "チャット良い", "チャット悪い", "チュートリアル良い", "チュートリアル悪い", "最後の質問"],
+      lastPilotParticipants.map((p) => [p.displayName || p.userId.slice(0, 8), p.questions, p.chatGood, p.chatBad, p.tutorialGood, p.tutorialBad, p.lastQuestionAt ? new Date(p.lastQuestionAt * 1000).toLocaleString() : ""]),
+    );
+  });
 
   // 回答へのリンク（#answer=<id>）を開く。自分の回答だけ（他人のIDは404）。
   let answerHashHandled = false;

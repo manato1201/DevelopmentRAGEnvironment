@@ -17,6 +17,7 @@ import { handleListCrawlSchedules, handleSaveCrawlSchedule, handleDeleteCrawlSch
 import { handleSlackCommand, handleSlackLinkCode, handleSlackStatus, handleSlackUnlink } from "./slackBot";
 import { handleSlackEvents } from "./slackEvents";
 import { handleMyGrowth, handleMyGrowthReset } from "./growth";
+import { handlePilotSummary } from "./pilotStats";
 import { handlePresetList, handlePresetSave, handlePresetDelete } from "./presets";
 import { handleThreadList, handleThreadGet, handleThreadRename, handleThreadDelete } from "./threads";
 import { handleKnowledgeGaps } from "./insights";
@@ -461,6 +462,8 @@ export default {
           return await handleMyConnections(req, env, user);
         case "/me/namespaces":
           return await handleMyNamespaces(req, env, user);
+        case "/admin/pilot/summary":
+          return await handlePilotSummary(req, env, user);
         case "/me/growth":
           return await handleMyGrowth(req, env, user);
         case "/me/growth/reset":
