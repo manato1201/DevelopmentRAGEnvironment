@@ -62,6 +62,7 @@ from rag_client import RAGClient, migrate_config as _migrate_config
 from panel_info import EXPLAIN_CHOICES as _EXPLAIN_CHOICES, format_explain as _format_explain, format_growth as _format_growth, format_user as _format_user, friendly_error as _friendly_error, is_setup_user as _is_setup_user, summarize_sources as _summarize_sources
 from panel_widgets import CollapsibleBox as _CollapsibleBox, ui_state_get as _ui_state_get, ui_state_set as _ui_state_set
 import panel_debug as _debug
+from pilot_panel import PilotTaskPanel as _PilotTaskPanel
 from rag_client import post_json as _post_json
 from PySide6.QtCore import Qt, QSize, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -476,6 +477,10 @@ class RAGChatbotPanel(QWidget):
         tabs.addTab(self._tutorial_tab_wrapper,                 "Tutorial")
         tabs.addTab(self._wrap_tab(self._build_history_tab()),  "History")
         tabs.addTab(self._video_tab_wrapper,                    "動画")
+        # 「課題」タブ（実証実験の参加者向け）。接続タブの「実証実験に参加する」を入れたときだけ表示する（既定は非表示）。
+        self._pilot_panel = _PilotTaskPanel(lambda: self._cfg)
+        self._pilot_tab_idx = tabs.addTab(self._wrap_tab(self._pilot_panel, scrollable=True), "課題")
+        tabs.setTabVisible(self._pilot_tab_idx, bool(_ui_state_get("pilot_enabled", False)))
         # 一般ユーザーが使う画面は「接続」まで。「設定」と「デバッグ」は、設定者（admin / editor）にだけ出す
         # （_apply_role_visibility）。サーバー側の権限が正で、これは画面の出し分け。
         tabs.addTab(self._wrap_tab(self._build_connection_tab(), scrollable=True), "接続")
@@ -902,6 +907,12 @@ class RAGChatbotPanel(QWidget):
 
         layout.addWidget(self._group_box("動画・ギャラリー", "conn.video", False, fill_video))
 
+        # 実証実験の参加者だけが入れる。入れると「課題」タブが出る（既定はオフ。一般ユーザーの画面は増えない）。
+        self._pilot_checkbox = QCheckBox("実証実験に参加する（「課題」タブを表示します）")
+        self._pilot_checkbox.setChecked(bool(_ui_state_get("pilot_enabled", False)))
+        self._pilot_checkbox.toggled.connect(self._on_pilot_toggled)
+        layout.addWidget(self._pilot_checkbox)
+
         save_btn = QPushButton("保存して接続を確認")
         save_btn.clicked.connect(self._on_save_settings)
         layout.addWidget(save_btn)
@@ -1078,6 +1089,15 @@ class RAGChatbotPanel(QWidget):
     def _on_tab_changed(self, index: int) -> None:
         if index == getattr(self, "_debug_tab_idx", -1):
             self._refresh_debug()
+        elif index == getattr(self, "_pilot_tab_idx", -1):
+            self._pilot_panel.refresh()
+
+    def _on_pilot_toggled(self, enabled: bool) -> None:
+        """「実証実験に参加する」: 課題タブの表示を切り替えて、覚える。"""
+        _ui_state_set("pilot_enabled", bool(enabled))
+        self._tabs.setTabVisible(self._pilot_tab_idx, bool(enabled))
+        if enabled:
+            self._tabs.setCurrentIndex(self._pilot_tab_idx)  # 切り替わると _on_tab_changed が、課題を読み込む
 
     def _apply_role_visibility(self) -> None:
         """設定者（admin / editor、または Local モード）にだけ、設定・デバッグのタブとモード切り替えを出す。"""
