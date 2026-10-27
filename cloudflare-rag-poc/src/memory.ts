@@ -21,11 +21,12 @@ export async function saveMemory(
   sources: SourceEntry[],
   namespaces: string[],
   threadId: string | null = null,
+  explainLevel: string | null = null, // "auto:applied" / "fixed:basic" / null（説明レベルの指定なし）。管理画面の集計用
 ): Promise<number> {
   const res = await env.DB.prepare(
-    "INSERT INTO memory (user_id, query, answer, sources_json, namespaces, rating, created_at, thread_id) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)"
+    "INSERT INTO memory (user_id, query, answer, sources_json, namespaces, rating, created_at, thread_id, explain_level) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)"
   )
-    .bind(userId, query, answer, JSON.stringify(sources), namespaces.join(","), Math.floor(Date.now() / 1000), threadId)
+    .bind(userId, query, answer, JSON.stringify(sources), namespaces.join(","), Math.floor(Date.now() / 1000), threadId, explainLevel)
     .run();
   return res.meta.last_row_id as number;
 }

@@ -69,3 +69,11 @@ assert.match(html, /id="explain"/);
 assert.match(code, /explain: explainEl\.value \|\| undefined/);
 assert.match(code, /ragPocExplain/);
 assert.match(code, /data\.explain\.introduced/);
+
+// 段階④（2026-10-27）: 実証実験の集計（管理者だけ）
+assert.match(html, /<button data-subtab="pilot" class="admin-only-section">実証実験<\/button>/);
+assert.match(html, /<div class="admin-subpanel admin-only-section" data-subtab="pilot">/, "the pilot panel is hidden from editors");
+assert.match(code, /async function loadPilotSummary\(/);
+assert.match(code, /api\("\/admin\/pilot\/summary"/);
+assert.match(code, /btn\.dataset\.subtab === "pilot"/);
+assert.match(code, /pilot-participants-/);
