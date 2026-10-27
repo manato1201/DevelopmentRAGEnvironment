@@ -89,6 +89,14 @@ class FriendlyErrorTest(unittest.TestCase):
         self.assertIn("もう一度", shown)
         self.assertTrue(pi.friendly_error(""))
 
+    def test_status_code_needs_no_adjacent_digits(self):
+        # "15000ms" や "ID 14012" の数字の一部を、HTTPステータスと取り違えない
+        for raw in ("処理に 15000ms かかりました", "id=14012 で失敗", "line 4290"):
+            shown = pi.friendly_error(raw)
+            self.assertIn("うまくいきませんでした", shown, raw)
+        self.assertIn("権限", pi.friendly_error("HTTP 403 Forbidden"))
+        self.assertIn("サーバーで問題", pi.friendly_error("status 503"))
+
 
 class SetupUserTest(unittest.TestCase):
     def test_roles(self):
