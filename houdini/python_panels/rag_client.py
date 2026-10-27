@@ -76,6 +76,7 @@ class RAGClient:
         history: list[dict],
         image_b64: str | None = None,
         context: str | None = None,
+        explain: str | None = None,
     ) -> dict:
         """
         RAG にクエリを送る。モードに応じてエンドポイントとリクエスト形式を切り替える。
@@ -106,6 +107,8 @@ class RAGClient:
                 body["context"] = context
             if image_b64:
                 body["image"] = {"mimeType": "image/png", "data": image_b64}
+            if explain in ("auto", "basic", "applied", "advanced"):
+                body["explain"] = explain  # 説明のレベル。auto（おまかせ）は、質問に使った専門用語の蓄積から決まる（成長）
             return post_json(f"{base}/query", body, api_key=self.cfg.get("cf_api_key", ""))
         else:
             port = self.cfg["local_port"]
@@ -140,6 +143,20 @@ class RAGClient:
         if self.cfg["mode"] != "cloudflare" or not base:
             return {}
         return post_json(f"{base}/me/namespaces", {}, timeout=10, api_key=self.cfg.get("cf_api_key", ""))
+
+    def growth(self) -> dict:
+        """自分の習熟度（Cloudflare モードのみ）。/me/growth の応答。失敗は例外。"""
+        base = _cf_base(self.cfg)
+        if self.cfg["mode"] != "cloudflare" or not base:
+            return {}
+        return post_json(f"{base}/me/growth", {}, timeout=10, api_key=self.cfg.get("cf_api_key", ""))
+
+    def growth_reset(self) -> bool:
+        """自分の用語の記録を消す（Cloudflare モードのみ）。"""
+        base = _cf_base(self.cfg)
+        if self.cfg["mode"] != "cloudflare" or not base:
+            return False
+        return post_json(f"{base}/me/growth/reset", {}, timeout=10, api_key=self.cfg.get("cf_api_key", "")).get("status") == "ok"
 
     def rate(self, memory_id, rating: str) -> bool:
         """

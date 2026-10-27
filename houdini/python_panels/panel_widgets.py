@@ -32,6 +32,17 @@ def _save_state(state: dict) -> None:
         pass  # 保存できなくても、開閉はできる
 
 
+def ui_state_get(key: str, default=None):
+    """画面の状態（最後に確認した役割など）を、~/.houdini/rag_chatbot_ui.json から読む。"""
+    return _load_state().get(key, default)
+
+
+def ui_state_set(key: str, value) -> None:
+    state = _load_state()
+    state[key] = value
+    _save_state(state)
+
+
 class CollapsibleBox(QWidget):
     """見出し（▸/▾ ＋ タイトル）と、折りたためる中身。
 

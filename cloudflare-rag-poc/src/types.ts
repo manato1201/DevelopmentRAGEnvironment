@@ -111,6 +111,9 @@ export interface QueryRequest {
   useMcp?: boolean;
   // 会話のスレッド（クライアントが決めるID。2026-10-16追加、src/threads.ts）。同じIDの質問と回答が1つの会話にまとまる。
   threadId?: string;
+  // 説明のレベル（2026-10-27）。"basic" | "applied" | "advanced"（固定）/ "auto"（おまかせ。質問の蓄積から決める＝成長）。
+  // 付けない質問は、これまでどおり（説明のレベルの指示も、用語の記録もしない）。src/growth.ts
+  explain?: string;
 }
 
 // POST /query レスポンス（既存契約と同一形式。memoryIdはPOC独自追加、チャットUIの評価ボタン用）
@@ -128,6 +131,8 @@ export interface QueryResponse {
   toolCalls?: Array<{ providerId: string; providerLabel: string; tool: string; ok: boolean; error?: string }>;
   // 利用者の確認を待っている書き込み（作成・更新・削除・送信など。まだ実行されていない）。画面が「実行」「やめる」を出す
   pendingActions?: Array<{ approvalId: string; providerId: string; providerLabel: string; tool: string; arguments: Record<string, unknown>; expiresAt: number }>;
+  // 説明のレベル（explain を付けた質問だけ）。level = 使ったレベル、mode = auto（おまかせ）か fixed、introduced = 今回の回答で紹介した用語
+  explain?: { level: "basic" | "applied" | "advanced"; mode: "auto" | "fixed"; introduced: string[]; score: number };
 }
 
 // "editor"（ナレッジ登録権限者）は2026-09-10追加。ナレッジ登録・KB同期のみ許可され、

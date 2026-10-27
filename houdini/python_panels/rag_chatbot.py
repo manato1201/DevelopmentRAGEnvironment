@@ -59,8 +59,9 @@ except ImportError:
     _TUTORIAL_AVAILABLE = False
 
 from rag_client import RAGClient, migrate_config as _migrate_config
-from panel_info import format_user as _format_user, summarize_sources as _summarize_sources
-from panel_widgets import CollapsibleBox as _CollapsibleBox
+from panel_info import EXPLAIN_CHOICES as _EXPLAIN_CHOICES, format_explain as _format_explain, format_growth as _format_growth, format_user as _format_user, friendly_error as _friendly_error, is_setup_user as _is_setup_user, summarize_sources as _summarize_sources
+from panel_widgets import CollapsibleBox as _CollapsibleBox, ui_state_get as _ui_state_get, ui_state_set as _ui_state_set
+import panel_debug as _debug
 from rag_client import post_json as _post_json
 from PySide6.QtCore import Qt, QSize, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -68,7 +69,9 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QApplication,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -93,6 +96,7 @@ _DEFAULT_CONFIG = {
                                     # "claude-sonnet-5"（高品質・高コスト）|
                                     # "claude-haiku-4-5"（低コスト。token消費対策）
     "score_user_id":    "",        # 理解度スコア記録用ユーザーID
+    "explain_level":    "auto",    # チャットの説明レベル: auto（おまかせ＝成長）| basic | applied | advanced
     "video_factory_exe_path": "",  # LearningQt video_factory_cloudrag_poc.exe のフルパス
                                     # （チュートリアル保存時に自動で動画生成を起動する）
     # チュートリアル生成が検索するナレッジ（2026-10-04追加）。""=起動中のHoudiniのバージョンに
@@ -169,17 +173,19 @@ class QueryWorker(QThread):
     error    = Signal(str)   # 失敗時: エラーメッセージ
 
     def __init__(
-        self, client: RAGClient, query: str, history: list[dict], image_b64: str | None = None
+        self, client: RAGClient, query: str, history: list[dict], image_b64: str | None = None,
+        explain: str | None = None,
     ) -> None:
         super().__init__()
         self._client    = client
         self._query     = query
         self._history   = history
         self._image_b64 = image_b64
+        self._explain   = explain
 
     def run(self) -> None:
         try:
-            result = self._client.query(self._query, self._history, image_b64=self._image_b64)
+            result = self._client.query(self._query, self._history, image_b64=self._image_b64, explain=self._explain)
             self.finished.emit(result)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -208,6 +214,7 @@ class _ConnectionCheckWorker(QThread):
 
     result = Signal(bool)
     user_info = Signal(dict)  # どのユーザーで入っているか（接続OKのときだけ）。失敗は {"error": 理由}
+    growth_info = Signal(dict)  # 自分の習熟度（説明レベルのおまかせ用）。取れなければ {}
 
     def __init__(self, client: RAGClient) -> None:
         super().__init__()
@@ -221,6 +228,10 @@ class _ConnectionCheckWorker(QThread):
                 self.user_info.emit(self._client.whoami())
             except Exception as exc:  # 401（キーが無効）など。表示だけの機能なので、落とさない
                 self.user_info.emit({"error": str(exc)[:80]})
+            try:
+                self.growth_info.emit(self._client.growth())
+            except Exception:  # 古いWorker（/me/growth なし）でも、他の機能は動かす
+                self.growth_info.emit({})
         elif ok:
             self.user_info.emit({})
 
@@ -240,7 +251,7 @@ class BridgeStartWorker(QThread):
     def run(self) -> None:
         bridge_dir = self._cfg.get("local_bridge_dir", "")
         if not bridge_dir:
-            self.failed.emit("local_bridge_dir が設定されていません（設定タブで指定してください）")
+            self.failed.emit("local_bridge_dir が設定されていません（設定タブの Local RAG で指定してください）")
             return
 
         port = self._cfg["local_port"]
@@ -410,6 +421,10 @@ class RAGChatbotPanel(QWidget):
         self._bridge_worker: BridgeStartWorker | None = None
         self._rate_workers: list[RateWorker]    = []  # GC 防止のため参照を保持
         self._conn_worker: _ConnectionCheckWorker | None = None
+        self._role: str = str(_ui_state_get("last_role", "") or "")  # 最後に確認できた役割（画面の出し分け用）
+        self._last_health: tuple[float, bool] | None = None
+        self._last_user_info: dict | None = None
+        self._last_growth: dict | None = None
 
         self._build_ui()
         self._ensure_bridge()  # Local モードなら起動確認
@@ -461,7 +476,12 @@ class RAGChatbotPanel(QWidget):
         tabs.addTab(self._tutorial_tab_wrapper,                 "Tutorial")
         tabs.addTab(self._wrap_tab(self._build_history_tab()),  "History")
         tabs.addTab(self._video_tab_wrapper,                    "動画")
-        tabs.addTab(self._wrap_tab(self._build_settings_tab(), scrollable=True), "Settings")
+        # 一般ユーザーが使う画面は「接続」まで。「設定」と「デバッグ」は、設定者（admin / editor）にだけ出す
+        # （_apply_role_visibility）。サーバー側の権限が正で、これは画面の出し分け。
+        tabs.addTab(self._wrap_tab(self._build_connection_tab(), scrollable=True), "接続")
+        self._settings_tab_idx = tabs.addTab(self._wrap_tab(self._build_settings_tab(), scrollable=True), "設定")
+        self._debug_tab_idx = tabs.addTab(self._wrap_tab(self._build_debug_tab(), scrollable=True), "デバッグ")
+        tabs.currentChanged.connect(self._on_tab_changed)
         self._tabs = tabs  # /tutorial コマンドでのタブ切り替えに使う
 
         # 接続状態ランプ。以前はQTabWidget.setCornerWidget()でタブバー右端に
@@ -538,7 +558,7 @@ class RAGChatbotPanel(QWidget):
 <ol>
 <li><b>接続を確認する</b> — タブバー右端に「Local 接続OK」または「Cloudflare 接続OK」の
 緑ランプが出ているか確認してください。赤色（接続なし）の場合は
-<code>Settings</code> タブで設定を確認し、「接続確認」ボタンを押してください。</li>
+<code>接続</code> タブで URL と APIキーを確認し、「保存して接続を確認」を押してください。</li>
 <li><b>まず Chat タブで質問してみる</b> — 例:「mountainノードの使い方は？」と入力して
 <code>Ctrl+Enter</code>（または「送信」ボタン）で聞いてみてください。</li>
 <li><b>慣れたら Tutorial タブでチュートリアル生成を試す</b> — トピックを1行で入力
@@ -561,14 +581,15 @@ class RAGChatbotPanel(QWidget):
 説明が出ます）。</li>
 <li><b>動画</b> — 生成した動画の一覧。「ダッシュボードへアップロード」で、
 ダッシュボードの動画ページ（ギャラリー）に載せられます。</li>
-<li><b>Settings</b> — Cloudflare（Worker の URL / APIキー）と Local RAG
-（ブリッジのポート・プロジェクトパス）、動画ギャラリーの接続設定。</li>
+<li><b>接続</b> — あなたの情報（ユーザー名・役割）と、Worker の URL / APIキー、チャットで検索するナレッジ、動画ギャラリーの接続。</li>
+<li><b>設定・デバッグ</b>（設定者だけに表示） — チュートリアル生成のモデル・検索するナレッジ、Local RAG の設定と、
+接続の詳細・記録（ログ）。</li>
 </ul>
 
 <h2>よくある詰まりポイント</h2>
 <ul>
 <li><b>ランプが赤い（接続なし）</b> — Local モードならブリッジ（<code>rag_local_bridge.py</code>）
-が起動しているか確認してください。<code>Settings</code> タブの「ブリッジ再起動」で
+が起動しているか確認してください。<code>設定</code> タブの「Local RAG」にある「ブリッジ再起動」で
 自動起動を試みます。Cloudflare モードなら Worker の URL / APIキー の設定を見直してください。</li>
 <li><b>チュートリアル生成が途中で打ち切られる</b> — 抽象的すぎるトピック
 （例: 具体的なノードで表現しにくい題材）だと、Houdiniのノードタイプを
@@ -596,12 +617,17 @@ class RAGChatbotPanel(QWidget):
 
         # モード切り替え行
         mode_row = QHBoxLayout()
-        mode_row.addWidget(QLabel("モード:"))
+        # モード（local / cloudflare）の切り替えは設定者だけ（一般ユーザーは Cloudflare に固定）。
+        self._mode_box = QWidget()
+        mode_box_layout = QHBoxLayout(self._mode_box)
+        mode_box_layout.setContentsMargins(0, 0, 0, 0)
+        mode_box_layout.addWidget(QLabel("モード:"))
         self._mode_combo = QComboBox()
         self._mode_combo.addItems(["local", "cloudflare"])
         self._mode_combo.setCurrentText(self._cfg["mode"])
         self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
-        mode_row.addWidget(self._mode_combo)
+        mode_box_layout.addWidget(self._mode_combo)
+        mode_row.addWidget(self._mode_box)
 
         # 画面添付チェックボックス（VLM入力）。Cloudflare のみ対応。次の送信1回だけ有効な
         # ワンショット仕様にしている（毎回同じ画面を送り続けてしまう事故を防ぐため）。
@@ -612,6 +638,22 @@ class RAGChatbotPanel(QWidget):
         )
         self._attach_viewport_checkbox.setEnabled(self._cfg["mode"] == "cloudflare")
         mode_row.addWidget(self._attach_viewport_checkbox)
+
+        # 説明レベル（Cloudflare のみ）。おまかせ＝これまでの質問（使った専門用語）から、だんだん高度になる。
+        mode_row.addWidget(QLabel("説明:"))
+        self._explain_combo = QComboBox()
+        for value, label in _EXPLAIN_CHOICES:
+            self._explain_combo.addItem(label, value)
+        saved_explain = str(self._cfg.get("explain_level", "auto"))
+        idx = self._explain_combo.findData(saved_explain)
+        self._explain_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._explain_combo.setToolTip(
+            "回答の説明の深さ。おまかせ＝質問に使った専門用語の蓄積から、だんだん高度になります。\n"
+            "「接続」タブで、いまの習熟度を確認できます（Cloudflareモードのみ）。"
+        )
+        self._explain_combo.setEnabled(self._cfg["mode"] == "cloudflare")
+        self._explain_combo.currentIndexChanged.connect(self._on_explain_changed)
+        mode_row.addWidget(self._explain_combo)
         mode_row.addStretch()
         layout.addLayout(mode_row)
 
@@ -795,21 +837,32 @@ class RAGChatbotPanel(QWidget):
             layout.addWidget(content)
         return wrapper
 
-    def _build_settings_tab(self) -> QWidget:
+    def _build_connection_tab(self) -> QWidget:
         """
-        Settings タブ:
-          Cloudflare: Worker URL / API キー（パスワード非表示）/ 検索するナレッジ
-          Local RAG : Bridge Port / Bridge Directory
-          動画ギャラリー: URL / アップロードトークン
-          操作ボタン: 設定保存 / 接続確認 / ブリッジ再起動
+        接続タブ（全員）: あなたの情報 / Worker URL / APIキー / 検索するナレッジ / 動画・ギャラリー。
+        一般ユーザーが触る設定は、ここまで（チュートリアルのモデル・ローカルRAGは「設定」タブ＝設定者だけ）。
         """
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setSpacing(8)
 
-        # Cloudflare 設定（チャット・チュートリアル生成・グラフ共通）
-        layout.addWidget(QLabel("Cloudflare RAG"))
+        layout.addWidget(QLabel("あなたの情報"))
+        self._conn_user_info = QLabel("")
+        self._conn_user_info.setWordWrap(True)
+        self._conn_user_info.setStyleSheet("color:#cbd5e1;background:#1e293b;border-radius:6px;padding:6px 10px;")
+        layout.addWidget(self._conn_user_info)
 
+        layout.addWidget(QLabel("習熟度（チャットの説明レベル「おまかせ」）"))
+        self._conn_growth = QLabel("")
+        self._conn_growth.setWordWrap(True)
+        self._conn_growth.setStyleSheet("color:#cbd5e1;background:#1e293b;border-radius:6px;padding:6px 10px;")
+        layout.addWidget(self._conn_growth)
+        reset_growth_btn = QPushButton("習熟度の記録を消す")
+        reset_growth_btn.setToolTip("質問に使った専門用語の記録（質問の文章は保存していません）を、すべて消します。説明は basic から始まります。")
+        reset_growth_btn.clicked.connect(self._on_reset_growth)
+        layout.addWidget(reset_growth_btn)
+
+        layout.addWidget(QLabel("Cloudflare RAG への接続"))
         layout.addWidget(QLabel("Worker URL:"))
         self._cf_url_edit = QLineEdit(self._cfg.get("cf_url", ""))
         self._cf_url_edit.setPlaceholderText("https://rag-poc.xxxx.workers.dev")
@@ -817,7 +870,7 @@ class RAGChatbotPanel(QWidget):
 
         layout.addWidget(QLabel("APIキー:"))
         self._cf_api_key_edit = QLineEdit(self._cfg.get("cf_api_key", ""))
-        self._cf_api_key_edit.setPlaceholderText("管理タブで発行したAPIキー")
+        self._cf_api_key_edit.setPlaceholderText("管理者から受け取ったAPIキー")
         self._cf_api_key_edit.setEchoMode(QLineEdit.Password)  # 入力文字を ● で隠す
         layout.addWidget(self._cf_api_key_edit)
 
@@ -826,120 +879,216 @@ class RAGChatbotPanel(QWidget):
         self._cf_ns_edit.setPlaceholderText("例: houdini22, shared:houdini22")
         layout.addWidget(self._cf_ns_edit)
 
-        # Local RAG 設定
-        layout.addWidget(QLabel("Local RAG"))
+        # 動画・ギャラリー: テスター（一般ユーザー）が、運営から受け取った URL とトークンを自分で入れるので、接続タブに置く。
+        def fill_video(box: QVBoxLayout) -> None:
+            box.addWidget(QLabel("Video Factory exe パス:"))
+            self._video_factory_exe_edit = QLineEdit(self._cfg.get("video_factory_exe_path", ""))
+            self._video_factory_exe_edit.setPlaceholderText(
+                "LearningQt\\build\\engine\\video_factory_cloudrag_poc.exe（未設定なら自動起動しない）"
+            )
+            box.addWidget(self._video_factory_exe_edit)
+            box.addWidget(QLabel("ギャラリーURL（ダッシュボードの動画ページ）:"))
+            self._gallery_url_edit = QLineEdit(self._cfg.get("gallery_url", ""))
+            self._gallery_url_edit.setPlaceholderText("https://ragreel-gallery.xxxx.workers.dev")
+            box.addWidget(self._gallery_url_edit)
+            box.addWidget(QLabel("アップロードトークン:"))
+            self._gallery_token_edit = QLineEdit(self._cfg.get("gallery_token", ""))
+            self._gallery_token_edit.setPlaceholderText("ギャラリー管理者から受け取ったトークン")
+            self._gallery_token_edit.setEchoMode(QLineEdit.Password)
+            box.addWidget(self._gallery_token_edit)
+            self._gallery_auto_checkbox = QCheckBox("動画の生成が終わったら、自動でギャラリーへアップロードする")
+            self._gallery_auto_checkbox.setChecked(bool(self._cfg.get("gallery_auto_upload", True)))
+            box.addWidget(self._gallery_auto_checkbox)
 
-        layout.addWidget(QLabel("Bridge Port:"))
-        self._port_edit = QLineEdit(str(self._cfg.get("local_port", 8766)))
-        layout.addWidget(self._port_edit)
+        layout.addWidget(self._group_box("動画・ギャラリー", "conn.video", False, fill_video))
 
-        layout.addWidget(QLabel("Bridge Directory:"))
-        self._bridge_dir_edit = QLineEdit(self._cfg.get("local_bridge_dir", ""))
-        self._bridge_dir_edit.setPlaceholderText("DevelopmentRAGEnvironment のパス")
-        layout.addWidget(self._bridge_dir_edit)
+        save_btn = QPushButton("保存して接続を確認")
+        save_btn.clicked.connect(self._on_save_settings)
+        layout.addWidget(save_btn)
+        layout.addStretch()
+        return w
 
-        # LLM バックエンド
-        layout.addWidget(QLabel("LLM バックエンド:"))
-        self._backend_combo = QComboBox()
-        self._backend_combo.addItems(["claude", "gemini"])
-        self._backend_combo.setCurrentText(self._cfg.get("llm_backend", "claude"))
-        layout.addWidget(self._backend_combo)
+    def _group_box(self, title: str, state_key: str, collapsed: bool, fill) -> _CollapsibleBox:
+        """設定のグループ（折りたたみ）。fill(layout) で中身を詰める。開閉の状態は覚える。"""
+        content = QWidget()
+        inner = QVBoxLayout(content)
+        inner.setContentsMargins(12, 0, 0, 6)
+        inner.setSpacing(6)
+        fill(inner)
+        return _CollapsibleBox(title, content, collapsed=collapsed, state_key=state_key)
 
-        # チュートリアル生成モデル（token消費対策）: claude-sonnet-5（既定・高品質）と
-        # claude-haiku-4-5（低コスト）を切り替え可能にする。tutorial_agent.py の
-        # AVAILABLE_MODELS が価格テーブルの正なので、それをインポートして選択肢にする
-        # （このファイル側で選択肢を重複定義しない）。tutorial_agent.py が見つからない
-        # 環境（テスト等）ではフォールバックの固定リストを使う。
-        layout.addWidget(QLabel("チュートリアル生成モデル（コスト影響あり）:"))
-        self._tutorial_model_combo = QComboBox()
-        try:
-            from tutorial_agent import AVAILABLE_MODELS
-        except ImportError:
-            AVAILABLE_MODELS = ("claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-4-5")
-        self._tutorial_model_combo.addItems(list(AVAILABLE_MODELS))
-        self._tutorial_model_combo.setCurrentText(
-            self._cfg.get("tutorial_model", "claude-sonnet-5")
-        )
-        layout.addWidget(self._tutorial_model_combo)
-        hint = QLabel(
-            "claude-sonnet-5: 既定（$2/$10 per 1Mトークン） / "
-            "claude-sonnet-5-5: 同価格の後継 / "
-            "claude-opus-5-5: 高品質・約2倍のコスト（$4/$20） / "
-            "claude-haiku-4-5: 低コスト（$1/$5）だが品質は下がる場合があります"
-        )
-        hint.setStyleSheet("color:#888;")
-        layout.addWidget(hint)
+    def _build_settings_tab(self) -> QWidget:
+        """
+        設定タブ（設定者だけ）: チュートリアル生成（モデル・検索するナレッジ）/ Local RAG。グループごとに折りたためる。
+        URL・APIキー・検索するナレッジ・動画・ギャラリーは「接続」タブにある（一般ユーザーが自分で入れるもの）。
+        """
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setSpacing(8)
 
-        # 検索対象のナレッジ（Houdiniのバージョン別）。上の「チャットで検索するナレッジ」欄とは別設定。
-        # チュートリアル生成のClaudeは常にCloudflare経由、RAG検索はチャットのモード（local/cloudflare）に従う。
-        layout.addWidget(QLabel("チュートリアル生成: 検索するナレッジ（空欄=起動中のHoudiniに自動で合わせる）:"))
-        self._tutorial_rag_ns_combo = QComboBox()
-        self._tutorial_rag_ns_combo.setEditable(True)
-        self._tutorial_rag_ns_combo.addItems(["", "houdini22", "houdini21"])
-        self._tutorial_rag_ns_combo.setCurrentText(self._cfg.get("tutorial_rag_namespace", ""))
-        self._tutorial_rag_ns_combo.setToolTip(
-            "空欄: Houdini 22で起動していれば houdini22、21なら houdini21 を検索します。\n"
-            "上の「チャットで検索するナレッジ」欄はチャットタブ用で、この設定には影響しません。"
-        )
-        layout.addWidget(self._tutorial_rag_ns_combo)
+        def fill_local(box: QVBoxLayout) -> None:
+            box.addWidget(QLabel("Bridge Port:"))
+            self._port_edit = QLineEdit(str(self._cfg.get("local_port", 8766)))
+            box.addWidget(self._port_edit)
+            box.addWidget(QLabel("Bridge Directory:"))
+            self._bridge_dir_edit = QLineEdit(self._cfg.get("local_bridge_dir", ""))
+            self._bridge_dir_edit.setPlaceholderText("DevelopmentRAGEnvironment のパス")
+            box.addWidget(self._bridge_dir_edit)
+            box.addWidget(QLabel("LLM バックエンド:"))
+            self._backend_combo = QComboBox()
+            self._backend_combo.addItems(["claude", "gemini"])
+            self._backend_combo.setCurrentText(self._cfg.get("llm_backend", "claude"))
+            box.addWidget(self._backend_combo)
+            restart_btn = QPushButton("ブリッジ再起動")
+            restart_btn.clicked.connect(self._on_restart_bridge)
+            box.addWidget(restart_btn)
 
-        # スコアユーザーID
-        layout.addWidget(QLabel("スコアユーザーID:"))
-        self._score_uid_edit = QLineEdit(self._cfg.get("score_user_id", ""))
-        self._score_uid_edit.setPlaceholderText("例: my_user")
-        layout.addWidget(self._score_uid_edit)
+        def fill_tutorial(box: QVBoxLayout) -> None:
+            # チュートリアル生成モデル（token消費対策）。tutorial_agent.py の AVAILABLE_MODELS が価格テーブルの正なので、
+            # それをインポートして選択肢にする（ここで重複定義しない）。見つからない環境（テスト等）は固定リスト。
+            box.addWidget(QLabel("チュートリアル生成モデル（コスト影響あり）:"))
+            self._tutorial_model_combo = QComboBox()
+            try:
+                from tutorial_agent import AVAILABLE_MODELS
+            except ImportError:
+                AVAILABLE_MODELS = ("claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-4-5")
+            self._tutorial_model_combo.addItems(list(AVAILABLE_MODELS))
+            self._tutorial_model_combo.setCurrentText(self._cfg.get("tutorial_model", "claude-sonnet-5"))
+            box.addWidget(self._tutorial_model_combo)
+            hint = QLabel(
+                "claude-sonnet-5: 既定（$2/$10 per 1Mトークン） / "
+                "claude-sonnet-5-5: 同価格の後継 / "
+                "claude-opus-5-5: 高品質・約2倍のコスト（$4/$20） / "
+                "claude-haiku-4-5: 低コスト（$1/$5）だが品質は下がる場合があります"
+            )
+            hint.setStyleSheet("color:#888;")
+            box.addWidget(hint)
 
-        # 動画生成（LearningQt video factory）
-        layout.addWidget(QLabel("Video Factory exe パス:"))
-        self._video_factory_exe_edit = QLineEdit(self._cfg.get("video_factory_exe_path", ""))
-        self._video_factory_exe_edit.setPlaceholderText(
-            "LearningQt\\build\\engine\\video_factory_cloudrag_poc.exe（未設定なら自動起動しない）"
-        )
-        layout.addWidget(self._video_factory_exe_edit)
+            # 検索対象のナレッジ（Houdiniのバージョン別）。「接続」タブの「チャットで検索するナレッジ」とは別設定。
+            box.addWidget(QLabel("チュートリアル生成: 検索するナレッジ（空欄=起動中のHoudiniに自動で合わせる）:"))
+            self._tutorial_rag_ns_combo = QComboBox()
+            self._tutorial_rag_ns_combo.setEditable(True)
+            self._tutorial_rag_ns_combo.addItems(["", "houdini22", "houdini21"])
+            self._tutorial_rag_ns_combo.setCurrentText(self._cfg.get("tutorial_rag_namespace", ""))
+            self._tutorial_rag_ns_combo.setToolTip(
+                "空欄: Houdini 22で起動していれば houdini22、21なら houdini21 を検索します。\n"
+                "「接続」タブの「チャットで検索するナレッジ」はチャット用で、この設定には影響しません。"
+            )
+            box.addWidget(self._tutorial_rag_ns_combo)
 
-        # 動画ギャラリー（ダッシュボードの「動画」ページ）。ここへ動画をアップロードする。
-        layout.addWidget(QLabel("動画ギャラリー（ダッシュボードの動画ページ）"))
-        layout.addWidget(QLabel("ギャラリーURL:"))
-        self._gallery_url_edit = QLineEdit(self._cfg.get("gallery_url", ""))
-        self._gallery_url_edit.setPlaceholderText("https://ragreel-gallery.xxxx.workers.dev")
-        layout.addWidget(self._gallery_url_edit)
+            box.addWidget(QLabel("スコアユーザーID:"))
+            self._score_uid_edit = QLineEdit(self._cfg.get("score_user_id", ""))
+            self._score_uid_edit.setPlaceholderText("例: my_user")
+            box.addWidget(self._score_uid_edit)
 
-        layout.addWidget(QLabel("アップロードトークン:"))
-        self._gallery_token_edit = QLineEdit(self._cfg.get("gallery_token", ""))
-        self._gallery_token_edit.setPlaceholderText("ギャラリー管理者から受け取ったトークン")
-        self._gallery_token_edit.setEchoMode(QLineEdit.Password)
-        layout.addWidget(self._gallery_token_edit)
+        layout.addWidget(self._group_box("チュートリアル生成", "settings.tutorial", False, fill_tutorial))
+        layout.addWidget(self._group_box("Local RAG（開発者向け）", "settings.local", True, fill_local))
 
-        self._gallery_auto_checkbox = QCheckBox("動画の生成が終わったら、自動でギャラリーへアップロードする")
-        self._gallery_auto_checkbox.setChecked(bool(self._cfg.get("gallery_auto_upload", True)))
-        layout.addWidget(self._gallery_auto_checkbox)
+        # 注意: チュートリアル生成のClaudeトークン上限は、ここではなく管理画面（APIキー管理）側でAPIキーごとに設定する。
+        # クライアント側で上限を自己申告・改ざんできない構成にするため、意図的にここには置いていない。
 
-        # 注意: チュートリアル生成のClaudeトークン上限は、ここではなく管理画面
-        # （🔑APIキー管理タブ）側でAPIキーごとに設定する。クライアント側で
-        # 上限を自己申告・改ざんできない構成にするため、意図的にここには置いていない。
-
-        # 操作ボタン
         save_btn = QPushButton("設定を保存")
         save_btn.clicked.connect(self._on_save_settings)
         layout.addWidget(save_btn)
-
         check_btn = QPushButton("接続確認")
         check_btn.clicked.connect(self._on_check_health)
         layout.addWidget(check_btn)
 
-        restart_btn = QPushButton("ブリッジ再起動")
-        restart_btn.clicked.connect(self._on_restart_bridge)
-        layout.addWidget(restart_btn)
-
         # 注意書き: ANTHROPIC_API_KEY は .env ではなく OS 環境変数で渡す
-        note = QLabel(
-            "ANTHROPIC_API_KEY は Houdini 起動前に\n"
-            "OS 環境変数に設定してください。"
-        )
+        note = QLabel("ANTHROPIC_API_KEY は Houdini 起動前に\nOS 環境変数に設定してください。")
         note.setStyleSheet("color:#f90;")
         layout.addWidget(note)
         layout.addStretch()
         return w
+
+    def _build_debug_tab(self) -> QWidget:
+        """
+        デバッグタブ（設定者だけ）: 接続の詳細・設定ファイルの場所・記録（ログ）。
+        利用者向けの画面には出さない生の情報をここに集める。APIキーなどの秘密は、伏せて表示する。
+        """
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setSpacing(6)
+        layout.addWidget(QLabel("デバッグ情報（設定者向け。APIキーなどの秘密は伏せて表示します）"))
+
+        self._debug_status = QPlainTextEdit()
+        self._debug_status.setReadOnly(True)
+        self._debug_status.setMinimumHeight(150)
+        layout.addWidget(self._debug_status)
+
+        layout.addWidget(QLabel("記録（接続・質問・設定のエラーなど。新しいものが下）"))
+        self._debug_log = QPlainTextEdit()
+        self._debug_log.setReadOnly(True)
+        self._debug_log.setMinimumHeight(150)
+        layout.addWidget(self._debug_log, stretch=1)
+
+        row = QHBoxLayout()
+        refresh_btn = QPushButton("更新")
+        refresh_btn.clicked.connect(self._refresh_debug)
+        copy_btn = QPushButton("コピー")
+        copy_btn.setToolTip("状態と記録をクリップボードへ（不具合の報告に貼れます。秘密は伏せてあります）")
+        copy_btn.clicked.connect(self._copy_debug)
+        clear_btn = QPushButton("記録を消す")
+        clear_btn.clicked.connect(lambda: (_debug.clear(), self._refresh_debug()))
+        for b in (refresh_btn, copy_btn, clear_btn):
+            row.addWidget(b)
+        row.addStretch()
+        layout.addLayout(row)
+        return w
+
+    def _debug_status_text(self) -> str:
+        """デバッグタブの「状態」。秘密（APIキー・トークン）は、設定済みかどうかと末尾だけ。"""
+        try:
+            import hou as _h
+            houdini = _h.applicationVersionString()
+        except Exception:
+            houdini = "(Houdini の外)"
+        health = "未確認" if self._last_health is None else (
+            f"{'OK' if self._last_health[1] else 'NG'}（{_debug.time.strftime('%H:%M:%S', _debug.time.localtime(self._last_health[0]))}）"
+        )
+        info = json.dumps(self._last_user_info, ensure_ascii=False) if self._last_user_info is not None else "未取得"
+        import panel_info as _pi
+        lines = [
+            f"モード: {self._cfg.get('mode')}",
+            f"Worker URL: {self._cfg.get('cf_url') or '未設定'}",
+            f"APIキー: {_debug.mask_key(self._cfg.get('cf_api_key', ''))}",
+            f"ギャラリーのトークン: {_debug.mask_key(self._cfg.get('gallery_token', ''))}",
+            f"ユーザー（サーバーの応答）: {info}",
+            f"役割（画面の出し分けに使用）: {self._role or '-'}",
+            f"最後の接続確認: {health}",
+            f"Local ブリッジ: ポート {self._cfg.get('local_port')} / {self._cfg.get('local_bridge_dir') or '未設定'}",
+            f"設定ファイル: {_CONFIG_PATH}",
+            f"画面の状態ファイル: {Path.home() / '.houdini' / 'rag_chatbot_ui.json'}",
+            f"パネルのモジュール: {Path(_pi.__file__).parent}",
+            f"Houdini: {houdini}",
+        ]
+        return "\n".join(lines)
+
+    def _refresh_debug(self) -> None:
+        self._debug_status.setPlainText(self._debug_status_text())
+        self._debug_log.setPlainText(_debug.as_text())
+        sb = self._debug_log.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def _copy_debug(self) -> None:
+        self._refresh_debug()
+        QApplication.clipboard().setText(_debug.mask_secrets(self._debug_status_text() + "\n\n" + _debug.as_text()))
+        self._set_status("デバッグ情報をコピーしました")
+
+    def _on_tab_changed(self, index: int) -> None:
+        if index == getattr(self, "_debug_tab_idx", -1):
+            self._refresh_debug()
+
+    def _apply_role_visibility(self) -> None:
+        """設定者（admin / editor、または Local モード）にだけ、設定・デバッグのタブとモード切り替えを出す。"""
+        setup = _is_setup_user(self._role, self._cfg.get("mode", "cloudflare"))
+        tabs = getattr(self, "_tabs", None)
+        if tabs is not None:
+            tabs.setTabVisible(self._settings_tab_idx, setup)
+            tabs.setTabVisible(self._debug_tab_idx, setup)
+        box = getattr(self, "_mode_box", None)
+        if box is not None:
+            box.setVisible(setup)
 
     # ── イベント ───────────────────────────────────────────────────────────────
 
@@ -974,8 +1123,10 @@ class RAGChatbotPanel(QWidget):
         # 画面添付（VLM入力）はCloudflare専用。Localに切り替えたら
         # チェックが入っていても解除し、無効な状態のまま残らないようにする。
         self._attach_viewport_checkbox.setEnabled(mode == "cloudflare")
+        self._explain_combo.setEnabled(mode == "cloudflare")
         if mode != "cloudflare":
             self._attach_viewport_checkbox.setChecked(False)
+        self._apply_role_visibility()
         self._check_connection_async()
 
     # ── 接続状態ランプ ───────────────────────────────────────────────────────────
@@ -991,11 +1142,48 @@ class RAGChatbotPanel(QWidget):
         mode_label = "Cloudflare" if self._cfg.get("mode") == "cloudflare" else "Local"
         self._conn_lamp.set_state("checking", mode_label)
         self._conn_worker = _ConnectionCheckWorker(self._client)
-        self._conn_worker.result.connect(
-            lambda ok, ml=mode_label: self._conn_lamp.set_state("ok" if ok else "fail", ml)
-        )
+        self._conn_worker.result.connect(self._on_conn_result)
         self._conn_worker.user_info.connect(self._apply_user_label)
+        self._conn_worker.growth_info.connect(self._apply_growth)
         self._conn_worker.start()
+
+    def _apply_growth(self, info: dict) -> None:
+        """接続タブの「習熟度」を更新する。Local モードや、古い Worker では、説明を出す。"""
+        text = _format_growth(info)
+        if not text:
+            text = ("Local モードでは、習熟度は使いません。" if self._cfg.get("mode") == "local"
+                    else "習熟度を取得できません（接続を確認してください）。")
+        self._conn_growth.setText(text)
+        self._last_growth = info
+
+    def _on_explain_changed(self, _index: int) -> None:
+        self._cfg["explain_level"] = self._explain_combo.currentData()
+        _save_config(self._cfg)
+
+    def _on_reset_growth(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+        answer = QMessageBox.question(
+            self, "習熟度の記録を消す",
+            "質問に使った専門用語の記録をすべて消します。説明は basic から始まります。よろしいですか？",
+        )
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            ok = self._client.growth_reset()
+        except Exception as exc:
+            _debug.log("設定", f"習熟度の記録を消せませんでした: {exc}")
+            self._set_status(_friendly_error(str(exc)))
+            return
+        self._set_status("習熟度の記録を消しました" if ok else "習熟度の記録を消せませんでした")
+        self._check_connection_async()
+
+    def _on_conn_result(self, ok: bool) -> None:
+        mode_label = "Cloudflare" if self._cfg.get("mode") == "cloudflare" else "Local"
+        self._conn_lamp.set_state("ok" if ok else "fail", mode_label)
+        previous = self._last_health[1] if self._last_health else None
+        self._last_health = (_debug.time.time(), ok)
+        if ok != previous:  # 変わったときだけ記録する（20秒ごとの確認で、記録が埋まらないように）
+            _debug.log("接続", f"{mode_label} への接続: {'OK' if ok else 'NG'}（URL: {self._cfg.get('cf_url') or '-'}）")
 
     def _apply_user_label(self, info: dict | None) -> None:
         """「ユーザー: 名前（役割）」の表示を更新する。info=None は未確認、{} は Local モード。"""
@@ -1003,7 +1191,17 @@ class RAGChatbotPanel(QWidget):
         shown = _format_user(info if info else None, mode)
         self._user_label.setText(shown["text"])
         self._user_label.setToolTip(shown["tooltip"])
-        self._user_role = shown["role"]  # 次の段階（設定者の画面の出し分け）で使う
+        self._conn_user_info.setText(shown["text"] + chr(10) + shown["tooltip"])
+        if info is not None:
+            self._last_user_info = info
+        if info and info.get("role"):
+            self._role = str(info["role"])
+            _ui_state_set("last_role", self._role)  # オフラインのときも、設定者の画面を出し続けるため
+        elif info and info.get("error"):
+            self._role = ""
+            _ui_state_set("last_role", "")
+            _debug.log("接続", f"ユーザーを確認できません: {info['error']}")
+        self._apply_role_visibility()
 
     def _on_send(self) -> None:
         """
@@ -1052,7 +1250,8 @@ class RAGChatbotPanel(QWidget):
         self._send_btn.setEnabled(False)
 
         # 直近 12 件の履歴を Worker に渡す（古すぎる会話は LLM に送らない）
-        self._worker = QueryWorker(self._client, query, self._history[-12:], image_b64=image_b64)
+        explain = self._explain_combo.currentData() if self._cfg.get("mode") == "cloudflare" else None
+        self._worker = QueryWorker(self._client, query, self._history[-12:], image_b64=image_b64, explain=explain)
         self._worker.finished.connect(self._on_query_done)
         self._worker.error.connect(self._on_query_error)
         self._worker.start()
@@ -1062,7 +1261,7 @@ class RAGChatbotPanel(QWidget):
         answer    = result.get("answer", "(空の回答)")
         sources   = result.get("sources", [])
         memory_id = result.get("memoryId", "")
-        self._add_rag_bubble(answer, memory_id, sources)
+        self._add_rag_bubble(answer, memory_id, sources, result.get("explain"))
         self._history.append({"role": "assistant", "text": answer})
         # 出典と採用比率は、回答の下の折りたたみに出す。下部のステータスには、短い要約だけ。
         self._set_status(_summarize_sources(sources)["summary"])
@@ -1075,8 +1274,11 @@ class RAGChatbotPanel(QWidget):
 
     def _on_query_error(self, msg: str) -> None:
         """クエリ失敗時のコールバック。エラーをバブルとステータスに表示する。"""
-        self._add_bubble(f"エラー: {msg}", is_user=False)
-        self._set_status(msg)
+        _debug.log("質問", f"エラー: {msg}")
+        friendly = _friendly_error(msg)
+        hint = "（詳細は「デバッグ」タブ）" if _is_setup_user(self._role, self._cfg.get("mode", "cloudflare")) else ""
+        self._add_bubble(f"エラー: {friendly}{hint}", is_user=False)
+        self._set_status(friendly)
         self._send_btn.setEnabled(True)
         # 理解度スコアをエラーとして更新
         uid = self._cfg.get("score_user_id", "")
@@ -1118,6 +1320,7 @@ class RAGChatbotPanel(QWidget):
         if self._cfg["mode"] == "local":
             threading.Thread(target=self._push_backend, daemon=True).start()
         self._set_status("設定を保存しました")
+        _debug.log("設定", "設定を保存しました")
         self._check_connection_async()
 
     def _on_check_health(self) -> None:
@@ -1200,7 +1403,7 @@ class RAGChatbotPanel(QWidget):
         insert_at = max(0, self._chat_layout.count() - 1)
         self._chat_layout.insertLayout(insert_at, row)
 
-    def _add_rag_bubble(self, text: str, memory_id, sources: list | None = None) -> None:
+    def _add_rag_bubble(self, text: str, memory_id, sources: list | None = None, explain: dict | None = None) -> None:
         """
         RAG 回答専用バブル。テキストの下に 👍/👎 ボタンを追加する。
         memory_id が空（None・""）の場合（Local モードなど）はボタンを表示しない。
@@ -1216,6 +1419,15 @@ class RAGChatbotPanel(QWidget):
         bubble_row.addWidget(ChatBubble(text, is_user=False))
         bubble_row.addStretch()
         v.addLayout(bubble_row)
+
+        # 説明レベルと、今回の回答で紹介した用語（explain を付けた質問だけ）
+        explain_text = _format_explain(explain)
+        if explain_text:
+            tag = QLabel(explain_text)
+            tag.setStyleSheet("color:#94a3b8;font-size:11px;padding:0 6px;")
+            tag.setWordWrap(True)
+            tag.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
+            v.addWidget(tag)
 
         # 出典と採用比率（回答で使った資料／検索で見つかった資料）。見出しに要約、中身は折りたたみ。
         # 出典の番号による引用が無いときは、警告として最初から開いておく。
