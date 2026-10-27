@@ -2,6 +2,7 @@
 // チャット/グラフ/履歴/管理の4タブ構成だった。このPOCも同じ4タブ構成に揃える
 // （2026-08-25、実際のGAS版UIとのスクリーンショット比較を受けて全面刷新）。
 import { LIST_SORT_JS } from "./listSort";
+import { ASCII_ART_JS } from "./asciiArt";
 
 export function chatUiHtml(): string {
   return /* html */ `<!DOCTYPE html>
@@ -525,7 +526,7 @@ export function chatUiHtml(): string {
   .pending-action pre { max-height: 10rem; overflow: auto; font-size: .76rem; margin: .4rem 0; padding: .4rem; background: var(--bg, transparent); border-radius: 6px; white-space: pre-wrap; word-break: break-all; }
   .pending-action small { display: block; color: var(--muted); font-size: .76rem; }
   .pending-action-buttons { display: flex; gap: .5rem; margin-top: .5rem; }
-  .ascii-critter { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .95rem; line-height: 1.25; color: var(--muted); margin: .6rem 0 0; white-space: pre; user-select: none; text-align: center; }
+  .ascii-critter { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; line-height: 1.1; color: var(--muted); margin: .6rem 0 0; white-space: pre; user-select: none; text-align: center; }
   .shortcut-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
   .shortcut-table td { padding: .35rem .5rem; border-bottom: 1px solid var(--border); }
   .shortcut-table td:first-child { white-space: nowrap; }
@@ -2785,28 +2786,33 @@ export function chatUiHtml(): string {
     return card;
   }
 ${LIST_SORT_JS}
+${ASCII_ART_JS}
   // ---------- 2026-10-22 追加: 改善設計書の反映（T6・T7・T12・X13・X14） ----------
 
-  // X14: 空状態だけに置く、文字で描いた小さな生き物。動きを減らす設定のときは止める。
-  const CRITTER_GLYPHS = ["X", "S", "8", "@", "%"];
-  function critterText(step) {
-    const g = (k) => CRITTER_GLYPHS[(step + k) % CRITTER_GLYPHS.length];
-    return " " + g(0) + " " + g(1) + " " + g(1) + " " + g(0) + "\\n" + g(2) + " @ . . @ " + g(2) + "\\n " + g(3) + " ~ " + g(4) + " " + g(3);
-  }
+  // X14: 空状態だけに置く、文字で描いた小さな生き物（2026-10-27: D1 明るさ→文字の階調、D5 マスごとの遅延で、粒状に現れる）。
+  // 動きは、現れるとき（1.4秒）と、ゆっくりした揺れだけ。動きを減らす設定のときは、完成した静止画だけを出す。
+  const CRITTER_W = 30;
+  const CRITTER_H = 9;
+  const CRITTER_REVEAL_MS = 1400;
   function asciiCritter() {
     const pre = document.createElement("pre");
     pre.className = "ascii-critter";
     pre.setAttribute("aria-hidden", "true");
-    let step = 0;
-    pre.textContent = critterText(step);
     const calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!calm) {
-      const timer = setInterval(() => {
-        if (!pre.isConnected) { clearInterval(timer); return; }
-        step += 1;
-        pre.textContent = critterText(step);
-      }, 700);
+    if (calm) {
+      pre.textContent = critterFrame(CRITTER_W, CRITTER_H, 0, 1, ART_RAMPS.critter);
+      return pre;
     }
+    const started = Date.now();
+    const draw = () => {
+      const elapsed = Date.now() - started;
+      pre.textContent = critterFrame(CRITTER_W, CRITTER_H, elapsed / 1000, elapsed / CRITTER_REVEAL_MS, ART_RAMPS.critter);
+    };
+    draw();
+    const timer = setInterval(() => {
+      if (!pre.isConnected) { clearInterval(timer); return; }
+      draw();
+    }, 140);
     return pre;
   }
 
