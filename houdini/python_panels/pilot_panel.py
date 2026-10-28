@@ -4,13 +4,16 @@ pilot_panel.py — 「課題」タブ（実証実験の参加者向け。PySide6
   ・最初に1回、事前アンケート（学習背景・経験など。個人を特定する情報は聞かない）。
   ・そのあと、いまの回の「固定課題」と「自由課題」を、開始 → 終了。終了時に、課題後アンケート。
   ・経過時間と、cook エラーのノード数（ErrorSampler）を、課題の間だけ記録する。
-  ・アンケートで止めない: 答えなくても閉じられる（「あとで」）。答えなかった項目は空欄のまま送る。
+  ・アンケートで止めない: 答えなくても閉じられる（「戻る」）。答えなかった項目は空欄のまま送る。
+  ・途中で Houdini が閉じても、「続きから開始」で再開できる（途中経過はこのPCに残し、閉じていた時間は所要時間から引く）。
+  ・やり直し: 計測中は「計測をやり直す」、終えたあとは「完了した記録」の「やり直す」。次の回を始めるまでは、前の回も直せる。
 
 接続・保存は rag_client（/pilot/*）。このタブは、接続タブの「実証実験に参加する」を入れたときだけ表示する。
 """
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QThread, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
@@ -23,6 +26,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QRadioButton,
     QTextEdit,
@@ -40,6 +44,8 @@ except ImportError:  # pragma: no cover
     hou = None
 
 _SAMPLE_INTERVAL_MS = 20_000  # cook エラーの採取の間隔
+_PROGRESS_PATH = Path.home() / ".houdini" / "rag_pilot_progress.json"
+_FINISH_TEXT = "終了して振り返りへ"
 _CARD_STYLE = "QFrame#card{background:#1e293b;border-radius:6px;}QLabel{background:transparent;}"
 
 
@@ -79,7 +85,7 @@ def _scale_row(question: str, low: str, high: str):
 
 
 class TaskSurveyDialog(QDialog):
-    """課題後アンケート。「送信」か「あとで」（閉じても、課題は続いたまま）。"""
+    """課題後アンケート。「送信」か「戻る」（閉じても、課題は続いたまま。終了は取り消される）。"""
 
     def __init__(self, parent: QWidget | None, kind: str, label: str, condition: str) -> None:
         super().__init__(parent)
@@ -111,7 +117,7 @@ class TaskSurveyDialog(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        later = QPushButton("あとで（課題を続ける）")
+        later = QPushButton("戻る（課題を続ける）")
         later.clicked.connect(self.reject)
         send = QPushButton("送信して課題を終える")
         send.clicked.connect(self.accept)
@@ -134,18 +140,20 @@ class TaskSurveyDialog(QDialog):
 
 
 class PilotTaskPanel(QWidget):
-    def __init__(self, cfg_getter, parent: QWidget | None = None) -> None:
+    def __init__(self, cfg_getter, parent: QWidget | None = None, progress_path=None) -> None:
         super().__init__(parent)
         self._cfg_getter = cfg_getter
         self._workers: list[_CallWorker] = []
         self._plan: dict | None = None
-        self._active: dict | None = None  # {sessionId, startedAt, kind, condition, label}
+        self._active: dict | None = None  # {sessionId, startedAt, kind, condition, label, pausedSec}
+        self._pending_end: dict | None = None  # 送信に失敗した終了（答えを残して、再送する）
         self._sampler = pt.ErrorSampler(hou)
+        self._progress = pt.ProgressStore(progress_path or _PROGRESS_PATH)
         self._build_ui()
         self._tick = QTimer(self)
         self._tick.timeout.connect(self._on_tick)
         self._sample_timer = QTimer(self)
-        self._sample_timer.timeout.connect(self._sampler.sample)
+        self._sample_timer.timeout.connect(self._on_sample)
 
     # ── 画面 ──
     def _build_ui(self) -> None:
@@ -210,18 +218,28 @@ class PilotTaskPanel(QWidget):
             status.setStyleSheet("color:#cbd5e1;")
             row = QHBoxLayout()
             start = QPushButton("開始")
-            finish = QPushButton("終了して振り返りへ")
+            finish = QPushButton(_FINISH_TEXT)
+            restart = QPushButton("計測をやり直す")
             start.clicked.connect(lambda _c=False, k=kind: self._on_start(k))
             finish.clicked.connect(self._on_finish)
+            restart.clicked.connect(self._on_restart)
             row.addWidget(start)
             row.addWidget(finish)
+            row.addWidget(restart)
             row.addStretch()
             for w in (title, condition, criterion, status):
                 inner.addWidget(w)
             inner.addLayout(row)
             plan_layout.addWidget(card)
-            self._cards[kind] = {"title": title, "condition": condition, "criterion": criterion, "status": status, "start": start, "finish": finish}
+            self._cards[kind] = {"title": title, "condition": condition, "criterion": criterion, "status": status, "start": start, "finish": finish, "restart": restart}
         layout.addWidget(self._plan_box)
+
+        # 完了した記録（間違えて終えたとき・取り直したいときの、やり直し）
+        self._history_box = QFrame()
+        self._history_box.setObjectName("card")
+        self._history_box.setStyleSheet(_CARD_STYLE)
+        self._history_layout = QVBoxLayout(self._history_box)
+        layout.addWidget(self._history_box)
 
         refresh = QPushButton("更新")
         refresh.setFixedWidth(80)
@@ -230,9 +248,10 @@ class PilotTaskPanel(QWidget):
         layout.addStretch()
         self._profile_box.setVisible(False)
         self._plan_box.setVisible(False)
+        self._history_box.setVisible(False)
 
     # ── サーバー呼び出し ──
-    def _call(self, fn, on_done) -> None:
+    def _call(self, fn, on_done, on_error=None) -> None:
         worker = _CallWorker(fn)
 
         def done(result, error: str) -> None:
@@ -240,6 +259,8 @@ class PilotTaskPanel(QWidget):
                 self._workers.remove(worker)
             if error:
                 self._message.setText(friendly_error(error))
+                if on_error:
+                    on_error()
                 return
             on_done(result)
 
@@ -261,10 +282,12 @@ class PilotTaskPanel(QWidget):
             self._header.setText("実証実験への参加")
             self._profile_box.setVisible(True)
             self._plan_box.setVisible(False)
+            self._history_box.setVisible(False)
             return
         self._profile_box.setVisible(False)
         self._plan_box.setVisible(True)
         self._header.setText(pt.format_plan_header(plan))
+        self._rebuild_history(plan.get("history") or [])
         if plan.get("finished"):
             self._plan_box.setVisible(False)
             return
@@ -278,7 +301,48 @@ class PilotTaskPanel(QWidget):
             card["start"].setText("続きから開始" if item.get("active") and not running else "開始")
             card["start"].setEnabled(not item["done"] and not running and self._active is None)
             card["finish"].setEnabled(running)
+            card["finish"].setText("答えを再送する" if running and self._pending_end else _FINISH_TEXT)
+            card["restart"].setEnabled(running)
             card["status"].setText("完了しました" if item["done"] else ("" if not running else "記録中…"))
+
+    def _rebuild_history(self, history: list) -> None:
+        """完了した記録の一覧。次の回を始める前なら、「やり直す」が出る（計測中の記録は、カードの「計測をやり直す」）。"""
+        while self._history_layout.count():
+            item = self._history_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                while item.layout().count():
+                    sub = item.layout().takeAt(0)
+                    if sub.widget():
+                        sub.widget().deleteLater()
+        done = [h for h in history if not h.get("running")]
+        self._history_box.setVisible(bool(done))
+        if not done:
+            return
+        title = QLabel("完了した記録")
+        title.setStyleSheet("font-weight:bold;")
+        self._history_layout.addWidget(title)
+        for item in done:
+            row = QHBoxLayout()
+            row.addWidget(QLabel(pt.format_history_line(item)))
+            row.addStretch()
+            if item.get("redoable"):
+                redo = QPushButton("やり直す")
+                redo.setEnabled(self._active is None)
+                redo.clicked.connect(lambda _c=False, i=item: self._on_redo(i))
+                row.addWidget(redo)
+            holder = QWidget()
+            holder.setLayout(row)
+            row.setContentsMargins(0, 0, 0, 0)
+            self._history_layout.addWidget(holder)
+        note = QLabel("間違えて終えたときは、「やり直す」で取り直せます（次の回を始めるまで）。やり直した回数は、記録に残ります。")
+        note.setWordWrap(True)
+        note.setStyleSheet("color:#94a3b8;")
+        self._history_layout.addWidget(note)
+
+    def _confirm(self, text: str) -> bool:
+        return QMessageBox.question(self, "確認", text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
 
     # ── 事前アンケート ──
     def _on_profile_send(self) -> None:
@@ -295,40 +359,96 @@ class PilotTaskPanel(QWidget):
         self._call(lambda: self._client().pilot_session_start(kind), self._on_started)
 
     def _on_started(self, started: dict) -> None:
+        # 続きからのときは、前に集めたエラーのノードと、閉じていた時間（中断）を引き継ぐ
+        saved = self._progress.load(started["sessionId"]) if started.get("resumed") else None
+        paths, paused = pt.resume_state(saved, time.time())
         self._active = {
             "sessionId": started["sessionId"], "startedAt": float(started["startedAt"]), "kind": started["kind"],
-            "condition": started["condition"], "label": started["label"],
+            "condition": started["condition"], "label": started["label"], "pausedSec": paused,
         }
+        self._pending_end = None
         self._sampler.reset()
-        self._sampler.sample()
+        self._sampler.restore(paths)
+        self._on_sample()
         self._tick.start(1000)
         self._sample_timer.start(_SAMPLE_INTERVAL_MS)
         if self._plan:
             self._apply_plan(self._plan)
         self._on_tick()
 
+    def _on_sample(self) -> None:
+        """cook エラーを採取し、途中経過をこのPCに残す（Houdini が閉じても、続きから引き継げるように）。"""
+        self._sampler.sample()
+        if self._active:
+            self._progress.save(self._active["sessionId"], self._sampler.paths, self._active["pausedSec"], time.time())
+
     def _on_tick(self) -> None:
         if not self._active:
             return
         card = self._cards[self._active["kind"]]
-        elapsed = pt.format_elapsed(time.time() - self._active["startedAt"])
+        elapsed = pt.format_elapsed(time.time() - self._active["startedAt"] - self._active["pausedSec"])
         errors = self._sampler.count
         card["status"].setText(f"記録中 {elapsed}" + (f"　cookエラーのノード: {errors}" if errors is not None else ""))
 
     def _on_finish(self) -> None:
         if not self._active:
             return
+        if self._pending_end:  # 前回は、送れなかった。答えは残っているので、そのまま再送する
+            self._send_end()
+            return
         self._sampler.sample()  # 終了時の分も数える
         active = self._active
+        pressed = time.monotonic()
         dialog = TaskSurveyDialog(self, active["kind"], active["label"], active["condition"])
         if not dialog.exec():
-            return  # 「あとで」: 課題は続いたまま
-        payload = pt.build_end_payload(active["sessionId"], dialog.reached(), self._sampler.count, dialog.self_mistakes(), dialog.answers(), dialog.comment())
-        self._call(lambda: self._client().pilot_session_end(payload), self._on_ended)
+            return  # 「戻る」: 課題は続いたまま（終了は取り消される）
+        payload = pt.build_end_payload(
+            active["sessionId"], dialog.reached(), self._sampler.count, dialog.self_mistakes(), dialog.answers(), dialog.comment(), active["pausedSec"],
+        )
+        self._pending_end = {"payload": payload, "pressed": pressed}
+        self._send_end()
 
-    def _on_ended(self, plan: dict) -> None:
+    def _send_end(self) -> None:
+        pending = self._pending_end
+        # 終了を押してから送るまで（振り返りの回答・再送の待ち）は、作業の時間に入れない。サーバーが、送信の時刻から引く。
+        payload = {**pending["payload"], "surveySec": int(time.monotonic() - pending["pressed"])}
+        self._call(lambda: self._client().pilot_session_end(payload), self._on_ended, self._on_end_failed)
+
+    def _on_end_failed(self) -> None:
+        self._message.setText(self._message.text() + "　答えは残してあります。「答えを再送する」を押してください。")
+        if self._active:
+            self._cards[self._active["kind"]]["finish"].setText("答えを再送する")
+
+    def _stop_recording(self) -> None:
         self._active = None
+        self._pending_end = None
         self._tick.stop()
         self._sample_timer.stop()
+        self._progress.clear()
+
+    def _on_ended(self, plan: dict) -> None:
+        self._stop_recording()
         self._apply_plan(plan)
         self._message.setText("送信しました。ご協力ありがとうございます。")
+
+    # ── やり直し ──
+    def _on_restart(self) -> None:
+        """計測中の課題を破棄して、最初からやり直す。"""
+        if not self._active:
+            return
+        if not self._confirm("いまの計測を破棄して、最初からやり直しますか？\nこれまでの計測は、集計に入りません。"):
+            return
+        session_id = self._active["sessionId"]
+        self._call(lambda: self._client().pilot_session_reset(session_id), self._on_reset_done)
+
+    def _on_redo(self, item: dict) -> None:
+        """完了した記録を破棄して、同じ課題を取り直す。"""
+        if not self._confirm(f"「{pt.format_history_line(item)}」の記録を消して、もう一度行いますか？\n消した記録は、集計に入りません。"):
+            return
+        session_id = item["sessionId"]
+        self._call(lambda: self._client().pilot_session_reset(session_id), self._on_reset_done)
+
+    def _on_reset_done(self, plan: dict) -> None:
+        self._stop_recording()
+        self._apply_plan(plan)
+        self._message.setText("記録を破棄しました。もう一度、「開始」から行えます。")

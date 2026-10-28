@@ -192,6 +192,72 @@ assert.deepEqual(tasks.body.contaminated, [1], "the control round had a question
 assert.equal(tasks.body.rows[0].mistake, 0.43, "cook 4/10 × 0.7 = 0.28, self (3−1)/4 × 0.3 = 0.15");
 await assert.rejects(() => pt.handlePilotTasks(post({}), env, u1), "members cannot read the aggregate");
 
+// ---- 所要時間: 振り返りの回答の時間と、中断（Houdini が閉じていた時間）を引く ----
+r = await call(pt.handlePilotSessionStart, u2, { kind: "fixed" });
+const sid2 = r.body.sessionId;
+const ago = Math.floor(Date.now() / 1000) - 3600;
+db.prepare("UPDATE pilot_sessions SET started_at = ? WHERE id = ?").run(ago, sid2);
+await call(pt.handlePilotSessionEnd, u2, { sessionId: sid2, surveySec: 300, pausedSec: 600 });
+saved = db.prepare("SELECT * FROM pilot_sessions WHERE id=?").get(sid2);
+assert.ok(Math.abs(saved.duration_sec - 2700) <= 3, `3600 − 300(survey) − 600(paused) = 2700, got ${saved.duration_sec}`);
+assert.equal(saved.paused_sec, 600);
+assert.ok(Math.abs(saved.ended_at - (ago + 3300)) <= 3, "ended when 終了 was pressed, not when the survey was sent");
+// 異常な値でも、所要時間は負にならない
+r = await call(pt.handlePilotSessionStart, u2, { kind: "free" });
+await call(pt.handlePilotSessionEnd, u2, { sessionId: r.body.sessionId, surveySec: 99999, pausedSec: 99999 });
+saved = db.prepare("SELECT * FROM pilot_sessions WHERE id=?").get(r.body.sessionId);
+assert.equal(saved.duration_sec, 0);
+assert.ok(saved.ended_at >= saved.started_at);
+
+// ---- やり直し ----
+// 計測中の記録を破棄 → 同じ課題を、新しい記録で始め直せる
+r = await call(pt.handlePilotSessionStart, u3, { kind: "fixed" }); // slot 3: 第1回の固定課題は、雲（システムあり）
+assert.equal(r.body.taskId, "cloud");
+const run1 = r.body.sessionId;
+let plan3 = await call(pt.handlePilotSessionReset, u3, { sessionId: run1 });
+assert.equal(plan3.status, 200);
+assert.equal(plan3.body.fixed.active, false, "the discarded run is not 'in progress'");
+assert.equal(plan3.body.history.length, 0);
+r = await call(pt.handlePilotSessionStart, u3, { kind: "fixed" });
+assert.notEqual(r.body.sessionId, run1, "a fresh record, not the discarded one");
+assert.equal(r.body.resumed, false);
+assert.equal((await call(pt.handlePilotSessionEnd, u3, { sessionId: run1 })).status, 404, "a discarded record cannot be ended");
+assert.equal((await call(pt.handlePilotSessionReset, u3, { sessionId: run1 })).status, 404, "discard once only");
+assert.equal((await call(pt.handlePilotSessionReset, u1, { sessionId: r.body.sessionId })).status, 404, "not someone else's");
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM pilot_sessions WHERE user_id='u3'").get().n, 2, "the discarded record is kept");
+const run2 = r.body.sessionId;
+await call(pt.handlePilotSessionEnd, u3, { sessionId: run2, reached: true, survey: { difficulty: 2 } });
+
+// 終えた記録の取り消し: 次の回を始める前なら、できる
+r = await call(pt.handlePilotSessionStart, u3, { kind: "free" });
+plan3 = await call(pt.handlePilotSessionEnd, u3, { sessionId: r.body.sessionId, reached: true });
+assert.equal(plan3.body.round, 2, "both done → the next round");
+assert.deepEqual(plan3.body.history.map((h) => [h.round, h.kind, h.redoable]), [[1, "fixed", true], [1, "free", true]]);
+const freeId = plan3.body.history[1].sessionId;
+plan3 = await call(pt.handlePilotSessionReset, u3, { sessionId: freeId }); // 間違えて終えた自由課題を、取り消す
+assert.equal(plan3.body.round, 1, "back to round 1");
+assert.equal(plan3.body.free.done, false);
+assert.equal(plan3.body.fixed.done, true, "the other task keeps its record");
+r = await call(pt.handlePilotSessionStart, u3, { kind: "free" });
+await call(pt.handlePilotSessionEnd, u3, { sessionId: r.body.sessionId, reached: true });
+// 第2回を始めたら、第1回は固定される
+r = await call(pt.handlePilotSessionStart, u3, { kind: "fixed" });
+assert.equal(r.body.round, 2);
+const round2 = r.body.sessionId;
+plan3 = await call(pt.handlePilotPlan, u3);
+assert.deepEqual(plan3.body.history.map((h) => [h.round, h.kind, h.redoable]), [[1, "fixed", false], [1, "free", false], [2, "fixed", true]]);
+assert.equal(plan3.body.history[2].running, true);
+const locked = await call(pt.handlePilotSessionReset, u3, { sessionId: plan3.body.history[0].sessionId });
+assert.equal(locked.status, 409, "cannot change round 1 once round 2 has started");
+assert.equal((await call(pt.handlePilotSessionReset, u3, { sessionId: round2 })).status, 200, "the running record of the current round can be discarded");
+
+// 集計: 破棄した記録は入らず、やり直した回数だけ分かる
+const after = await call(pt.handlePilotTasks, admin);
+const p3 = after.body.rows.filter((x) => x.participant === "P03");
+assert.equal(p3.length, 2, "only the kept records of P03");
+assert.deepEqual(p3.map((x) => [x.kind, x.redoCount]), [["fixed", 1], ["free", 1]], "each of the redone tasks was redone once");
+assert.equal(after.body.rows.filter((x) => x.participant === "P01").every((x) => x.redoCount === 0), true);
+
 // ---- 管理画面: 課題の集計の部品が入っていて、スクリプトが構文として読める ----
 const vm = await import("node:vm");
 const { chatUiHtml } = await import("../src/chatUi");

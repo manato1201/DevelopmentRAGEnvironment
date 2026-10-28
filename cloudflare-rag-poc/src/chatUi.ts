@@ -3234,11 +3234,11 @@ ${ASCII_ART_JS}
     if (lastPilotTaskRows.length === 0) { showToast("エクスポートする課題の記録がありません", "error"); return; }
     downloadCsv(
       "pilot-tasks-" + new Date().toISOString().slice(0, 10) + ".csv",
-      ["参加者", "回", "種類", "題材", "条件", "所要(分)", "質問数", "cookエラーのノード数", "操作ミス自己申告", "操作ミス(合成)", "到達", "難しさ", "わかりやすさ", "集中を妨げた", "正確性の不安", "出典が役立った", "また使いたい", "自由記述"],
+      ["参加者", "回", "種類", "題材", "条件", "所要(分)", "質問数", "cookエラーのノード数", "操作ミス自己申告", "操作ミス(合成)", "到達", "難しさ", "わかりやすさ", "集中を妨げた", "正確性の不安", "出典が役立った", "また使いたい", "自由記述", "やり直し回数"],
       lastPilotTaskRows.map((r) => [r.participant, r.round, r.kind, r.taskId, r.condition, r.durationMin == null ? "" : r.durationMin, r.queryCount == null ? "" : r.queryCount,
         r.cookErrorNodes == null ? "" : r.cookErrorNodes, r.selfMistakes == null ? "" : r.selfMistakes, r.mistake == null ? "" : r.mistake, r.reached == null ? "" : r.reached,
         r.difficulty == null ? "" : r.difficulty, r.clarity == null ? "" : r.clarity, r.focus == null ? "" : r.focus, r.accuracyWorry == null ? "" : r.accuracyWorry,
-        r.sourceUseful == null ? "" : r.sourceUseful, r.reuse == null ? "" : r.reuse, r.comment]),
+        r.sourceUseful == null ? "" : r.sourceUseful, r.reuse == null ? "" : r.reuse, r.comment, r.redoCount || 0]),
     );
   });
   $("pilotRefresh").addEventListener("click", loadPilotSummary);

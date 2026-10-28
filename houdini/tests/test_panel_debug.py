@@ -97,6 +97,12 @@ class FriendlyErrorTest(unittest.TestCase):
         self.assertIn("権限", pi.friendly_error("HTTP 403 Forbidden"))
         self.assertIn("サーバーで問題", pi.friendly_error("status 503"))
 
+    def test_missing_endpoint_says_the_server_is_not_updated(self):
+        # パネルだけが新しく、Worker がまだ新しい機能に対応していない（/pilot/plan が 404）
+        for raw in ("HTTP Error 404: Not Found", "未定義のエンドポイントです: /pilot/plan"):
+            self.assertIn("まだ対応していません", pi.friendly_error(raw), raw)
+        self.assertNotIn("まだ対応していません", pi.friendly_error("処理に 14040ms かかりました"))
+
 
 class SetupUserTest(unittest.TestCase):
     def test_roles(self):

@@ -41,6 +41,9 @@ def friendly_error(raw: str) -> str:
         return "この操作をする権限がありません。管理者に確認してください。"
     if has_status("429") or "予算" in text or "上限" in text or "budget" in low or ("rate" in low and "limit" in low):
         return "利用の上限に達しました。しばらく待つか、管理者に上限を確認してください。"
+    if has_status("404") or "未定義のエンドポイント" in text:
+        # パネルが新しく、サーバー（Worker）がまだその機能に対応していないとき
+        return "サーバーが、この機能にまだ対応していません。管理者に、サーバーの更新を依頼してください。"
     if "timed out" in low or "timeout" in low or "タイムアウト" in text:
         return "サーバーの応答が遅れています。少し待って、もう一度試してください。"
     if any(w in low for w in ("urlopen error", "connection refused", "connection reset", "name or service", "getaddrinfo", "unreachable", "winerror 10061", "接続できません")):
