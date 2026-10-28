@@ -10,12 +10,26 @@ cook エラー数について（定義）:
   数えるのは、のべの回数ではなく、**一度でもエラーになったノードの数**。
   採取の合間に起きて、すぐ直されたエラーは数えられない（実際より少なくなりうる）。評価の集計は、この前提で読む。
   hou が無いとき（Houdini の外）は、測れないので None（空欄）を送る。0 とは区別する。
+  1回の採取は、時間の上限（SCAN_BUDGET_SEC）を超えたら打ち切る（巨大なシーンで、画面を止めないため）。打ち切ったときは、
+  実際より少なく数えうる。
+
+途中で Houdini が閉じた・落ちたとき:
+  課題の記録は、サーバーに残る（「続きから開始」で再開できる）。このPCにも、途中経過（エラーのノード・最後に生きていた時刻・
+  中断の秒数）を残し（ProgressStore）、再開したときに引き継ぐ。閉じていた時間は「中断」として所要時間から引く。
+  Houdini が固まっていた（落ちずに処理が重かった）だけの時間は、作業の時間なので、引かない。
 """
 from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
 
 # エラーを探すネットワークの入口。ここから下を、すべて見る。
 SCAN_ROOTS = ("/obj", "/stage", "/mat", "/out")
 SCAN_LIMIT = 20000  # 1回の採取で見るノードの上限（巨大なシーンで、画面を止めないため）
+SCAN_BUDGET_SEC = 1.0  # 1回の採取に使う時間の上限
+PAUSE_MIN_SEC = 40  # 再開までの空きがこれ以上なら、Houdini が閉じていた（中断）とみなす（採取の間隔 20 秒の倍）
+MAX_SAVED_PATHS = 2000
 
 CONDITION_TEXT = {
     "system": "本システム（チャット・チュートリアル生成）を使って構いません。",
@@ -35,10 +49,11 @@ SURVEY_QUESTIONS = (
 SELF_MISTAKE_QUESTION = ("selfMistakes", "ビジュアル操作（ビューポートでの操作・見た目の調整）での操作ミスは、多かったですか", "ほとんどなかった", "とても多かった")
 
 
-def scan_error_nodes(hou, roots=SCAN_ROOTS, limit: int = SCAN_LIMIT) -> set[str]:
+def scan_error_nodes(hou, roots=SCAN_ROOTS, limit: int = SCAN_LIMIT, budget_sec: float = SCAN_BUDGET_SEC, clock=time.monotonic) -> set[str]:
     """いまエラー状態のノードのパス。hou は、Houdini の hou モジュール（テストでは、同じ形の偽物）。"""
     found: set[str] = set()
     scanned = 0
+    deadline = clock() + budget_sec
     for root in roots:
         try:
             top = hou.node(root)
@@ -49,7 +64,7 @@ def scan_error_nodes(hou, roots=SCAN_ROOTS, limit: int = SCAN_LIMIT) -> set[str]
             continue
         for node in nodes:
             scanned += 1
-            if scanned > limit:
+            if scanned > limit or (scanned % 64 == 0 and clock() > deadline):
                 return found
             try:
                 if node.errors():
@@ -79,6 +94,14 @@ class ErrorSampler:
         return len(self._paths)
 
     @property
+    def paths(self) -> list[str]:
+        return sorted(self._paths)
+
+    def restore(self, paths) -> None:
+        """再開のとき、前に集めたエラーのノードを引き継ぐ。"""
+        self._paths |= {str(p) for p in paths or []}
+
+    @property
     def count(self) -> int | None:
         """一度でもエラーになったノードの数。測れなかった（hou が無い・1度も採取していない）ときは None。"""
         return len(self._paths) if self._hou is not None and self.samples > 0 else None
@@ -86,6 +109,43 @@ class ErrorSampler:
     def reset(self) -> None:
         self._paths = set()
         self.samples = 0
+
+
+class ProgressStore:
+    """課題の途中経過を、このPCに残す（Houdini が閉じた・落ちたあとの「続きから」のため）。1つの課題ぶんだけ。"""
+
+    def __init__(self, path) -> None:
+        self._path = Path(path)
+
+    def save(self, session_id: str, error_paths, paused_sec: int, now: float) -> None:
+        data = {"sessionId": session_id, "errorPaths": sorted(error_paths)[:MAX_SAVED_PATHS], "pausedSec": int(paused_sec), "lastSeen": float(now)}
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass  # 残せなくても、課題は続けられる
+
+    def load(self, session_id: str) -> dict | None:
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) and data.get("sessionId") == session_id else None
+
+    def clear(self) -> None:
+        try:
+            self._path.unlink()
+        except OSError:
+            pass
+
+
+def resume_state(saved: dict | None, now: float) -> tuple[set[str], int]:
+    """再開のとき、引き継ぐエラーのノードと、中断の秒数（これまでの中断 + 今回の空き。短い空きは数えない）。"""
+    if not saved:
+        return set(), 0
+    gap = max(0.0, now - float(saved.get("lastSeen") or now))
+    paused = int(saved.get("pausedSec") or 0) + (int(gap) if gap >= PAUSE_MIN_SEC else 0)
+    return {str(p) for p in saved.get("errorPaths") or []}, paused
 
 
 def format_elapsed(seconds: float) -> str:
@@ -101,13 +161,22 @@ def format_plan_header(plan: dict) -> str:
     return f"第{plan['round']}回 / 3回{who}"
 
 
+def format_history_line(item: dict) -> str:
+    """「完了した記録」の1行。"""
+    seconds = item.get("durationSec")
+    took = f"　{max(1, round(seconds / 60))}分" if isinstance(seconds, (int, float)) else ""
+    return f"第{item.get('round')}回 {KIND_TEXT.get(item.get('kind'), '')}: {item.get('label', '')}{took}"
+
+
 def survey_questions(condition: str) -> list[tuple]:
     """この条件で聞く質問。公式ドキュメントのみの回は、出典の質問を出さない。"""
     return [q for q in SURVEY_QUESTIONS if not (q[0] == "sourceUseful" and condition == "docs_only")]
 
 
-def build_end_payload(session_id: str, reached, cook_nodes, self_mistakes, answers: dict, comment: str) -> dict:
-    """課題を終えるときの送信内容。答えなかった項目は、送らない（空欄のまま）。"""
+def build_end_payload(session_id: str, reached, cook_nodes, self_mistakes, answers: dict, comment: str, paused_sec: int = 0) -> dict:
+    """課題を終えるときの送信内容。答えなかった項目は、送らない（空欄のまま）。
+
+    paused_sec は、Houdini が閉じていた秒数（所要時間から引く）。振り返りの回答に使った秒数（surveySec）は、送る直前に足す。"""
     survey = {k: int(v) for k, v in (answers or {}).items() if v in (1, 2, 3, 4, 5)}
     payload: dict = {
         "sessionId": session_id,
@@ -116,6 +185,7 @@ def build_end_payload(session_id: str, reached, cook_nodes, self_mistakes, answe
         "selfMistakes": self_mistakes if self_mistakes in (1, 2, 3, 4, 5) else None,
         "survey": survey,
         "comment": (comment or "").strip()[:1000],
+        "pausedSec": max(0, int(paused_sec or 0)),
     }
     return payload
 

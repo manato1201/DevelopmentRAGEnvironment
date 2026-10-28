@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -58,6 +59,15 @@ class ScanTest(unittest.TestCase):
         self.assertEqual(len(pt.scan_error_nodes(hou, limit=10)), 10)
 
 
+    def test_scan_gives_up_when_it_takes_too_long(self):
+        # 巨大なシーンで画面を止めない: 時間の上限を超えたら、そこまでで打ち切る（0 件ではなく、見つけた分を返す）
+        hou = FakeHou({"/obj": FakeNode("/obj", children=[FakeNode(f"/obj/n{i}", errors=("e",)) for i in range(1000)])})
+        ticks = iter(range(10_000))
+        found = pt.scan_error_nodes(hou, budget_sec=2.0, clock=lambda: next(ticks) * 1.0)
+        self.assertGreater(len(found), 0)
+        self.assertLess(len(found), 1000)
+
+
 class SamplerTest(unittest.TestCase):
     def test_counts_distinct_nodes_that_were_ever_in_error(self):
         state = {"errored": ["/obj/a"]}
@@ -87,7 +97,54 @@ class SamplerTest(unittest.TestCase):
         self.assertIsNone(outside.count, "outside Houdini: not measurable → blank, not 0")
 
 
+class ProgressTest(unittest.TestCase):
+    """Houdini が閉じた・落ちたあとの再開: 途中経過を引き継ぎ、閉じていた時間は中断として数える。"""
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.store = pt.ProgressStore(Path(self._dir.name) / "sub" / "progress.json")
+
+    def test_save_and_load_for_the_same_session_only(self):
+        self.assertIsNone(self.store.load("s1"), "nothing saved yet")
+        self.store.save("s1", {"/obj/b", "/obj/a"}, 30, 1000.0)
+        saved = self.store.load("s1")
+        self.assertEqual(saved["errorPaths"], ["/obj/a", "/obj/b"])
+        self.assertEqual((saved["pausedSec"], saved["lastSeen"]), (30, 1000.0))
+        self.assertIsNone(self.store.load("other"), "another session's progress is not carried over")
+        self.store.clear()
+        self.assertIsNone(self.store.load("s1"))
+        self.store.clear()  # 無くても、エラーにならない
+
+    def test_broken_file_is_ignored(self):
+        path = Path(self._dir.name) / "bad.json"
+        path.write_text("{not json", encoding="utf-8")
+        self.assertIsNone(pt.ProgressStore(path).load("s1"))
+
+    def test_resume_counts_the_closed_time_as_paused(self):
+        paths, paused = pt.resume_state({"sessionId": "s", "errorPaths": ["/obj/a"], "pausedSec": 60, "lastSeen": 1000.0}, 1000.0 + 600)
+        self.assertEqual(paths, {"/obj/a"})
+        self.assertEqual(paused, 660, "earlier pauses + the gap since the last sign of life")
+
+    def test_short_gap_is_not_a_pause(self):
+        # 採取の間隔（20秒）ぶんの空きは、閉じていたのではない
+        self.assertEqual(pt.resume_state({"lastSeen": 1000.0, "pausedSec": 0}, 1015.0)[1], 0)
+        self.assertEqual(pt.resume_state(None, 5.0), (set(), 0))
+
+    def test_sampler_keeps_restored_nodes(self):
+        sampler = pt.ErrorSampler(scene("/obj/new"))
+        sampler.restore(["/obj/old"])
+        sampler.sample()
+        self.assertEqual(sampler.count, 2, "errors from before the restart still count")
+        self.assertEqual(sampler.paths, ["/obj/new", "/obj/old"])
+
+
 class PayloadTest(unittest.TestCase):
+    def test_paused_time_is_sent(self):
+        self.assertEqual(pt.build_end_payload("s", True, 0, 1, {}, "", 90)["pausedSec"], 90)
+        self.assertEqual(pt.build_end_payload("s", True, 0, 1, {}, "")["pausedSec"], 0)
+        self.assertEqual(pt.build_end_payload("s", True, 0, 1, {}, "", -5)["pausedSec"], 0)
+
     def test_end_payload_drops_unanswered_and_invalid(self):
         p = pt.build_end_payload("sid", True, 3, 4, {"difficulty": 2, "clarity": 0, "focus": 9, "reuse": 5}, "  メモ  ")
         self.assertEqual(p["survey"], {"difficulty": 2, "reuse": 5})
@@ -119,6 +176,12 @@ class TextTest(unittest.TestCase):
         self.assertNotIn("sourceUseful", docs)
         self.assertEqual(len(system) - len(docs), 1)
 
+    def test_history_line(self):
+        line = pt.format_history_line({"round": 2, "kind": "fixed", "label": "RBD", "durationSec": 1800})
+        self.assertEqual(line, "第2回 固定課題: RBD　30分")
+        self.assertEqual(pt.format_history_line({"round": 1, "kind": "free", "label": "自分の作りたいもの", "durationSec": None}), "第1回 自由課題: 自分の作りたいもの")
+        self.assertIn("1分", pt.format_history_line({"round": 1, "kind": "fixed", "label": "x", "durationSec": 5}))
+
     def test_elapsed(self):
         self.assertEqual(pt.format_elapsed(0), "0:00:00")
         self.assertEqual(pt.format_elapsed(3725), "1:02:05")
@@ -143,9 +206,11 @@ class ClientTest(unittest.TestCase):
             client.pilot_profile({"experienceYears": 1})
             client.pilot_session_start("fixed")
             client.pilot_session_end({"sessionId": "s"})
+            client.pilot_session_reset("s")
         urls = [c.args[0] for c in post.call_args_list]
-        self.assertEqual(urls, ["https://w.example/pilot/plan", "https://w.example/pilot/profile", "https://w.example/pilot/session/start", "https://w.example/pilot/session/end"])
+        self.assertEqual(urls, ["https://w.example/pilot/plan", "https://w.example/pilot/profile", "https://w.example/pilot/session/start", "https://w.example/pilot/session/end", "https://w.example/pilot/session/reset"])
         self.assertEqual(post.call_args_list[2].args[1], {"kind": "fixed"})
+        self.assertEqual(post.call_args_list[4].args[1], {"sessionId": "s"})
         self.assertTrue(all(c.kwargs.get("api_key") == "KEY" for c in post.call_args_list))
 
     def test_not_available_in_local_mode(self):

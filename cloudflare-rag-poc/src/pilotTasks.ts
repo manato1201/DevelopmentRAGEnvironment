@@ -11,6 +11,10 @@ import { requireAdmin } from "./auth";
 //   ・所要時間は、サーバーの時刻（開始・終了）から出す。質問回数は、その時間内の質問（memory）の数で、サーバーが数える
 //     （画面からの申告に頼らない。「公式ドキュメントのみ」の回に質問が混ざったかも、これで分かる）。
 //   ・集計は管理者だけ。氏名は出さず、P01 のような番号で出す。管理者の記録は、集計に入れない。
+//   ・やり直し: 計測中の記録も、終えた記録も、本人が破棄できる（discarded_at。消さずに残し、集計と「次の課題」の判定からは外す）。
+//     ただし、次の回の課題を始めたあとは、前の回はやり直せない（回の順序と、対照の割り当てを崩さないため）。
+//   ・所要時間 = 終了の時刻 − 開始の時刻 − 中断（Houdini が閉じていた秒数）。終了の時刻は、振り返りの回答に使った時間（surveySec）を引く。
+//     どちらも画面側が同じ時計で測った秒数で送る（サーバーとPCの時計のずれに左右されない）。
 
 export type TaskId = "pyro" | "rbd" | "cloud";
 export type Kind = "fixed" | "free";
@@ -62,6 +66,9 @@ export interface PlanSession {
   round: number;
   kind: Kind;
   ended_at: number | null;
+  id?: string;
+  task_id?: string;
+  duration_sec?: number | null;
 }
 
 export interface TaskPlanItem {
@@ -102,6 +109,33 @@ export function buildPlan(slot: number, sessions: PlanSession[]): TaskPlan {
   };
 }
 
+export interface HistoryItem {
+  sessionId: string;
+  round: number;
+  kind: Kind;
+  label: string;
+  running: boolean;
+  durationSec: number | null;
+  redoable: boolean; // 次の回を始める前なら、やり直せる
+}
+
+// これまでの記録（破棄していないもの）。画面の「完了した記録」と「やり直す」の元。
+export function buildHistory(sessions: PlanSession[]): HistoryItem[] {
+  const lastRound = Math.max(0, ...sessions.map((s) => s.round));
+  return sessions
+    .filter((s) => s.id)
+    .map((s) => ({
+      sessionId: s.id as string,
+      round: s.round,
+      kind: s.kind,
+      label: s.kind === "free" ? "自分の作りたいもの" : (TASKS[s.task_id as TaskId] ?? String(s.task_id ?? "")),
+      running: s.ended_at == null,
+      durationSec: s.duration_sec ?? null,
+      redoable: s.round >= lastRound,
+    }))
+    .sort((a, b) => a.round - b.round || a.kind.localeCompare(b.kind));
+}
+
 // ---- 集計（純関数） ----
 
 export interface TaskRow {
@@ -122,6 +156,7 @@ export interface TaskRow {
   sourceUseful: number | null;
   reuse: number | null;
   comment: string;
+  redoCount?: number; // やり直した回数（この課題を、破棄して取り直した数）
 }
 
 export function median(values: Array<number | null | undefined>): number | null {
@@ -258,18 +293,23 @@ async function loadProfile(env: Env, userId: string): Promise<ProfileRow | null>
   return (await env.DB.prepare("SELECT user_id, pid, slot FROM pilot_profile WHERE user_id = ?").bind(userId).first<ProfileRow>()) ?? null;
 }
 
-async function loadSessions(env: Env, userId: string): Promise<Array<PlanSession & { id: string; started_at: number; task_id: string; condition: string }>> {
-  const res = await env.DB.prepare("SELECT id, round, kind, task_id, condition, started_at, ended_at FROM pilot_sessions WHERE user_id = ? ORDER BY round, kind")
+type SessionRow = PlanSession & { id: string; started_at: number; task_id: string; condition: string };
+
+// 破棄したもの（やり直し）は、入れない
+async function loadSessions(env: Env, userId: string): Promise<SessionRow[]> {
+  const res = await env.DB.prepare(
+    "SELECT id, round, kind, task_id, condition, started_at, ended_at, duration_sec FROM pilot_sessions WHERE user_id = ? AND discarded_at IS NULL ORDER BY round, kind",
+  )
     .bind(userId)
-    .all<PlanSession & { id: string; started_at: number; task_id: string; condition: string }>();
+    .all<SessionRow>();
   return res.results ?? [];
 }
 
 async function planResponse(env: Env, userId: string): Promise<Response> {
   const profile = await loadProfile(env, userId);
   if (!profile) return jsonResponse(200, { status: "ok", profile: false });
-  const plan = buildPlan(profile.slot, await loadSessions(env, userId));
-  return jsonResponse(200, { status: "ok", profile: true, pid: profile.pid, ...plan });
+  const sessions = await loadSessions(env, userId);
+  return jsonResponse(200, { status: "ok", profile: true, pid: profile.pid, ...buildPlan(profile.slot, sessions), history: buildHistory(sessions) });
 }
 
 // POST /pilot/plan — 自分の次の課題（本人だけ）
@@ -341,33 +381,38 @@ export async function handlePilotSessionEnd(req: Request, env: Env, user: Authed
   const body = await readBody(req);
   const id = typeof body.sessionId === "string" ? body.sessionId : "";
   const row = id
-    ? await env.DB.prepare("SELECT id, user_id, kind, condition, started_at, ended_at FROM pilot_sessions WHERE id = ?").bind(id).first<{
+    ? await env.DB.prepare("SELECT id, user_id, kind, condition, started_at, ended_at, discarded_at FROM pilot_sessions WHERE id = ?").bind(id).first<{
         id: string;
         user_id: string;
         kind: Kind;
         condition: Condition;
         started_at: number;
         ended_at: number | null;
+        discarded_at: number | null;
       }>()
     : null;
-  if (!row || row.user_id !== user.userId) return jsonResponse(404, { error: "課題の記録が見つかりません" });
+  if (!row || row.user_id !== user.userId || row.discarded_at != null) return jsonResponse(404, { error: "課題の記録が見つかりません" });
   if (row.ended_at != null) return jsonResponse(409, { error: "この課題は、すでに終えています" });
 
   const now = Math.floor(Date.now() / 1000);
+  // 終了の時刻は、「終了」を押した時刻（送信の時刻から、振り返りの回答に使った時間を引く）。中断（Houdini が閉じていた時間）は所要時間から引く。
+  const endedAt = Math.max(row.started_at, now - clampInt(body.surveySec, 0, 0, 86400));
+  const pausedSec = Math.min(clampInt(body.pausedSec, 0, 0, 604800), endedAt - row.started_at);
   const queries = await env.DB.prepare("SELECT COUNT(*) AS n FROM memory WHERE user_id = ? AND created_at >= ? AND created_at <= ?")
-    .bind(user.userId, row.started_at, now)
+    .bind(user.userId, row.started_at, endedAt)
     .first<{ n: number }>();
   const survey = (body.survey && typeof body.survey === "object" ? body.survey : {}) as Record<string, unknown>;
   const values = Object.fromEntries(SURVEY_FIELDS.map((f) => [f, likert(survey[f])])) as Record<SurveyField, number | null>;
   if (row.condition === "docs_only") values.sourceUseful = null; // 本システムを使わない回に、出典の有用性は無い
   const cook = body.cookErrorNodes == null ? null : clampInt(body.cookErrorNodes, 0, 0, 9999);
   await env.DB.prepare(
-    `UPDATE pilot_sessions SET ended_at = ?, duration_sec = ?, query_count = ?, cook_error_nodes = ?, reached = ?, self_mistakes = ?,
+    `UPDATE pilot_sessions SET ended_at = ?, duration_sec = ?, paused_sec = ?, query_count = ?, cook_error_nodes = ?, reached = ?, self_mistakes = ?,
        difficulty = ?, clarity = ?, focus = ?, accuracy_worry = ?, source_useful = ?, reuse = ?, comment = ? WHERE id = ?`,
   )
     .bind(
-      now,
-      now - row.started_at,
+      endedAt,
+      endedAt - row.started_at - pausedSec,
+      pausedSec,
       queries?.n ?? 0,
       cook,
       body.reached === true || body.reached === 1 ? 1 : body.reached === false || body.reached === 0 ? 0 : null,
@@ -385,6 +430,23 @@ export async function handlePilotSessionEnd(req: Request, env: Env, user: Authed
   return planResponse(env, user.userId);
 }
 
+// POST /pilot/session/reset { sessionId } — 計測中・終えた記録を、破棄してやり直す（本人だけ）。
+// 次の回の課題を始めたあとは、前の回はやり直せない。破棄した記録は消さずに残す（集計には入れない）。
+export async function handlePilotSessionReset(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = await readBody(req);
+  const id = typeof body.sessionId === "string" ? body.sessionId : "";
+  const row = id
+    ? await env.DB.prepare("SELECT user_id, round, discarded_at FROM pilot_sessions WHERE id = ?").bind(id).first<{ user_id: string; round: number; discarded_at: number | null }>()
+    : null;
+  if (!row || row.user_id !== user.userId || row.discarded_at != null) return jsonResponse(404, { error: "課題の記録が見つかりません" });
+  const later = await env.DB.prepare("SELECT COUNT(*) AS n FROM pilot_sessions WHERE user_id = ? AND discarded_at IS NULL AND round > ?")
+    .bind(user.userId, row.round)
+    .first<{ n: number }>();
+  if ((later?.n ?? 0) > 0) return jsonResponse(409, { error: "次の回を始めたあとは、前の回はやり直せません。必要なら、運営に連絡してください" });
+  await env.DB.prepare("UPDATE pilot_sessions SET discarded_at = ? WHERE id = ?").bind(Math.floor(Date.now() / 1000), id).run();
+  return planResponse(env, user.userId);
+}
+
 // POST /admin/pilot/tasks — 課題の集計と、1課題1行のデータ（管理者だけ。氏名は出さず、P01 のような番号）
 export async function handlePilotTasks(_req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireAdmin(user);
@@ -392,9 +454,10 @@ export async function handlePilotTasks(_req: Request, env: Env, user: AuthedUser
     `SELECT p.pid AS pid, s.round AS round, s.kind AS kind, s.task_id AS taskId, s.condition AS condition,
        s.duration_sec AS durationSec, s.query_count AS queryCount, s.cook_error_nodes AS cookErrorNodes, s.reached AS reached,
        s.self_mistakes AS selfMistakes, s.difficulty AS difficulty, s.clarity AS clarity, s.focus AS focus,
-       s.accuracy_worry AS accuracyWorry, s.source_useful AS sourceUseful, s.reuse AS reuse, COALESCE(s.comment, '') AS comment
+       s.accuracy_worry AS accuracyWorry, s.source_useful AS sourceUseful, s.reuse AS reuse, COALESCE(s.comment, '') AS comment,
+       (SELECT COUNT(*) FROM pilot_sessions d WHERE d.user_id = s.user_id AND d.round = s.round AND d.kind = s.kind AND d.discarded_at IS NOT NULL) AS redoCount
      FROM pilot_sessions s JOIN pilot_profile p ON p.user_id = s.user_id JOIN users u ON u.user_id = s.user_id
-     WHERE s.ended_at IS NOT NULL AND p.pid IS NOT NULL AND u.role != 'admin'
+     WHERE s.ended_at IS NOT NULL AND s.discarded_at IS NULL AND p.pid IS NOT NULL AND u.role != 'admin'
      ORDER BY p.pid, s.round, s.kind`,
   ).all<TaskRow>();
   const rows = res.results ?? [];

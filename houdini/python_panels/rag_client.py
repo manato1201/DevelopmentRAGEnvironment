@@ -181,6 +181,10 @@ class RAGClient:
         """課題を終える（/pilot/session/end）。到達・自己申告のミス・cook エラーのノード数・課題後アンケートを送る。"""
         return self._pilot("/pilot/session/end", payload)
 
+    def pilot_session_reset(self, session_id: str) -> dict:
+        """計測中・終えた課題を破棄して、やり直す（/pilot/session/reset）。次の回を始めたあとの、前の回は、サーバーが断る。"""
+        return self._pilot("/pilot/session/reset", {"sessionId": session_id})
+
     def rate(self, memory_id, rating: str) -> bool:
         """
         Cloudflare モードのみ有効。回答の履歴に 👍/👎 評価を送る（/memory/rate）。

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -20,7 +21,7 @@ app = QApplication.instance() or QApplication([])
 CFG = {"mode": "cloudflare", "cf_url": "https://w.example", "cf_api_key": "KEY"}
 
 
-def plan(round_=1, profile=True, fixed_done=False, free_done=False, active=False, condition="docs_only", finished=False):
+def plan(round_=1, profile=True, fixed_done=False, free_done=False, active=False, condition="docs_only", finished=False, history=()):
     if not profile:
         return {"status": "ok", "profile": False}
     return {
@@ -28,20 +29,23 @@ def plan(round_=1, profile=True, fixed_done=False, free_done=False, active=False
         "fixed": {"kind": "fixed", "taskId": "pyro", "label": "Pyro（煙・炎のシミュレーション）", "condition": condition, "done": fixed_done, "active": active},
         "free": {"kind": "free", "taskId": "free", "label": "自由課題（自分の作りたいもの）", "condition": "system", "done": free_done, "active": False},
         "criterion": "課題の題材として、作品物ができていること",
+        "history": list(history),
     }
 
 
 class FakeClient:
     """サーバーの代わり。呼ばれた内容を覚える。"""
     calls: list = []
-    state = {"profile": False, "fixed_done": False}
+    state = {"profile": False, "fixed_done": False, "fail_end": 0, "resumed": False}
 
     def __init__(self, cfg):
         pass
 
     def pilot_plan(self):
         FakeClient.calls.append(("plan",))
-        return plan(profile=FakeClient.state["profile"], fixed_done=FakeClient.state["fixed_done"])
+        done = FakeClient.state["fixed_done"]
+        history = [{"sessionId": "sid-1", "round": 1, "kind": "fixed", "label": "Pyro", "running": False, "durationSec": 600, "redoable": True}] if done else []
+        return plan(profile=FakeClient.state["profile"], fixed_done=done, history=history)
 
     def pilot_profile(self, answers):
         FakeClient.calls.append(("profile", answers))
@@ -50,12 +54,20 @@ class FakeClient:
 
     def pilot_session_start(self, kind):
         FakeClient.calls.append(("start", kind))
-        return {"status": "ok", "sessionId": "sid-1", "startedAt": int(time.time()) - 125, "kind": kind, "condition": "docs_only" if kind == "fixed" else "system", "label": "Pyro", "round": 1}
+        return {"status": "ok", "sessionId": "sid-1", "startedAt": int(time.time()) - 125, "resumed": FakeClient.state["resumed"], "kind": kind, "condition": "docs_only" if kind == "fixed" else "system", "label": "Pyro", "round": 1}
 
     def pilot_session_end(self, payload):
         FakeClient.calls.append(("end", payload))
+        if FakeClient.state["fail_end"] > 0:
+            FakeClient.state["fail_end"] -= 1
+            raise RuntimeError("<urlopen error [Errno 11001] getaddrinfo failed>")
         FakeClient.state["fixed_done"] = True
-        return plan(fixed_done=True)
+        return plan(fixed_done=True, history=[{"sessionId": "sid-1", "round": 1, "kind": "fixed", "label": "Pyro", "running": False, "durationSec": 600, "redoable": True}])
+
+    def pilot_session_reset(self, session_id):
+        FakeClient.calls.append(("reset", session_id))
+        FakeClient.state["fixed_done"] = False
+        return plan()
 
 
 pp.RAGClient = FakeClient
@@ -70,8 +82,12 @@ def pump(until, timeout=5.0):
     assert until(), "timed out"
 
 
-panel = pp.PilotTaskPanel(lambda: CFG)
+progress_dir = tempfile.TemporaryDirectory()
+progress_path = Path(progress_dir.name) / "progress.json"
+panel = pp.PilotTaskPanel(lambda: CFG, progress_path=progress_path)
 panel.show()
+answers = {"yes": True}
+panel._confirm = lambda text: answers["yes"]
 
 # 1) 事前アンケートが先
 panel.refresh()
@@ -106,8 +122,30 @@ panel._on_finish()
 assert panel._active is not None
 assert not any(c[0] == "end" for c in FakeClient.calls)
 
-# 4) 送信: 対照の回は、出典の質問が無い。答えなかった項目は送られない
+# 3b) 途中経過が、このPCに残っている（Houdini が閉じても、続きから引き継ぐため）
+saved = panel._progress.load("sid-1")
+assert saved and saved["sessionId"] == "sid-1", saved
+
+# 3c) 計測をやり直す: 確認で「いいえ」なら何も起きない。「はい」で破棄し、最初から始められる
+answers["yes"] = False
+panel._on_restart()
+app.processEvents()
+assert panel._active is not None and not any(c[0] == "reset" for c in FakeClient.calls)
+answers["yes"] = True
+panel._on_restart()
+pump(lambda: panel._active is None)
+assert ("reset", "sid-1") in FakeClient.calls
+assert not panel._tick.isActive() and not panel._sample_timer.isActive()
+assert panel._progress.load("sid-1") is None, "the discarded run leaves no progress behind"
+assert "破棄しました" in panel._message.text()
+assert fixed["start"].isEnabled() and not fixed["finish"].isEnabled() and not fixed["restart"].isEnabled()
+panel._on_start("fixed")
+pump(lambda: panel._active is not None)
+
+# 4) 送信: 対照の回は、出典の質問が無い。答えなかった項目は送られない。
+#    1回目は、通信に失敗する → 答えを残して、「答えを再送する」で同じ内容を送り直せる
 captured = {}
+FakeClient.state["fail_end"] = 1
 
 
 def fake_exec(self):
@@ -122,10 +160,19 @@ def fake_exec(self):
 
 pp.TaskSurveyDialog.exec = fake_exec
 panel._on_finish()
+pump(lambda: "答えは残してあります" in panel._message.text())
+assert panel._active is not None and panel._pending_end is not None, "a failed send keeps the run and the answers"
+assert fixed["finish"].text() == "答えを再送する"
+time.sleep(1.1)
+panel._on_finish()  # 回答のやり直しはせず、残した答えをそのまま再送する（ダイアログは出ない）
 pump(lambda: panel._active is None)
 pp.TaskSurveyDialog.exec = orig_exec
 assert "sourceUseful" not in captured["questions"], captured["questions"]
-end = [c for c in FakeClient.calls if c[0] == "end"][0][1]
+ends = [c[1] for c in FakeClient.calls if c[0] == "end"]
+assert len(ends) == 2 and ends[0]["survey"] == ends[1]["survey"] and ends[0]["comment"] == ends[1]["comment"], "same answers on resend"
+assert ends[1]["surveySec"] >= ends[0]["surveySec"] + 1, "the waiting time grows, so it stays out of the working time"
+assert panel._progress.load("sid-1") is None, "progress is cleared once the task is finished"
+end = ends[1]
 assert end["sessionId"] == "sid-1" and end["reached"] is True and end["selfMistakes"] == 2
 assert end["survey"] == {"difficulty": 4, "clarity": 2}, end["survey"]
 assert end["comment"] == "検索で迷った"
@@ -134,6 +181,27 @@ assert not panel._tick.isActive() and not panel._sample_timer.isActive()
 assert "完了しました" in fixed["status"].text()
 assert not fixed["start"].isEnabled(), "a finished task cannot be started again"
 assert "送信しました" in panel._message.text()
+assert end["pausedSec"] == 0
+
+# 4b) 完了した記録から、やり直す（間違えて終えたとき）
+assert panel._history_box.isVisible()
+redo_buttons = [b for b in panel._history_box.findChildren(pp.QPushButton) if b.text() == "やり直す"]
+assert len(redo_buttons) == 1, "a finished task offers a redo"
+redo_buttons[0].click()
+pump(lambda: ("reset", "sid-1") in FakeClient.calls[-2:] and not fixed["status"].text().startswith("完了"))
+assert fixed["start"].isEnabled(), "the task can be started again after a redo"
+assert not panel._history_box.isVisible()
+
+# 4c) Houdini が閉じたあとの再開: 途中経過（エラーのノード・中断の時間）を引き継ぐ
+panel._progress.save("sid-1", ["/obj/before_crash"], 30, time.time() - 300)
+FakeClient.state["resumed"] = True
+panel._on_start("fixed")
+pump(lambda: panel._active is not None)
+assert 320 <= panel._active["pausedSec"] <= 340, panel._active["pausedSec"]  # 30 + 約300 秒の空き
+assert "/obj/before_crash" in panel._sampler.paths, "errors seen before the restart are kept"
+assert panel._sampler.count >= 1
+panel._stop_recording()
+FakeClient.state["resumed"] = False
 
 # 5) 接続エラーは、利用者向けの短い文で出る
 class Down(FakeClient):
