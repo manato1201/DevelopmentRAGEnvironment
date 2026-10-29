@@ -97,6 +97,14 @@ assert.ok(!/\.msg\.skeleton i:nth-child/.test(html), "no nth-child on the skelet
 assert.match(html, /\.ascii-critter \{[^}]*color: var\(--accent\)/);
 assert.match(html, /\.ascii-critter \.ascii-glow \{ color: var\(--highlight\); \}/);
 
+// Z20: 背景の生き物は、選んだ人だけ（既定はなし）。操作を邪魔せず、狭い画面では出さない。動きを減らす設定は asciiCritter が尊重する
+assert.match(html, /id="wallpaperToggle"[^>]*>背景: なし</, "off by default");
+assert.match(code, /function initWallpaper\(/);
+assert.match(code, /el = asciiCritter\(\);\s*el\.classList\.add\("ascii-wallpaper"\)/, "reuses the same creature (and its reduced-motion handling)");
+assert.match(html, /\.ascii-wallpaper \{[^}]*z-index: -1;[^}]*pointer-events: none;/, "behind the content, never takes clicks");
+assert.match(html, /@media \(max-width: 720px\) \{ \.ascii-wallpaper \{ display: none; \} \}/, "hidden on narrow screens");
+assert.match(code, /if \(el\) \{ el\.remove\(\); el = null; \}/, "switching off removes it, which also stops its timer");
+
 // paintCritter: 濃いマス（X と @）だけを span にする。文字は欠けない
 const paintStart = code.indexOf("function paintCritter(");
 const paintSrc = code.slice(paintStart, code.indexOf("// 空状態と、回答待ち", paintStart));

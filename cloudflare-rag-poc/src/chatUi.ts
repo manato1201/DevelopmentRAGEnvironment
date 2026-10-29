@@ -529,6 +529,11 @@ export function chatUiHtml(): string {
   .ascii-critter { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; line-height: 1.1; color: var(--accent); margin: .6rem 0 0; white-space: pre; user-select: none; text-align: center; }
   .ascii-critter .ascii-glow { color: var(--highlight); }
   .msg.skeleton .ascii-critter { margin: 0 0 .4rem; text-align: left; }
+  /* Z20: 背景の生き物（選んだ人だけ。既定はなし）。画面の右下に、薄く。本文・操作部品の後ろ（z-index:-1）で、操作を邪魔しない。狭い画面では出さない。 */
+  .ascii-wallpaper { position: fixed; right: 1rem; bottom: 1rem; z-index: -1; margin: 0; font-size: 1rem; opacity: .14; pointer-events: none; }
+  :root[data-theme="light"] .ascii-wallpaper { opacity: .2; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme]) .ascii-wallpaper { opacity: .2; } }
+  @media (max-width: 720px) { .ascii-wallpaper { display: none; } }
   .shortcut-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
   .shortcut-table td { padding: .35rem .5rem; border-bottom: 1px solid var(--border); }
   .shortcut-table td:first-child { white-space: nowrap; }
@@ -652,6 +657,7 @@ export function chatUiHtml(): string {
     <span id="myBudget" class="hint" title="自分のAPIキーのトークン予算残量"></span>
     <button type="button" id="myConnBtn" class="hidden" title="自分専用の連携（Gmail・Drive・カレンダー・Jira・Backlog・公式MCP）。他の人からは見えません">自分用の連携</button>
     <button type="button" id="themeToggle" title="テーマ切替（自動 / ライト / ダーク）">テーマ: 自動</button>
+    <button type="button" id="wallpaperToggle" title="背景に、文字で描いた生き物を薄く出す（既定はなし。動きを減らす設定のときは静止）">背景: なし</button>
   </div>
   <nav class="tabs">
     <button data-tab="chat" class="active">チャット</button>
@@ -2852,6 +2858,31 @@ ${ASCII_ART_JS}
     }, 140);
     return pre;
   }
+
+  // Z20: 背景の生き物の選択（なし / クラゲ）。既定はなし。選択はlocalStorageに保存する（不可環境では握りつぶす）。
+  (function initWallpaper() {
+    const btn = document.getElementById("wallpaperToggle");
+    if (!btn) return;
+    const LABELS = { off: "なし", critter: "クラゲ" };
+    let el = null;
+    function apply(mode) {
+      if (el) { el.remove(); el = null; } // 取り除くと、描画のタイマーも止まる
+      if (mode === "critter") {
+        el = asciiCritter();
+        el.classList.add("ascii-wallpaper");
+        document.body.appendChild(el);
+      }
+      btn.textContent = "背景: " + LABELS[mode];
+    }
+    let saved = "off";
+    try { saved = localStorage.getItem("ragPocWallpaper") === "critter" ? "critter" : "off"; } catch { /* 不可環境はなし */ }
+    apply(saved);
+    btn.addEventListener("click", () => {
+      const next = el ? "off" : "critter";
+      apply(next);
+      try { localStorage.setItem("ragPocWallpaper", next); } catch { /* noop */ }
+    });
+  })();
 
   // T12: 出典の種別と言語（推定）。種別は、取り込み元の記録が回答に付いていないので、URLかどうかだけで分ける。
   function sourceKind(s) {

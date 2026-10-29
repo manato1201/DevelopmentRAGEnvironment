@@ -191,5 +191,21 @@ Prompt Shelf の「原文と出典から」の方針・出典種別と言語の�
 | 実装系統 | A. Flock |
 
 - 本文・操作部品には出さない。`prefers-reduced-motion` では静止画1枚にする。
-- 未確認: 上流の動作・描画負荷(`npm install`/build は未実行)。
+- 上流の動作は確認済み(2026-10-30: 型検査・ビルド成功、60fps)。未確認: 各プロジェクトへ組み込んだときの負荷。
 - **実装済み(2026-10-27)**: `asciiCritter()` を、空の履歴・0件ヒットに加えて**回答待ち(スケルトンの上)**にも出した。色は既存トークンのみ(全体を `--accent`、濃いマス `X` `@` だけ `--highlight`)。`prefers-reduced-motion` では完成した静止画1枚(タイマーなし)。画面の外・非表示のタブでは描かない(`IntersectionObserver` と `document.hidden`)。取り除かれたらタイマーも止める。上流 ascii-sharks は取り込んでいない(Flock の群れ挙動ではなく、既存の純関数 `critterFrame` の発展)。**未実装**: 群れ(boids)・`MotifPack` 型・Phase 0 の vendor 取り込み。
+
+
+---
+
+## 追補: 第4弾の外部資料(2026-10-30・提案/未実装)
+
+元: [EXTERNAL_RESOURCES_2026-10-30.md](../EXTERNAL_RESOURCES_2026-10-30.md)。
+
+- **Z20 テーマの選択**: 壁紙を選べる UI(設定の中)。`asciiCritter()` を拡張し、背景に置く。曇りガラスの UI の背後に生き物が泳ぐ見た目。本文のコントラストは検証する。
+  - **一部実装済み(2026-10-30)**: ヘッダーの「背景: なし / クラゲ」の切り替え(**既定はなし**、選択は localStorage)。右下に薄く(不透明度 .14、ライトは .2)置き、本文・操作部品の後ろ(`z-index:-1`・`pointer-events:none`)。720px 未満では出さない。動きの減らす設定・非表示・画面外の扱いは `asciiCritter()` をそのまま使う。原則 P8(動きは空状態と待ち時間だけ)に反するので、**選んだ人だけ**にした。
+  - **未実装**: 8 つの壁紙(いまは生き物 1 種)、曇りガラス(`backdrop-filter`)。**未確認**: 実画面でのコントラストの目視(画面での確認が要る)。
+- **Z27**: D1 の検索結果の上位 30 件に、小さなモデルの Yes/No 再ランキングをかける比較実験(LocalLLMHarness の A7 と共通)。
+  - **未実施(意図的)**: 論文を確認できておらず、比較の土台(日本語QAセット・Phase 0)も無い。Worker 内で小さなモデルを動かす先もないため、LocalLLMHarness 側の実測が先。
+- **Z32 SQL**: D1 のクエリの落とし穴(`LIMIT` と `ORDER BY`、関数をかけた列の索引、`COUNT(列)` の NULL)を点検する。
+  - **点検済み(2026-10-30)**: `cloudflare-rag-poc/src` の SQL を確認。問題なし。`LIMIT` は `ORDER BY` と一緒(`LIMIT 1` は存在確認だけ)/ `date(created_at,'unixepoch')` は SELECT・GROUP BY だけで、WHERE は素の列(索引が効く)/ `COUNT(列)` は無く `COUNT(*)` / `NOT IN` の副問い合わせは `IS NOT NULL` を付けて NULL を除いている(`index.ts`)/ `!=` で比べる列(`users.role`)は `NOT NULL`。
+  - **気づいたこと(直していない)**: 管理画面の `display_name LIKE '%…%'`・`namespace_id LIKE '%…%'` と、スレッド検索の `LIKE`(`threads.ts`)は、前方に `%` があり索引が効かない(管理者向け・ユーザー単位の絞り込みなので、いまの規模では許容)。`ORDER BY updated_at DESC LIMIT` は同時刻が並ぶと順序が不定になりうる。`audit_log.namespace_id` は列としては `NULL` を許すが、書き込む 3 箇所(`claude.ts`・`query.ts`・`search.ts`)はどれも文字列を渡すので、`!= 'claude:proxy'` が行を落とすことはない(将来 NULL を書く経路を足すなら、`IS NULL OR` を付ける)。
