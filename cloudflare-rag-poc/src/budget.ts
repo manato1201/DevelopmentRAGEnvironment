@@ -25,7 +25,11 @@ async function applyScheduledResetIfDue(env: Env, userId: string, budgetType: "r
   const now = Math.floor(Date.now() / 1000);
   if (now < row.reset_at) return row;
 
-  const nextResetAt = row.reset_at + row.reset_interval_hours * 3600;
+  // 何周期も遅れていても1回で追いつく（1周期ずつ進めると、追いつくまでの数回、毎回0に戻ってしまう）。
+  // 元のリズム（reset_at + 周期の整数倍）は保ち、現在より後で最初の境界にする。
+  const interval = row.reset_interval_hours * 3600;
+  const periods = Math.floor((now - row.reset_at) / interval) + 1;
+  const nextResetAt = row.reset_at + periods * interval;
   await env.DB.prepare("UPDATE token_budgets SET used_tokens = 0, reset_at = ? WHERE user_id = ? AND budget_type = ?")
     .bind(nextResetAt, userId, budgetType)
     .run();
