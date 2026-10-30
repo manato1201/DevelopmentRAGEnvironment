@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第16回 スクリプトを読み・書く（配置・点検・図・資料の生成）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a><a href="11-algorithm-basics.html">11</a><a href="12-search-algorithms.html">12</a><a href="13-control-algorithms.html">13</a><a href="14-graph-algorithms.html">14</a><a href="15-experiment-and-growth.html">15</a><a class="current" href="16-scripts.html">16</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第16回 スクリプトを読み・書く（配置・点検・図・資料の生成）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/16-scripts.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像scripts-の地図">1. 全体像：scripts/ の地図</a></li><li><a href="#2-基礎安全なスクリプトの型">2. 基礎：安全なスクリプトの型</a></li><li><a href="#3-読解1cichecknamespacespy検査スクリプトの見本">3. 読解1：ci_check_namespaces.py（検査スクリプトの見本）</a></li><li><a href="#4-読解2houdinideploypanelspy配置スクリプト">4. 読解2：houdini/deploy_panels.py（配置スクリプト）</a></li><li><a href="#5-読解3backupdatapy何を退避し何をしないか">5. 読解3：backup_data.py（何を退避し、何をしないか）</a></li><li><a href="#6-読解4diagramkitpy図を座標で作る">6. 読解4：diagram_kit.py（図を“座標で”作る）</a></li><li><a href="#7-読解5builddocshtmlpymarkdown-html">7. 読解5：build_docs_html.py（Markdown → HTML）</a></li><li><a href="#8-新しいスクリプトを書くチェックリスト">8. 新しいスクリプトを書く（チェックリスト）</a></li><li><a href="#9-演習">9. 演習</a></li><li><a href="#10-つまずきやすい点">10. つまずきやすい点</a></li><li><a href="#11-確認問題">11. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> <code>scripts/</code> と <code>houdini/deploy_panels.py</code> を<strong>1行ずつ読み</strong>、何をして、何を壊しうるかを言える。<strong>安全なスクリプトの型</strong>に沿って、新しい小さなスクリプトを書ける。<br />
+<strong>前提:</strong> 第9回（本番を変える操作の見分け方）、第11回、<code>docs/learning/05-scripts.md</code>（シェルの基本）。 <strong>目安:</strong> 4時間</p>
+<blockquote>
+<p><code>05-scripts.md</code> が「<strong>道具の使い方</strong>（PowerShell・wrangler）」なのに対し、この回は「<strong>スクリプトの中身の読み方と書き方</strong>」です。</p>
+</blockquote>
+<hr />
+<h2 id="1-全体像scripts-の地図">1. 全体像：<code>scripts/</code> の地図</h2>
+<pre><code>scripts/
+├─ A. 資料・図を作る        diagram_kit.py  build_diagrams.py  build_diagrams_lecture.py
+│                           build_docs_html.py  build_system_guide.py  guide_svg.py
+├─ B. 配布・点検・退避       build_houdini_package.py  estimate_generation_cost.py  check_gemini_api.py
+│   （＋ houdini/）          ci_check_namespaces.py  backup_data.py     ／ houdini/deploy_panels.py
+└─ C. ローカル RAG（補助層）  rag_local_bridge.py(約1100行)  rag_service.py  vector_database.py
+                            document_pipeline.py  auth_manager.py  pep.py  score_engine.py  auto_index.py …
+</code></pre>
+<ul>
+<li><strong>A・B</strong> は、この回の主題。<strong>保守で最もよく触る。</strong></li>
+<li><strong>C</strong> は、手元（ローカル）で動く<strong>補助の層</strong>（Cloudflare 上のクラウド版が主）。数が多いので、<strong>必要になったときに、冒頭の docstring から読む</strong>。どのファイルも、先頭の docstring に「何をするか・使い方」が書いてあります（このリポジトリの約束）。</li>
+<li>実行は原則 <code>uv run python scripts/&lt;名前&gt;.py</code>（<code>pyproject</code> の環境で動かす）。</li>
+</ul>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>スクリプト</th>
+<th>何をする</th>
+<th>本番に影響</th>
+<th>書き換えるもの</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>build_diagrams.py</code></td>
+<td><code>docs/images/*.svg</code> を作る</td>
+<td>なし</td>
+<td><code>docs/images/</code></td>
+</tr>
+<tr>
+<td><code>build_docs_html.py</code></td>
+<td><code>docs/**/*.md</code> → <code>.html</code></td>
+<td>なし</td>
+<td><code>.html</code></td>
+</tr>
+<tr>
+<td><code>houdini/deploy_panels.py</code></td>
+<td>パネルを Houdini の設定フォルダへ配置</td>
+<td><strong>自分の PC</strong></td>
+<td><code>Documents/houdini&lt;版&gt;/python_panels/</code></td>
+</tr>
+<tr>
+<td><code>ci_check_namespaces.py</code></td>
+<td>未知の namespace フォルダを検知</td>
+<td>なし（読むだけ）</td>
+<td>なし</td>
+</tr>
+<tr>
+<td><code>backup_data.py</code></td>
+<td>再生成できないデータを zip に退避／復元</td>
+<td><code>restore</code> は上書き</td>
+<td><code>backups/</code>、復元時は元の場所</td>
+</tr>
+<tr>
+<td><code>estimate_generation_cost.py</code></td>
+<td>記録から費用を見積もる</td>
+<td>なし（読むだけ）</td>
+<td>なし</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-基礎安全なスクリプトの型">2. 基礎：安全なスクリプトの型</h2>
+<p>どのスクリプトも、次の<strong>型</strong>に沿っています。読むときは「型のどこか」を探すと速い。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>部品</th>
+<th>目的</th>
+<th>例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>docstring に使い方</strong></td>
+<td>実行前に、何をするか分かる</td>
+<td><code>deploy_panels.py</code> の冒頭に3つの実行例</td>
+</tr>
+<tr>
+<td><code>from __future__ import annotations</code></td>
+<td>型注釈を後ろ向きに許す（古い Python との互換）</td>
+<td>ほぼ全ファイル</td>
+</tr>
+<tr>
+<td><code>main() -&gt; int</code> ＋ <code>raise SystemExit(main())</code></td>
+<td><strong>終了コード</strong>を返す（0 = 成功、それ以外 = 失敗）。CI や他のスクリプトが判定できる</td>
+<td><code>ci_check_namespaces.py</code></td>
+</tr>
+<tr>
+<td><code>argparse</code></td>
+<td>引数・サブコマンド・<code>--help</code></td>
+<td><code>backup_data.py</code>（<code>backup</code>/<code>list</code>/<code>restore</code>）</td>
+</tr>
+<tr>
+<td><code>Path(__file__).resolve().parent</code></td>
+<td><strong>どこから実行しても</strong>同じ場所を指す</td>
+<td><code>REPO = Path(__file__).resolve().parent / "python_panels"</code></td>
+</tr>
+<tr>
+<td><code>--check</code> / <code>--dry-run</code></td>
+<td><strong>書かずに</strong>、何が起きるかだけ見る</td>
+<td><code>deploy_panels.py --check</code></td>
+</tr>
+<tr>
+<td><strong>上書き前の退避</strong></td>
+<td>戻せるようにする</td>
+<td><code>deploy_panels.py</code> の <code>python_panels_backup_&lt;日時&gt;</code></td>
+</tr>
+<tr>
+<td><strong>確認プロンプト</strong>／<code>--force</code></td>
+<td>危険な操作の前に、人に聞く</td>
+<td><code>backup_data.py restore</code></td>
+</tr>
+<tr>
+<td><strong>標準エラーに出す</strong></td>
+<td>失敗の説明を、通常の出力と分ける</td>
+<td><code>print(..., file=sys.stderr)</code></td>
+</tr>
+<tr>
+<td><strong>冪等</strong></td>
+<td>何度実行しても同じ結果</td>
+<td><code>_same()</code> で、同じなら何もしない</td>
+</tr>
+<tr>
+<td><strong>秘密を持たない</strong></td>
+<td>鍵・トークンを、コード・引数・ログに書かない</td>
+<td>鍵は <code>wrangler secret</code>／環境変数</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>「型を満たしているか」は、<strong>新しいスクリプトのレビューの観点</strong>にもなります。</p>
+</blockquote>
+<h2 id="3-読解1cichecknamespacespy検査スクリプトの見本">3. 読解1：<code>ci_check_namespaces.py</code>（検査スクリプトの見本）</h2>
+<p><strong>目的:</strong> <code>localRAG/</code> の下に、<strong>登録されていない namespace フォルダ</strong>や、フォルダに属さない <code>.md</code> があれば、<strong>失敗（終了コード 1）</strong>にする（CI 用）。</p>
+<p>読む順序：</p>
+<ol>
+<li><strong>docstring を読む</strong>（約30行）。<strong>設計の経緯</strong>が書かれている：最初は <code>pep.py</code> の表を“正”にしようとしたが、既存の正当なフォルダが引っかかる（<strong>誤検知＝false positive</strong>）と分かり、<strong><code>auto_index.py</code> の <code>NAMESPACES</code></strong> を“正”に変えた。→ <strong>「何を基準に検査するか」が最重要</strong>で、基準が間違うと、全部が誤検知になる。</li>
+<li><code>main()</code> の流れ：</li>
+</ol>
+<pre><code class="language-python">known = set(NAMESPACES)                        # 集合にして、所属判定を O(1) に
+for entry in sorted(vault.iterdir()):          # sorted … 出力の順序を毎回同じに
+    if entry.name.startswith((&quot;_&quot;, &quot;.&quot;)): continue     # 内部用は対象外
+    if entry.is_dir():
+        if entry.name not in known: unknown_dirs.append(entry.name)
+    elif entry.is_file() and entry.suffix == &quot;.md&quot;:
+        unknown_files.append(entry.name)
+</code></pre>
+<ol start="3">
+<li><strong>終了コード:</strong> 問題があれば 1。<strong>メッセージに“次にすること”を書く</strong>（「<code>auto_index.py</code> の <code>NAMESPACES</code> に登録してください」）。</li>
+<li><strong>フォルダが無ければスキップ（0）。</strong> 検査対象が無いのは失敗ではない。</li>
+</ol>
+<p><strong>この型の使い道:</strong> 「<strong>基準の一覧（正）</strong>」と「<strong>実際の状態</strong>」を突き合わせ、<strong>差が出たら失敗</strong>にする検査は、さまざまな場面で書ける（例: マイグレーションの番号の欠番、図のファイルの有無、資料のリンク切れ）。</p>
+<h2 id="4-読解2houdinideploypanelspy配置スクリプト">4. 読解2：<code>houdini/deploy_panels.py</code>（配置スクリプト）</h2>
+<p><strong>背景（2026-09-26）:</strong> Houdini は <code>Documents/houdini&lt;版&gt;/python_panels/</code> の<strong>コピー</strong>を読むため、リポジトリを直しても、<strong>手でコピーしない限り実機に反映されない</strong>。約12日間、修正が届いていなかった。→ <strong>配置を1コマンドにした。</strong></p>
+<p><strong>流れ（97行）:</strong></p>
+<pre><code>引数 → 配置先を決める → 差分を調べる(_same) → [--check ならここで終了]
+     → 変わったファイルだけ、元のファイルを退避してからコピー
+     → [--pypanel なら] default.pypanel を作り直す（退避してから）
+     → 「Houdini を再起動してください」
+</code></pre>
+<p><strong>1. 比較の工夫（<code>_same</code>）:</strong> 改行コードの違い（Windows の <code>\r\n</code> と <code>\n</code>）で<strong>誤って“違う”と判定しない</strong>よう、両方を <code>\n</code> にそろえてから比べる。<code>b.exists() and …</code> で、配置先に無ければ「違う」。</p>
+<p><strong>2. 変更だけをコピー:</strong> <code>changed = [m for m in MODULES if not _same(...)]</code>。<strong>変わっていないファイルは触らない</strong>ので、バックアップも増えない。</p>
+<p><strong>3. バックアップ:</strong> <code>backup = house / f"python_panels_backup_{日時}"</code>。<code>copy2</code>（更新日時も保持）で退避してから上書き。→ <strong>戻し方</strong>（第9回）：その退避フォルダからコピーし戻す。</p>
+<p><strong>4. <code>MODULES</code> の一覧:</strong> 配置するモジュール名を<strong>明示的に列挙</strong>している。<strong>新しい <code>.py</code> を <code>python_panels/</code> に足したら、この一覧にも足す</strong>（足し忘れると、そのファイルだけ実機に届かない＝同じ事故）。<code>test_package.py</code> は、<strong><code>MODULES</code> と配布 zip の中身</strong>のずれを検知する（登録漏れの再発防止）。一方、<strong><code>python_panels/</code> にあるのに <code>MODULES</code> に無い</strong>ファイルは、このテストでは検知されない——現時点（実測）で一覧に無いのは <code>rag_chatbot.py</code> の1つだけで、これは <code>--pypanel</code> で <code>default.pypanel</code> に<strong>埋め込む</strong>ための意図した別扱い（演習 16.2）。</p>
+<p><strong>5. <code>--pypanel</code> の“文字化けよけ”（要注意の読みどころ）:</strong></p>
+<pre><code class="language-python">embedded = script.encode(&quot;utf-8&quot;).decode(&quot;latin-1&quot;)
+</code></pre>
+<ul>
+<li><code>.pypanel</code> は XML で、スクリプトを <code>&lt;![CDATA[ … ]]&gt;</code> に入れる。Houdini は、この中身を<strong>「UTF-8 のバイト列を1バイト＝1文字として読み替えた文字列」</strong>として保存している（Houdini 自身が保存した形）。</li>
+<li>日本語や <code>§</code> をそのまま書くと、Houdini 22 で <code>SyntaxError: (unicode error) 'utf-8' codec can't decode byte 0xa7</code> になった（2026-09-27、hython で再現）。</li>
+<li><strong>例:</strong> <code>"§"</code> の UTF-8 は2バイト <code>C2 A7</code>。これを Latin-1 として読むと <strong>2文字</strong>（<code>Â</code> と <code>§</code>）になる。それを UTF-8 の XML として保存すると、Houdini が読むときに元の1文字へ戻る。</li>
+<li><strong><code>"]]&gt;"</code> を含むと CDATA が途中で閉じる</strong>ので、事前に検査して中止（<code>return 1</code>）。</li>
+</ul>
+<blockquote>
+<p>読み方のコツ：<strong>奇妙なコードには、必ず“事故の記録”がコメントにある。</strong> 消す前に、コメントを読む。</p>
+</blockquote>
+<p><strong>6. 終了コード:</strong> Houdini のフォルダが無ければ <code>return 1</code>（標準エラーに説明）。</p>
+<h2 id="5-読解3backupdatapy何を退避し何をしないか">5. 読解3：<code>backup_data.py</code>（何を退避し、何をしないか）</h2>
+<ul>
+<li><strong>対象を絞る設計:</strong> 「<strong>再生成できるもの</strong>（ChromaDB のインデックス＝ソースから作り直せる）は<strong>対象外</strong>。<strong>消えたら二度と作れない</strong>もの（認証 DB・ナレッジの履歴・監査ログ・取り込み済み Markdown）<strong>だけ</strong>」。→ <strong>退避の対象は、“失うと困るか”で決める。</strong></li>
+<li><code>restore</code> は<strong>上書き</strong>。確認プロンプト（<code>y/N</code>）があり、<code>--force</code> で省ける。<strong>CI や自動化で <code>--force</code> を付けるときは、対象のファイルが正しいことを自分で保証する。</strong></li>
+<li><code>zf.extractall(_REPO_ROOT)</code>：zip の中身を<strong>リポジトリの根へ展開</strong>する。Python の <code>zipfile</code> は、絶対パスや <code>..</code> を含む名前を無害化するが、<strong>出所の分からない zip は復元しない</strong>（<code>../</code> を使ったファイルの上書き攻撃＝Zip Slip の考え方）。</li>
+<li><strong>注意：このスクリプトは Local RAG（手元）用。</strong> Cloudflare 側（D1 など）の退避は、<strong>管理画面のバックアップのエクスポート</strong>（<code>/admin/backup/export</code>）や <code>wrangler d1 export</code> を使う（第9回）。</li>
+</ul>
+<h2 id="6-読解4diagramkitpy図を座標で作る">6. 読解4：<code>diagram_kit.py</code>（図を“座標で”作る）</h2>
+<p><strong>方針（冒頭の docstring）:</strong> 外部ライブラリなしの<strong>単体 SVG</strong>。<strong>座標は手で決める（自動配置はしない）</strong>——図の意図をそのまま固定するため。ライト／ダークは SVG の中の CSS 変数（<code>@media (prefers-color-scheme: dark)</code>）で切り替える。</p>
+<p><strong>最小の図（実測）:</strong></p>
+<pre><code class="language-python">d = Diagram(420, 200, &quot;例&quot;, &quot;最小の図&quot;, legend=[&quot;ui&quot;, &quot;core&quot;])
+d.node(&quot;a&quot;, 40, 80, &quot;画面&quot;, &quot;ブラウザ&quot;, &quot;UI&quot;, kind=&quot;ui&quot;)        # タイルの左上 (40,80)、一辺56
+d.node(&quot;b&quot;, 260, 80, &quot;Worker&quot;, &quot;処理&quot;, &quot;W&quot;, kind=&quot;core&quot;)
+d.edge(&quot;a&quot;, &quot;r&quot;, &quot;b&quot;, &quot;l&quot;, &quot;HTTPS&quot;, step=1)                      # a の右(r) → b の左(l)
+open(&quot;x.svg&quot;, &quot;w&quot;, encoding=&quot;utf-8&quot;).write(d.svg())
+</code></pre>
+<p><strong>座標の計算（コードと一致を確認済み）:</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>量</th>
+<th>式</th>
+<th>値</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>a</code> の右辺の中点</td>
+<td><code>(x + w, y + h/2) = (40+56, 80+28)</code></td>
+<td>(96, 108)</td>
+</tr>
+<tr>
+<td><code>b</code> の左辺の中点</td>
+<td><code>(260, 80+28)</code></td>
+<td>(260, 108)</td>
+</tr>
+<tr>
+<td>矢印の経路</td>
+<td><code>M 96.0 108.0 L 260.0 108.0</code></td>
+<td>直線</td>
+</tr>
+<tr>
+<td>ラベルの位置</td>
+<td>一番長い線分の中点、上に6px</td>
+<td>x=178、y=102</td>
+</tr>
+<tr>
+<td>番号の丸の位置</td>
+<td>ラベルの左。<code>中点x − (文字数×7 + 18)</code></td>
+<td>x = 178 − (5×7+18) = <strong>125</strong>、y = 108−6−5 = <strong>97</strong></td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong><code>anchor(nid, side)</code></strong>: <code>l/r/t/b</code>（辺の中点）と <code>bb</code>（タイルの下の“文字”のさらに下）。<strong>どこから矢印を出すか</strong>を、名前で指定する。</li>
+<li><strong><code>via=[(x,y),…]</code></strong>: 途中の折れ点。<strong>直角に曲げて</strong>、枠や文字を避ける。</li>
+<li><strong>描画の順序:</strong> <code>parts</code>（枠・タイル）→ <code>edges</code>（矢印）の順に重ねる。<strong>矢印は、枠の上に描かれる</strong>。</li>
+<li><strong><code>escape()</code></strong>: 文字を SVG に入れる前に、<code>&lt;</code>・<code>&amp;</code> を無害化（<code>html.escape</code>）。<strong>文字を直接組み込む場所では、必ず通す。</strong></li>
+<li><strong>色は意味で固定:</strong> <code>KINDS</code>（画面＝橙、中核＝緑、保存＝紫、外部＝青、安全＝濃緑、注意＝赤…）。凡例は <code>legend=[…]</code>。</li>
+</ul>
+<p><strong>図を足す手順（第10回の課題 D と同じ）:</strong></p>
+<ol>
+<li><code>scripts/build_diagrams_lecture.py</code> に、<code>Diagram</code> を返す関数を書く。</li>
+<li>同じファイル末尾の <code>LECTURE_DIAGRAMS</code> に、<code>"名前": (関数, "17-ファイル名")</code> を足す。</li>
+<li><code>uv run python scripts/build_diagrams.py 名前</code> で 1 枚だけ作る（<code>build_diagrams.py</code> が <code>**LECTURE_DIAGRAMS</code> で合流している）。</li>
+<li><strong>ブラウザで開いて見る</strong>（ライトとダーク、両方）。</li>
+<li>資料に、他の図と同じ形で画像として埋め込む（例: この講義シリーズの <code>README.md</code> の「図11」の書き方を真似る）。</li>
+</ol>
+<p><strong>既知の小さな重複（改善の候補）:</strong> <code>edge()</code> と <code>_step_badge()</code> に、「一番長い線分を探す」ループが<strong>ほぼ同じ形で2か所</strong>ある。関数に切り出せば、位置の決め方を変えるとき、1か所で済む。（直すなら、既存の図の出力が<strong>変わらない</strong>ことを、全図の SVG の差分で確かめる。）</p>
+<h2 id="7-読解5builddocshtmlpymarkdown-html">7. 読解5：<code>build_docs_html.py</code>（Markdown → HTML）</h2>
+<p><code>uv run --with markdown python scripts/build_docs_html.py [資料のパス…]</code>。引数なしで全部、引数ありでその資料だけ作り直す。</p>
+<p><strong>変換の流れ（<code>convert_one</code>）:</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>段</th>
+<th>何をする</th>
+<th>なぜ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>① <code>dedent_list_fences</code></td>
+<td>リストの中の<strong>字下げされたコードブロック</strong>を、行頭に直す</td>
+<td>python-markdown は行頭以外のフェンスを認識しない（GitHub は認識する）</td>
+</tr>
+<tr>
+<td>② <code>markdown.Markdown(...)</code></td>
+<td>表・コードブロック・目次・番号付きリストを変換</td>
+<td>拡張 <code>tables, fenced_code, toc, sane_lists, nl2br</code></td>
+</tr>
+<tr>
+<td>③ タイトル抽出</td>
+<td>最初の <code>&lt;h1&gt;</code> を本文から外してヘッダへ</td>
+<td>重複を避ける</td>
+</tr>
+<tr>
+<td>④ 手書きの「目次」節を除去</td>
+<td>自動生成の目次と重ならないように</td>
+<td></td>
+</tr>
+<tr>
+<td>⑤ mermaid 変換</td>
+<td><code>language-mermaid</code> を <code>&lt;div class="mermaid"&gt;</code> に、必要なときだけ読み込み</td>
+<td>ページを軽く保つ</td>
+</tr>
+<tr>
+<td>⑥ 表を横スクロール</td>
+<td><code>&lt;div class="table-scroll"&gt;</code> で包む</td>
+<td>狭い画面で崩れない</td>
+</tr>
+<tr>
+<td>⑦ <code>fix_href</code></td>
+<td>相対リンクの <code>.md</code> を <code>.html</code> に</td>
+<td><strong>変換対象、または HTML が既にあるときだけ</strong>（無いのに変えると切れる）</td>
+</tr>
+<tr>
+<td>⑧ シリーズのナビ</td>
+<td>同じフォルダの資料を「前へ／次へ」でつなぐ</td>
+<td>講義・座学資料</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong><code>slugify</code>（見出し ID）:</strong> 日本語を残し、<code>[^\w\s-]</code>（単語文字・空白・ハイフン以外）を消し、空白を <code>-</code> に。Python 3 の <code>\w</code> は日本語も含む。実測：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>見出し</th>
+<th>ID</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>2.1 テンプレート文字列と、3つの禁止</code></td>
+<td><code>21-テンプレート文字列と3つの禁止</code></td>
+</tr>
+<tr>
+<td><code>`chunkText` を読む</code></td>
+<td><code>chunktext-を読む</code></td>
+</tr>
+<tr>
+<td><code>9. 演習 (A/B)</code></td>
+<td><code>9-演習-ab</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>資料内の <code>#…</code> リンクは、この ID と<strong>一致させる</strong>必要がある（GitHub に近い規則に揃えてある）。</p>
+<p><strong><code>dedent_list_fences</code> の考え方（状態機械）:</strong> 行を1つずつ見て、「字下げされたフェンス（<code>```</code>）」を見つけたら、<strong>閉じのフェンスまで</strong>を読み、字下げを取って出力する。前後に空行を足す。入力 <code>"1. 手順\n   ```bash\n   echo hi\n   ```\n2. 次\n"</code> は、<code>"1. 手順\n\n```bash\necho hi\n```\n\n2. 次\n"</code> になる（実測）。<strong>コードブロックの前後でリストが分かれる</strong>が、<code>sane_lists</code> で番号は引き継がれる。</p>
+<blockquote>
+<p><strong>変換の結果の <code>.html</code> は、直接編集しない。</strong> 元の Markdown を直して、再生成する（フッターにも書いてある）。</p>
+</blockquote>
+<h2 id="8-新しいスクリプトを書くチェックリスト">8. 新しいスクリプトを書く（チェックリスト）</h2>
+<ol>
+<li><strong>目的を1行で。</strong>「〇〇を読むだけで調べる」「〇〇を生成する」。</li>
+<li><strong>読むだけか、書くか。</strong> 書くなら、①<code>--dry-run</code>／<code>--check</code> ②上書き前の退避 ③確認 を付ける。</li>
+<li><strong>本番（<code>--remote</code>・デプロイ）に触れない。</strong> 触れるなら、スクリプトにせず、<strong>人が名前を挙げて許可する手順</strong>にする（第9回）。</li>
+<li><strong>終了コード</strong>を決める（0 = OK、1 = 問題あり）。</li>
+<li><strong>場所に依存しない</strong>（<code>Path(__file__)</code>）。</li>
+<li><strong>秘密を持たない。</strong></li>
+<li><strong>docstring に使い方と、設計の理由を書く。</strong></li>
+<li><strong>テストを書く</strong>（純粋な関数に分けて、<code>main</code> を薄くする）。</li>
+</ol>
+<p><strong>見本：読むだけの点検スクリプト（動作確認済み）</strong> — 資料の相対リンクの宛先が存在するか調べる。</p>
+<pre><code class="language-python">#!/usr/bin/env python3
+&quot;&quot;&quot;check_doc_links.py — Markdown の相対リンクの宛先が存在するか調べる（読むだけ。何も書き換えない）
+
+使い方:  uv run python scripts/check_doc_links.py docs/learning/lectures
+終了コード: 0 = 切れたリンクなし / 1 = あり
+&quot;&quot;&quot;
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+LINK = re.compile(r&quot;\]\(([^)\s]+)\)&quot;)          # [表示](宛先)
+FENCE = re.compile(r&quot;^\s*(```|~~~)&quot;)
+
+
+def broken_links(md: Path) -&gt; list[tuple[int, str]]:
+    bad: list[tuple[int, str]] = []
+    in_code = False
+    for no, line in enumerate(md.read_text(encoding=&quot;utf-8&quot;).splitlines(), 1):
+        if FENCE.match(line):
+            in_code = not in_code           # コードブロックの中は、リンクではない
+            continue
+        if in_code:
+            continue
+        for target in LINK.findall(line):
+            if re.match(r&quot;^(https?:|mailto:|#)&quot;, target):
+                continue                    # 外部リンクと同じページ内は対象外
+            path = target.split(&quot;#&quot;, 1)[0]
+            if path and not (md.parent / path).resolve().exists():
+                bad.append((no, target))
+    return bad
+
+
+def main(argv: list[str]) -&gt; int:
+    roots = [Path(a) for a in argv] or [Path(&quot;docs&quot;)]
+    found = 0
+    for root in roots:
+        for md in sorted(root.rglob(&quot;*.md&quot;)):
+            for no, target in broken_links(md):
+                print(f&quot;{md.as_posix()}:{no}: 宛先がありません → {target}&quot;)
+                found += 1
+    print(f&quot;切れたリンク: {found} 件&quot;)
+    return 1 if found else 0
+
+
+if __name__ == &quot;__main__&quot;:
+    raise SystemExit(main(sys.argv[1:]))
+</code></pre>
+<p>このスクリプトを講義フォルダに実行すると「切れたリンク: 0 件」（終了コード 0）になります。<strong>型の部品がどこにあるか</strong>を、上の表で確認してください：docstring／<code>main</code>／終了コード／読むだけ／場所に依存しない。</p>
+<blockquote>
+<p>このコードは<strong>リポジトリには入れていません</strong>（教材の見本）。演習 16.4 で、自分で <code>scripts/</code> に置き、テストを付けます。</p>
+</blockquote>
+<h2 id="9-演習">9. 演習</h2>
+<p><strong>演習 16.1（読む）</strong> <code>deploy_panels.py 22.0 --check</code> を実行し、出力の <code>DIFF</code>／<code>same</code> の意味を説明してください。<strong>何も書き込まれない</strong>ことを、コードのどの行で保証しているか答えてください。</p>
+<p><strong>演習 16.2（読む）</strong> <code>MODULES</code> と <code>houdini/python_panels/*.py</code> を見比べ、<strong>一覧にないファイル</strong>を挙げてください（<code>rag_chatbot.py</code> は別扱い）。なぜ、それは配置されないのか／配置されるべきか、理由も添えて。</p>
+<p><strong>演習 16.3（トレース）</strong> <code>"§".encode("utf-8").decode("latin-1")</code> の結果と、文字数を答えてください。</p>
+<p><strong>演習 16.4（書く）</strong> 見本の <code>check_doc_links.py</code> を <code>scripts/</code> に置き、(1) わざとリンクを1つ壊した一時的な Markdown（<code>docs</code> の外の一時フォルダ）で、終了コード 1 になること、(2) コードブロックの中のリンクは無視されること、を確かめるテストを書いてください（<code>houdini/tests</code> と同じ <code>unittest</code> で、<code>scripts/</code> から import する）。</p>
+<p><strong>演習 16.5（図）</strong> 見本の最小の図を、<code>d.node</code> を1つ増やして3ノードにし、<code>via</code> を使って<strong>折れ線の矢印</strong>を1本足してください。ライトとダークの両方で見て、矢印が文字に重なっていないことを確認する。</p>
+<p><strong>演習 16.6（設計）</strong> 「<code>migrations/</code> の番号に欠番がないか調べる」点検スクリプトの設計（入力・出力・終了コード・テストの観点）を、箇条書きで書いてください。</p>
+<p><strong>演習 16.7（考える）</strong> <code>backup_data.py restore --force</code> を、定期ジョブから呼ぶ設計は妥当か。理由を述べてください。</p>
+<h2 id="10-つまずきやすい点">10. つまずきやすい点</h2>
+<ul>
+<li><strong>相対パスで書く。</strong> 実行した場所によって動かなくなる。<code>Path(__file__)</code> を基準に。</li>
+<li><strong><code>print</code> だけで失敗を伝える。</strong> 終了コードが 0 のままだと、CI が失敗に気づけない。</li>
+<li><strong>上書きの前に退避しない。</strong> 戻せなくなる。</li>
+<li><strong>一覧（<code>MODULES</code>）の更新を忘れる。</strong> 新しいファイルだけ届かない。</li>
+<li><strong>Windows の改行（<code>\r\n</code>）。</strong> 比較・ハッシュ・差分の前に、そろえる。</li>
+<li><strong>生成物（<code>.html</code>・<code>.svg</code>）を直接直す。</strong> 次の再生成で消える。元を直す。</li>
+</ul>
+<h2 id="11-確認問題">11. 確認問題</h2>
+<ol>
+<li><code>main() -&gt; int</code> ＋ <code>raise SystemExit(main())</code> の利点は？</li>
+<li><code>--check</code> をスクリプトに付ける理由は？</li>
+<li><code>_same</code> が改行コードをそろえて比べる理由は？</li>
+<li><code>ci_check_namespaces.py</code> が最初に失敗しかけた理由と、その解決は？</li>
+<li><code>diagram_kit</code> が自動配置をしない理由は？</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>演習 16.1: <code>DIFF</code> = リポジトリと配置済みが違う（または配置先に無い）、<code>same</code> = 同じ。<code>if args.check: return 0</code>（<code>dst.mkdir</code> やコピーの<strong>前</strong>で返る）。</li>
+<li>演習 16.2: 実測では、<code>python_panels/*.py</code> のうち <code>MODULES</code> に無いのは <strong><code>rag_chatbot</code> だけ</strong>（<code>MODULES</code> にあってファイルが無いものは無し）。<code>rag_chatbot.py</code> は <code>--pypanel</code> で <code>default.pypanel</code> に<strong>埋め込む</strong>ので、<code>MODULES</code>（そのまま <code>.py</code> を配置するもの）とは別扱いで正しい。<strong>新しい <code>.py</code> を足したときは、この比較をもう一度行い、一覧に足す</strong>。この確認を自動化する検査（<code>python_panels/</code> と <code>MODULES</code> の差を出す）を足すのも、良い保守の演習になる。</li>
+<li>演習 16.3: <code>'Â§'</code>、<strong>2文字</strong>。</li>
+<li>演習 16.7: 不適切。<code>--force</code> は確認を省くので、<strong>対象のファイルが正しいことを人が確かめる</strong>前提。定期ジョブでの上書き復元は、データを失う事故になりうる。</li>
+<li>確認問題 4: 検査の基準に <code>pep.py</code> の表を使うと、既存の正当なフォルダが引っかかる（誤検知）。基準を <code>auto_index.NAMESPACES</code>（実際にインデックス対象のフォルダ一覧）に変えた。</li>
+<li>確認問題 5: 図の意図（何を、どこに置き、どの順に読むか）を、そのまま固定するため。自動配置は、データが変わると図が変わってしまう。</li>
+</ul>
+</main>
+<div class="pager"><a href="15-experiment-and-growth.html">← 前へ</a><span></span></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

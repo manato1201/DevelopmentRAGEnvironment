@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第11回 アルゴリズムの読み方・書き方（基礎）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a><a class="current" href="11-algorithm-basics.html">11</a><a href="12-search-algorithms.html">12</a><a href="13-control-algorithms.html">13</a><a href="14-graph-algorithms.html">14</a><a href="15-experiment-and-growth.html">15</a><a href="16-scripts.html">16</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第11回 アルゴリズムの読み方・書き方（基礎）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/11-algorithm-basics.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像part-2-で読むアルゴリズムの地図">1. 全体像：Part 2 で読むアルゴリズムの地図</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-アルゴリズムを読む手順">2.1 アルゴリズムを「読む」手順</a></li><li><a href="#22-トレース表の例chunktextスライディングウィンドウ">2.2 トレース表の例：chunkText（スライディングウィンドウ）</a></li><li><a href="#23-計算量どれくらい重いか">2.3 計算量（どれくらい重いか）</a></li><li><a href="#24-データ構造配列mapset-の使い分け">2.4 データ構造：配列・Map・Set の使い分け</a></li><li><a href="#25-並べ替え安定ソートと決め手">2.5 並べ替え：安定ソートと「決め手」</a></li><li><a href="#26-純関数と乱数を使わない乱数">2.6 純関数と、乱数を使わない「乱数」</a></li><li><a href="#27-正規表現の部品先読み後読み">2.7 正規表現の部品：先読み・後読み</a></li></ol></li><li><a href="#3-このプロジェクトでは用語の数え上げfindtermsを読む">3. このプロジェクトでは：用語の数え上げ（findTerms）を読む</a></li><li><a href="#4-演習">4. 演習</a><ol><li><a href="#確かめ方手元で動かす">確かめ方（手元で動かす）</a></li></ol></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> 「アルゴリズムを読む」とは、<strong>入力を決めて、手で1歩ずつ追う（トレース）</strong>ことだと分かる。計算量・データ構造・並べ替え・境界の扱い・純関数を、<strong>このプロジェクトのコード</strong>で説明できる。<br />
+<strong>前提:</strong> 第5回（Worker のコード）、プログラミングの基本（変数・関数・if・for・配列）。 <strong>目安:</strong> 3時間</p>
+<blockquote>
+<p><strong>Part 2（第11〜16回）の位置づけ:</strong> 第1〜10回は「全体の仕組み」でした。ここからは、<strong>関数の中身（アルゴリズム）と、スクリプト</strong>を、<strong>数を入れて検算しながら</strong>読みます。本文中の数値は、すべて<strong>実際にコードを動かして確かめた値</strong>です（確かめ方は各回の演習にあります）。</p>
+</blockquote>
+<hr />
+<h2 id="1-全体像part-2-で読むアルゴリズムの地図">1. 全体像：Part 2 で読むアルゴリズムの地図</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>回</th>
+<th>題</th>
+<th>主なファイル</th>
+<th>出てくる考え方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>11</strong></td>
+<td><strong>基礎（この回）</strong></td>
+<td><code>chunking.ts</code> <code>listSort.ts</code> <code>asciiArt.ts</code> <code>glossary.ts</code></td>
+<td>計算量・Map/Set・安定ソート・境界・純関数・正規表現</td>
+</tr>
+<tr>
+<td>12</td>
+<td>検索</td>
+<td><code>hybrid.ts</code> <code>retrieve.ts</code> <code>houdiniContext.ts</code></td>
+<td>分割・ベクトル・BM25・RRF・並べ替えと間引き</td>
+</tr>
+<tr>
+<td>13</td>
+<td>制御</td>
+<td><code>auth.ts</code> <code>rateLimit.ts</code> <code>budget.ts</code> <code>chunkRows.ts</code></td>
+<td>固定ウィンドウ・原子的な更新・タイムアウト・ストリーム</td>
+</tr>
+<tr>
+<td>14</td>
+<td>グラフ</td>
+<td><code>graph.ts</code> <code>tutorial_graph_simplify.py</code></td>
+<td>最大剰余法・コサイン類似度・鎖の折り畳み・層配置</td>
+</tr>
+<tr>
+<td>15</td>
+<td>実験と数式</td>
+<td><code>pilotTasks.ts</code> <code>growth.ts</code> <code>pilot_task.py</code></td>
+<td>ラテン方格・スコア・順位相関・k-匿名</td>
+</tr>
+<tr>
+<td>16</td>
+<td>スクリプト</td>
+<td><code>deploy_panels.py</code> <code>diagram_kit.py</code> <code>build_docs_html.py</code></td>
+<td>安全なスクリプトの型・座標・文字列変換</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-基礎">2. 基礎</h2>
+<h3 id="21-アルゴリズムを読む手順">2.1 アルゴリズムを「読む」手順</h3>
+<p>どんな関数も、次の4歩で読めます。</p>
+<ol>
+<li><strong>入力と出力を書く。</strong>（型・範囲・空のとき）</li>
+<li><strong>小さい具体例を1つ決める。</strong>（大きすぎず、境界を含む数）</li>
+<li><strong>1行ずつ、変数の値を表に書く。</strong>（これが<strong>トレース表</strong>）</li>
+<li><strong>出力が、期待と合うか確かめ、合わない行を探す。</strong></li>
+</ol>
+<blockquote>
+<p>コードを読むだけで分かった気になるのが、一番の落とし穴です。<strong>必ず数を入れる。</strong></p>
+</blockquote>
+<h3 id="22-トレース表の例chunktextスライディングウィンドウ">2.2 トレース表の例：<code>chunkText</code>（スライディングウィンドウ）</h3>
+<p><code>src/chunking.ts</code> の <code>chunkText(text, size = 1000, overlap = 150)</code> は、長い文を<strong>重なりつきで切り分けます</strong>。入力を「2500文字」にして追います。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>周</th>
+<th><code>start</code></th>
+<th><code>end = min(start+size, 2500)</code></th>
+<th>切り出す範囲</th>
+<th>長さ</th>
+<th><code>end &gt;= 2500</code>?</th>
+<th>次の <code>start = end - overlap</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>0</td>
+<td>1000</td>
+<td>[0, 1000)</td>
+<td>1000</td>
+<td>いいえ</td>
+<td>850</td>
+</tr>
+<tr>
+<td>2</td>
+<td>850</td>
+<td>1850</td>
+<td>[850, 1850)</td>
+<td>1000</td>
+<td>いいえ</td>
+<td>1700</td>
+</tr>
+<tr>
+<td>3</td>
+<td>1700</td>
+<td>2500</td>
+<td>[1700, 2500)</td>
+<td><strong>800</strong></td>
+<td><strong>はい → break</strong></td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p>結果は <strong>3個</strong>（長さ 1000・1000・800）。実際に動かすと <code>chunks 3 [1000, 1000, 800]</code>、開始位置は <code>[0, 850, 1700]</code> で、表と一致します。</p>
+<p><strong>なぜ重ねる（overlap）のか:</strong> 文の途中で切ると、切れ目の前後に<strong>意味が分かれて</strong>しまい、検索で見つかりにくくなります。150文字を重ねて、<strong>切れ目をまたぐ話題を、どちらかのチャンクに丸ごと入れる</strong>ためです。</p>
+<p><strong>不変条件（invariant）— 壊れる条件を言えるか:</strong></p>
+<ul>
+<li>次の <code>start</code> は <code>end - overlap = start + size - overlap</code>。<strong><code>size &gt; overlap</code> のときだけ、<code>start</code> が毎周前に進む。</strong></li>
+<li><code>overlap &gt;= size</code> にすると、<code>start</code> が進まない（または戻る）ので、<strong>無限ループ</strong>になります。既定値（1000 / 150）では起きませんが、<strong>引数を変える人（将来のあなた）は知っておく</strong>こと。</li>
+<li>入力が空（<code>trim</code> 後に長さ0）なら <code>[]</code>、<code>size</code> 以下なら1個だけ。<strong>境界の2つの特別扱いが、冒頭の2行</strong>です。</li>
+</ul>
+<h3 id="23-計算量どれくらい重いか">2.3 計算量（どれくらい重いか）</h3>
+<p><strong>計算量</strong>は、「入力が n 倍になると、手間が何倍になるか」の目安です。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>記法</th>
+<th>意味</th>
+<th>例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>O(1)</td>
+<td>入力に関係なく一定</td>
+<td><code>Map.get</code>、<code>Set.has</code></td>
+</tr>
+<tr>
+<td>O(n)</td>
+<td>n に比例</td>
+<td>配列を1回なめる（<code>for</code>）</td>
+</tr>
+<tr>
+<td>O(n log n)</td>
+<td>n より少し重い</td>
+<td>並べ替え（<code>sort</code>）</td>
+</tr>
+<tr>
+<td>O(n²)</td>
+<td>n の2乗</td>
+<td>配列の全ペアを比べる（二重 <code>for</code>）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>このプロジェクトの実例（第14回）:</strong> グラフ画面の「似ている文書を線で結ぶ」処理（<code>graph.ts</code>）は、全ノードの<strong>全ペア</strong>で内積を取る O(N²) です。</p>
+<ul>
+<li>ノード数 N = 500、ベクトルの次元 d = 768。</li>
+<li>比べる回数: <code>500 × 499 = 249,500</code> 回（<code>i</code> と <code>j</code> の二重ループ）。</li>
+<li>掛け算の回数: <code>249,500 × 768 ≈ 1.9億</code> 回。</li>
+<li>ノードが2倍の1000になれば<strong>4倍（約7.7億回）</strong>。コードのコメントに「1000では描画・計算に時間がかかるようになったため、上限を500にした」とあるのは、これが理由です。</li>
+</ul>
+<blockquote>
+<p><strong>設計の教訓:</strong> 計算量が n² のものは、<strong>n に上限を付ける</strong>のが一番簡単で確実な対策です（<code>MAX_GRAPH_NODES = 500</code>）。</p>
+</blockquote>
+<h3 id="24-データ構造配列mapset-の使い分け">2.4 データ構造：配列・Map・Set の使い分け</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>道具</th>
+<th>向いている用途</th>
+<th>このプロジェクトの例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>配列 <code>[]</code></td>
+<td>順序が大事</td>
+<td>検索結果の順位（<code>RankedChunk[]</code>）</td>
+</tr>
+<tr>
+<td><code>Map&lt;キー, 値&gt;</code></td>
+<td>キーで<strong>速く</strong>引く・集計する</td>
+<td><code>scoreById</code>（RRF の合計点）、<code>counts</code>（namespace ごとの件数）</td>
+</tr>
+<tr>
+<td><code>Set&lt;値&gt;</code></td>
+<td>「もう見た？」の判定、重複除去</td>
+<td><code>seen</code>（エッジの重複）、<code>present</code>（回答に出た用語）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong><code>Array.includes</code> と <code>Set.has</code> の違い:</strong> 配列の中から探すのは O(n)、<code>Set</code> は O(1)。<code>for</code> の中で毎回探すと、全体が O(n²) になります。<code>graph.ts</code> のエッジの重複判定は <code>Set</code> なので、500ノードでも軽い。</p>
+<p><strong>「向きのないペア」を1つにまとめる技（<code>graph.ts</code>）:</strong> <code>a</code> と <code>b</code> のエッジは、<code>(a,b)</code> でも <code>(b,a)</code> でも同じ線です。そこで、<strong>文字列の小さいほうを先にしたキー</strong>を作ります。</p>
+<pre><code class="language-ts">const key = a &lt; s.id ? `${a}|${s.id}` : `${s.id}|${a}`;   // どちらの向きで来ても同じキーになる
+if (seen.has(key)) continue;
+seen.add(key);
+</code></pre>
+<h3 id="25-並べ替え安定ソートと決め手">2.5 並べ替え：安定ソートと「決め手」</h3>
+<p>JavaScript の <code>Array.prototype.sort</code> は、<strong>安定ソート</strong>です（同じ値の並びは、元の順を保つ）。それでも <code>listSort.ts</code> が元の位置（<code>index</code>）を持ち回すのは、<strong>「同点のときの順序を、コードで保証する」</strong>ため（読む人に意図が伝わり、環境にも依存しない）。</p>
+<p><code>sortItems</code>（<code>src/listSort.ts</code>）の考え方：</p>
+<ol>
+<li><code>{ item, index }</code> に包んで、元の位置を覚える。</li>
+<li>比較は<strong>複数の「決め手」を順に</strong>見る（<code>spec</code> の配列）。先頭が主キー（昇順・降順を選べる）、2番目以降は同点のときの決め手（常に昇順）。</li>
+<li>すべて同点なら <code>x.index - y.index</code>（元の順）。</li>
+<li><strong>空の値（null・空文字・<code>-</code>・NaN）は、昇順でも降順でも、いちばん後ろ。</strong> 降順で <code>c * direction</code> を掛けても、空の扱いだけは<strong>掛けない</strong>（先に <code>return</code> している）のがポイント。</li>
+</ol>
+<p><strong>例（<code>sortedRowOrder</code>）:</strong> 表の「利用回数」列を降順にする。セルが <code>["12","3","-","1,234 件"]</code> なら、<code>parseCellValue</code> が <code>"1,234 件"</code> を数 1234 と読み（カンマを除き、後ろの単位を許す正規表現）、<code>"-"</code> は <code>empty</code>。結果の並びは <strong>1234 → 12 → 3 → 空</strong> になります。</p>
+<p><strong>文字の比較は <code>Intl.Collator("ja", { numeric: true })</code>:</strong> <code>"課題2"</code> と <code>"課題10"</code> を、<strong>数として</strong> 2 &lt; 10 に並べます（普通の文字比較だと <code>"10" &lt; "2"</code> になる）。</p>
+<h3 id="26-純関数と乱数を使わない乱数">2.6 純関数と、乱数を使わない「乱数」</h3>
+<p><strong>純関数</strong>＝同じ入力なら必ず同じ出力で、外の状態（時刻・DB・ネットワーク）を読み書きしない関数。<strong>テストが簡単</strong>で、<strong>画面とテストが同じコード</strong>を使えます（第7回）。</p>
+<p><code>asciiArt.ts</code> の <code>cellDelay(x, y)</code> は、マスごとの「遅れ」を作る<strong>擬似乱数</strong>ですが、乱数関数（<code>Math.random</code>）を使いません。</p>
+<pre><code class="language-js">function cellDelay(x, y) {
+  const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+  return n - Math.floor(n);          // 小数部だけ取り出す → 0以上1未満
+}
+</code></pre>
+<ul>
+<li><code>sin</code> の値は -1〜1。それに大きな数を掛けて<strong>小数部だけ</strong>取ると、座標がわずかに違うだけで値が大きく変わる（<strong>ハッシュ</strong>のような振る舞い）。</li>
+<li><strong>同じ座標なら、いつも同じ値</strong>。だから、アニメーションの各コマが<strong>再現できる</strong>し、テストで検証できる。</li>
+<li>この定数（12.9898・78.233・43758.5453）は、シェーダーでよく使われる慣用句です。<strong>意味を理解する必要はなく、「座標から0〜1を決める関数」として使う。</strong></li>
+</ul>
+<h3 id="27-正規表現の部品先読み後読み">2.7 正規表現の部品：先読み・後読み</h3>
+<p><code>glossary.ts</code> と <code>houdiniContext.ts</code> は、<strong>単語の境界</strong>を <code>(?&lt;![a-z0-9_])</code> と <code>(?![a-z0-9_])</code> で作ります。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>部品</th>
+<th>意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>(?&lt;!X)</code></td>
+<td>直前が X <strong>でない</strong>（後読みの否定）</td>
+</tr>
+<tr>
+<td><code>(?!X)</code></td>
+<td>直後が X <strong>でない</strong>（先読みの否定）</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>"top"</code> を探すとき、<code>stop</code>・<code>laptop</code> に反応しないよう、<strong>前後が英数字でないとき</strong>だけ一致にします。日本語（<code>ノード</code>）は単語の区切りが無いので、そのまま含まれていれば一致。</p>
+<p><strong>注意:</strong> ユーザーの入力を正規表現に入れるときは、<code>escapeRegExp</code> で記号をエスケープする（<code>glossary.ts</code>）。そうしないと、<code>C++</code> のような語が構文エラーや誤一致になります。</p>
+<h2 id="3-このプロジェクトでは用語の数え上げfindtermsを読む">3. このプロジェクトでは：用語の数え上げ（<code>findTerms</code>）を読む</h2>
+<p><code>src/glossary.ts</code> の <code>findTerms(text)</code> は、質問文に出てくる Houdini の用語を<strong>重複なしで</strong>返します。ポイントは<strong>二重カウントの防止</strong>です。</p>
+<ul>
+<li>辞書に <code>Attribute Wrangle</code> と <code>アトリビュート</code>（別名に <code>attribute</code>）がある。</li>
+<li>質問が「<strong>Attribute Wrangle</strong> で <strong>attribute</strong> を作る」なら、前半の <code>attribute</code>（Wrangle の一部）は数えず、後半の単独の <code>attribute</code> だけを数えたい。</li>
+</ul>
+<p>アルゴリズム：</p>
+<ol>
+<li>全用語・全別名で、一致する<strong>範囲（start, end）</strong>を全部集める（<code>spans</code>）。</li>
+<li>ある範囲 a が、<strong>別の用語の、より長い範囲 b にすっぽり含まれる</strong>なら、a を捨てる。<br />
+<code>b.start &lt;= a.start &amp;&amp; b.end &gt;= a.end &amp;&amp; b の長さ &gt; a の長さ &amp;&amp; b.term !== a.term</code></li>
+<li>残った用語を、辞書の順で返す。</li>
+</ol>
+<p>実行結果（実測）:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>入力</th>
+<th>出力</th>
+<th>読み方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Attribute Wrangle で attribute を作る。top の話ではない。TOP ネットワークは?</code></td>
+<td><code>ネットワーク</code> / <code>アトリビュート</code> / <code>Attribute Wrangle</code></td>
+<td>単独の <code>attribute</code> は <code>アトリビュート</code> として1回。Wrangle の中の <code>attribute</code> は数えない。<code>top</code> には反応しない（境界の指定が効いている）</td>
+</tr>
+<tr>
+<td><code>copy to points で scatter した点にVEXを</code></td>
+<td><code>Scatter</code> / <code>Copy to Points</code> / <code>VEX</code></td>
+<td>辞書の順（<code>Scatter</code> が先）で返る</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>3行目の入力の <code>TOP ネットワーク</code> は、辞書の別名が <code>topネットワーク</code>（空白なし）なので <code>PDG</code> には<strong>一致しません</strong>（<code>ネットワーク</code> だけが数えられる）。辞書の別名は<strong>書いた綴りのとおりにしか一致しない</strong>ので、足りない言い方は、<code>glossary.ts</code> に1行足します。</p>
+</blockquote>
+<p><strong>計算量:</strong> 用語数 T × 別名数 × 文章の長さ。辞書は約90語・質問は短いので問題なし。<strong>辞書を数千語にするなら、別の方法（Aho–Corasick など）が必要</strong>になります（今は不要。足すときに考える）。</p>
+<h2 id="4-演習">4. 演習</h2>
+<p><strong>演習 11.1（トレース）</strong> <code>chunkText</code> を、<code>size = 10</code>、<code>overlap = 3</code>、入力が25文字の場合で、トレース表を書いてください。チャンク数と、各チャンクの開始位置は？ そのあと、<code>npx tsx</code> で実際に動かして確かめる（下の「確かめ方」）。</p>
+<p><strong>演習 11.2（壊す）</strong> <code>overlap = size</code> を渡すと何が起きるか、<strong>実行せずに</strong>予想してください。そのうえで、ループに上限（最大 100 周）を付けた<strong>安全版</strong>を、紙に書いてください。</p>
+<p><strong>演習 11.3（計算量）</strong> グラフのノード数を 500 から 300 にすると、内積の回数は何倍になるか。1.9億回は何回になるか。</p>
+<p><strong>演習 11.4（読む）</strong> <code>list_sort.test.mjs</code> を開き、(a) 空の値が降順でも後ろに来ること、(b) 同点が元の順を保つこと、を確かめているテストを探してください。</p>
+<p><strong>演習 11.5（書く）</strong> <code>sortItems</code> を使い、「2人の参加者を、評価の低い順、同点なら名前順」に並べる <code>spec</code> を書いてください。</p>
+<h3 id="確かめ方手元で動かす">確かめ方（手元で動かす）</h3>
+<p>リポジトリの根（<code>DevelopmentRAGEnvironment</code>）から、次を実行します。<strong>本番には触れません。</strong></p>
+<pre><code class="language-bash">cd cloudflare-rag-poc
+npx tsx -e &quot;import('./src/chunking.ts').then(m =&gt; console.log(m.chunkText('a'.repeat(25), 10, 3).map(c =&gt; c.length)))&quot;
+</code></pre>
+<h2 id="5-つまずきやすい点">5. つまずきやすい点</h2>
+<ul>
+<li><strong>トレースを省く。</strong> 「読んで分かった」は、たいてい間違い。数を入れる。</li>
+<li><strong><code>slice(a, b)</code> の <code>b</code> は含まれない。</strong> <code>[a, b)</code>（右は開区間）。<code>chunkText</code> のトレース表の「範囲」も同じ。</li>
+<li><strong><code>sort()</code> に比較関数を渡さない。</strong> 数値は<strong>文字として</strong>並ぶ（<code>[10, 2, 1].sort()</code> → <code>[1, 10, 2]</code>）。</li>
+<li><strong><code>Math.round</code> と小数の誤差。</strong> <code>0.1 + 0.2</code> は <code>0.30000000000000004</code>。表示や保存の前に、<code>Math.round(x * 1000) / 1000</code> のように丸める（<code>mistakeScore</code> がそう）。</li>
+<li><strong>ミリ秒と秒の混同。</strong> <code>Date.now()</code> はミリ秒、D1 に入れる <code>created_at</code> は<strong>秒</strong>（<code>Math.floor(Date.now() / 1000)</code>）。</li>
+</ul>
+<h2 id="6-確認問題">6. 確認問題</h2>
+<ol>
+<li><code>chunkText</code> で、チャンク数が <code>ceil((n - overlap) / (size - overlap))</code> になる理由を説明せよ（n=2500 で検算）。</li>
+<li>O(N²) の処理に上限を付ける以外の対策を、1つ挙げよ。</li>
+<li><code>Set.has</code> と <code>Array.includes</code> の違いを、計算量で説明せよ。</li>
+<li>乱数を使わず <code>cellDelay</code> にした利点を、2つ挙げよ。</li>
+<li><code>findTerms</code> が、短い用語を捨てる条件を、4つの条件で言え。</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>演習 11.1: 各周の <code>end = min(start+10, 25)</code>、次の <code>start = end - 3</code>。開始位置は 0, 7, 14（end=24）, 21（end=25 で break）→ 4個。長さは 10, 10, 10, 4。</li>
+<li>演習 11.2: <code>start</code> が進まず、同じチャンクを永遠に追加（メモリが尽きる）。安全版は <code>if (overlap &gt;= size) overlap = Math.floor(size / 2)</code> のように補正するか、<code>throw</code> する。</li>
+<li>演習 11.3: <code>300×299 / (500×499) ≈ 0.36</code> 倍。約 6,900 万回。</li>
+<li>確認問題 1: 最初の1個で <code>size</code> を使い、以降は1個ごとに <code>size - overlap</code> 進む。n=2500 → <code>(2500-150)/(1000-150) = 2.76…</code> の切り上げで 3。</li>
+<li>確認問題 2: 近いものだけを比べる（空間分割・近似最近傍）、結果をキャッシュする、事前計算する。</li>
+<li>確認問題 4: 再現できる（同じ入力で同じ絵）、テストで検証できる。</li>
+</ul>
+</main>
+<div class="pager"><a href="10-troubleshooting.html">← 前へ</a><a href="12-search-algorithms.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

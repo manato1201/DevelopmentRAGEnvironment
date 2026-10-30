@@ -5,7 +5,7 @@
 **対象:** 開発者本人、およびこのプロジェクトを引き継ぐ人。
 **位置づけ:** 設計資料（`docs/`の他のファイル）は「何がどうなっているか」。この資料は「それを自分で読み書きするために、何を知っている必要があるか」。
 
-> **2026-10-30 追加: [講義シリーズ（全10回）](lectures/README.md)。** 基礎（URL・DNS・HTTP）から順に、図を使って、このシステムを理解し、保守・拡張するまでを、演習つきで進める。**初めて読む人は、こちらから**。下の01〜06は、必要な知識を引く**辞書**として使う。
+> **2026-10-30 追加: [講義シリーズ（全16回）](lectures/README.md)。** 基礎（URL・DNS・HTTP）から順に、図を使って、このシステムを理解し、保守・拡張するまでを、演習つきで進める（第1〜10回）。さらに **Part 2（第11〜16回）で、アルゴリズム（検索・予算・グラフ・実験設計）とスクリプトを、数を入れて検算しながら**読む。**初めて読む人は、こちらから**。下の01〜06は、必要な知識を引く**辞書**として使う。
 
 ---
 
@@ -36,6 +36,12 @@
 | [第8回 機能を足す通し演習](lectures/08-add-a-feature.md) | [04 応用](04-applied.md) |
 | [第9回 テスト・デプロイ・運用](lectures/09-test-deploy-operate.md) | [05 Script](05-scripts.md)・[06 保守](06-maintenance-runbook.md) |
 | [第10回 トラブルシュートと総合演習](lectures/10-troubleshooting.md) | [06 保守](06-maintenance-runbook.md) |
+| [第11回 アルゴリズムの読み方・書き方](lectures/11-algorithm-basics.md) | [02 基礎](02-fundamentals.md) |
+| [第12回 検索のアルゴリズム](lectures/12-search-algorithms.md) | [03 専門（RAG）](03-specialized.md) |
+| [第13回 制御のアルゴリズム](lectures/13-control-algorithms.md) | [01 常識（費用と上限）](01-common-knowledge.md)・[03 専門](03-specialized.md) |
+| [第14回 グラフのアルゴリズム](lectures/14-graph-algorithms.md) | [03 専門 §7（Houdini）](03-specialized.md) |
+| [第15回 実験設計と習熟度の数式](lectures/15-experiment-and-growth.md) | [04 応用](04-applied.md) |
+| [第16回 スクリプトを読み・書く](lectures/16-scripts.md) | [05 Script](05-scripts.md) |
 
 ## 2. 目的別の学習パス
 

@@ -48,6 +48,13 @@ LECTURES = [
     "08-add-a-feature",
     "09-test-deploy-operate",
     "10-troubleshooting",
+    # Part 2: アルゴリズムとスクリプト（2026-10-30追加）
+    "11-algorithm-basics",
+    "12-search-algorithms",
+    "13-control-algorithms",
+    "14-graph-algorithms",
+    "15-experiment-and-growth",
+    "16-scripts",
 ]
 DEFAULT_TARGETS: list[tuple[Path, str]] = [
     *[(DOCS / "learning" / f"{n}.md", "座学資料") for n in LEARNING],

@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第15回 実験設計と習熟度の数式（ラテン方格・スコア・順位相関・匿名化）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a><a href="11-algorithm-basics.html">11</a><a href="12-search-algorithms.html">12</a><a href="13-control-algorithms.html">13</a><a href="14-graph-algorithms.html">14</a><a class="current" href="15-experiment-and-growth.html">15</a><a href="16-scripts.html">16</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第15回 実験設計と習熟度の数式（ラテン方格・スコア・順位相関・匿名化）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/15-experiment-and-growth.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-割り当てラテン方格順序効果を打ち消す">2.1 割り当て：ラテン方格（順序効果を打ち消す）</a></li><li><a href="#22-いまの回を決めるbuildplan">2.2 いまの回を決める（buildPlan）</a></li><li><a href="#23-時間の計測引き算の落とし穴を潰す">2.3 時間の計測：引き算の落とし穴を潰す</a></li><li><a href="#24-houdini-側の計測集合と中断">2.4 Houdini 側の計測：集合と中断</a></li><li><a href="#25-操作ミスのスコアmistakescore">2.5 操作ミスのスコア（mistakeScore）</a></li><li><a href="#26-集計中央値と対応のある差">2.6 集計：中央値と“対応のある差”</a></li><li><a href="#27-rank-biserial-相関差のそろい具合">2.7 rank-biserial 相関：差の“そろい具合”</a></li><li><a href="#28-習熟度成長点の合計としきい値">2.8 習熟度（成長）：点の合計としきい値</a></li><li><a href="#29-公開の制限k-匿名最小人数">2.9 公開の制限：k-匿名（最小人数）</a></li></ol></li><li><a href="#3-このプロジェクトでは式を変えたいときの手順">3. このプロジェクトでは：式を変えたいときの手順</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> 実証実験の<strong>割り当て・計測・集計</strong>と、チャットの<strong>習熟度（おまかせレベル）</strong>を、<strong>式と数値例</strong>で説明できる。式の定数（重み・上限・しきい値）を<strong>変えるときに確認すべきこと</strong>を言える。<br />
+<strong>前提:</strong> 第8回（実証実験の機能）、第11回。 <strong>目安:</strong> 4時間</p>
+<blockquote>
+<p><strong>この回の注意:</strong> ここに出てくる統計は、<strong>参加者が少ない実証実験の“記述”</strong>のためのもので、<strong>結論を断定する検定ではありません</strong>。式を読めることと、<strong>数字の限界を言えること</strong>の両方が目標です。</p>
+</blockquote>
+<hr />
+<h2 id="1-全体像">1. 全体像</h2>
+<p><a href="../../images/12-pilot-flow.svg"><img alt="実証実験の流れ" src="../../images/12-pilot-flow.svg" /></a></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>段</th>
+<th>何を決める／測る</th>
+<th>式・方法</th>
+<th>ファイル</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>① 割り当て</td>
+<td>誰が、どの回に、どの課題を、どの条件で</td>
+<td>ラテン方格</td>
+<td><code>pilotTasks.ts</code> <code>LATIN</code> <code>slotForPid</code> <code>buildPlan</code></td>
+</tr>
+<tr>
+<td>② 計測（Houdini）</td>
+<td>cook エラーのノード数、中断の秒数</td>
+<td>集合の和・時間の予算</td>
+<td><code>pilot_task.py</code></td>
+</tr>
+<tr>
+<td>③ 計測（サーバー）</td>
+<td>所要時間・質問数</td>
+<td>時刻の引き算・範囲の件数</td>
+<td><code>handlePilotSessionEnd</code></td>
+</tr>
+<tr>
+<td>④ 指標</td>
+<td>操作ミスのスコア</td>
+<td>重みつき平均</td>
+<td><code>mistakeScore</code></td>
+</tr>
+<tr>
+<td>⑤ 集計</td>
+<td>条件の比較</td>
+<td>中央値・対応のある差・順位相関</td>
+<td><code>summarizeTasks</code></td>
+</tr>
+<tr>
+<td>⑥ 習熟度</td>
+<td>説明のレベル</td>
+<td>点の合計としきい値</td>
+<td><code>growth.ts</code></td>
+</tr>
+<tr>
+<td>⑦ 公開の制限</td>
+<td>個人が特定されない集計</td>
+<td>k-匿名（最小人数）</td>
+<td><code>pilotStats.ts</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-基礎">2. 基礎</h2>
+<h3 id="21-割り当てラテン方格順序効果を打ち消す">2.1 割り当て：ラテン方格（順序効果を打ち消す）</h3>
+<p><strong>問題:</strong> 3つの課題（Pyro・RBD・雲）を、全員が同じ順（1回目 Pyro …）で行うと、「<strong>最初の回は慣れていない</strong>」「<strong>最後の回は疲れている</strong>」という<strong>順序の影響</strong>が、課題や条件の差と混ざる。</p>
+<p><strong>対策:</strong> <strong>ラテン方格</strong>＝各行・各列に、各要素がちょうど1回ずつ出る表。参加者を3つの組（slot）に分け、課題の順序を回してずらす。</p>
+<pre><code class="language-ts">export const LATIN = {
+  1: [&quot;pyro&quot;, &quot;rbd&quot;,  &quot;cloud&quot;],     // slot 1 … 1回目 pyro, 2回目 rbd,  3回目 cloud
+  2: [&quot;rbd&quot;,  &quot;cloud&quot;,&quot;pyro&quot;],
+  3: [&quot;cloud&quot;,&quot;pyro&quot;, &quot;rbd&quot;],
+};
+slotForPid(pid) = ((pid − 1) % 3) + 1       // pid 1,2,3,4,5,6,7 → slot 1,2,3,1,2,3,1
+対照の回（docs_only） = 回 == slot
+</code></pre>
+<p><strong>一覧にすると（条件込み）:</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>slot</th>
+<th>1回目</th>
+<th>2回目</th>
+<th>3回目</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Pyro（<strong>対照</strong>）</td>
+<td>RBD</td>
+<td>雲</td>
+</tr>
+<tr>
+<td>2</td>
+<td>RBD</td>
+<td>雲（<strong>対照</strong>）</td>
+<td>Pyro</td>
+</tr>
+<tr>
+<td>3</td>
+<td>雲</td>
+<td>Pyro</td>
+<td>RBD（<strong>対照</strong>）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>読み取れること:</strong></p>
+<ul>
+<li>縦に見ても（各回）、横に見ても（各 slot）、<strong>3つの課題が1回ずつ</strong>。順序が<strong>偏らない</strong>。</li>
+<li><strong>対照の課題</strong>は、slot 1 = Pyro、slot 2 = 雲、slot 3 = RBD。<strong>3つの課題が、それぞれ1度ずつ“対照”</strong>に当たる。課題の難しさの違いが、条件の差に<strong>一方的に</strong>混ざらない。</li>
+<li><strong>回 == slot</strong> が対照、というたった1行が、この設計の中心。</li>
+</ul>
+<p><strong>割り当ての実測:</strong> <code>slotForPid</code> は 1〜7 に対して <code>1, 2, 3, 1, 2, 3, 1</code>（実測）。</p>
+<blockquote>
+<p><strong>限界（正直に）:</strong> 参加者数が <strong>3の倍数でない</strong>と、slot の人数が揃わず、バランスが崩れる。さらに、各人の比較は「<strong>システムを使った2回の平均 − 対照の1回</strong>」で、<strong>異なる課題どうしの差</strong>になる（課題の難しさの違いは、人数が揃ったときに全体で相殺されるだけ）。<strong>少人数では、個々の数字の“差”を、課題の影響と切り分けられない</strong>。</p>
+</blockquote>
+<h3 id="22-いまの回を決めるbuildplan">2.2 いまの回を決める（<code>buildPlan</code>）</h3>
+<p>「<strong>第N回が完了</strong>」＝その回の <code>fixed</code> と <code>free</code> の<strong>両方</strong>が <code>ended_at</code> を持つ。</p>
+<pre><code class="language-ts">let completed = 0;
+while (completed &lt; ROUNDS &amp;&amp; done(completed + 1, &quot;fixed&quot;) &amp;&amp; done(completed + 1, &quot;free&quot;)) completed++;
+const round = Math.min(completed + 1, ROUNDS);          // いまの回（最大3）
+const taskId = LATIN[slot][round − 1];
+condition = (round === slot) ? &quot;docs_only&quot; : &quot;system&quot;;   // 固定課題のみ。自由課題は常に system
+</code></pre>
+<p><strong>トレース（実測）:</strong> slot 2 の参加者。1回目の固定・自由が完了、2回目の固定が開始済み（未完了）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>値</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>completedRounds</code></td>
+<td>1</td>
+<td>1回目だけ両方済み</td>
+</tr>
+<tr>
+<td><code>round</code></td>
+<td>2</td>
+<td>1 + 1</td>
+</tr>
+<tr>
+<td><code>taskId</code></td>
+<td><code>cloud</code></td>
+<td><code>LATIN[2][1]</code></td>
+</tr>
+<tr>
+<td><code>condition</code></td>
+<td><code>docs_only</code></td>
+<td><code>round(2) === slot(2)</code></td>
+</tr>
+<tr>
+<td><code>fixed.active</code></td>
+<td>true</td>
+<td>開始したが <code>ended_at</code> が無い</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ここがやり直し（第8回）の設計の肝:</strong> 履歴は“計算で求める”（<code>sessions</code> から毎回導く）ので、<strong>行を破棄（<code>discarded_at</code>）すれば、計画が自動的に巻き戻る</strong>。「いまの回」を別に保存していないから、ずれようがない。</p>
+<h3 id="23-時間の計測引き算の落とし穴を潰す">2.3 時間の計測：引き算の落とし穴を潰す</h3>
+<p>サーバー側（<code>handlePilotSessionEnd</code>）の式：</p>
+<pre><code>endedAt   = max(started_at, now − surveySec)                  … 「終了」を押した時刻（回答に使った時間を引く）
+pausedSec = min(clamp(pausedSec, 0, 604800), endedAt − started_at)   … 中断は、経過時間を超えない
+duration  = endedAt − started_at − pausedSec
+queries   = COUNT(memory) where created_at ∈ [started_at, endedAt]
+</code></pre>
+<p><strong>数を入れた例:</strong> 開始 <code>started_at = 1000</code>、送信時刻 <code>now = 4000</code>、アンケートの回答に 240 秒、Houdini を閉じていた中断 600 秒。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>計算</th>
+<th>値</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>endedAt</code></td>
+<td><code>max(1000, 4000 − 240)</code></td>
+<td>3760</td>
+</tr>
+<tr>
+<td><code>pausedSec</code></td>
+<td><code>min(600, 3760 − 1000 = 2760)</code></td>
+<td>600</td>
+</tr>
+<tr>
+<td><code>duration</code></td>
+<td><code>3760 − 1000 − 600</code></td>
+<td><strong>2160 秒（36分）</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>なぜ clamp するか:</strong> クライアントから来る値は<strong>信用しない</strong>（バグや改ざん）。<code>pausedSec</code> が 5000 と申告されても、<code>min(…, 2760)</code> で 2760 になり、<code>duration</code> は <strong>0 を下回らない</strong>。<code>surveySec</code> が巨大でも <code>max(started_at, …)</code> で、<code>endedAt</code> が開始より前にならない。<code>clampInt</code> は NaN・文字列も既定値に直す（<code>http.ts</code>）。</p>
+<blockquote>
+<p><strong>原則:</strong> 時間の式は、<strong>必ず境界の値（0・巨大・負・NaN）で確かめる</strong>。</p>
+</blockquote>
+<h3 id="24-houdini-側の計測集合と中断">2.4 Houdini 側の計測：集合と中断</h3>
+<p><strong>cook エラー数 = “一度でもエラーになったノードの数”</strong>（のべ回数ではない）。</p>
+<pre><code class="language-python">self._paths |= scan_error_nodes(self._hou)      # 集合の和（同じノードは何度出ても1つ）
+count = len(self._paths) if self._hou is not None and self.samples &gt; 0 else None
+</code></pre>
+<ul>
+<li><strong>集合</strong>にするので、同じノードが何度エラーでも 1。<strong>サンプリングの間隔（20秒）</strong>に直ったエラーは数えられない＝<strong>実際より少なく出うる</strong>（仕様。冒頭の docstring に明記）。</li>
+<li><strong>測れない</strong>ときは <code>None</code>（空欄）。<strong>0 とは区別する</strong>（0 = 測って、無かった）。</li>
+</ul>
+<p><strong>再開（<code>resume_state</code>）:</strong></p>
+<pre><code class="language-python">gap    = max(0, now − lastSeen)
+paused = savedPausedSec + (gap if gap &gt;= PAUSE_MIN_SEC(40) else 0)
+</code></pre>
+<p>実測：</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>入力</th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>保存 <code>{errorPaths:[/obj/a], pausedSec:30, lastSeen:1000}</code>、再開 <code>now = 1100</code>（空き100秒）</td>
+<td>引き継ぐノード <code>{/obj/a}</code>、中断 <strong>130</strong>（30 + 100）</td>
+</tr>
+<tr>
+<td>保存 <code>{pausedSec:30, lastSeen:1000}</code>、再開 <code>now = 1030</code>（空き30秒）</td>
+<td>ノード <code>{}</code>、中断 <strong>30</strong>（空きが40秒未満は数えない）</td>
+</tr>
+<tr>
+<td>保存なし</td>
+<td><code>({}, 0)</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>40秒の理由:</strong> 保存の間隔が20秒。<strong>間隔の倍</strong>（40秒）以上空いたら「閉じていた」とみなす。<strong>重くて固まっていただけ</strong>の時間は、作業の時間なので引かない。</p>
+<h3 id="25-操作ミスのスコアmistakescore">2.5 操作ミスのスコア（<code>mistakeScore</code>）</h3>
+<pre><code>cook = min(max(cookErrorNodes, 0), 10) / 10                 … 0〜1（10個以上は 1）
+self = (min(max(selfMistakes, 1), 5) − 1) / 4               … 1〜5 を 0〜1 に
+score = 0.7 × cook + 0.3 × self                              … 小数第3位で丸め
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>入力</th>
+<th>計算</th>
+<th>結果（実測）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cook 4、self 3</td>
+<td><code>0.7×0.4 + 0.3×0.5 = 0.28 + 0.15</code></td>
+<td><strong>0.43</strong></td>
+</tr>
+<tr>
+<td>cook 0、self 1</td>
+<td><code>0 + 0</code></td>
+<td><strong>0</strong></td>
+</tr>
+<tr>
+<td>cook 15、self 5</td>
+<td><code>0.7×1 + 0.3×1</code>（cook は上限 10 で 1）</td>
+<td><strong>1</strong></td>
+</tr>
+<tr>
+<td>cook なし（None）</td>
+<td>—</td>
+<td><strong>null</strong>（片方だけで代用しない）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>設計の意図:</strong> メカニクス面（cook エラー）7割 + ビジュアル操作面（自己申告）3割。<strong>どちらも 0〜1 にそろえてから</strong>合わせる（単位が違うものは、そのまま足さない）。<strong>上限 10</strong> は“これ以上は同じ（最大）とみなす”打ち切り。<strong>片方が無ければ null</strong>：もう片方で“代用”すると、別の物差しの数字が混ざる。</p>
+<p><strong>変える前に:</strong> 重み 0.7/0.3 と上限 10 は、<code>MISTAKE_WEIGHT_*</code>・<code>COOK_ERROR_CAP</code>。<strong>実験の途中で変えると、前後のデータが比べられなくなる</strong>。変えるなら、<strong>日付と理由を記録</strong>し、旧式の値も併記する。</p>
+<h3 id="26-集計中央値と対応のある差">2.6 集計：中央値と“対応のある差”</h3>
+<p><strong>中央値（<code>median</code>）:</strong> 外れ値に強い代表値。小さい順に並べ、真ん中（偶数個なら中央2つの平均）。実測：<code>[3,1,2]</code> → 2、<code>[4,1,3,2]</code> → 2.5、<code>[null,5]</code> → 5（null は除く）。</p>
+<p><strong>対応のある差（<code>summarizeTasks</code> の <code>paired</code>）:</strong> 同じ参加者の中で、</p>
+<pre><code>diff = （システムを使った回の平均） − （対照の回）        … 参加者ごとに1つ
+</code></pre>
+<p>指標ごとに、<code>diff</code> を集めて、<strong>中央値の差</strong>・<strong>改善した人数</strong>（<code>lower</code> なら <code>diff &lt; 0</code>、<code>higher</code> なら <code>diff &gt; 0</code>）・<strong>rank-biserial 相関</strong>を出す。</p>
+<h3 id="27-rank-biserial-相関差のそろい具合">2.7 rank-biserial 相関：差の“そろい具合”</h3>
+<p><code>diff</code> の<strong>符号</strong>（どちら向きか）と<strong>大きさの順位</strong>を使う、<strong>-1〜1</strong> の指標です（Wilcoxon の符号付き順位から）。</p>
+<ol>
+<li>0 の差は除く。</li>
+<li><strong>絶対値</strong>の小さい順に順位をつける。<strong>同じ絶対値は平均順位</strong>。</li>
+<li>正の差の順位の合計 <code>plus</code>、負の差の順位の合計 <code>minus</code>。</li>
+<li><code>r = (plus − minus) / (plus + minus)</code>。</li>
+</ol>
+<p><strong>手計算（実測と一致）①:</strong> <code>diffs = [-2, -1, 3, -1, 0]</code></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>手順</th>
+<th>値</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0 を除く</td>
+<td><code>-2, -1, 3, -1</code></td>
+</tr>
+<tr>
+<td>絶対値の小さい順</td>
+<td><code>1(-1), 1(-1), 2(-2), 3(+3)</code></td>
+</tr>
+<tr>
+<td>順位（同じ絶対値 1 は平均 <code>(1+2)/2 = 1.5</code>）</td>
+<td><code>1.5, 1.5, 3, 4</code></td>
+</tr>
+<tr>
+<td><code>plus</code>（正の差 +3 の順位）</td>
+<td>4</td>
+</tr>
+<tr>
+<td><code>minus</code></td>
+<td><code>1.5 + 1.5 + 3 = 6</code></td>
+</tr>
+<tr>
+<td><code>r</code></td>
+<td><code>(4 − 6) / 10 = −0.2</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>手計算 ②:</strong> <code>diffs = [-3, -2, -1, 1]</code>（所要時間（分）で、3人が短く、1人が長い）→ 順位 <code>1.5(−1), 1.5(+1), 3(−2), 4(−3)</code> → <code>plus = 1.5</code>、<code>minus = 1.5 + 3 + 4 = 8.5</code> → <code>r = (1.5 − 8.5)/10 = −0.7</code>。<code>improved</code>（lower の指標で <code>diff &lt; 0</code>）= 3、<code>medianDiff = (−2 + −1)/2 = −1.5</code>。</p>
+<p><strong>読み方:</strong> <code>lower</code> が良い指標（所要時間・ミス）で <strong>負に大きい</strong>ほど、「システムを使った回のほうが、<strong>そろって</strong>良い」。<strong>±1 に近い</strong>＝そろっている、<strong>0 付近</strong>＝そろっていない。</p>
+<blockquote>
+<p><strong>限界（必ず添える）:</strong> n=4 の <code>-0.7</code> は、<strong>偶然でも出る</strong>。この値は“<strong>そろい具合の記述</strong>”で、<strong>有意性の判定ではない</strong>。参加者が増えたら、分析設計書（<code>docs/pilot-analysis-design.md</code>）に沿って、別途、検定や信頼区間を使う。</p>
+</blockquote>
+<h3 id="28-習熟度成長点の合計としきい値">2.8 習熟度（成長）：点の合計としきい値</h3>
+<p><code>growth.ts</code> の式：</p>
+<pre><code>各用語の点 = 段階の点（basic 1 / applied 2 / advanced 3） × min(回数, 3) / 3      … 同じ用語は3回までを数える
+スコア = 全用語の点の合計（小数第1位で丸め）
+レベル = スコア ≥ 18 なら advanced、≥ 6 なら applied、それ以外 basic
+</code></pre>
+<p><strong>数を入れた例（実測）:</strong> 用語 <code>SOP</code>（basic）5回、<code>アトリビュート</code>（applied）2回、<code>VEX</code>（applied）1回、<code>PDG</code>（advanced）3回。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>用語</th>
+<th>段階の点</th>
+<th>min(回数,3)/3</th>
+<th>点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SOP</td>
+<td>1</td>
+<td>3/3 = 1</td>
+<td>1.0</td>
+</tr>
+<tr>
+<td>アトリビュート</td>
+<td>2</td>
+<td>2/3</td>
+<td>1.33</td>
+</tr>
+<tr>
+<td>VEX</td>
+<td>2</td>
+<td>1/3</td>
+<td>0.67</td>
+</tr>
+<tr>
+<td>PDG</td>
+<td>3</td>
+<td>3/3 = 1</td>
+<td>3.0</td>
+</tr>
+<tr>
+<td><strong>合計</strong></td>
+<td></td>
+<td></td>
+<td><strong>6.0</strong> → <strong>applied</strong>（しきい値 6 ちょうど）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>設計の意図:</strong></p>
+<ul>
+<li><strong>3回で頭打ち</strong>：1つの用語を連呼しても、スコアが膨らまない。</li>
+<li><strong>段階の高い用語ほど点が大きい</strong>：難しい用語を使えるほど上がる。</li>
+<li><strong>質問の全文は保存せず</strong>、<strong>用語と回数だけ</strong>を蓄積（プライバシー）。</li>
+</ul>
+<p><strong>一段やさしくする（<code>lowered</code>）:</strong> 直近3件の評価が<strong>すべて -1（役に立たなかった）</strong>で、かつスコアのレベルが basic でないとき、<strong>一段下げる</strong>。同じ例で <code>[-1,-1,-1]</code> を渡すと、<code>scoreLevel = applied</code> のまま <code>level = basic</code>、<code>lowered = true</code>（実測）。<strong>使いこなしている用語</strong>（回数 ≥ 2）は、<code>SOP</code>・<code>アトリビュート</code>・<code>PDG</code>（<code>VEX</code> は1回なので入らない）。</p>
+<p><strong>変える前に:</strong> しきい値 6・18、<code>KNOWN_COUNT = 2</code>、<code>min(回数, 3)</code> は、<strong>利用者の体験</strong>に直結する。実証実験の途中で変えると、「レベルが急に変わった」と見えてしまう。<strong>変えるなら告知し、分析にも記録</strong>する。</p>
+<h3 id="29-公開の制限k-匿名最小人数">2.9 公開の制限：k-匿名（最小人数）</h3>
+<p><code>pilotStats.ts</code> は、管理画面に出す集計を、<strong>個人が特定できない形</strong>にします。</p>
+<ul>
+<li><strong>習熟度の分布</strong>は、参加者が <code>MIN_GROUP = 3</code> 人<strong>未満</strong>なら、<strong>出さない</strong>（理由の文だけ返す）。2人だと、「片方が advanced なら、もう片方も推測できる」ため。</li>
+<li><strong>よく使われた用語</strong>は、<strong>2人以上</strong>が使ったものだけ（<code>MIN_USERS_PER_TERM = 2</code>）。1人だけが使った珍しい用語は、その人を特定しうる。</li>
+<li><strong>管理者アカウント自身の利用は数えない</strong>（<code>role != 'admin'</code>）。運営のテストが混ざらない。</li>
+<li><strong>日数は 1〜365 に clamp</strong>（<code>clampDays</code>）。</li>
+</ul>
+<blockquote>
+<p>これは <strong>k-匿名性</strong>（同じ特徴を持つ人が k 人以上いるときだけ公開する）の、簡単な形。<strong>最小人数を変える</strong>ときは、告知文（<code>pilot-announcement.md</code>）の約束と<strong>必ず合わせる</strong>。</p>
+</blockquote>
+<h2 id="3-このプロジェクトでは式を変えたいときの手順">3. このプロジェクトでは：式を変えたいときの手順</h2>
+<ol>
+<li><strong>どの式か</strong>を特定する（上の表）。</li>
+<li><strong>現在の挙動を、数値例でテストに固定</strong>する（<code>test/pilot_tasks.test.mjs</code>、<code>test/growth.test.mjs</code>）。</li>
+<li>式を変え、<strong>境界値</strong>（0・上限・null・負）でもテストを足す。</li>
+<li><strong>実験の途中なら、旧式の値を残す</strong>（列を足す、または記録に残す）。比較できなくなる変更は、<strong>運営に相談</strong>。</li>
+<li>告知・分析設計書に影響があれば、<strong>その場で直す</strong>。</li>
+<li>本番へは第9回の手順で。</li>
+</ol>
+<h2 id="4-演習">4. 演習</h2>
+<p><strong>演習 15.1（手計算）</strong> slot 3 の参加者の、各回の <code>taskId</code> と <code>condition</code>（固定課題）を表にしてください。pid 8 の slot は？</p>
+<p><strong>演習 15.2（トレース）</strong> <code>started_at = 5000</code>、<code>now = 9000</code>、<code>surveySec = 300</code>、<code>pausedSec = 1000</code> のとき、<code>endedAt</code>、<code>pausedSec</code>（clamp 後）、<code>duration</code> を求めてください。<code>pausedSec = 9000</code> だったら？</p>
+<p><strong>演習 15.3（手計算）</strong> <code>mistakeScore(7, 2)</code> を計算してください。</p>
+<p><strong>演習 15.4（手計算）</strong> <code>diffs = [-1, -1, 2, 4, -3, 0]</code> の <code>median</code>、<code>improved</code>（lower）、<code>pairedRankBiserial</code> を求めてください。</p>
+<p><strong>演習 15.5（手計算）</strong> 用語 <code>Pyro</code>（applied）4回、<code>ノード</code>（basic）1回、<code>USD</code>（advanced）2回のスコアとレベルは？</p>
+<p><strong>演習 15.6（読む）</strong> <code>test/pilot_tasks.test.mjs</code> と <code>test/growth.test.mjs</code> を開き、(a) 式の数値例を固定しているテスト、(b) 境界値のテスト、を1つずつ探してください。</p>
+<p><strong>演習 15.7（設計）</strong> 「参加者が 10 人（3の倍数でない）」のとき、ラテン方格のバランスは何が崩れるか。運用で、どう補えるか。</p>
+<p><strong>演習 15.8（考える）</strong> <code>MIN_GROUP</code> を 3 から 2 に下げたい、と言われた。<strong>反対する理由</strong>を、k-匿名の考え方で説明してください。</p>
+<h2 id="5-つまずきやすい点">5. つまずきやすい点</h2>
+<ul>
+<li><strong>「差が大きい＝効果がある」と読む。</strong> 少人数では偶然で出る。<strong>記述として扱う</strong>。</li>
+<li><strong>式を、実験の途中で直す。</strong> 前後のデータが比べられなくなる。</li>
+<li><strong>null と 0 を混ぜる。</strong> 「測れなかった」と「無かった」は別。</li>
+<li><strong>クライアントの値を信じる。</strong> サーバー側で <strong>clamp</strong> する。</li>
+<li><strong>サンプリングを“全数”と思う。</strong> cook エラーは、20秒ごとの採取＝<strong>少なく出うる</strong>。</li>
+</ul>
+<h2 id="6-確認問題">6. 確認問題</h2>
+<ol>
+<li>ラテン方格で、順序効果が打ち消される理由を説明せよ。</li>
+<li><code>round === slot</code> が対照になる設計で、各課題が対照に1度ずつ当たる理由は？</li>
+<li><code>pausedSec</code> を <code>endedAt − started_at</code> で <code>min</code> する理由は？</li>
+<li><code>mistakeScore</code> が、片方が null のとき null を返す理由は？</li>
+<li>rank-biserial が <code>-1</code> のとき、何を意味するか。</li>
+<li><code>MIN_USERS_PER_TERM = 2</code> の意味は？</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>演習 15.1: slot 3 → 1回目 雲（system）、2回目 Pyro（system）、3回目 RBD（<strong>docs_only</strong>）。pid 8 → <code>((8−1)%3)+1 = 2</code>。</li>
+<li>演習 15.2: <code>endedAt = max(5000, 9000−300) = 8700</code>、<code>pausedSec = min(1000, 3700) = 1000</code>、<code>duration = 8700−5000−1000 = 2700</code>（45分）。<code>pausedSec = 9000</code> なら <code>min(9000, 3700) = 3700</code>、<code>duration = 0</code>。</li>
+<li>演習 15.3: <code>cook = 0.7</code>、<code>self = (2−1)/4 = 0.25</code>。<code>0.7×0.7 + 0.3×0.25 = 0.49 + 0.075 = 0.565</code>。</li>
+<li>演習 15.4: <code>median([-1,-1,2,4,-3,0]) = (−1 + 0)/2 = −0.5</code>（昇順 <code>−3,−1,−1,0,2,4</code>、中央2つが −1 と 0）。<code>improved</code> = 負の数 = 3。<code>rank-biserial</code>: 0 を除き <code>−1,−1,2,4,−3</code>、絶対値順 <code>1,1,2,3,4</code> → 順位 <code>1.5,1.5,3,4,5</code>（<code>−1,−1,+2,−3,+4</code>）、<code>plus = 3 + 5 = 8</code>、<code>minus = 1.5+1.5+4 = 7</code>、<code>r = 1/15 = 0.067</code>。</li>
+<li>演習 15.5: <code>Pyro</code> = 2×min(4,3)/3 = 2、<code>ノード</code> = 1×1/3 = 0.33、<code>USD</code> = 3×2/3 = 2。合計 4.33 を小数第1位で丸めて <strong>4.3</strong> → <strong>basic</strong>（&lt; 6）。（実測: <code>4.3 basic</code>）</li>
+<li>演習 15.7: 3つの slot の人数が揃わない（例: 4/3/3）。対照の課題が、ある課題に偏る。<strong>補い方:</strong> 参加者の登録順（pid）を 3 の倍数で締める、結果に slot の人数を併記する、少人数のうちは差を“記述”にとどめる。</li>
+<li>演習 15.8: 2人だと、自分の情報と全体の分布から、<strong>もう1人の習熟度が推測できる</strong>（k=2 では、片方が分かれば他方が分かる）。告知文の「個人が特定されない形」の約束にも反する。</li>
+<li>確認問題 5: 差がすべて負（または、負の差の順位が圧倒的に大きい）＝ <strong>システムを使った回のほうが、そろって小さい</strong>（<code>lower</code> が良い指標なら、そろって良い）。</li>
+</ul>
+</main>
+<div class="pager"><a href="14-graph-algorithms.html">← 前へ</a><a href="16-scripts.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>
