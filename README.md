@@ -66,7 +66,7 @@
 
 ### 学習資料（保守・拡張できるようになるために）
 
-- **講義シリーズ（基礎から順に。全10回）** → [docs/learning/lectures/README.md](docs/learning/lectures/README.md)
+- **講義シリーズ（基礎から順に。全16回：第1〜10回＝仕組みと運用、第11〜16回＝アルゴリズムとスクリプト）** → [docs/learning/lectures/README.md](docs/learning/lectures/README.md)
 - 4段階の座学資料（常識・基礎・専門・応用・Script・保守）→ [docs/learning/README.md](docs/learning/README.md)
 
 ## クイックスタート

@@ -71,13 +71,13 @@
 </head>
 <body>
 <div class="wrap" id="page">
-<nav class="series" aria-label="シリーズ"><a class="current" href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<nav class="series" aria-label="シリーズ"><a class="current" href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a><a href="11-algorithm-basics.html">11</a><a href="12-search-algorithms.html">12</a><a href="13-control-algorithms.html">13</a><a href="14-graph-algorithms.html">14</a><a href="15-experiment-and-growth.html">15</a><a href="16-scripts.html">16</a></nav>
 <header class="hero">
   <span class="badge">講義</span>
   <h1>講義シリーズ: このシステムを、基礎から理解して、保守・拡張できるようになる</h1>
   <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/README.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#全体の地図">全体の地図</a></li><li><a href="#講義の一覧">講義の一覧</a></li><li><a href="#学び方">学び方</a></li><li><a href="#各回の形">各回の形</a></li><li><a href="#必要な道具">必要な道具</a></li><li><a href="#図の一覧講義で使う">図の一覧（講義で使う）</a></li><li><a href="#到達度チェック全体">到達度チェック（全体）</a></li><li><a href="#この資料の保守">この資料の保守</a></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#全体の地図">全体の地図</a></li><li><a href="#講義の一覧">講義の一覧</a><ol><li><a href="#part-2-アルゴリズムとスクリプト第1116回">Part 2: アルゴリズムとスクリプト（第11〜16回）</a></li></ol></li><li><a href="#学び方">学び方</a></li><li><a href="#各回の形">各回の形</a></li><li><a href="#必要な道具">必要な道具</a></li><li><a href="#図の一覧講義で使う">図の一覧（講義で使う）</a></li><li><a href="#到達度チェック全体">到達度チェック（全体）</a></li><li><a href="#この資料の保守">この資料の保守</a></li></ol></details></nav>
 <main>
 
 <p><strong>作成日:</strong> 2026-10-30 ／ <strong>対象:</strong> このプロジェクトを引き継ぐ人、自分で直せるようになりたい本人<br />
@@ -161,6 +161,58 @@
 </tr>
 </tbody>
 </table></div>
+<h3 id="part-2-アルゴリズムとスクリプト第1116回">Part 2: アルゴリズムとスクリプト（第11〜16回）</h3>
+<p>第1〜10回は「全体の仕組み」でした。Part 2 は、<strong>関数の中身（アルゴリズム）と、スクリプト</strong>を、<strong>数を入れて検算しながら</strong>読みます。本文の数値は、すべて<strong>実際にコードを動かして確かめた値</strong>です（再確認の方法は下の「数値の再確認」）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>回</th>
+<th>題</th>
+<th>身につくこと</th>
+<th>目安</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="11-algorithm-basics.html">第11回</a></td>
+<td>アルゴリズムの読み方・書き方（基礎）</td>
+<td>トレース表・計算量・Map/Set・安定ソート・純関数・正規表現（先読み／後読み）を、実コードで説明できる</td>
+<td>3時間</td>
+</tr>
+<tr>
+<td><a href="12-search-algorithms.html">第12回</a></td>
+<td>検索のアルゴリズム</td>
+<td>分割・ベクトル・BM25・<strong>RRF の手計算</strong>・HyDE・章の絞り込み・namespace の間引き。検索がおかしいとき、どの段を疑うか言える</td>
+<td>4時間</td>
+</tr>
+<tr>
+<td><a href="13-control-algorithms.html">第13回</a></td>
+<td>制御のアルゴリズム</td>
+<td>認証のハッシュ・回数制限・<strong>予約→実行→清算の予算</strong>・TOCTOU・タイムアウト・SSE・UPSERT。失敗したとき何が戻るか言える</td>
+<td>4時間</td>
+</tr>
+<tr>
+<td><a href="14-graph-algorithms.html">第14回</a></td>
+<td>グラフのアルゴリズム</td>
+<td><strong>最大剰余法</strong>・類似度のエッジ・<strong>鎖の折り畳み</strong>・Kahn 法・層配置（Sugiyama 風）・時間予算つき走査</td>
+<td>4時間</td>
+</tr>
+<tr>
+<td><a href="15-experiment-and-growth.html">第15回</a></td>
+<td>実験設計と習熟度の数式</td>
+<td><strong>ラテン方格</strong>・所要時間の式・操作ミスのスコア・中央値・<strong>順位相関</strong>・習熟度の点・k-匿名。式を変えるときの注意</td>
+<td>4時間</td>
+</tr>
+<tr>
+<td><a href="16-scripts.html">第16回</a></td>
+<td>スクリプトを読み・書く</td>
+<td>安全なスクリプトの型・<code>deploy_panels.py</code>・<code>diagram_kit.py</code>・<code>build_docs_html.py</code>・新しいスクリプトの書き方</td>
+<td>4時間</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>読む順序:</strong> 第11回 → 第12・13・14・15回（どの順でも可。第12 → 13 が自然）→ 第16回。第12・13回は第5回、第15回は第8回、第16回は第9回を前提にします。</p>
+<p><strong>Part 2 の演習の特徴:</strong> ①<strong>手計算</strong>してから、<strong>コードを動かして</strong>確かめる。②「<strong>読み取り練習</strong>」（第13回 §2.5 など）は、<strong>実際に見つかった癖</strong>を題材にしている。③<strong>テストを足す演習</strong>（第14回 演習 14.7、第16回 演習 16.4）は、現状でテストが無い箇所を、保守の練習として埋める。</p>
 <h2 id="学び方">学び方</h2>
 <ol>
 <li><strong>順番に読む。</strong> 第1〜4回は、どの順でも構いませんが、第5回以降は、前の回を前提にします。</li>
@@ -228,11 +280,11 @@
 </tr>
 <tr>
 <td><a href="../../images/11-request-life.svg">11 リクエストの一生</a></td>
-<td>第1・2・4・5回</td>
+<td>第1・2・4・5・12回</td>
 </tr>
 <tr>
 <td><a href="../../images/12-pilot-flow.svg">12 実証実験の流れ</a></td>
-<td>第8回</td>
+<td>第8・15回</td>
 </tr>
 <tr>
 <td><a href="../../images/13-task-states.svg">13 課題の状態</a></td>
@@ -263,7 +315,23 @@
 <li>[ ] 変更を本番に出す手順を、順序の理由と、戻し方つきで説明できる</li>
 <li>[ ] 「全部の API が 401 を返す」「新しい機能だけ 404」の原因を、順に切り分けられる</li>
 </ul>
+<p><strong>Part 2（第11〜16回）</strong></p>
+<ul>
+<li>[ ] 任意の小さな関数について、<strong>入力を決めて、トレース表を書き</strong>、コードの出力と一致させられる</li>
+<li>[ ] RRF の得点を、<strong>3本のリストから手計算</strong>できる。検索がおかしいとき、<code>retrieve()</code> の9つの段のどれを疑うか言える</li>
+<li>[ ] 予算の「予約 → 実行 → 清算」を、<strong>競合の例</strong>で説明できる。<code>UPDATE … WHERE</code> が 1 文である理由を言える</li>
+<li>[ ] 最大剰余法で、ノード数の配分を手計算できる。鎖の折り畳みと層配置を、小さなグラフで追える</li>
+<li>[ ] ラテン方格の表を書き、<code>mistakeScore</code>・習熟度の式を<strong>数を入れて</strong>説明できる。式を変えるときの注意（実験の途中で変えない等）を言える</li>
+<li>[ ] <code>deploy_panels.py</code> を 1 行ずつ読み、何を書き換えるか・どう戻すかを言える。<strong>安全な型</strong>に沿って、読むだけの点検スクリプトを書ける</li>
+</ul>
 <h2 id="この資料の保守">この資料の保守</h2>
+<ul>
+<li><strong>Part 2 の数値の再確認:</strong> 本文の数値（RRF の得点・配分・スコアなど）は、コードを変えると変わりえます。コードを変えたら、該当の回の<strong>数値例を、動かして確かめ直し</strong>ます。確かめ方の例（リポジトリの根から。<strong>本番には触れません</strong>）:</li>
+</ul>
+<pre><code class="language-bash">cd cloudflare-rag-poc
+npx tsx -e &quot;import('./src/graph.ts').then(m =&gt; console.log([...m.allocateQuotas([{namespace:'A',total:600},{namespace:'B',total:300},{namespace:'C',total:99},{namespace:'D',total:1}],500)]))&quot;
+</code></pre>
+<p>Python 側（<code>houdini/python_panels/</code>）は、<code>uv run python -c "import sys; sys.path.insert(0,'houdini/python_panels'); …"</code> の形で呼べます（第14回 演習 14.4）。</p>
 <ul>
 <li>コードや構成を変えたら、関係する回の「このプロジェクトでは」を直し、先頭の日付を更新する。</li>
 <li>実際に起きた障害は、<a href="../06-maintenance-runbook.html">06 保守の手順</a>の「障害記録」と、第10回の事例に足す。</li>

@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第13回 制御のアルゴリズム（認証・回数制限・予算・タイムアウト・ストリーム）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a><a href="11-algorithm-basics.html">11</a><a href="12-search-algorithms.html">12</a><a class="current" href="13-control-algorithms.html">13</a><a href="14-graph-algorithms.html">14</a><a href="15-experiment-and-growth.html">15</a><a href="16-scripts.html">16</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第13回 制御のアルゴリズム（認証・回数制限・予算・タイムアウト・ストリーム）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/13-control-algorithms.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像1回の質問が通る関門">1. 全体像：1回の質問が通る「関門」</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-認証キーは保存せずハッシュだけを比べる">2.1 認証：キーは保存せず、ハッシュだけを比べる</a></li><li><a href="#22-回数制限直近-60-秒を数える">2.2 回数制限：直近 60 秒を数える</a></li><li><a href="#23-同時リクエスト確認してから書くは破れるtoctou">2.3 同時リクエスト：確認してから書くは破れる（TOCTOU）</a></li><li><a href="#24-予算予約-実行-清算原子的な更新">2.4 予算：予約 → 実行 → 清算（原子的な更新）</a></li><li><a href="#25-読み取り練習予定リセットの遅れ修正済み">2.5 ★読み取り練習：予定リセットの「遅れ」（修正済み）</a></li><li><a href="#26-タイムアウトpromiserace-と-abortcontroller">2.6 タイムアウト：Promise.race と AbortController</a></li><li><a href="#27-ストリームsse切れ目で区切る">2.7 ストリーム（SSE）：切れ目で区切る</a></li><li><a href="#28-d1-への書き込みバッチと分けてはいけない組">2.8 D1 への書き込み：バッチと「分けてはいけない組」</a></li><li><a href="#29-冪等な更新upsert">2.9 冪等な更新：UPSERT</a></li></ol></li><li><a href="#3-このプロジェクトでは失敗したら何が戻るか">3. このプロジェクトでは：失敗したら何が戻るか</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> 「止める・数える・待つ」ためのコードを、<strong>競合（同時に来たとき）と失敗（途中で落ちたとき）</strong>の目で読める。<strong>予約→実行→清算</strong>の予算方式を、数を入れて説明できる。<br />
+<strong>前提:</strong> 第3回（SQL）、第5回、第11・12回。 <strong>目安:</strong> 4時間</p>
+<hr />
+<h2 id="1-全体像1回の質問が通る関門">1. 全体像：1回の質問が通る「関門」</h2>
+<p><code>src/query.ts</code> の準備段階（<code>prepareQuery</code>）は、<strong>この順に</strong>関門を通ります。順序には理由があります。</p>
+<pre><code>① authenticate        … APIキー → userId（ハッシュ）→ 権限（auth.ts）          [index.ts]
+② resolveEffective…   … 許可された namespace だけに絞る
+③ assertNotRateLimited … 直近60秒に30回以上なら 429（rateLimit.ts）
+④ startAuditLog       … 監査ログの「仮の行」を先に書く（auditLog.ts）          ← 高価な処理の前
+⑤ reserveBudget       … トークン予算を「予約」。足りなければ 429（budget.ts）
+⑥ retrieve → 生成      … HyDE・埋め込み・検索・回答（高価。お金がかかる）
+⑦ reconcileBudget     … 実測との差分を清算（失敗したら全額払い戻し）
+⑧ finalizeAuditLog    … 仮の行を、結果で埋める
+</code></pre>
+<p><strong>設計の原則:</strong> ①〜⑤は<strong>安い処理</strong>で、⑥が<strong>高い処理</strong>。<strong>安い関門を先に</strong>置き、<strong>高い処理の前に“予約”を済ませる</strong>。⑥で失敗したら⑦で払い戻す。</p>
+<h2 id="2-基礎">2. 基礎</h2>
+<h3 id="21-認証キーは保存せずハッシュだけを比べる">2.1 認証：キーは保存せず、ハッシュだけを比べる</h3>
+<pre><code class="language-ts">const userId = await sha256Hex(apiKey);          // SHA-256 → 16進64文字
+return loadAuthedUser(env, userId);               // users テーブルから引く
+</code></pre>
+<ul>
+<li><strong>ハッシュ</strong>は、元に戻せない一方向の変換。D1 に残るのは <code>userId</code>（＝キーのハッシュ）だけなので、<strong>D1 が漏れても、キーそのものは漏れない</strong>。</li>
+<li>管理画面に出る「ID の先頭6文字」（<code>userIdShort</code>）は、<strong>キーではなくハッシュの先頭</strong>。</li>
+<li><strong>期限切れは、「存在しない」と同じ応答にする</strong>（<code>loadAuthedUser</code>）。別の文言にすると、「そのキーは実在する」と攻撃者に教えてしまうため。</li>
+<li><strong>権限の決め方:</strong> <code>admin</code> は全 shared + 自分の personal。それ以外は、<code>key_namespace_grants</code> で許可された shared + 自分の personal。<strong>SQL の <code>OR</code> の括り方</strong>（<code>(A AND B) OR C</code>）が、この仕様そのもの。</li>
+</ul>
+<h3 id="22-回数制限直近-60-秒を数える">2.2 回数制限：直近 60 秒を数える</h3>
+<pre><code class="language-ts">const since = now - 60;
+SELECT COUNT(*) FROM audit_log WHERE user_id = ? AND created_at &gt;= ?;   // 30 以上なら拒否
+</code></pre>
+<p>専用の表を増やさず、<strong>すでにある <code>audit_log</code> を数える</strong>のが工夫です。</p>
+<p><strong>方式の名前に注意:</strong> ソースのコメントは「固定ウィンドウ」と書いていますが、動きとしては<strong>スライディングウィンドウ（ログ方式）</strong>です。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方式</th>
+<th>数え方</th>
+<th>弱点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>固定ウィンドウ</td>
+<td>時刻を 0:00〜0:59、1:00〜1:59 … と<strong>区切り</strong>、区間ごとに数える</td>
+<td>区切りをまたぐと、<strong>2秒間に上限の2倍</strong>が通る（0:59 に 30 回 + 1:00 に 30 回）</td>
+</tr>
+<tr>
+<td><strong>スライディング（今の実装）</strong></td>
+<td><strong>「今」から 60 秒さかのぼって</strong>数える</td>
+<td>区切りが無いので、上の問題は<strong>起きない</strong>。代わりに、毎回 <code>COUNT</code> を打つ（<code>created_at</code> に索引があるので範囲は絞れる）</td>
+</tr>
+<tr>
+<td>トークンバケット</td>
+<td>一定の速さで“券”が貯まり、1回ごとに1枚使う</td>
+<td>実装が少し複雑。バーストを許したいときに向く</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>学び:</strong> コメントの用語は<strong>鵜呑みにせず、コードの動きで確かめる</strong>。ここでは、どちらの用語でも、<strong>制限の強さ（60秒に30回）は変わりません</strong>。</p>
+</blockquote>
+<p>ただし、数えるのは<strong>“書き込み済みの行”だけ</strong>です。書き込み<strong>前</strong>の同時リクエストは見えません——次の2.3が、その対策です。</p>
+<h3 id="23-同時リクエスト確認してから書くは破れるtoctou">2.3 同時リクエスト：<strong>確認してから書く</strong>は破れる（TOCTOU）</h3>
+<p><strong>TOCTOU</strong>（Time Of Check To Time Of Use）＝「確認した時点」と「使う時点」の間に状況が変わる問題。</p>
+<pre><code>リクエストA: COUNT = 29 → OK → （高価な処理…）→ 最後に audit_log へ書く
+リクエストB: COUNT = 29 → OK → （高価な処理…）→ 最後に audit_log へ書く
+           ↑ AもBも「まだ誰も書いていない」ので両方通る。30件の同時リクエストが全部通る
+</code></pre>
+<p><strong>対策（2026-09-04）:</strong> 高価な処理の<strong>前</strong>に、<code>startAuditLog</code> で<strong>仮の行</strong>を書く。この行自体が「<strong>いま実行中</strong>」という予約になり、後続の <code>COUNT(*)</code> に見える。処理後に、<code>finalizeAuditLog</code> で結果（件数・遅延・トークン）だけを埋め戻す。</p>
+<blockquote>
+<p><strong>正直な限界:</strong> ③の確認と④の書き込みの<strong>間</strong>には、わずかな窓が残ります（厳密な排他ではない）。上限を守る「目安」としては十分、というのが、このプロジェクトの判断です。<strong>厳密にしたいなら、確認と書き込みを1つの SQL にする</strong>（次の2.4と同じ考え方）。</p>
+</blockquote>
+<h3 id="24-予算予約-実行-清算原子的な更新">2.4 予算：予約 → 実行 → 清算（原子的な更新）</h3>
+<p>LLM の呼び出しは、<strong>終わるまで、何トークン使うか分からない</strong>。そこで、</p>
+<ol>
+<li><strong>見積もりを先に“予約”する</strong>（<code>reserveBudget</code>）。上限を超えるなら、<strong>その場で拒否</strong>（429）。</li>
+<li>実行する。</li>
+<li><strong>実測との差分だけ、清算する</strong>（<code>reconcileBudget</code>）。少なければ払い戻し、多ければ追加。失敗したら全額払い戻し。</li>
+</ol>
+<p>核心は、予約の SQL が<strong>1文</strong>であること。</p>
+<pre><code class="language-sql">UPDATE token_budgets
+   SET used_tokens = used_tokens + :estimate
+ WHERE user_id = :u AND budget_type = :t
+   AND used_tokens + :estimate &lt;= limit_tokens;     -- 条件に合う行だけ更新される
+-- 更新された行数 (meta.changes) が 0 なら、予算不足
+</code></pre>
+<p><strong>なぜ1文か（競合の例・実測）:</strong> 上限 10,000、使用済み 9,000（残り 1,000）に、<strong>800 の予約が2件</strong>ほぼ同時に来る。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>方式</th>
+<th>流れ</th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>確認してから書く</strong>（2回の往復）</td>
+<td>A: 残り1,000 ≥ 800 → OK。B: 残り1,000 ≥ 800 → OK。A書く（9,800）、B書く（<strong>10,600</strong>）</td>
+<td><strong>上限超え</strong></td>
+</tr>
+<tr>
+<td><strong>条件つき UPDATE（1文）</strong></td>
+<td>A: <code>9,000+800 ≤ 10,000</code> → 更新（9,800）。B: <code>9,800+800 = 10,600 &gt; 10,000</code> → <strong>0行</strong>（拒否）</td>
+<td><strong>守られる</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>実測（偽の D1 で <code>reserveBudget</code> を2回続けて呼ぶ）: 結果は <code>true</code>, <code>false</code>、<code>used_tokens = 9800</code>。D1 / SQLite は書き込みを<strong>直列に</strong>処理するので、<code>UPDATE … WHERE</code> の条件は「その時点の最新の値」で評価されます。</p>
+<p><strong>数を入れた通し（実測）:</strong> 上限 10,000・使用済み 5,000、見積もり 4,000。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>手順</th>
+<th>内容</th>
+<th><code>used_tokens</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>予約</td>
+<td><code>5,000 + 4,000 = 9,000 ≤ 10,000</code> → 成功</td>
+<td>9,000</td>
+</tr>
+<tr>
+<td>実行</td>
+<td>実際に使ったのは 1,800</td>
+<td>—</td>
+</tr>
+<tr>
+<td>清算</td>
+<td><code>delta = 1,800 - 4,000 = -2,200</code> → 払い戻し</td>
+<td><strong>6,800</strong></td>
+</tr>
+<tr>
+<td>次の予約</td>
+<td><code>6,800 + 4,000 = 10,800 &gt; 10,000</code> → <strong>拒否</strong></td>
+<td>6,800</td>
+</tr>
+</tbody>
+</table></div>
+<p>清算の SQL は <code>MAX(0, used_tokens + delta)</code>。<strong>マイナスにならない</strong>ようにしています。</p>
+<p><strong>予算の無いユーザーは無制限:</strong> 行が無ければ <code>reserveBudget</code> は <code>true</code>（開発・検証用の既定）。<strong>本番で上限を付けたいキーには、必ず行を作る</strong>（管理画面の予算）。</p>
+<h3 id="25-読み取り練習予定リセットの遅れ修正済み">2.5 ★読み取り練習：予定リセットの「遅れ」（修正済み）</h3>
+<p><code>applyScheduledResetIfDue</code>（<code>budget.ts</code>）は、アクセスのたびに「リセット時刻を過ぎていれば使用量を 0 に戻す」遅延評価です（Cron が要らない）。<strong>以前の実装には癖があり、のちに修正しました</strong>（下の「修正後」）。以下は、修正前の挙動の記録です。</p>
+<pre><code class="language-ts">const nextResetAt = row.reset_at + row.reset_interval_hours * 3600;   // 【修正前】1周期ぶんしか進めない
+</code></pre>
+<p><strong>実測（偽の D1）:</strong> 24時間周期のリセットが <strong>72時間遅れ</strong>（3周期分、誰も使わなかった）で、使用済み 9,500、上限 10,000。そこへ 3,000 の予約を 4 回続ける。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>回</th>
+<th>予約の前の使用量</th>
+<th>予約の後の使用量</th>
+<th><code>reset_at</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>9,500</td>
+<td><strong>3,000</strong>（リセットされて 0 → +3,000）</td>
+<td>まだ過去</td>
+</tr>
+<tr>
+<td>2</td>
+<td>3,000</td>
+<td><strong>3,000</strong>（また、リセット）</td>
+<td>まだ過去</td>
+</tr>
+<tr>
+<td>3</td>
+<td>3,000</td>
+<td><strong>3,000</strong>（また、リセット）</td>
+<td>まだ過去</td>
+</tr>
+<tr>
+<td>4</td>
+<td>3,000</td>
+<td>3,000</td>
+<td>未来になった（ここで追いつく）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>読み取れること:</strong> 長く使われなかったあとの<strong>最初の数回</strong>（遅れた周期の数だけ）は、<strong>予約が積み上がらず</strong>、上限が実質効かない。影響は限定的（最大で、遅れた周期の数 × 1回ぶん）ですが、<strong>仕様として意図したものではなさそう</strong>です。</p>
+<p><strong>修正後（2026-10-30。本番へは未デプロイ）:</strong> 「次のリセット時刻＝現在より後で最初の境界」にした。元のリズム（<code>reset_at</code> ＋ 周期の整数倍）は保たれる。</p>
+<pre><code class="language-ts">const periods = Math.floor((now - row.reset_at) / interval) + 1;   // interval は秒
+const nextResetAt = row.reset_at + periods * interval;
+</code></pre>
+<blockquote>
+<p>進め方の見本: <strong>①テストを先に書き</strong>（<code>test/budget.test.mjs</code>。上の4行の表を、そのままテストにして、<strong>修正前のコードで失敗すること</strong>を確かめた）→ ②直す → ③第9回の手順で出す。<strong>本番のデータ（<code>reset_at</code>）は、変えない</strong>（コードを直せば、次のアクセスで自然に追いつく）。<strong>本番に出すのは、第9回の手順どおり、人が操作の名前を挙げて許可してから</strong>です。</p>
+</blockquote>
+<h3 id="26-タイムアウトpromiserace-と-abortcontroller">2.6 タイムアウト：<code>Promise.race</code> と <code>AbortController</code></h3>
+<p>外部 API は、遅いことがある。<strong>待つ時間に上限</strong>が要ります（<code>chunking.ts</code> の <code>withAbortTimeout</code>）。</p>
+<pre><code class="language-ts">const controller = new AbortController();
+const timeout = new Promise&lt;never&gt;((_, reject) =&gt; {
+  timer = setTimeout(() =&gt; { controller.abort(); reject(new Error(&quot;…タイムアウト&quot;)); }, ms);
+});
+try { return await Promise.race([fn(controller.signal), timeout]); }
+finally { clearTimeout(timer!); }
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>部品</th>
+<th>役割</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Promise.race([A, B])</code></td>
+<td>先に終わったほうの結果で進む（<strong>もう片方は止まらない</strong>）</td>
+</tr>
+<tr>
+<td><code>AbortController.abort()</code></td>
+<td><code>fetch</code> などに渡した <code>signal</code> を通じて、<strong>止められるものを止める</strong></td>
+</tr>
+<tr>
+<td><code>clearTimeout</code></td>
+<td>先に終わったとき、タイマーを残さない（<code>finally</code>）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>歴史（コメントに記録）:</strong> 最初は <code>Promise.race</code> だけだった。しかし、<strong>負けた側の <code>fetch</code> は裏で動き続け</strong>、Worker 全体の実行時間を使い切って 503 になった（2026-08-27）。そこで、<code>abort()</code> で<strong>止められるものは止め</strong>、<code>race</code> で<strong>確実に次へ進む</strong>の二段にした。</p>
+<blockquote>
+<p><strong>学び:</strong> 「待つのをやめる」と「止める」は<strong>別物</strong>。両方が要る。</p>
+</blockquote>
+<h3 id="27-ストリームsse切れ目で区切る">2.7 ストリーム（SSE）：切れ目で区切る</h3>
+<p>回答を<strong>届いた分ずつ</strong>画面に出す（<code>generateContentStream</code>）。サーバーからは、<code>data: {...}</code> の行が、<strong>空行（<code>\n\n</code>）で区切られた“イベント”</strong>として流れてきます。ただし、<strong>ネットワークの1回の受信が、イベントの途中で切れる</strong>ことがあります。</p>
+<pre><code class="language-ts">buffer += decoder.decode(value, { stream: true });     // 途中で切れた多バイト文字を壊さない
+buffer = buffer.replace(/\r\n/g, &quot;\n&quot;);                // 改行コードをそろえる
+while ((idx = buffer.indexOf(&quot;\n\n&quot;)) !== -1) {        // 完結したイベントだけ取り出す
+  handleEvent(buffer.slice(0, idx));
+  buffer = buffer.slice(idx + 2);                       // 残り（不完全な部分）は次回へ持ち越す
+}
+</code></pre>
+<p><strong>トレース（1つのイベントが、2回に分かれて届く）:</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>受信</th>
+<th><code>buffer</code>（処理前）</th>
+<th>処理</th>
+<th><code>buffer</code>（処理後）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1回目 <code>data: {"a":</code></td>
+<td><code>data: {"a":</code></td>
+<td><code>\n\n</code> が無い → 何もしない</td>
+<td><code>data: {"a":</code></td>
+</tr>
+<tr>
+<td>2回目 <code>1}\n\ndata: {"b":2}\n\n</code></td>
+<td><code>data: {"a":1}\n\ndata: {"b":2}\n\n</code></td>
+<td>2つ取り出す</td>
+<td><code>""</code></td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>壊れたイベントは読み飛ばす</strong>（<code>try { JSON.parse } catch { return }</code>）。1個の不具合で、回答全体を失わない。</li>
+<li><strong>思考（<code>thought</code>）のパートは、本文に含めない。</strong></li>
+<li>最後に、<code>buffer</code> に残りがあれば処理する（終端の空行が無い場合）。</li>
+</ul>
+<h3 id="28-d1-への書き込みバッチと分けてはいけない組">2.8 D1 への書き込み：バッチと「分けてはいけない組」</h3>
+<p><code>runStatementGroups</code>（<code>chunkRows.ts</code>）は、SQL を <strong>50 文ずつ</strong>まとめて <code>DB.batch</code>（1往復・1トランザクション）で実行します。</p>
+<ul>
+<li><strong>組（グループ）は分けない。</strong> <code>putChunkStatements</code> の4文（古い行を消す→FTS に挿入→<code>chunk_rows</code> に記録）は、<strong>隣り合う順序に意味</strong>がある（直前の <code>last_insert_rowid()</code> を使う）。</li>
+<li><strong>だから:</strong> 現在のバッチに入りきらないなら、<strong>グループごと次のバッチへ</strong>（<code>if (current.length + g.length &gt; maxPerBatch) await flush()</code>）。</li>
+</ul>
+<p><strong>間接表（<code>chunk_rows</code>）の理由:</strong> <code>chunks_fts</code> の <code>chunk_id</code>・<code>namespace</code>・<code>file</code> は <code>UNINDEXED</code> 列で、これらで探す・消すと<strong>毎回全件走査</strong>になる（D1 の読み取り行数を使い切る原因だった。事例 A）。そこで、<code>chunk_id → FTS の rowid</code> の対応表を持ち、<strong>削除・参照は rowid 経由</strong>にした。<strong>書き込みは必ずこのファイルの関数を通す</strong>（片方だけ更新すると対応がずれる）。</p>
+<h3 id="29-冪等な更新upsert">2.9 冪等な更新：UPSERT</h3>
+<pre><code class="language-sql">INSERT INTO user_terms (user_id, term, count, first_seen, last_seen) VALUES (?,?,1,?,?)
+ON CONFLICT(user_id, term) DO UPDATE SET count = count + 1, last_seen = excluded.last_seen
+</code></pre>
+<p>「なければ作り、あれば足す」を<strong>1文</strong>で。先に <code>SELECT</code> して分岐すると、2つの同時リクエストで<strong>どちらも“無い”と見て</strong>重複や失敗が起きる。<code>excluded.列</code> は「挿入しようとした値」。</p>
+<h2 id="3-このプロジェクトでは失敗したら何が戻るか">3. このプロジェクトでは：失敗したら何が戻るか</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>失敗の場所</th>
+<th>戻すもの</th>
+<th>該当コード</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>検索（⑥）で例外</td>
+<td>予約した 4,000 を全額払い戻し</td>
+<td><code>query.ts</code> の <code>catch</code> → <code>reconcileBudget(…, 0)</code></td>
+</tr>
+<tr>
+<td>生成で例外</td>
+<td>同上</td>
+<td>同</td>
+</tr>
+<tr>
+<td>Claude API のエラー</td>
+<td>見積もり全額を払い戻し</td>
+<td><code>claude.ts</code> の <code>catch</code></td>
+</tr>
+<tr>
+<td>成功</td>
+<td>実測との差分</td>
+<td><code>reconcileBudget(…, tokensUsed)</code></td>
+</tr>
+<tr>
+<td>監査ログ</td>
+<td>失敗したときは <code>finalizeAuditLog</code> を呼ばないので、仮の行が<strong>初期値のまま</strong>残る（<code>tokens_used = 0</code>）</td>
+<td>失敗した試行も、回数としては“数える”</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>設計の確認:</strong> 「失敗しても、回数としては数える」「失敗したら、お金は払い戻す」。この<strong>非対称</strong>は意図したもの。</p>
+</blockquote>
+<h2 id="4-演習">4. 演習</h2>
+<p><strong>演習 13.1（トレース）</strong> 上限 10,000、使用済み 6,000。見積もり 3,000 → 実測 1,200 → 次の見積もり 3,000。各段の <code>used_tokens</code> と、成功／拒否を表にしてください。そのあと、上限が 8,000 だったらどうなるかも答えてください。</p>
+<p><strong>演習 13.2（書く）</strong> <code>reserveBudget</code> の2回呼びの競合を、<strong>自分でテスト</strong>にしてください。（<code>test/crawl_graph.test.mjs</code> の偽 D1 の作りを真似る。本体は変えない。）</p>
+<p><strong>演習 13.3（読む）</strong> <code>test/stream.test.mjs</code> を開き、SSE を<strong>途中で切って</strong>送るテストがあるか探してください。無ければ、1つ設計してください。</p>
+<p><strong>演習 13.4（考える）</strong> 「確認（<code>COUNT</code>）」と「書き込み（<code>startAuditLog</code>）」の間に残る小さな窓（2.3 の“正直な限界”）を、<code>audit_log</code> だけで塞ぐには、SQL をどう変えるか。</p>
+<p><strong>演習 13.5（読む）</strong> <code>test/budget.test.mjs</code> を開き、2.5 の癖を再現するテスト（何周期も遅れたケース）を探して、(a) 修正前のコードでは、どの <code>assert</code> で失敗するか、(b) 「元のリズムを保つ」ことを確かめている行はどれか、答えてください。</p>
+<h2 id="5-つまずきやすい点">5. つまずきやすい点</h2>
+<ul>
+<li><strong>「確認 → 書き込み」を2回の往復にする。</strong> 同時に来ると破れる。<strong>条件を SQL に入れて1文</strong>にする。</li>
+<li><strong>見積もりを“最後に”引く。</strong> 実行中に上限を超える。<strong>先に予約</strong>。</li>
+<li><strong><code>Promise.race</code> だけでタイムアウトした気になる。</strong> 裏の処理は止まらない。<code>abort()</code> も。</li>
+<li><strong>ストリームを“1回の受信 = 1イベント”と決めつける。</strong> 切れ目をバッファで吸収する。</li>
+<li><strong>失敗時の払い戻しを忘れる。</strong> 失敗するたびに予算が減り、使えなくなる。</li>
+</ul>
+<h2 id="6-確認問題">6. 確認問題</h2>
+<ol>
+<li>認証で、期限切れとキー不存在の応答を同じにする理由は？</li>
+<li>TOCTOU を、予算の例で説明せよ。</li>
+<li><code>reserveBudget</code> が <code>false</code> を返すのは、どんな SQL の結果のときか。</li>
+<li><code>Promise.race</code> と <code>AbortController</code> の役割の違いは？</li>
+<li>ストリームで、受信を <code>\n\n</code> で区切って処理する理由は？</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>演習 13.1: 上限 10,000 のとき → 予約 <code>6,000+3,000=9,000 ≤ 10,000</code> 成功（9,000）→ 清算 <code>1,200-3,000=-1,800</code> → <strong>7,200</strong> → 次の予約 <code>7,200+3,000=10,200 &gt; 10,000</code> → <strong>拒否</strong>（7,200 のまま）。上限 8,000 のときは、最初の予約 <code>9,000 &gt; 8,000</code> から<strong>拒否</strong>される。<strong>見積もりが実測より大きいと、予算が残っていても拒否される</strong>（画像つきの質問で、見積もりが過大にならないよう固定値にしている理由。<code>claude.ts</code> のコメント）。</li>
+<li>演習 13.4: <code>INSERT INTO audit_log (…) SELECT … WHERE (SELECT COUNT(*) FROM audit_log WHERE user_id = ? AND created_at &gt;= ?) &lt; 30</code> のように、<strong>確認と書き込みを1文</strong>にして、挿入された行数（<code>meta.changes</code>）が 0 なら拒否する（2.4 と同じ考え方）。ただし、仮の行を先に書く今の方式でも、目安としては十分。</li>
+<li>確認問題 3: <code>UPDATE … WHERE used_tokens + ? &lt;= limit_tokens</code> が 0 行だったとき（<code>meta.changes = 0</code>）。</li>
+</ul>
+</main>
+<div class="pager"><a href="12-search-algorithms.html">← 前へ</a><a href="14-graph-algorithms.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

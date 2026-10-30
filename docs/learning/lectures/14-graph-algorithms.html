@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第14回 グラフのアルゴリズム（配分・類似度・折り畳み・層配置）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a><a href="11-algorithm-basics.html">11</a><a href="12-search-algorithms.html">12</a><a href="13-control-algorithms.html">13</a><a class="current" href="14-graph-algorithms.html">14</a><a href="15-experiment-and-growth.html">15</a><a href="16-scripts.html">16</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第14回 グラフのアルゴリズム（配分・類似度・折り畳み・層配置）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/14-graph-algorithms.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像グラフは2か所で使われている">1. 全体像：グラフは2か所で使われている</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-用語">2.1 用語</a></li><li><a href="#22-比率配分最大剰余法allocatequotas">2.2 比率配分：最大剰余法（allocateQuotas）</a></li><li><a href="#23-類似度のエッジ全ペア比較handlegraph">2.3 類似度のエッジ：全ペア比較（handleGraph）</a></li><li><a href="#24-鎖の折り畳みsimplifygraph">2.4 鎖の折り畳み（simplify_graph）</a></li><li><a href="#25-層配置トポロジカルソートと重心法layeredpositions">2.5 層配置：トポロジカルソートと重心法（layered_positions）</a></li><li><a href="#26-ひとつのネットワークを選ぶpickcontainer">2.6 「ひとつのネットワーク」を選ぶ（pick_container）</a></li><li><a href="#27-時間の予算つきの走査scanerrornodes">2.7 時間の予算つきの走査（scan_error_nodes）</a></li></ol></li><li><a href="#3-このプロジェクトではどれをいつ触るか">3. このプロジェクトでは：どれを、いつ触るか</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> 「点と線」で表せる問題に対して、<strong>このプロジェクトの4つのアルゴリズム</strong>（比率配分・類似度のエッジ・鎖の折り畳み・層配置）を、<strong>数を入れて追える</strong>。入力の“規模”が増えたときの限界を言える。<br />
+<strong>前提:</strong> 第11回（計算量・Map/Set）、第12回（コサイン類似度）。 <strong>目安:</strong> 4時間</p>
+<hr />
+<h2 id="1-全体像グラフは2か所で使われている">1. 全体像：グラフは2か所で使われている</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>場所</th>
+<th>点（ノード）</th>
+<th>線（エッジ）</th>
+<th>目的</th>
+<th>ファイル</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Web 画面のグラフ</strong></td>
+<td>文書（チャンク）</td>
+<td>意味が近い文書どうし</td>
+<td>知識の地図を見せる</td>
+<td><code>src/graph.ts</code></td>
+</tr>
+<tr>
+<td><strong>Houdini のチュートリアル図</strong></td>
+<td>Houdini のノード</td>
+<td>接続（入力→出力）</td>
+<td>100〜200ノードの図を読めるサイズにする</td>
+<td><code>tutorial_graph_simplify.py</code> <code>graph_diagram.py</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>どちらも<strong>「規模が大きいと読めない・遅い」</strong>問題を、アルゴリズムで抑えています。</p>
+<h2 id="2-基礎">2. 基礎</h2>
+<h3 id="21-用語">2.1 用語</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>用語</th>
+<th>意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ノード（点）／エッジ（線）</td>
+<td>要素／要素どうしの関係</td>
+</tr>
+<tr>
+<td><strong>有向</strong>／<strong>無向</strong></td>
+<td>向きがある（A→B）／ない（A—B）</td>
+</tr>
+<tr>
+<td>次数（degree）</td>
+<td>1つのノードにつながる線の数。有向なら<strong>入次数</strong>（入ってくる）と<strong>出次数</strong>（出ていく）</td>
+</tr>
+<tr>
+<td><strong>DAG</strong></td>
+<td>向きがあり、<strong>ぐるぐる回る輪（サイクル）が無い</strong>グラフ。Houdini のノードネットワークは DAG</td>
+</tr>
+<tr>
+<td>層（レイヤー）</td>
+<td>左から右へ、入力→出力の向きに並べた列</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="22-比率配分最大剰余法allocatequotas">2.2 比率配分：最大剰余法（<code>allocateQuotas</code>）</h3>
+<p><strong>問題:</strong> 画面に出せるノードは最大 500。しかし文書は 5,000 件ある。<strong>どの namespace から、何件ずつ</strong>出すか。先頭から切ると、偏る。<strong>文書数の比率に合わせ、文書のある namespace は最低 1 件は出す。</strong></p>
+<p><strong>アルゴリズム（<code>graph.ts</code>）:</strong></p>
+<ol>
+<li>合計が <code>maxNodes</code> 以下なら、<strong>全件</strong>（配分の必要なし）。</li>
+<li>文書のある namespace の数が <code>maxNodes</code> 以上なら、<strong>文書数の多い順に 1 件ずつ</strong>。</li>
+<li>それ以外は、</li>
+<li>各 namespace に <strong>最低 1 件</strong>を先に確保。</li>
+<li>残りの枠 <code>spare = maxNodes − namespace数</code> を、「<strong>各自の余り文書数（total − 1）</strong>」の比率で割り振る。</li>
+<li>小数の<strong>整数部分</strong>を先に配る。</li>
+<li>配りきれなかった端数を、<strong>小数部分の大きい順</strong>に 1 件ずつ配る（<strong>最大剰余法</strong>）。</li>
+</ol>
+<p><strong>数を入れた例（実測と一致を確認済み）:</strong> 上限 500。A=600 件、B=300 件、C=99 件、D=1 件（合計 1,000）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>段</th>
+<th>A</th>
+<th>B</th>
+<th>C</th>
+<th>D</th>
+<th>合計</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>最低1件</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+<td>4</td>
+</tr>
+<tr>
+<td>余り文書数（total−1）</td>
+<td>599</td>
+<td>299</td>
+<td>98</td>
+<td>0</td>
+<td>996</td>
+</tr>
+<tr>
+<td>残り枠 <code>spare</code> = 500 − 4</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td><strong>496</strong></td>
+</tr>
+<tr>
+<td>理想の取り分 <code>spare × 余り / 996</code></td>
+<td>298.30</td>
+<td>148.90</td>
+<td>48.80</td>
+<td>0</td>
+<td></td>
+</tr>
+<tr>
+<td>整数部分</td>
+<td>298</td>
+<td>148</td>
+<td>48</td>
+<td>0</td>
+<td>494</td>
+</tr>
+<tr>
+<td>端数の小数部分</td>
+<td>0.30</td>
+<td><strong>0.90</strong></td>
+<td><strong>0.80</strong></td>
+<td>0</td>
+<td></td>
+</tr>
+<tr>
+<td>残り 2 枠 → 小数の大きい B・C に +1</td>
+<td></td>
+<td>+1</td>
+<td>+1</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>最終（1 + 整数部 + 端数）</strong></td>
+<td><strong>299</strong></td>
+<td><strong>150</strong></td>
+<td><strong>50</strong></td>
+<td><strong>1</strong></td>
+<td><strong>500</strong></td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>実測の出力: <code>[A, 299] [B, 150] [C, 50] [D, 1]</code>。<strong>小さな namespace（D）も 0 にならない</strong>のが肝。</p>
+</blockquote>
+<p><strong>なぜ単純に四捨五入しないのか:</strong> 四捨五入だと、合計が 500 からずれる（499 や 501）。最大剰余法は、<strong>必ず合計がちょうど</strong>になる（<strong>Hamilton 法</strong>とも呼ばれる、議席配分の古典的な方法）。</p>
+<p><strong>取り出し方:</strong> 各 namespace から <code>ORDER BY chunk_id LIMIT quota</code>。<code>chunk_id</code> はハッシュ由来で偏りが無く、<strong>呼び出しごとに同じ結果</strong>になる（再現性）。</p>
+<h3 id="23-類似度のエッジ全ペア比較handlegraph">2.3 類似度のエッジ：全ペア比較（<code>handleGraph</code>）</h3>
+<pre><code>① 各ノードの先頭チャンクのベクトルを Vectorize から取得（20件ずつ、4本並列）
+② 長さ1に正規化（normalized）
+③ 全ペア (i, j) の内積（＝コサイン類似度）を計算
+④ 閾値 0.72 以上のものから、類似度の高い順に最大 5 本をエッジにする
+⑤ 向きのないペアの重複を、Set で除く（2.4 の“小さいほうを先”のキー）
+</code></pre>
+<p><strong>小さな例（2次元）:</strong> a=(1,0)、b=(0.8,0.6)、c=(0,1)（どれも長さ1）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>ペア</th>
+<th>内積</th>
+<th>0.72 以上？</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a–b</td>
+<td>0.8</td>
+<td><strong>はい → エッジ</strong></td>
+</tr>
+<tr>
+<td>b–c</td>
+<td>0.6</td>
+<td>いいえ</td>
+</tr>
+<tr>
+<td>a–c</td>
+<td>0</td>
+<td>いいえ</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>規模の限界（第11回の再確認）:</strong> 全ペア＝ N(N−1) 回の内積。N = 500、次元 768 で約 1.9 億回の掛け算。<code>MAX_GRAPH_NODES = 500</code> はこの限界から決めた上限（1,000 では遅くなった、とコメント）。</p>
+<p><strong>取得の小技:</strong> <code>Vectorize.getByIds</code> は 1 回に最大 20 件。<code>chunkArray(ids, 20)</code> で分け、<code>GET_BY_IDS_PARALLEL = 4</code> 本ずつ <code>Promise.all</code>。<strong>全部を同時に投げない</strong>のは、サブリクエスト数や負荷を抑えるため。</p>
+<p><strong>エッジの“上位5本”の意味:</strong> 各ノードから見て上位 5 本。A から B が上位でも、B から A が上位でなければ、片方向だけ残る。無向グラフとして扱うので、<strong>重複さえ除けば</strong> 1 本の線になる。</p>
+<h3 id="24-鎖の折り畳みsimplifygraph">2.4 鎖の折り畳み（<code>simplify_graph</code>）</h3>
+<p><strong>問題:</strong> 生成されたチュートリアルのノードグラフは 100〜200ノード。一本道（A→B→C→D）が多く、<strong>そのまま描くと塊になる</strong>。</p>
+<p><strong>考え方:</strong> 「<strong>分岐も合流もしない一本道</strong>」は 1 つの箱にまとめても、情報は失われない。</p>
+<p><strong>アルゴリズム:</strong></p>
+<ol>
+<li>各ノードの<strong>入次数</strong>・<strong>出次数</strong>を数える。</li>
+<li><strong>線形ノード</strong>＝入次数 ≤ 1 かつ 出次数 ≤ 1、かつ <strong>コンテナ（サブネット等）でない</strong>もの。</li>
+<li><strong>線形ノードどうし</strong>をつなぐ辺だけを、鎖として連結する（<code>chain_next[u] = v</code>、<code>chain_prev[v] = u</code>）。<strong>親が違う</strong>（別のサブネットをまたぐ）辺は、つながない。</li>
+<li>鎖の<strong>先頭</strong>（<code>chain_prev</code> を持たない線形ノード）から <code>chain_next</code> をたどって一本道を確定。<strong>循環防止</strong>（<code>seen_in_run</code>）。</li>
+<li>2 ノード以上の鎖を、1 つの集約ノード <code>chain::A-&gt;B-&gt;C</code> にする。1 ノードだけの鎖は、そのまま。</li>
+<li>辺は、<strong>両端を代表ノードに置き換え</strong>、鎖の内側の辺（<code>ru == rv</code>）は捨て、重複を除く。</li>
+</ol>
+<p><strong>数を入れた例（実測）:</strong></p>
+<pre><code>grid1 → mountain1 → scatter1 → split1 ─┬→ a1 → a2 ──→ merge1 → out1
+                                        └→ b1 ──────↗
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>ノード</th>
+<th>入次数</th>
+<th>出次数</th>
+<th>線形？</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>grid1</td>
+<td>0</td>
+<td>1</td>
+<td>○</td>
+<td></td>
+</tr>
+<tr>
+<td>mountain1</td>
+<td>1</td>
+<td>1</td>
+<td>○</td>
+<td></td>
+</tr>
+<tr>
+<td>scatter1</td>
+<td>1</td>
+<td>1</td>
+<td>○</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>split1</strong></td>
+<td>1</td>
+<td><strong>2</strong></td>
+<td>✕</td>
+<td>分岐</td>
+</tr>
+<tr>
+<td>a1</td>
+<td>1</td>
+<td>1</td>
+<td>○</td>
+<td></td>
+</tr>
+<tr>
+<td>a2</td>
+<td>1</td>
+<td>1</td>
+<td>○</td>
+<td></td>
+</tr>
+<tr>
+<td>b1</td>
+<td>1</td>
+<td>1</td>
+<td>○</td>
+<td>鎖の長さ 1（折り畳み相手がいない）</td>
+</tr>
+<tr>
+<td><strong>merge1</strong></td>
+<td><strong>2</strong></td>
+<td>1</td>
+<td>✕</td>
+<td>合流</td>
+</tr>
+<tr>
+<td>out1</td>
+<td>1</td>
+<td>0</td>
+<td>○</td>
+<td>前が merge1（線形でない）ので、鎖は長さ 1</td>
+</tr>
+</tbody>
+</table></div>
+<p>結果（9ノード → <strong>6ノード</strong>）:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>新しいノード</th>
+<th>中身</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>chain::grid1-&gt;mountain1-&gt;scatter1</code></td>
+<td>3ノードの鎖</td>
+</tr>
+<tr>
+<td><code>chain::a1-&gt;a2</code></td>
+<td>2ノードの鎖</td>
+</tr>
+<tr>
+<td><code>split1</code> / <code>b1</code> / <code>merge1</code> / <code>out1</code></td>
+<td>そのまま</td>
+</tr>
+</tbody>
+</table></div>
+<p>辺: 鎖1→split1、split1→鎖(a1,a2)、split1→b1、鎖(a1,a2)→merge1、b1→merge1、merge1→out1（6本）。<strong>分岐・合流点は“境目”として必ず残る</strong>（隣が線形ノードでも、そこで鎖は切れる）。</p>
+<p><strong>Mermaid への変換（<code>graph_to_mermaid</code>）:</strong> 上の結果は、次のテキストになる。</p>
+<pre><code>flowchart TD
+    chain__grid1__mountain1__scatter1[&quot;grid1 → mountain1 → scatter1（3ノード）&quot;]
+    chain__a1__a2[&quot;a1 → a2（2ノード）&quot;]
+    split1(&quot;split1&quot;)
+    ...
+    chain__grid1__mountain1__scatter1 --&gt; split1
+</code></pre>
+<p>ID は英数字とアンダースコアだけに直す（<code>_mermaid_id</code>）。<strong>記号が入ると Mermaid が構文エラーになる</strong>ため。ラベルの <code>"</code> と改行も無害化（<code>_mermaid_label</code>）。</p>
+<h3 id="25-層配置トポロジカルソートと重心法layeredpositions">2.5 層配置：トポロジカルソートと重心法（<code>layered_positions</code>）</h3>
+<p><strong>問題:</strong> Houdini のネットワークエディタの座標は、<strong>密集・重なり</strong>が多く、そのまま描くと読めない。<strong>接続の構造だけ</strong>から、左→右の層に並べ直す。</p>
+<p><strong>ステップ1：トポロジカルソート（Kahn 法）— <code>_topo_order</code></strong></p>
+<p>「<strong>親（入力側）が全部済んでから、子を出す</strong>」順に並べる。</p>
+<ol>
+<li>各ノードの入次数を数える。</li>
+<li>入次数 0 のノードを<strong>キュー</strong>に入れる。</li>
+<li>キューから取り出し、結果に追加。<strong>その子の入次数を 1 減らし</strong>、0 になったらキューに入れる。</li>
+<li>繰り返す。</li>
+</ol>
+<p>小例: a→c、b→c、c→d。入次数 a0・b0・c2・d1。キュー [a, b] → a を出す（c が 1）→ b を出す（c が 0 → キューへ）→ c を出す（d が 0）→ d。順序は <strong>a, b, c, d</strong>。</p>
+<p><strong>サイクルが混入しても止まらない:</strong> 取りこぼしたノードは<strong>末尾にそのまま足す</strong>（例外を出さず、常に何かの順序を返す安全策）。</p>
+<p><strong>ステップ2：層番号 = 親からの最長経路</strong></p>
+<p><code>depth[ノード] = max(親の depth) + 1</code>（親が無ければ 0）。<strong>最長</strong>にするのは、全部の入力より右に置くため（短いほうに合わせると、線が逆向きになる）。</p>
+<p><strong>ステップ3：層の中の並び順 = 重心（barycenter）</strong></p>
+<p>同じ層のノードを、<strong>親の縦位置の平均</strong>でソートする。親が上にあるノードは上に、下にあるノードは下に来る＝<strong>線の交差が減る</strong>。層 0 だけは、名前順。</p>
+<p><strong>ステップ4：中央揃え</strong></p>
+<p>層のノード数 n から <code>offset = (n−1)/2</code>、各ノードの縦位置を <code>i − offset</code>（i は 0 始まりの順番）。上下に偏らず、左右対称の見た目になる。</p>
+<p><strong>数を入れた例（実測。2.4 の結果に適用）:</strong></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>ノード</th>
+<th>層（<code>col</code>）</th>
+<th>縦位置（<code>row</code>）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>chain::grid1-&gt;…-&gt;scatter1</code></td>
+<td>0</td>
+<td>0.0</td>
+</tr>
+<tr>
+<td><code>split1</code></td>
+<td>1</td>
+<td>0.0</td>
+</tr>
+<tr>
+<td><code>chain::a1-&gt;a2</code></td>
+<td>2</td>
+<td><strong>−0.5</strong></td>
+</tr>
+<tr>
+<td><code>b1</code></td>
+<td>2</td>
+<td><strong>+0.5</strong></td>
+</tr>
+<tr>
+<td><code>merge1</code></td>
+<td>3</td>
+<td>0.0</td>
+</tr>
+<tr>
+<td><code>out1</code></td>
+<td>4</td>
+<td>0.0</td>
+</tr>
+</tbody>
+</table></div>
+<p>層 2 の2ノード（n=2）は <code>offset = 0.5</code> なので、−0.5 と +0.5。親（split1）の縦位置はどちらも 0 で<strong>同点</strong>→ 元の並び順を保つ（安定ソート）。<strong>戻り値は格子座標</strong>で、呼び出し側（<code>tutorial_view.py</code>）が<strong>スケールをかけて</strong>画面の座標にする。</p>
+<blockquote>
+<p>これは <strong>Sugiyama 法</strong>（階層グラフ描画の古典）の簡易版です。完全版には、サイクルの除去・ダミーノードの挿入・交差最小化の反復が加わります。<strong>今の実装は、DAG・数百ノードまで</strong>を想定した軽量版、と覚えておいてください。</p>
+</blockquote>
+<h3 id="26-ひとつのネットワークを選ぶpickcontainer">2.6 「ひとつのネットワーク」を選ぶ（<code>pick_container</code>）</h3>
+<p>動画の説明スライド用に、<strong>1枚の図に出すネットワーク（親ノード）</strong>を選びます。深いサブネット（APEX など）の内部の数十ノードを選ぶと、読めない図になるため、<strong>浅い親</strong>を選びます。</p>
+<pre><code class="language-python">return min(candidates, key=lambda p: (p.count(&quot;/&quot;), -counts[p], p))
+#                                    ↑ 浅い     ↑ 直下の数が多い  ↑ 同点は名前順
+</code></pre>
+<p>実測: <code>/obj/geo1</code>（直下 2）と <code>/obj/geo1/sub</code>（直下 2）なら、スラッシュの数が少ない <strong><code>/obj/geo1</code></strong> を選ぶ。<strong><code>min</code> の <code>key</code> をタプルにすると、優先順位つきの比較</strong>が書ける（タプルは先頭から順に比べる）。</p>
+<h3 id="27-時間の予算つきの走査scanerrornodes">2.7 時間の予算つきの走査（<code>scan_error_nodes</code>）</h3>
+<p>Houdini のシーンは巨大なことがある。<strong>画面を止めない</strong>ため、走査に<strong>件数と時間の上限</strong>を付けます。</p>
+<pre><code class="language-python">if scanned &gt; limit or (scanned % 64 == 0 and clock() &gt; deadline):
+    return found          # 打ち切り（それまでに見つけた分を返す）
+</code></pre>
+<ul>
+<li><strong>時計を毎ノード見ない</strong>（<code>scanned % 64 == 0</code> のときだけ）。時計の呼び出し自体が重いため。</li>
+<li><strong>時計を引数にする</strong>（<code>clock=time.monotonic</code>）。テストでは<strong>偽の時計</strong>を渡して、打ち切りを再現できる（<code>test_pilot_task.py</code>）。</li>
+<li><strong>打ち切ったら“少なく数える”</strong>——これは仕様で、評価の集計はこの前提で読む（<code>pilot_task.py</code> の冒頭に明記）。</li>
+</ul>
+<h2 id="3-このプロジェクトではどれをいつ触るか">3. このプロジェクトでは：どれを、いつ触るか</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>やりたいこと</th>
+<th>触る場所</th>
+<th>注意</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>画面に出すノード数を変える</td>
+<td><code>MAX_GRAPH_NODES</code></td>
+<td>O(N²)。増やす前に<strong>実測</strong>する</td>
+</tr>
+<tr>
+<td>エッジを増減する</td>
+<td><code>EDGE_THRESHOLD = 0.72</code>、<code>MAX_EDGES_PER_NODE = 5</code></td>
+<td>閾値を下げると線が増え、塊になる</td>
+</tr>
+<tr>
+<td>鎖をまとめない種類を足す</td>
+<td><code>simplify_graph</code> の <code>linear</code> の条件</td>
+<td><strong>専用の単体テストはまだ無い</strong>（<code>houdini/tests</code> にあるのは <code>graph_diagram</code> 用の <code>test_graph_diagram.py</code> のみ）。変える前に、演習 14.7 でテストを足す</td>
+</tr>
+<tr>
+<td>図の並び方を変える</td>
+<td><code>layered_positions</code></td>
+<td>戻り値は格子座標。スケールは呼び出し側</td>
+</tr>
+<tr>
+<td>走査の上限を変える</td>
+<td><code>SCAN_LIMIT</code>・<code>SCAN_BUDGET_SEC</code></td>
+<td>画面が固まらないことを実機で確認</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="4-演習">4. 演習</h2>
+<p><strong>演習 14.1（手計算）</strong> 上限 100、A=70、B=40、C=2 件。<code>allocateQuotas</code> の結果を、2.2 の表の形で計算してください。（検算: 合計が 100 になる）</p>
+<p><strong>演習 14.2（トレース）</strong> 次の DAG を <code>simplify_graph</code> に通した結果（ノードと辺）を答えてください。 <code>s → a → b → c → t</code> と <code>s → d → t</code>。</p>
+<p><strong>演習 14.3（トレース）</strong> 14.2 の結果に <code>layered_positions</code> を適用したときの、各ノードの <code>(col, row)</code> を答えてください。</p>
+<p><strong>演習 14.4（確かめ）</strong> 14.2 を、実際に動かして確かめる。リポジトリの根から:</p>
+<pre><code class="language-bash">uv run python -c &quot;import sys; sys.path.insert(0,'houdini/python_panels'); from tutorial_graph_simplify import *; n=[{'id':i} for i in 'sabcdt']; e=[{'source':a,'target':b} for a,b in ['sa','ab','bc','ct','sd','dt']]; print(simplify_graph(n,e))&quot;
+</code></pre>
+<p><strong>演習 14.5（考える）</strong> サイクル（a→b→a）がある入力を <code>layered_positions</code> に渡すと何が起きるか。コードの<strong>どの行</strong>がそれを防いでいるか。</p>
+<p><strong>演習 14.6（設計）</strong> ノード数 5,000 の全ペア比較は現実的でない。<strong>近似</strong>の案を 2 つ挙げ、それぞれの長所・短所を書いてください。</p>
+<p><strong>演習 14.7（テストを足す）</strong> <code>simplify_graph</code> と <code>layered_positions</code> には、専用の単体テストがありません（<code>houdini/tests</code> を確認する）。2.4 の9ノードの例と、演習 14.2 の例を、<code>houdini/tests/test_graph_simplify.py</code> として書いてください（<code>test_graph_diagram.py</code> の書き方を真似る。Qt も Houdini も要らない）。確かめる点: ①ノード数と鎖の ID ②分岐・合流が残る ③<code>parent</code> が違う辺は鎖にならない ④循環があっても例外を出さない。<strong>実行:</strong> <code>uv run python -m unittest discover -s houdini/tests</code>。</p>
+<h2 id="5-つまずきやすい点">5. つまずきやすい点</h2>
+<ul>
+<li><strong>「四捨五入で配れば合う」と考える。</strong> 合計がずれる。端数の処理（最大剰余法）が要る。</li>
+<li><strong>一本道は全部まとめてよい、と考える。</strong> 分岐・合流点は残す。<strong>コンテナ</strong>（サブネット）と、<strong>親の違い</strong>も境目。</li>
+<li><strong>座標をそのまま使う。</strong> 生の座標は密集・重なりが多い。構造から作り直す。</li>
+<li><strong>循環を想定しない。</strong> 実データでは「起きないはず」が起きる。<strong>安全策を入れて、止まらない</strong>ようにする。</li>
+<li><strong>時計を毎回見る。</strong> 走査が遅くなる。間引いて見る。</li>
+</ul>
+<h2 id="6-確認問題">6. 確認問題</h2>
+<ol>
+<li>最大剰余法が、四捨五入より優れている点は？</li>
+<li>線形ノードの条件を、3つで言え。</li>
+<li>なぜ分岐点・合流点は、鎖の途中に含めないのか。</li>
+<li>層番号を「最長経路」で決める理由は？</li>
+<li><code>scanned % 64 == 0</code> を条件にする理由は？</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>演習 14.1: 最低1件ずつ（3件）、残り枠 97。余り文書数 69・39・1（合計 109）。理想 <code>97×69/109=61.40</code>、<code>97×39/109=34.71</code>、<code>97×1/109=0.89</code>。整数部 61・34・0（計 95）、端数 2 枠。小数部 .40・.71・.89 → C（.89）と B（.71）に +1。<strong>A=62, B=36, C=2</strong>（1+61, 1+34+1, 1+0+1）。合計 100。</li>
+<li>演習 14.2: 線形ノード: a, b, c（入1・出1）、d（入1・出1）。s は出次数 2（非線形）、t は入次数 2（非線形）。鎖は <code>chain::a-&gt;b-&gt;c</code>（3ノード）。d は鎖の長さ 1 でそのまま。ノード: <code>chain::a-&gt;b-&gt;c</code>, <code>s</code>, <code>d</code>, <code>t</code>。辺: s→鎖、鎖→t、s→d、d→t。</li>
+<li>演習 14.3: s=(0,0)、鎖=(1,−0.5)、d=(1,+0.5)、t=(2,0)（層 1 は 2 ノードで offset 0.5。親がどちらも s で同点→元の順）。順序は入力ノードの並びに依存する点に注意。</li>
+<li>演習 14.5: <code>_topo_order</code> が、取りこぼしたノードを末尾に足す。<code>depth</code> の計算は、<code>order</code> に従って 1 周するだけなので、無限ループにならない。</li>
+<li>確認問題 3: 分岐点・合流点を含めると、図の“意味のある境目”が消える（どこで分かれたか分からない）。</li>
+</ul>
+</main>
+<div class="pager"><a href="13-control-algorithms.html">← 前へ</a><a href="15-experiment-and-growth.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

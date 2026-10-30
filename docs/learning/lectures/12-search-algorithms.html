@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第12回 検索のアルゴリズム（分割・ベクトル・BM25・RRF・絞り込み）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a><a href="11-algorithm-basics.html">11</a><a class="current" href="12-search-algorithms.html">12</a><a href="13-control-algorithms.html">13</a><a href="14-graph-algorithms.html">14</a><a href="15-experiment-and-growth.html">15</a><a href="16-scripts.html">16</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第12回 検索のアルゴリズム（分割・ベクトル・BM25・RRF・絞り込み）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/12-search-algorithms.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-分割チャンク">2.1 分割（チャンク）</a></li><li><a href="#22-ベクトルと類似度">2.2 ベクトルと類似度</a></li><li><a href="#23-単語検索bm25-と-fts5trigram">2.3 単語検索：BM25 と FTS5（trigram）</a></li><li><a href="#24-rrfreciprocal-rank-fusion順位を合わせる">2.4 RRF（Reciprocal Rank Fusion）：順位を合わせる</a></li><li><a href="#25-hyde質問ではなく仮の答えで探す">2.5 HyDE：質問ではなく「仮の答え」で探す</a></li><li><a href="#26-並べ替えと間引き">2.6 並べ替えと間引き</a></li></ol></li><li><a href="#3-このプロジェクトでは2層の個人共有と検索">3. このプロジェクトでは：2層の「個人／共有」と検索</a></li><li><a href="#4-調整のつまみと触る前の確認">4. 調整のつまみと、触る前の確認</a></li><li><a href="#5-演習">5. 演習</a></li><li><a href="#6-つまずきやすい点">6. つまずきやすい点</a></li><li><a href="#7-確認問題">7. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> 質問が入ってから「出典つきの検索結果」ができるまでを、<strong>関数と数式のレベル</strong>で説明できる。RRF を<strong>手計算</strong>できる。検索がおかしいとき、<strong>どの段で、何を疑うか</strong>を言える。<br />
+<strong>前提:</strong> 第4回（RAG と AI の API）、第11回。 <strong>目安:</strong> 4時間</p>
+<hr />
+<h2 id="1-全体像">1. 全体像</h2>
+<p>検索は、<code>src/retrieve.ts</code> の <code>retrieve()</code> が<strong>指揮者</strong>で、図11の 7〜9 に当たります。</p>
+<p><a href="../../images/11-request-life.svg"><img alt="リクエストの一生" src="../../images/11-request-life.svg" /></a></p>
+<pre><code>質問 ──▶ ① HyDE（仮の回答を作る）            hydeExpand       …… embeddings.ts
+        ② 2本のベクトルを作る                 embedText ×2     …… 仮の回答 と 質問そのもの
+        ③ ベクトル検索 ×2 ＋ ④ 単語検索 ×1     hybridSearch     …… Vectorize ×2 と D1 FTS5
+        ⑤ RRF で3本の順位を1本に               rrfMerge
+        ⑥ レベルで絞る                         filter(difficulty)
+        ⑦ 章の指定があれば先に並べる            boostByContext   …… houdiniContext.ts
+        ⑧ namespace ごとに件数を間引く          capPerNamespace
+        ⑨ 上位 limit 件を返し、関連度(%)を付ける  buildContextTexts
+</code></pre>
+<p><strong>登録（書き込み）側</strong>は、<code>kbIngest.ts</code> が <code>chunkText</code> で切り、50件ずつまとめて埋め込み（<code>EMBED_BATCH_SIZE = 50</code>、3バッチ同時）、<strong>Vectorize（ベクトル）と D1 の <code>chunks_fts</code>（単語検索）の両方</strong>に書きます。<strong>検索は、両方を引いて合わせる</strong>（ハイブリッド）。</p>
+<h2 id="2-基礎">2. 基礎</h2>
+<h3 id="21-分割チャンク">2.1 分割（チャンク）</h3>
+<p>第11回の <code>chunkText</code>（1000文字・150重ね）。<strong>登録時に1度だけ</strong>行います。サイズの選び方は、トレードオフです。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>大きくすると</th>
+<th>小さくすると</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>文脈が長く残る</td>
+<td>検索が、狙った箇所に当たりやすい</td>
+</tr>
+<tr>
+<td>1チャンクに複数の話題が混ざり、ベクトルが「平均」になって当たりにくい</td>
+<td>前後の説明が欠け、回答の材料が足りない</td>
+</tr>
+<tr>
+<td>回答のプロンプトが長くなり、トークン（費用）が増える</td>
+<td>チャンク数が増え、埋め込みの費用と保存量が増える</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="22-ベクトルと類似度">2.2 ベクトルと類似度</h3>
+<p><strong>埋め込み（embedding）</strong>は、文を<strong>768個の数（ベクトル）</strong>に変える処理です（<code>OUTPUT_DIMENSIONALITY = 768</code>。Vectorize のインデックスの次元と<strong>必ず一致</strong>させる）。意味が近い文は、ベクトルの向きが近くなります。</p>
+<p><strong>コサイン類似度</strong>＝2つのベクトルの向きの近さ（-1〜1）。</p>
+<pre><code>cos(a, b) = (a・b) / (|a| × |b|)        a・b は内積（対応する要素の積の合計）
+</code></pre>
+<ul>
+<li>先に<strong>長さ1に直して</strong>（正規化）おけば、<code>|a| = |b| = 1</code> なので、<strong>内積だけ</strong>で済みます。<code>graph.ts</code> の <code>normalized()</code> と <code>dot()</code> がこれ（第14回）。</li>
+<li>検索では、Vectorize が<strong>近い順に</strong>返します（自分で計算しない）。</li>
+</ul>
+<p><strong>小さな例（2次元）:</strong> <code>a = (1, 0)</code>、<code>b = (0.6, 0.8)</code>（長さ1）。内積 = 0.6。<code>c = (0, 1)</code> とは内積 0（直交＝無関係）。<code>a</code> と同じ向きなら 1。</p>
+<h3 id="23-単語検索bm25-と-fts5trigram">2.3 単語検索：BM25 と FTS5（trigram）</h3>
+<p><strong>BM25</strong> は、「その単語が、そのチャンクに<strong>多く</strong>出るほど高く、<strong>どのチャンクにも出る</strong>ありふれた語ほど低く」するスコアの式です（細かい式は覚えなくてよい）。SQLite の <strong>FTS5</strong> は、これを <code>ORDER BY rank</code> で返します（<code>rank</code> が小さいほど良い＝上位）。</p>
+<p>このプロジェクトの FTS5 は <code>tokenize = 'trigram'</code>（<code>migrations/0002_fts.sql</code>）。<strong>3文字ずつ</strong>に区切る方式で、<strong>日本語の分かち書きが要らない</strong>（「ノード」「ネットワーク」を部分一致で見つけられる）代わりに、<strong>2文字以下の語は一致しません</strong>（SQLite の仕様）。</p>
+<p><strong>検索語の安全化（<code>escapeFtsQuery</code>）:</strong> FTS5 の <code>MATCH</code> は、<code>-</code>・<code>:</code>・<code>"</code>・<code>( )</code>・<code>AND/OR/NOT</code> を<strong>命令</strong>として読みます。質問をそのまま渡すと <code>fts5: syntax error</code> で検索全体が失敗します（2026-09-04 に実際に起きた）。そこで、<strong>空白で区切った語を1つずつ <code>"</code> で囲む</strong>。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>入力（質問）</th>
+<th>渡す <code>MATCH</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-fフラグの直し方</code></td>
+<td><code>"-fフラグの直し方"</code></td>
+</tr>
+<tr>
+<td><code>比率: 3:1</code></td>
+<td><code>"比率:" "3:1"</code></td>
+</tr>
+<tr>
+<td><code>say "hi"</code></td>
+<td><code>"say" """hi"""</code>（中の <code>"</code> は <code>""</code> に）</td>
+</tr>
+</tbody>
+</table></div>
+<p>語の間は空白のまま＝FTS5 の既定の「<strong>語ごとの AND</strong>」の意味は保たれます。</p>
+<h3 id="24-rrfreciprocal-rank-fusion順位を合わせる">2.4 RRF（Reciprocal Rank Fusion）：順位を合わせる</h3>
+<p>ベクトルの類似度（0.7 など）と BM25 のスコア（-8.3 など）は、<strong>目盛りが違う</strong>ので足せません。そこで<strong>順位だけ</strong>を使います。</p>
+<pre><code>各リストでの順位 r（0始まり）に対して   寄与 = 1 / (k + r + 1)        k = 60
+チャンクの得点 = 登場したリストすべての寄与の合計
+</code></pre>
+<p><strong><code>k = 60</code></strong> は一般的な既定値。1位と2位の差が極端にならないようにする係数です（<code>k</code> が大きいほど、順位の差が効かなくなる）。</p>
+<p><strong>手計算の例（実測と一致を確認済み）:</strong> 3本のリスト（ベクトル1、ベクトル2、単語検索）が次のとき。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>リスト</th>
+<th>1位</th>
+<th>2位</th>
+<th>3位</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ベクトル1（HyDE）</td>
+<td>a</td>
+<td>b</td>
+<td>c</td>
+</tr>
+<tr>
+<td>ベクトル2（質問そのもの）</td>
+<td>b</td>
+<td>a</td>
+<td>d</td>
+</tr>
+<tr>
+<td>単語検索</td>
+<td>c</td>
+<td>b</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>チャンク</th>
+<th>寄与の内訳</th>
+<th>合計</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>b</strong></td>
+<td>1/62（V1:2位）+ 1/61（V2:1位）+ 1/62（単語:2位）</td>
+<td><strong>0.04865</strong></td>
+</tr>
+<tr>
+<td><strong>a</strong></td>
+<td>1/61（V1:1位）+ 1/62（V2:2位）</td>
+<td><strong>0.03252</strong></td>
+</tr>
+<tr>
+<td><strong>c</strong></td>
+<td>1/63（V1:3位）+ 1/61（単語:1位）</td>
+<td><strong>0.03227</strong></td>
+</tr>
+<tr>
+<td><strong>d</strong></td>
+<td>1/63（V2:3位）</td>
+<td><strong>0.01587</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>結果の順位は <strong>b → a → c → d</strong>。読み取れること:</p>
+<ul>
+<li><strong>どのリストでも上位の <code>b</code></strong> が1位。「複数の方式が同意するもの」が強い（RRF の狙い）。</li>
+<li><strong>単語検索で1位の <code>c</code></strong> は、ベクトルでは3位なので、<code>a</code> に僅差で負ける。</li>
+<li>得点の<strong>絶対値に意味はない</strong>（理論上の最大は、3本とも1位で <code>3/61 ≈ 0.0492</code>）。だから画面の「関連度」は、<strong>最高点を100とした割合</strong>にする（<code>buildContextTexts</code>）。上の例なら b=100、a=67、c=66、d=33。</li>
+</ul>
+<h3 id="25-hyde質問ではなく仮の答えで探す">2.5 HyDE：質問ではなく「仮の答え」で探す</h3>
+<p>質問文（「煙が消えない」）と、ドキュメントの文（「dissipationを上げる」）は、<strong>言い回しが離れて</strong>います。そこで、<strong>まず LLM に「こう答えるだろう」という短い仮の説明を書かせ</strong>、それを埋め込みます（<code>hydeExpand</code>）。答えの文は、ドキュメントの文に近いからです。</p>
+<p>このプロジェクトの工夫（2026-10-21）:</p>
+<ol>
+<li><strong>温度 0</strong>（<code>temperature: 0</code>）。同じ質問から<strong>毎回ほぼ同じ</strong>仮の回答を作り、検索結果が実行のたびにぶれるのを抑える。</li>
+<li><strong>質問そのものも、もう1本のベクトルとして使う。</strong> 仮の回答が1つの章（SOP など）に決め打ちしても、質問そのものの検索が<strong>安定させる</strong>。</li>
+<li>質問に章が無いときは、「どれか1つに決めつけず、一般的な言い方で」と指示する。</li>
+</ol>
+<h3 id="26-並べ替えと間引き">2.6 並べ替えと間引き</h3>
+<p><strong>(a) 取る件数の計算</strong></p>
+<pre><code>retrieve(limit = 8) ──▶ hybridSearch(limit = 8 × 3 = 24)
+hybridSearch の中:   topK = min(24 × 3, 50) = 50     ← Vectorize の上限が50（returnMetadata:&quot;all&quot; のとき）
+最後に rrfMerge(...).slice(0, 24)
+</code></pre>
+<p><strong>多めに取って、後で絞る</strong>（レベル・章・namespace の絞り込みで減るため）。以前は<strong>3倍を二重に</strong>かけて <code>topK</code> が上限を超え、<code>VECTOR_QUERY_ERROR (40025)</code> になった（コメントに記録）。<strong><code>Math.min(…, 50)</code> の「上限で止める」書き方が、その再発防止</strong>です。</p>
+<p><strong>(b) 章の指定があれば先に並べる（<code>boostByContext</code>）</strong></p>
+<p>質問に「SOP で」とあるとき、見出し <code>【Houdini 22 / SOP / transform】</code> を持つチャンクを<strong>前に</strong>、それ以外を後ろに置きます（<strong>除外はしない</strong>）。</p>
+<pre><code class="language-ts">for (const chunk of ranked) {
+  const header = parseHeader(chunk.metadata.text);
+  (header !== null &amp;&amp; contexts.includes(header.context) ? hits : rest).push(chunk);
+}
+return [...hits, ...rest];          // それぞれの中の順は、元の順位のまま
+</code></pre>
+<p>これは<strong>安定な分割（partition）</strong>です。実測:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>入力の順（元の順位）</th>
+<th><code>SOP</code> を指定した結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>① VOP/transform ② SOP/transform ③ SOP/merge ④ 見出しなし</td>
+<td>② SOP/transform → ③ SOP/merge → ① VOP/transform → ④ 見出しなし</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>なぜ「点数を掛ける」方式にしないのか:</strong> 点数を1.5倍にする方式では、<strong>順位が離れた正解</strong>（ベクトル3位だけに出た SOP）を、すでに上位にいる別の章の上へ動かせない。<strong>並べ方で決める</strong>ほうが、結果が予測できる（コメントの趣旨）。</p>
+</blockquote>
+<p><strong>(c) 章の指定の検出（<code>detectContextCues</code>）</strong></p>
+<p>正規表現で、<code>SOP</code>・<code>VOP</code>・<code>APEX</code>… を<strong>英字の単語として</strong>探します（前後が英字でないとき）。実測: 「SOPで transform を…」→ <code>SOP</code>、「一番 top にある」→ <strong>なし</strong>（<code>TOP</code> は、<strong>大文字だけ</strong>に反応。普通の英単語 top を避けるため）、「TOPで PDG」→ <code>TOP</code>。</p>
+<p><strong>(d) 同名ノードの注意書き（<code>ambiguityNote</code>）</strong></p>
+<p>章の指定が無く、同名のノードが複数の章に出たとき、<strong>既定の章（SOP 優先）で答え、他の章があることを1行添える</strong>よう、プロンプトに注意書きを足します。実測の出力:</p>
+<blockquote>
+<p>注意（章の曖昧さ）: 「transform」は SOP / VOP にあります（既定: SOP）。…</p>
+</blockquote>
+<p><strong>(e) namespace ごとの間引き（<code>capPerNamespace</code>）</strong></p>
+<p>複数のDBを横断したとき、無関係なDBのチャンクが<strong>偶然高得点</strong>で紛れ込んで、結果を圧迫することがあります。<strong>スコア順を保ったまま</strong>、namespace ごとの上限を超えた分だけ捨てます。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>順位</th>
+<th>namespace</th>
+<th>その namespace の件数（採用前）</th>
+<th>上限 2 のとき</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>A</td>
+<td>0</td>
+<td>採用（A=1）</td>
+</tr>
+<tr>
+<td>2</td>
+<td>A</td>
+<td>1</td>
+<td>採用（A=2）</td>
+</tr>
+<tr>
+<td>3</td>
+<td>A</td>
+<td>2</td>
+<td><strong>捨てる</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td>B</td>
+<td>0</td>
+<td>採用（B=1）</td>
+</tr>
+</tbody>
+</table></div>
+<p>上限は <code>namespaces.result_limit</code>（D1）で namespace ごとに決め、無ければ呼び出し時の <code>limit</code>。</p>
+<h2 id="3-このプロジェクトでは2層の個人共有と検索">3. このプロジェクトでは：2層の「個人／共有」と検索</h2>
+<ul>
+<li><strong>共有</strong>は <code>VEC_SHARED</code>、<strong>個人</strong>は <code>VEC_PERSONAL</code>（別のインデックス＝<strong>物理分離</strong>）。<code>splitNamespacesByScope</code> で振り分けてから、<strong>個人は <code>owner_user_id = 本人</code> で絞って</strong>引く（<code>hybrid.ts</code>）。</li>
+<li>ベクトルのリストは、<strong>共有の結果の後ろに個人の結果をつなげる</strong>だけ（類似度で混ぜ直さない）。BM25 も同じ。つまり、<strong>個人のナレッジは、同じ検索の中で、共有より後ろに並びやすい</strong>。意図した挙動か、将来、見直す候補か、<strong>判断するのは保守する人</strong>です。</li>
+<li>4つの検索（共有ベクトル・共有BM25・個人ベクトル・個人BM25）は独立なので、<code>Promise.all</code> で<strong>並列</strong>に実行（逐次だと待ち時間が足し算になっていた不備の修正）。</li>
+</ul>
+<h2 id="4-調整のつまみと触る前の確認">4. 調整のつまみと、触る前の確認</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>つまみ</th>
+<th>場所</th>
+<th>変えるとどうなる</th>
+<th>変える前に</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>チャンクの大きさ・重ね</td>
+<td><code>chunking.ts</code> の既定</td>
+<td><strong>再登録が必要</strong>（既存は古いまま）</td>
+<td>再登録の費用、テスト <code>crawl_*</code></td>
+</tr>
+<tr>
+<td><code>k = 60</code></td>
+<td><code>hybrid.ts</code> <code>rrfMerge</code></td>
+<td>順位の差の効き方</td>
+<td>検索の評価セットを作ってから</td>
+</tr>
+<tr>
+<td><code>topK</code> の上限 50</td>
+<td><code>hybrid.ts</code></td>
+<td>Vectorize の仕様上限</td>
+<td>公式の仕様を確認</td>
+</tr>
+<tr>
+<td>取る件数 <code>limit × 3</code></td>
+<td><code>retrieve.ts</code></td>
+<td>絞り込みで減る分の余裕</td>
+<td>遅延と費用</td>
+</tr>
+<tr>
+<td>ベクトルの次元 768</td>
+<td><code>embeddings.ts</code></td>
+<td><strong>インデックスの作り直し</strong></td>
+<td>ほぼ変えない</td>
+</tr>
+<tr>
+<td>namespace の上限</td>
+<td>D1 <code>namespaces.result_limit</code></td>
+<td>横断検索の偏り</td>
+<td>管理画面で変更できる</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="5-演習">5. 演習</h2>
+<p><strong>演習 12.1（手計算）</strong> リストを「V1: x, y, z」「V2: y, z, x」「BM25: z」としたとき、RRF の得点と順位を計算してください（k = 60）。</p>
+<p><strong>演習 12.2（実装）</strong> <code>escapeFtsQuery</code> と同じ動きの関数を、自分で書き、<code>say "hi"</code> と空文字（<code>""</code> になること）で確かめてください。（本物は export されていない。<strong>コピーして試す</strong>。本体は変えない。）</p>
+<p><strong>演習 12.3（読む）</strong> <code>test/houdini_context.test.mjs</code> を開き、<code>boostByContext</code> が(a) 章の指定が無いときは並びを変えない、(b) 同点では元の順を保つ（stable）、ことを確かめている行を探してください。</p>
+<p><strong>演習 12.4（考える）</strong> <code>limit = 20</code> で呼ぶと、<code>hybridSearch</code> に渡る <code>limit</code>、<code>topK</code> は？ 結果は何件まで返る？</p>
+<p><strong>演習 12.5（調査）</strong> 質問に「SOP」と書いたのに、VOP の説明が先頭に来た。どの段を、どの順で疑うか。</p>
+<h2 id="6-つまずきやすい点">6. つまずきやすい点</h2>
+<ul>
+<li><strong>「ベクトル検索だけで十分」と考える。</strong> 固有名詞・コード片は、<strong>単語検索のほうが強い</strong>。だから両方を使う。</li>
+<li><strong>RRF の得点を、確率や割合として読む。</strong> 絶対値に意味は無い。</li>
+<li><strong>チャンクの設定を変えて、既存データの挙動が変わらない。</strong> 再登録するまで、古い切り方のまま。</li>
+<li><strong>2文字の語で、単語検索が空になる。</strong> trigram の仕様。ベクトル検索が補う。</li>
+<li><strong>個人のナレッジが出てこない。</strong> 許可された namespace（<code>allowedNamespaces</code>）と、<code>owner_user_id</code> の一致を確認（第5回）。</li>
+</ul>
+<h2 id="7-確認問題">7. 確認問題</h2>
+<ol>
+<li>BM25 のスコアとベクトル類似度を、足さずに RRF を使う理由は？</li>
+<li><code>escapeFtsQuery</code> が無いと、どんな質問で、何が起きる？</li>
+<li>HyDE に温度 0 を指定する理由は？</li>
+<li><code>boostByContext</code> が「除外」ではなく「前に並べる」理由は？</li>
+<li><code>topK = min(limit × 3, 50)</code> の <code>50</code> は何の上限か。</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>演習 12.1: x = 1/61 + 1/63 = 0.03227、y = 1/62 + 1/61 = 0.03252、z = 1/63 + 1/62 + 1/61 = 0.04839。順位は <strong>z → y → x</strong>。</li>
+<li>演習 12.4: <code>hybridSearch</code> の <code>limit = 60</code>、<code>topK = min(180, 50) = 50</code>。<code>rrfMerge</code> の結果を 60 件に切る（実際の候補は、リストの合計までなので、それ以下）。最終的な返却は <code>limit = 20</code> 件まで。</li>
+<li>演習 12.5: ①質問から <code>detectContextCues</code> が <code>SOP</code> を検出したか → ②チャンクの本文の先頭に見出し（<code>【Houdini … / SOP / …】</code>）があるか（旧形式の登録は無い＝<code>hasHeader</code>）→ ③<code>capPerNamespace</code> で落ちていないか → ④再クロール。</li>
+<li>確認問題 5: Vectorize が <code>returnMetadata: "all"</code> のときに返せる件数の上限。</li>
+</ul>
+</main>
+<div class="pager"><a href="11-algorithm-basics.html">← 前へ</a><a href="13-control-algorithms.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>
