@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第10回 トラブルシュートと総合演習</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a class="current" href="10-troubleshooting.html">10</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第10回 トラブルシュートと総合演習</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/10-troubleshooting.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-切り分けの基本">1. 切り分けの基本</a></li><li><a href="#2-症状別の表早見">2. 症状別の表（早見）</a></li><li><a href="#3-事例実際に起きたこと">3. 事例（実際に起きたこと）</a><ol><li><a href="#事例-a-2026-10-16-d1-の読み取り枠を使い切り全-api-が-500">事例 A. 2026-10-16 D1 の読み取り枠を使い切り、全 API が 500</a></li><li><a href="#事例-b-2026-10-28-課題タブが未対応と出る新しい機能だけ-404">事例 B. 2026-10-28 「課題」タブが「未対応」と出る（新しい機能だけ 404）</a></li><li><a href="#事例-c-2026-10-28-計測がhoudini-の落ち固まりに弱い">事例 C. 2026-10-28 計測が、Houdini の落ち・固まりに弱い</a></li><li><a href="#事例-d-2026-09-26-直したのに12日間実機に届いていなかった">事例 D. 2026-09-26 直したのに、12日間、実機に届いていなかった</a></li></ol></li><li><a href="#4-総合演習">4. 総合演習</a></li><li><a href="#5-自己採点">5. 自己採点</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> 症状から、<strong>どの層（利用者側・通信・Worker・D1・外部）の問題か</strong>を切り分けられる。実際に起きた障害を、<strong>原因・見つけ方・復旧・再発防止</strong>の形で説明できる。総合課題を解ける。<br />
+<strong>前提:</strong> 第1〜9回。 <strong>目安:</strong> 4時間</p>
+<hr />
+<h2 id="1-切り分けの基本">1. 切り分けの基本</h2>
+<p><a href="../../images/11-request-life.svg"><img alt="リクエストの一生" src="../../images/11-request-life.svg" /></a></p>
+<p><strong>最初に聞く4つ</strong>（どの症状でも）: ①<strong>いつから</strong>か ②<strong>何をしたら</strong>か ③<strong>自分だけか、全員か</strong> ④<strong>直前に、何を変更したか</strong>（デプロイ・マイグレーション・設定・パネルの配置）。</p>
+<p>そのうえで、<strong>図11の番号を、前から順に</strong>確かめます。<strong>一番前で、止まっている所</strong>が、原因です。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>番号</th>
+<th>段階</th>
+<th>確かめ方</th>
+<th>典型の症状</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1・2</td>
+<td>名前の解決（DNS）</td>
+<td>URL の綴り。他のサイトが開くか</td>
+<td>「サーバーに接続できません」</td>
+</tr>
+<tr>
+<td>3</td>
+<td>HTTPS で届くか</td>
+<td>ブラウザで <code>/health</code> を開く（<code>{"status":"ok"}</code>）</td>
+<td>接続できない・証明書の警告</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Worker が動くか</td>
+<td><code>/health</code> が 200 か</td>
+<td>500・「応答がJSONではありません」</td>
+</tr>
+<tr>
+<td>5</td>
+<td>認証</td>
+<td>管理画面で、鍵の有効期限</td>
+<td>401</td>
+</tr>
+<tr>
+<td>5</td>
+<td>権限</td>
+<td>ロールと、許可した namespace</td>
+<td>403・0 件</td>
+</tr>
+<tr>
+<td>6</td>
+<td>予算・回数</td>
+<td>利用状況・コスト</td>
+<td>429</td>
+</tr>
+<tr>
+<td>7〜9</td>
+<td>検索・回答</td>
+<td>出典・検索結果の件数</td>
+<td>0 件・的外れ・遅い</td>
+</tr>
+<tr>
+<td>10</td>
+<td>記録</td>
+<td>D1 の書き込み</td>
+<td>履歴が残らない</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-症状別の表早見">2. 症状別の表（早見）</h2>
+<p><a href="../06-maintenance-runbook.html">06 保守の手順 §2</a> に、完全な表があります。ここでは、この講義で扱った、代表だけ。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>まず疑うこと</th>
+<th>第</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全部の API が <strong>500</strong>（認証も）</td>
+<td><strong>D1 の読み取り枠の超過</strong>（<code>wrangler</code> が <code>code: 7500</code>）</td>
+<td>2・3</td>
+</tr>
+<tr>
+<td>画面に「応答が JSON ではありません」</td>
+<td>サーバーが落ちた・長すぎた。ブラウザの Network で、ステータスを見る</td>
+<td>1</td>
+</tr>
+<tr>
+<td><strong>新しい機能だけ 404</strong>（「未定義のエンドポイントです」）</td>
+<td><strong>Worker が古い</strong>（デプロイ前）。パネルだけ先に配った</td>
+<td>9</td>
+</tr>
+<tr>
+<td>401</td>
+<td>鍵の誤り・失効・期限切れ</td>
+<td>1</td>
+</tr>
+<tr>
+<td>403</td>
+<td>ロール不足・許可 namespace が無い</td>
+<td>5</td>
+</tr>
+<tr>
+<td>429</td>
+<td>予算の枯渇・60秒に30回の超過</td>
+<td>4</td>
+</tr>
+<tr>
+<td>検索が常に <strong>0 件</strong></td>
+<td>Vectorize の<strong>メタデータ索引</strong>が、データ投入前に作られていない</td>
+<td>2</td>
+</tr>
+<tr>
+<td>画面が真っ白・ボタンが効かない</td>
+<td><code>chatUi.ts</code> の <code>`</code>・<code>${</code>・<code>\</code></td>
+<td>7</td>
+</tr>
+<tr>
+<td>Houdini で、直したのに変わらない</td>
+<td>実機は<strong>別の場所のコピー</strong>を読む。配置・再起動</td>
+<td>6</td>
+</tr>
+<tr>
+<td>課題の計測が、おかしい</td>
+<td>途中経過（<code>~/.houdini/rag_pilot_progress.json</code>）・中断・<code>surveySec</code></td>
+<td>8</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-事例実際に起きたこと">3. 事例（実際に起きたこと）</h2>
+<p>書式: <strong>①いつ ②症状 ③原因 ④見つけ方 ⑤復旧 ⑥再発防止 ⑦学び</strong>。</p>
+<h3 id="事例-a-2026-10-16-d1-の読み取り枠を使い切り全-api-が-500">事例 A. 2026-10-16　D1 の読み取り枠を使い切り、全 API が 500</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>症状</td>
+<td>チャットで「認証に失敗しました: 応答が JSON ではありません…HTTP 500」。コードの変更は無い</td>
+</tr>
+<tr>
+<td>原因</td>
+<td>D1 の<strong>1日の読み取り行数の枠</strong>を超えた。<strong>認証も D1 を読む</strong>ので、全部が失敗した</td>
+</tr>
+<tr>
+<td>見つけ方</td>
+<td><code>wrangler d1 insights</code>。読み取り行数が、<strong>ほぼ1つの SQL</strong>（管理画面の、全件を数える集計）に集中</td>
+</tr>
+<tr>
+<td>復旧</td>
+<td>枠が戻るのを待つ（UTC 0時）または有料プラン。<strong>復旧前は、マイグレーションもデプロイも、失敗する</strong></td>
+</tr>
+<tr>
+<td>再発防止</td>
+<td>全件走査を避ける・結果をキャッシュ・週次の <code>d1 insights</code>・Workers Paid へ</td>
+</tr>
+<tr>
+<td>学び</td>
+<td><strong>共通の部品（認証）が、1つの資源（D1）に依存</strong>していると、その資源の枯渇で、<strong>全部が止まる</strong>。重い SQL は、画面を開くたびに打たない（第3回）</td>
+</tr>
+</tbody>
+</table></div>
+<p>詳細は <a href="../06-maintenance-runbook.html">06 の障害記録 A</a>。</p>
+<h3 id="事例-b-2026-10-28-課題タブが未対応と出る新しい機能だけ-404">事例 B. 2026-10-28　「課題」タブが「未対応」と出る（新しい機能だけ 404）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>症状</td>
+<td>「課題」タブを開くと、エラー（生の文）が出て、何も表示されない。ほかの機能は、動く</td>
+</tr>
+<tr>
+<td>原因</td>
+<td><strong>パネルだけ</strong>を先に配り、<strong>Worker と D1 は、まだ古かった</strong>。<code>/pilot/plan</code> が、Worker に存在せず、<code>未定義のエンドポイントです</code> の <strong>404</strong></td>
+</tr>
+<tr>
+<td>見つけ方</td>
+<td>鍵なしで <code>/pilot/plan</code> を呼ぶと、<strong>401 ではなく 404</strong>（窓口が無い）。パネルの記録（<code>panel_debug</code>）にも、404</td>
+</tr>
+<tr>
+<td>復旧</td>
+<td>D1 のマイグレーション（0035）を適用 → Worker をデプロイ → 疎通（401）→ パネルを開き直す</td>
+</tr>
+<tr>
+<td>再発防止</td>
+<td>①<strong>順序を、手順書に書く</strong>（D1 → Worker → パネル。<a href="../../images/16-change-flow.svg">図16</a>）。②<code>friendly_error</code> に、「サーバーが、この機能にまだ対応していません。管理者に、サーバーの更新を依頼してください。」を追加（生のエラーを、利用者に見せない）</td>
+</tr>
+<tr>
+<td>学び</td>
+<td><strong>404 は、バグとは限らない</strong>。<strong>デプロイの順序</strong>を疑う。利用者向けの文は、<strong>次に何をすればよいか</strong>まで書く</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="事例-c-2026-10-28-計測がhoudini-の落ち固まりに弱い">事例 C. 2026-10-28　計測が、Houdini の落ち・固まりに弱い</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>症状（懸念）</td>
+<td>計測中に Houdini が落ちると、エラーの数が消え、閉じていた時間が、作業時間に入る。送信に失敗すると、アンケートの答えが消える。終了を押し間違えると、やり直せない</td>
+</tr>
+<tr>
+<td>原因</td>
+<td>途中経過が、メモリにしか無かった。終了時刻が、「送信した時刻」だった。やり直しの仕組みが無かった</td>
+</tr>
+<tr>
+<td>対策</td>
+<td>途中経過を、<code>~/.houdini/rag_pilot_progress.json</code> に20秒ごとに保存。再開で引き継ぎ、閉じていた時間を <code>pausedSec</code> に。終了を押した時刻で、時間を止める（<code>surveySec</code>）。答えを残して再送。<code>discarded_at</code> で、やり直し（第8回）</td>
+</tr>
+<tr>
+<td>学び</td>
+<td><strong>利用者の失敗（押し間違い・落ちる・通信が切れる）</strong>は、必ず起きる。<strong>起きたとき、何が失われるか</strong>を、先に考える</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="事例-d-2026-09-26-直したのに12日間実機に届いていなかった">事例 D. 2026-09-26　直したのに、12日間、実機に届いていなかった</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>症状</td>
+<td>リポジトリは直っているのに、Houdini の動きが変わらない</td>
+</tr>
+<tr>
+<td>原因</td>
+<td>Houdini は、<code>Documents/houdini21.0/python_panels/</code> の<strong>コピー</strong>を読む。手動でコピーしていなかった</td>
+</tr>
+<tr>
+<td>再発防止</td>
+<td><code>deploy_panels.py</code>（配置を1コマンドに）・<code>--check</code>（差分だけ見る）</td>
+</tr>
+<tr>
+<td>学び</td>
+<td>「どこにある、どのコピーが、実際に使われているか」を、<strong>最初に確かめる</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="4-総合演習">4. 総合演習</h2>
+<p><strong>課題 A（切り分け）</strong> 次の3つの症状について、「図11のどの番号が怪しいか」「最初に打つコマンド（または開く画面）」「最も疑う原因」を、書いてください。<br />
+1. 全員が、突然、「応答がJSONではありません」と出る。昨日は動いた。コードは変えていない。<br />
+2. 管理画面の「実証実験」の表が、空になった。D1 に、<code>pilot_sessions</code> の行は、ある。<br />
+3. 特定の1人だけが、403 になる。</p>
+<p><strong>課題 B（読む）</strong> <code>docs/pilot-announcement.md</code> を読み、参加者に伝える内容（データの扱い）と、<strong>実装が一致しているか</strong>を、確かめてください。一致していない箇所があれば、どのファイルを直すべきか書いてください。（ヒント: 「やり直した記録は、運営に残る」）</p>
+<p><strong>課題 C（機能を足す）</strong> 要望: 「参加者が、<strong>自分の記録の一覧</strong>（回・種類・所要時間・やり直し回数）を見られる」。第8回の手順で、<strong>計画</strong>を書き、可能なら、<strong>実装</strong>（Worker のハンドラ・テスト・パネルの表示）まで進めてください。<strong>必ず、元のコードに影響しない形</strong>（新しい API を足すだけ）にする。<strong>本番には、出さない</strong>。</p>
+<p><strong>課題 D（図）</strong> この回の事例 B の「流れ」を、図にしてください。<code>scripts/build_diagrams_lecture.py</code> に関数を足し、<code>DIAGRAMS</code> に登録して、<code>uv run python scripts/build_diagrams.py &lt;名前&gt;</code> で出力します。<strong>番号つきの矢印</strong>・<strong>目的の名前の枠</strong>・<strong>主役は実線／補助は破線</strong>の決まり（<code>diagram_kit.py</code> の冒頭）を守ること。</p>
+<p><strong>課題 E（保守）</strong> 6か月後、新しい人が入ります。この講義シリーズの<strong>うち、足りない回</strong>を、1つ提案してください（何を、どの順で、どの演習で）。</p>
+<h2 id="5-自己採点">5. 自己採点</h2>
+<ul>
+<li>[ ] 事例 A〜D を、<strong>原因・見つけ方・再発防止</strong>の順に、説明できる</li>
+<li>[ ] 症状から、図11の<strong>番号</strong>を挙げて、<strong>最初に確かめること</strong>を言える</li>
+<li>[ ] 本番を変える操作を、<strong>見分けて</strong>、<strong>許可を得てから</strong>行える</li>
+<li>[ ] 新しい障害が起きたら、<a href="../06-maintenance-runbook.html">06 の障害記録</a>に、<strong>①〜⑦の形で</strong>書ける</li>
+<li>[ ] この講義シリーズの、古くなった箇所を、見つけて直せる</li>
+</ul>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>課題 A-1: 4（Worker）。<code>/health</code> を開く。D1 の枠の超過（事例 A）を疑い、<code>wrangler d1 migrations list … --remote</code> で <code>code: 7500</code> を探す。</li>
+<li>課題 A-2: 7〜10 の後ろ（集計）。<code>discarded_at IS NULL</code>・<code>ended_at IS NOT NULL</code>・<code>pid IS NOT NULL</code>・<code>role != 'admin'</code> の条件で、行が落ちていないか（管理者のテストだけが入っていないか）。</li>
+<li>課題 A-3: 5（権限）。その人の<strong>ロール</strong>と、<strong>許可された namespace</strong>。<code>admin</code> 専用の API を呼んでいないか。</li>
+<li>課題 B: 「破棄した記録は、消さずに残る」点を、告知・FAQ に書いてあるか（<code>pilot-announcement.md</code> の FAQ に、追記済み）。</li>
+<li>課題 C: 本人の記録だけを返す（<code>user.userId</code> で絞る）。<code>discarded_at IS NULL</code> と、やり直し回数（破棄した行の数）。<strong>他人の記録が見えないこと</strong>を、テストで確かめる。</li>
+</ul>
+</main>
+<div class="pager"><a href="09-test-deploy-operate.html">← 前へ</a><span></span></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

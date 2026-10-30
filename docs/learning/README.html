@@ -75,15 +75,18 @@
 <header class="hero">
   <span class="badge">座学資料</span>
   <h1>座学資料: AIなしでも保守・拡張できるようになるために</h1>
-  <div class="meta">HTML生成: 2026-10-23（元: docs/learning/README.md）</div>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/README.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-構成4段階-手順">1. 構成（4段階 ＋ 手順）</a></li><li><a href="#2-目的別の学習パス">2. 目的別の学習パス</a></li><li><a href="#3-学び方のルール">3. 学び方のルール</a></li><li><a href="#4-到達度チェックリスト">4. 到達度チェックリスト</a></li><li><a href="#5-この資料の保守">5. この資料の保守</a></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-構成4段階-手順">1. 構成（4段階 ＋ 手順）</a><ol><li><a href="#講義シリーズとの対応">講義シリーズとの対応</a></li></ol></li><li><a href="#2-目的別の学習パス">2. 目的別の学習パス</a></li><li><a href="#3-学び方のルール">3. 学び方のルール</a></li><li><a href="#4-到達度チェックリスト">4. 到達度チェックリスト</a></li><li><a href="#5-この資料の保守">5. この資料の保守</a></li></ol></details></nav>
 <main>
 
 <p><strong>作成日:</strong> 2026-10-17<br />
 <strong>目的:</strong> このプロジェクト（RAG環境・Cloudflare Worker・Houdini/Unity連携）を、AIに頼らなくても<strong>動かし続け、直し、機能を足せる</strong>ようにする。<br />
 <strong>対象:</strong> 開発者本人、およびこのプロジェクトを引き継ぐ人。<br />
 <strong>位置づけ:</strong> 設計資料（<code>docs/</code>の他のファイル）は「何がどうなっているか」。この資料は「それを自分で読み書きするために、何を知っている必要があるか」。</p>
+<blockquote>
+<p><strong>2026-10-30 追加: <a href="lectures/README.html">講義シリーズ（全10回）</a>。</strong> 基礎（URL・DNS・HTTP）から順に、図を使って、このシステムを理解し、保守・拡張するまでを、演習つきで進める。<strong>初めて読む人は、こちらから</strong>。下の01〜06は、必要な知識を引く<strong>辞書</strong>として使う。</p>
+</blockquote>
 <hr />
 <h2 id="1-構成4段階-手順">1. 構成（4段階 ＋ 手順）</h2>
 <div class="table-scroll"><table>
@@ -135,6 +138,57 @@
 </tbody>
 </table></div>
 <p>関連: 用語は<a href="../glossary.html">glossary.md</a>・<a href="../terminology.md">terminology.md</a>、構造は<a href="../architecture-layering-plan.html">architecture-layering-plan.md</a>、使い方は<a href="../user-manual.html">user-manual.md</a>、運用は<a href="../cloudflare-rag-operations-manual.md">cloudflare-rag-operations-manual.md</a>。</p>
+<h3 id="講義シリーズとの対応">講義シリーズとの対応</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>講義</th>
+<th>深掘り先（辞書）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="lectures/01-internet.html">第1回 インターネットの基礎</a></td>
+<td><a href="01-common-knowledge.html">01 常識</a></td>
+</tr>
+<tr>
+<td><a href="lectures/02-cloudflare.html">第2回 Cloudflare の基礎</a></td>
+<td><a href="02-fundamentals.html">02 基礎</a>・<a href="03-specialized.html">03 専門 §5</a></td>
+</tr>
+<tr>
+<td><a href="lectures/03-database.html">第3回 データベースと SQL</a></td>
+<td><a href="02-fundamentals.html">02 基礎（SQL）</a></td>
+</tr>
+<tr>
+<td><a href="lectures/04-rag-and-ai.html">第4回 RAG と AI の API</a></td>
+<td><a href="03-specialized.html">03 専門</a></td>
+</tr>
+<tr>
+<td><a href="lectures/05-worker-code.html">第5回 Worker のコードを読む</a></td>
+<td><a href="04-applied.html">04 応用</a></td>
+</tr>
+<tr>
+<td><a href="lectures/06-houdini-panel.html">第6回 Houdini パネルのコードを読む</a></td>
+<td><a href="03-specialized.html">03 専門 §7</a>・<a href="04-applied.html">04 応用</a></td>
+</tr>
+<tr>
+<td><a href="lectures/07-web-ui.html">第7回 Web 画面の仕組み</a></td>
+<td><a href="04-applied.html#レシピe-管理画面にカードを足す">04 応用 レシピE</a></td>
+</tr>
+<tr>
+<td><a href="lectures/08-add-a-feature.html">第8回 機能を足す通し演習</a></td>
+<td><a href="04-applied.html">04 応用</a></td>
+</tr>
+<tr>
+<td><a href="lectures/09-test-deploy-operate.html">第9回 テスト・デプロイ・運用</a></td>
+<td><a href="05-scripts.html">05 Script</a>・<a href="06-maintenance-runbook.html">06 保守</a></td>
+</tr>
+<tr>
+<td><a href="lectures/10-troubleshooting.html">第10回 トラブルシュートと総合演習</a></td>
+<td><a href="06-maintenance-runbook.html">06 保守</a></td>
+</tr>
+</tbody>
+</table></div>
 <h2 id="2-目的別の学習パス">2. 目的別の学習パス</h2>
 <div class="table-scroll"><table>
 <thead>

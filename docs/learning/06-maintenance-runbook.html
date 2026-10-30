@@ -75,9 +75,9 @@
 <header class="hero">
   <span class="badge">座学資料</span>
   <h1>06. 保守ランブック</h1>
-  <div class="meta">HTML生成: 2026-10-23（元: docs/learning/06-maintenance-runbook.md）</div>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/06-maintenance-runbook.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-定期点検">1. 定期点検</a><ol><li><a href="#毎日1分画面で">毎日（1分。画面で）</a></li><li><a href="#毎週10分">毎週（10分）</a></li><li><a href="#毎月30分">毎月（30分）</a></li></ol></li><li><a href="#2-症状別の切り分け">2. 症状別の切り分け</a></li><li><a href="#3-障害記録">3. 障害記録</a><ol><li><a href="#a-2026-10-16-d1の読み取り枠を使い切り全apiが500">A. 2026-10-16 D1の読み取り枠を使い切り、全APIが500</a></li><li><a href="#b-2026-08-29-グラフ表示がd1の日次枠の9割を消費">B. 2026-08-29 グラフ表示がD1の日次枠の9割を消費</a></li><li><a href="#c-検索が常に0件メタデータインデックスの作り忘れ">C. 検索が常に0件（メタデータインデックスの作り忘れ）</a></li><li><a href="#d-2026-09-04-検索語の記号でfts5が構文エラー">D. 2026-09-04 検索語の記号でFTS5が構文エラー</a></li><li><a href="#e-同期中のunexpected-token-error-1102">E. 同期中のUnexpected token &#x27;&amp;lt;&#x27;／Error 1102</a></li><li><a href="#f-サービスアカウントのキーが作れないgcpの組織ポリシー">F. サービスアカウントのキーが作れない（GCPの組織ポリシー）</a></li><li><a href="#g-2026-10-17-再クロールが503で止まるページの9割がサイドバーの目次">G. 2026-10-17 再クロールが503で止まる（ページの9割がサイドバーの目次）</a></li><li><a href="#h-2026-10-19-動画の音声が良くならない導入済みのvoicevoxが黙って使われていなかった">H. 2026-10-19 動画の音声が良くならない（導入済みのVOICEVOXが、黙って使われていなかった）</a></li><li><a href="#i-2026-10-19-動画エンジンが起動直後のvoicevoxへの確認でクラッシュ終了コード139">I. 2026-10-19 動画エンジンが、起動直後のVOICEVOXへの確認でクラッシュ（終了コード139）</a></li><li><a href="#j-2026-10-21-動画生成がattributeerrorで始まらない画面コードの呼び出し先が無い">J. 2026-10-21 動画生成が、AttributeErrorで始まらない（画面コードの呼び出し先が無い）</a></li><li><a href="#k-2026-10-21-チャットのあとパネルがペインからはみ出し区切りが動かせない">K. 2026-10-21 チャットのあと、パネルがペインからはみ出し、区切りが動かせない</a></li><li><a href="#l-2026-10-21-登録済みのhoudiniドキュメントの本文に解析のスクリプトが混ざり同名ノードが上書きされる">L. 2026-10-21 登録済みのHoudiniドキュメントの本文に、解析のスクリプトが混ざり、同名ノードが上書きされる</a></li><li><a href="#m-2026-10-21-あいまいな質問で回答がぶれる仮の回答の検索が実行のたびに違う">M. 2026-10-21 あいまいな質問で、回答がぶれる（仮の回答の検索が、実行のたびに違う）</a></li></ol></li><li><a href="#4-やってはいけないこと">4. やってはいけないこと</a></li><li><a href="#5-復旧の基本手順全部が止まったとき">5. 復旧の基本手順（「全部が止まった」とき）</a></li><li><a href="#6-バックアップと復旧">6. バックアップと復旧</a></li><li><a href="#7-連絡エスカレーション">7. 連絡・エスカレーション</a></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-定期点検">1. 定期点検</a><ol><li><a href="#毎日1分画面で">毎日（1分。画面で）</a></li><li><a href="#毎週10分">毎週（10分）</a></li><li><a href="#毎月30分">毎月（30分）</a></li></ol></li><li><a href="#2-症状別の切り分け">2. 症状別の切り分け</a></li><li><a href="#3-障害記録">3. 障害記録</a><ol><li><a href="#a-2026-10-16-d1の読み取り枠を使い切り全apiが500">A. 2026-10-16 D1の読み取り枠を使い切り、全APIが500</a></li><li><a href="#b-2026-08-29-グラフ表示がd1の日次枠の9割を消費">B. 2026-08-29 グラフ表示がD1の日次枠の9割を消費</a></li><li><a href="#c-検索が常に0件メタデータインデックスの作り忘れ">C. 検索が常に0件（メタデータインデックスの作り忘れ）</a></li><li><a href="#d-2026-09-04-検索語の記号でfts5が構文エラー">D. 2026-09-04 検索語の記号でFTS5が構文エラー</a></li><li><a href="#e-同期中のunexpected-token-error-1102">E. 同期中のUnexpected token &#x27;&amp;lt;&#x27;／Error 1102</a></li><li><a href="#f-サービスアカウントのキーが作れないgcpの組織ポリシー">F. サービスアカウントのキーが作れない（GCPの組織ポリシー）</a></li><li><a href="#g-2026-10-17-再クロールが503で止まるページの9割がサイドバーの目次">G. 2026-10-17 再クロールが503で止まる（ページの9割がサイドバーの目次）</a></li><li><a href="#h-2026-10-19-動画の音声が良くならない導入済みのvoicevoxが黙って使われていなかった">H. 2026-10-19 動画の音声が良くならない（導入済みのVOICEVOXが、黙って使われていなかった）</a></li><li><a href="#i-2026-10-19-動画エンジンが起動直後のvoicevoxへの確認でクラッシュ終了コード139">I. 2026-10-19 動画エンジンが、起動直後のVOICEVOXへの確認でクラッシュ（終了コード139）</a></li><li><a href="#j-2026-10-21-動画生成がattributeerrorで始まらない画面コードの呼び出し先が無い">J. 2026-10-21 動画生成が、AttributeErrorで始まらない（画面コードの呼び出し先が無い）</a></li><li><a href="#k-2026-10-21-チャットのあとパネルがペインからはみ出し区切りが動かせない">K. 2026-10-21 チャットのあと、パネルがペインからはみ出し、区切りが動かせない</a></li><li><a href="#l-2026-10-21-登録済みのhoudiniドキュメントの本文に解析のスクリプトが混ざり同名ノードが上書きされる">L. 2026-10-21 登録済みのHoudiniドキュメントの本文に、解析のスクリプトが混ざり、同名ノードが上書きされる</a></li><li><a href="#m-2026-10-21-あいまいな質問で回答がぶれる仮の回答の検索が実行のたびに違う">M. 2026-10-21 あいまいな質問で、回答がぶれる（仮の回答の検索が、実行のたびに違う）</a></li><li><a href="#n-2026-10-28-課題タブが何も出ずにエラーになる新しい機能だけ404">N. 2026-10-28 「課題」タブが、何も出ずにエラーになる（新しい機能だけ404）</a></li><li><a href="#o-2026-10-28-課題の計測がhoudiniの落ち押し間違いに弱い懸念の洗い出し">O. 2026-10-28 課題の計測が、Houdiniの落ち・押し間違いに弱い（懸念の洗い出し）</a></li></ol></li><li><a href="#4-やってはいけないこと">4. やってはいけないこと</a></li><li><a href="#5-復旧の基本手順全部が止まったとき">5. 復旧の基本手順（「全部が止まった」とき）</a></li><li><a href="#6-バックアップと復旧">6. バックアップと復旧</a></li><li><a href="#7-連絡エスカレーション">7. 連絡・エスカレーション</a></li></ol></details></nav>
 <main>
 
 <p><strong>更新日:</strong> 2026-10-17　<strong>使い方:</strong> 通読する資料ではなく、<strong>困ったときに引く資料</strong>。<br />
@@ -193,6 +193,12 @@
 <td>反復の上限、予算、費用の上限、cookエラー</td>
 <td>パネルの進行ログ、<code>abort_reason</code></td>
 <td></td>
+</tr>
+<tr>
+<td><strong>新しい機能だけ404</strong>（「未定義のエンドポイントです」。パネルは「サーバーが、この機能にまだ対応していません」）</td>
+<td><strong>Workerが古い</strong>（デプロイ前）。パネルだけ先に配った</td>
+<td>鍵なしで新しいAPIを呼び、401か404か</td>
+<td><a href="#3-障害記録">§3 N</a></td>
 </tr>
 <tr>
 <td>wranglerが<code>7403</code>で失敗</td>
@@ -504,6 +510,62 @@
 </tbody>
 </table></div>
 <p><strong>学び:</strong> あいまいさは、<strong>LLM の判断に任せず、決まった規則</strong>（優先順＋前提の明示）で扱う。</p>
+<h3 id="n-2026-10-28-課題タブが何も出ずにエラーになる新しい機能だけ404">N. 2026-10-28　「課題」タブが、何も出ずにエラーになる（新しい機能だけ404）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>症状</strong></td>
+<td>Houdini の「課題」タブを開くと、エラーの文だけが出て、画面が出ない。ほかのタブは動く</td>
+</tr>
+<tr>
+<td><strong>原因</strong></td>
+<td><strong>パネルだけ</strong>を先に配り、<strong>D1（0035）とWorkerは古いまま</strong>だった。<code>/pilot/plan</code> がWorkerに無く、<code>未定義のエンドポイントです</code> の404</td>
+</tr>
+<tr>
+<td><strong>見つけ方</strong></td>
+<td>鍵なしで <code>/pilot/plan</code> を呼ぶと、<strong>401でなく404</strong>。401なら、窓口はある</td>
+</tr>
+<tr>
+<td><strong>復旧</strong></td>
+<td>0035を適用 → Workerをデプロイ → 疎通（401）→ パネルを開き直す。手順は <a href="../operator-runbook.html">operator-runbook.md §6.1</a></td>
+</tr>
+<tr>
+<td><strong>再発防止</strong></td>
+<td><strong>順序を決める: D1 → Worker → パネル</strong>（<a href="../images/16-change-flow.svg">図16</a>）。<code>friendly_error</code> に、404の文言「サーバーが、この機能にまだ対応していません。管理者に、サーバーの更新を依頼してください。」を足し、生のエラーを利用者に見せない</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>学び:</strong> 新しい機能だけが404のときは、バグより先に、<strong>デプロイの順序</strong>を疑う。利用者向けの文は、<strong>次に何をすればよいか</strong>まで書く。</p>
+<h3 id="o-2026-10-28-課題の計測がhoudiniの落ち押し間違いに弱い懸念の洗い出し">O. 2026-10-28　課題の計測が、Houdiniの落ち・押し間違いに弱い（懸念の洗い出し）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>症状（懸念）</strong></td>
+<td>計測中にHoudiniが落ちると、数えたエラーが消え、閉じていた時間が作業時間に入る。終了を押し間違えると、やり直せない。送信に失敗すると、アンケートの答えが消える</td>
+</tr>
+<tr>
+<td><strong>原因</strong></td>
+<td>途中経過がメモリにしか無かった。終了時刻が「送信した時刻」だった。やり直しの仕組みが無かった</td>
+</tr>
+<tr>
+<td><strong>対策</strong></td>
+<td>途中経過を <code>~/.houdini/rag_pilot_progress.json</code> に20秒ごとに保存し、再開で引き継ぐ。閉じていた時間は <code>pausedSec</code>、振り返りの時間は <code>surveySec</code> として引く。<code>discarded_at</code> でやり直し（マイグレーション0036）。答えを残して再送。採取は1回1秒で打ち切る</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>学び:</strong> 利用者の失敗（押し間違い・落ちる・通信切れ）は必ず起きる。<strong>起きたとき、何が失われるか</strong>を、設計の前に考える。設計書は <a href="../pilot-analysis-design.md">pilot-analysis-design.md</a> の「計測の扱い」。</p>
 <h2 id="4-やってはいけないこと">4. やってはいけないこと</h2>
 <div class="table-scroll"><table>
 <thead>

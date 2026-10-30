@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第5回 Worker のコードを読む（index.ts からハンドラまで・テストの書き方）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a class="current" href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第5回 Worker のコードを読む（index.ts からハンドラまで・テストの書き方）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/05-worker-code.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎typescript-の読み方">2. 基礎（TypeScript の読み方）</a><ol><li><a href="#21-型">2.1 型</a></li><li><a href="#22-ハンドラの形">2.2 ハンドラの形</a></li><li><a href="#23-エラーの返し方">2.3 エラーの返し方</a></li><li><a href="#24-純関数とハンドラを分ける">2.4 純関数とハンドラを分ける</a></li><li><a href="#25-ファイルの地図src">2.5 ファイルの地図（src/）</a></li></ol></li><li><a href="#3-テストの書き方">3. テストの書き方</a><ol><li><a href="#31-実行">3.1 実行</a></li><li><a href="#32-偽の-d1本物のスキーマで">3.2 偽の D1（本物のスキーマで）</a></li><li><a href="#33-ハンドラを呼ぶ">3.3 ハンドラを呼ぶ</a></li><li><a href="#34-良いテストの条件">3.4 良いテストの条件</a></li></ol></li><li><a href="#4-このプロジェクトではたどってみる">4. このプロジェクトでは（たどってみる）</a></li><li><a href="#5-演習">5. 演習</a></li><li><a href="#6-つまずきやすい点">6. つまずきやすい点</a></li><li><a href="#7-確認問題">7. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> <code>cloudflare-rag-poc/src/index.ts</code> から、任意の API（例: <code>/pilot/plan</code>）の<strong>ハンドラまで、ファイルと関数を順にたどれる</strong>。ハンドラの型・エラーの返し方・テストの書き方を、真似て書ける。<br />
+<strong>前提:</strong> 第1〜4回、TypeScript を少し（変数・関数・<code>async/await</code>・<code>interface</code>）。 <strong>目安:</strong> 4時間</p>
+<hr />
+<h2 id="1-全体像">1. 全体像</h2>
+<p><a href="../../images/11-request-life.svg">図11</a> の <strong>4（Worker を起動）〜7</strong> が、この回のコードです。</p>
+<pre><code>リクエスト ──▶ index.ts fetch()
+                ├─ GET /health, GET /（画面）, OAuth のコールバック …（鍵なし）
+                ├─ POST 以外は 405
+                ├─ （初回セットアップ・Slack など、鍵以外で確かめるもの）
+                ├─ authenticate()           … 鍵 → ハッシュ → users → AuthedUser（無ければ 401）
+                └─ switch (url.pathname)    … 道筋で、ハンドラへ
+                      case &quot;/pilot/plan&quot;:  return await handlePilotPlan(req, env, user);
+                      …
+                      default:             404「未定義のエンドポイントです」
+              └─ catch: BudgetExceededError/RateLimitedError → 429、ForbiddenError → 403、その他 → 500
+</code></pre>
+<h2 id="2-基礎typescript-の読み方">2. 基礎（TypeScript の読み方）</h2>
+<h3 id="21-型">2.1 型</h3>
+<pre><code class="language-ts">interface ProfileRow { user_id: string; pid: number | null; slot: number }   // 形を宣言
+async function loadProfile(env: Env, userId: string): Promise&lt;ProfileRow | null&gt; { … }
+</code></pre>
+<ul>
+<li><code>number | null</code> は「数か、null」。<code>?</code> は「無くてもよい」。</li>
+<li><code>Promise&lt;T&gt;</code> は「あとで T が届く」。<code>await</code> で待つ。<strong><code>await</code> を忘れると、まだ届いていない Promise を使ってしまう</strong>（バグの定番）。</li>
+<li>型は、<strong>実行時には消えます</strong>。外から来る値（リクエストの JSON）は、型を信用せず、<strong>中身を確かめる</strong>（<code>likert()</code>・<code>clampInt()</code>）。</li>
+</ul>
+<h3 id="22-ハンドラの形">2.2 ハンドラの形</h3>
+<p>すべての API は、同じ形の関数です。</p>
+<pre><code class="language-ts">export async function handlePilotSessionReset(req: Request, env: Env, user: AuthedUser): Promise&lt;Response&gt; {
+  const body = await readBody(req);                         // 手紙（JSON）を読む。壊れていても空のオブジェクト
+  const id = typeof body.sessionId === &quot;string&quot; ? body.sessionId : &quot;&quot;;   // 型を確かめる
+  const row = id ? await env.DB.prepare(&quot;SELECT …&quot;).bind(id).first&lt;…&gt;() : null;
+  if (!row || row.user_id !== user.userId || row.discarded_at != null)
+    return jsonResponse(404, { error: &quot;課題の記録が見つかりません&quot; });   // 他人の記録は「無い」と答える
+  …
+  await env.DB.prepare(&quot;UPDATE pilot_sessions SET discarded_at = ? WHERE id = ?&quot;).bind(now, id).run();
+  return planResponse(env, user.userId);                    // 更新後の状態を返す
+}
+</code></pre>
+<p>読むときの観点:</p>
+<ol>
+<li><strong>誰が呼べるか</strong>（<code>requireAdmin(user)</code> があるか。なければ、鍵を持つ全員）</li>
+<li><strong>入力を、どう確かめているか</strong>（型・範囲・長さ）</li>
+<li><strong>他人のデータに触れないか</strong>（<code>user.userId</code> で絞っているか。他人の ID は「無い」と答えて、存在を教えない）</li>
+<li><strong>失敗を、どの番号で返しているか</strong>（400・404・409）</li>
+<li><strong>書き込みは、原子的か</strong>（複数の更新が、途中で止まっても壊れないか）</li>
+</ol>
+<h3 id="23-エラーの返し方">2.3 エラーの返し方</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>返したいもの</th>
+<th>書き方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>入力が悪い</td>
+<td><code>return jsonResponse(400, { error: "…" })</code></td>
+</tr>
+<tr>
+<td>無い・他人のもの</td>
+<td><code>return jsonResponse(404, { error: "…" })</code></td>
+</tr>
+<tr>
+<td>今の状態ではできない</td>
+<td><code>return jsonResponse(409, { error: "…" })</code></td>
+</tr>
+<tr>
+<td>権限が無い</td>
+<td><code>requireAdmin(user)</code>（<code>ForbiddenError</code> を投げ、<code>index.ts</code> の <code>catch</code> が 403 にする）</td>
+</tr>
+<tr>
+<td>予算・回数</td>
+<td><code>BudgetExceededError</code>・<code>RateLimitedError</code>（429）</td>
+</tr>
+<tr>
+<td>想定外</td>
+<td>何もしない（<code>catch</code> が 500 にする）</td>
+</tr>
+</tbody>
+</table></div>
+<p>エラーの文は、<strong>日本語で、原因と対処</strong>を書きます（パネルが、そのまま利用者に見せる場合があるため）。</p>
+<h3 id="24-純関数とハンドラを分ける">2.4 純関数とハンドラを分ける</h3>
+<p><code>src/pilotTasks.ts</code> の<strong>上半分</strong>は、<strong>純関数</strong>（同じ入力なら同じ出力。D1 も、時計も使わない）です。</p>
+<pre><code class="language-ts">export function slotForPid(pid: number): number { return ((pid - 1) % 3) + 1; }
+export function mistakeScore(cook, self) { … }           // 操作ミスの合成
+export function buildPlan(slot, sessions): TaskPlan { … } // 次の課題
+export function buildHistory(sessions): HistoryItem[] { … } // やり直せる記録
+export function summarizeTasks(rows) { … }               // 集計
+</code></pre>
+<p><strong>下半分</strong>が、D1 を読み書きするハンドラです。</p>
+<blockquote>
+<p>なぜ分けるか: 純関数は、<strong>D1 も、HTTP も要らず、一瞬でテストできる</strong>。ハンドラは、純関数を呼ぶだけの<strong>薄い層</strong>にして、テストの量を、純関数に寄せる。<strong>判断（ビジネスのルール）は、純関数に置く</strong>。</p>
+</blockquote>
+<h3 id="25-ファイルの地図src">2.5 ファイルの地図（<code>src/</code>）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>役割</th>
+<th>ファイル</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>入口・ルーティング</td>
+<td><code>index.ts</code></td>
+</tr>
+<tr>
+<td>認証・権限</td>
+<td><code>auth.ts</code>（<code>authenticate</code>・<code>requireAdmin</code>・<code>ForbiddenError</code>）</td>
+</tr>
+<tr>
+<td>共通</td>
+<td><code>http.ts</code>（<code>jsonResponse</code>・<code>clampInt</code>）・<code>types.ts</code>（<code>Env</code>・<code>AuthedUser</code>）</td>
+</tr>
+<tr>
+<td>検索・回答</td>
+<td><code>query.ts</code>・<code>search.ts</code>・<code>retrieve.ts</code>・<code>hybrid.ts</code>・<code>embeddings.ts</code>・<code>chunking.ts</code></td>
+</tr>
+<tr>
+<td>予算・制限</td>
+<td><code>budget.ts</code>・<code>rateLimit.ts</code>・<code>auditLog.ts</code></td>
+</tr>
+<tr>
+<td>履歴・成長</td>
+<td><code>memory.ts</code>・<code>threads.ts</code>・<code>growth.ts</code>・<code>glossary.ts</code></td>
+</tr>
+<tr>
+<td>ナレッジ登録・同期</td>
+<td><code>kbIngest.ts</code>・<code>urlImport.ts</code>・<code>notionSync.ts</code>・<code>driveSync.ts</code>・<code>jiraSync.ts</code> …</td>
+</tr>
+<tr>
+<td>評価・実験</td>
+<td><code>tutorialFeedback.ts</code>・<code>pilotTasks.ts</code>・<code>pilotStats.ts</code></td>
+</tr>
+<tr>
+<td>外部の中継</td>
+<td><code>claude.ts</code>・<code>tts.ts</code>・<code>mcp/</code></td>
+</tr>
+<tr>
+<td>画面</td>
+<td><code>chatUi.ts</code>・<code>asciiArt.ts</code>・<code>listSort.ts</code></td>
+</tr>
+<tr>
+<td>運用</td>
+<td><code>healthCheck.ts</code>・<code>alerts.ts</code>・<code>backup.ts</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-テストの書き方">3. テストの書き方</h2>
+<h3 id="31-実行">3.1 実行</h3>
+<pre><code class="language-bash">cd cloudflare-rag-poc
+npm run typecheck          # 型の検査（tsc --noEmit）
+npm test                   # 全テスト（tsx --test test/*.test.mjs）
+npx tsx --test test/pilot_tasks.test.mjs   # 1ファイルだけ
+</code></pre>
+<h3 id="32-偽の-d1本物のスキーマで">3.2 偽の D1（本物のスキーマで）</h3>
+<p>テストは、本番に<strong>つながりません</strong>。<code>node:sqlite</code>（Node 標準の SQLite）に、<code>migrations/</code> を<strong>番号順に</strong>適用して、<strong>本物と同じ表</strong>を作り、D1 と同じ形（<code>prepare().bind().first/all/run</code>）の<strong>偽物</strong>で包みます（<code>test/pilot_tasks.test.mjs</code> の冒頭）。</p>
+<pre><code class="language-js">const db = new DatabaseSync(&quot;:memory:&quot;);
+for (const f of readdirSync(MIG).filter((n) =&gt; n.endsWith(&quot;.sql&quot;)).sort()) db.exec(readFileSync(MIG + f, &quot;utf8&quot;));
+const D1 = { prepare(sql) { return { a: [], bind(...x) { this.a = x; return this; },
+  async run() { … }, async first() { … }, async all() { … } }; } };
+const env = { DB: D1 };
+</code></pre>
+<blockquote>
+<p><strong>マイグレーションを、テストで適用する意味</strong>: SQL の構文の間違い・列の不足・部分一意索引の効き方が、<strong>デプロイの前に</strong>分かる。<code>0036</code> の「破棄した行を残しつつ、有効な行は1つ」も、このテストで確かめている。</p>
+</blockquote>
+<h3 id="33-ハンドラを呼ぶ">3.3 ハンドラを呼ぶ</h3>
+<pre><code class="language-js">const post = (body) =&gt; new Request(&quot;https://x/&quot;, { method: &quot;POST&quot;, headers: { &quot;content-type&quot;: &quot;application/json&quot; }, body: JSON.stringify(body) });
+const call = async (handler, user, body = {}) =&gt; { const res = await handler(post(body), env, user); return { status: res.status, body: await res.json() }; };
+
+const r = await call(pt.handlePilotSessionReset, u3, { sessionId: run1 });
+assert.equal(r.status, 200);
+assert.equal((await call(pt.handlePilotSessionReset, u3, { sessionId: run1 })).status, 404, &quot;discard once only&quot;);
+</code></pre>
+<h3 id="34-良いテストの条件">3.4 良いテストの条件</h3>
+<ul>
+<li><strong>正常系だけでなく、境界と失敗を書く</strong>: 他人の ID（404）・二重の操作（409/404）・範囲外の値（null になる）・次の回を始めたあと（409）。</li>
+<li><strong>理由を、メッセージに書く</strong>（<code>assert.equal(…, 404, "discard once only")</code>）。落ちたとき、何が壊れたか分かる。</li>
+<li><strong>時間に依存しない</strong>: 時間が絡むなら、DB の値を直接書き換えて（<code>UPDATE … SET started_at = …</code>）、結果を<strong>範囲</strong>で確かめる（±3秒）。</li>
+<li><strong>本物のスキーマ</strong>で動かす（上の 3.2）。</li>
+</ul>
+<h2 id="4-このプロジェクトではたどってみる">4. このプロジェクトでは（たどってみる）</h2>
+<p><code>POST /pilot/plan</code> を、行番号を確かめながら、たどります。</p>
+<ol>
+<li><code>src/index.ts</code> の <code>async fetch(</code> … POST か確認 → <code>authenticate(req, env)</code> → <code>switch</code> の <code>case "/pilot/plan"</code></li>
+<li><code>src/pilotTasks.ts</code> の <code>handlePilotPlan</code> → <code>planResponse(env, userId)</code></li>
+<li><code>planResponse</code> → <code>loadProfile</code>（<code>pilot_profile</code>）→ <code>loadSessions</code>（<code>pilot_sessions</code>。<code>discarded_at IS NULL</code>）→ <code>buildPlan</code>（純関数）・<code>buildHistory</code>（純関数）</li>
+<li><code>jsonResponse(200, { status: "ok", profile: true, pid, …plan, history })</code></li>
+</ol>
+<h2 id="5-演習">5. 演習</h2>
+<p><strong>演習 5.1（たどる）</strong> 上の 1〜4 を、実際にファイルを開いて、<strong>関数名と行番号</strong>を書き出してください。</p>
+<p><strong>演習 5.2（読む）</strong> <code>handlePilotSessionEnd</code> を読み、(a) 他人の <code>sessionId</code> を送ると何が返るか、(b) <code>surveySec</code> が 99999 のとき <code>endedAt</code> はどうなるか、(c) <code>docs_only</code> の回に <code>sourceUseful</code> を送ると、どう保存されるか、を答えてください。テスト <code>pilot_tasks.test.mjs</code> の該当部分で確かめてください。</p>
+<p><strong>演習 5.3（書く・小）</strong> <code>pilotTasks.ts</code> の純関数 <code>median</code> に、<strong>偶数個の入力</strong>と<strong>null を含む入力</strong>の、テストの行を足してください（<code>test/pilot_tasks.test.mjs</code> の「集計の部品」の節）。実行して、通ることを確認してください。</p>
+<p><strong>演習 5.4（書く・中）</strong> 管理者向けに、<code>POST /admin/pilot/ping</code>（<code>{ status: "ok", registered: &lt;参加者数&gt; }</code> を返す）を足してください。手順: ①ハンドラ（<code>requireAdmin</code>）②<code>index.ts</code> の import と <code>case</code> ③テスト（管理者は 200、一般ユーザーは <code>rejects</code>）④型検査・テスト。<strong>終わったら、元に戻してください</strong>（演習なので、コミットしない）。</p>
+<p><strong>演習 5.5（考える）</strong> 次のコードの問題を、2つ挙げてください。</p>
+<pre><code class="language-ts">const row = await env.DB.prepare(`SELECT * FROM pilot_sessions WHERE id = '${body.sessionId}'`).first();
+return jsonResponse(200, row);
+</code></pre>
+<h2 id="6-つまずきやすい点">6. つまずきやすい点</h2>
+<ul>
+<li><strong><code>await</code> の付け忘れ。</strong> <code>const row = env.DB.prepare(…).first()</code> は、Promise。<code>row.user_id</code> が undefined になる。</li>
+<li><strong><code>catch</code> で握りつぶす。</strong> 失敗が見えなくなる。握りつぶすなら、<strong>理由を、コメントに</strong>（例: 習熟度の読み込みに失敗しても、質問そのものは続ける）。</li>
+<li><strong><code>switch</code> に <code>case</code> を足し忘れる。</strong> ハンドラを作っても、<code>index.ts</code> に無ければ、<strong>404</strong>（「未定義のエンドポイントです」）。</li>
+<li><strong>管理者だけの API に <code>requireAdmin</code> を忘れる。</strong> 全員に見えてしまう。<strong>テストで、一般ユーザーが拒否されることを、必ず確かめる</strong>。</li>
+</ul>
+<h2 id="7-確認問題">7. 確認問題</h2>
+<ol>
+<li><code>authenticate</code> が null を返すと、どの番号か。権限の無い呼び出しは、どの番号か。</li>
+<li>純関数とハンドラを分ける利点は？</li>
+<li>他人の記録に触れたとき、403 でなく 404 を返す理由は？</li>
+<li>テストで、本物の <code>migrations/</code> を適用する理由は？</li>
+<li>ハンドラを作ったのに 404 が返る。最初に確かめることは？</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>5.2: (a) 404（他人の記録は「無い」と答える）。(b) <code>surveySec</code> は上限 86400 に丸められ、<code>now - 86400</code> が <code>started_at</code> より小さいので、<code>Math.max(row.started_at, …)</code> で <code>started_at</code>。所要時間は 0。(c) <code>null</code>（出典の有用性は、本システムを使わない回に無い）。</li>
+<li>5.5: ① SQL インジェクション（値を、文字につなげている。<code>bind</code> を使う）。② 他人の <code>id</code> でも読める（<code>user_id</code> で絞っていない）。③ <code>SELECT *</code> で、返したくない列まで返す。</li>
+<li>確認問題 3: 存在すること自体を、他人に教えないため。</li>
+<li>確認問題 5: <code>index.ts</code> の <code>switch</code> に、<code>case</code> と import があるか。次に、<strong>デプロイされた版が、そのコードを含むか</strong>（第9回）。</li>
+</ul>
+</main>
+<div class="pager"><a href="04-rag-and-ai.html">← 前へ</a><a href="06-houdini-panel.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

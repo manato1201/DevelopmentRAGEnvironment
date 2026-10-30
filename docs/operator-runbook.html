@@ -75,9 +75,9 @@
 <header class="hero">
   <span class="badge">運営者向け手順書</span>
   <h1>運営者向け手順書（実証実験の運営）</h1>
-  <div class="meta">HTML生成: 2026-10-23（元: docs/operator-runbook.md）</div>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/operator-runbook.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体の構成">1. 全体の構成</a></li><li><a href="#2-実証実験の前にやることチェックリスト">2. 実証実験の前にやること（チェックリスト）</a></li><li><a href="#3-テスターの鍵を発行する">3. テスターの鍵を発行する</a></li><li><a href="#4-日々の見守り">4. 日々の見守り</a></li><li><a href="#5-houdini-公式ドキュメントの登録約2000ページ">5. Houdini 公式ドキュメントの登録（約2,000ページ）</a><ol><li><a href="#51-方針なぜこうするか">5.1 方針（なぜこうするか）</a></li><li><a href="#52-手順">5.2 手順</a></li><li><a href="#53-費用と時間の目安">5.3 費用と時間の目安</a></li><li><a href="#54-注意">5.4 注意</a></li></ol></li><li><a href="#6-worker-の更新デプロイ">6. Worker の更新（デプロイ）</a></li><li><a href="#7-配布物を作る">7. 配布物を作る</a></li><li><a href="#8-実験の終了後片付け">8. 実験の終了・後片付け</a></li><li><a href="#9-困ったとき">9. 困ったとき</a></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体の構成">1. 全体の構成</a></li><li><a href="#2-実証実験の前にやることチェックリスト">2. 実証実験の前にやること（チェックリスト）</a></li><li><a href="#3-テスターの鍵を発行する">3. テスターの鍵を発行する</a></li><li><a href="#4-日々の見守り">4. 日々の見守り</a></li><li><a href="#5-houdini-公式ドキュメントの登録約2000ページ">5. Houdini 公式ドキュメントの登録（約2,000ページ）</a><ol><li><a href="#51-方針なぜこうするか">5.1 方針（なぜこうするか）</a></li><li><a href="#52-手順">5.2 手順</a></li><li><a href="#53-費用と時間の目安">5.3 費用と時間の目安</a></li><li><a href="#54-注意">5.4 注意</a></li></ol></li><li><a href="#6-worker-の更新デプロイ">6. Worker の更新（デプロイ）</a><ol><li><a href="#61-実証実験の課題の機能を出すときマイグレーション-00350036">6.1 実証実験の「課題」の機能を出すとき（マイグレーション 0035・0036）</a></li></ol></li><li><a href="#7-配布物を作る">7. 配布物を作る</a></li><li><a href="#8-実験の終了後片付け">8. 実験の終了・後片付け</a></li><li><a href="#9-困ったとき">9. 困ったとき</a></li></ol></details></nav>
 <main>
 
 <p><strong>対象:</strong> サーバー（Cloudflare）と、テスターの鍵・予算を管理する人 ／ <strong>版:</strong> 2026-10-21</p>
@@ -316,6 +316,46 @@ npx wrangler deploy
 <li>マイグレーションは、<strong>一覧 → 中身を読む → 適用 → もう一度一覧</strong>の順で。</li>
 <li>今回の変更（<code>/tts</code>、章の見出し・検索の補正）は、<strong>既存のデータを書き換えません</strong>（再クロールするまで、既存の検索は従来どおりです）。</li>
 <li>シークレットの登録: <code>npx wrangler secret put &lt;名前&gt;</code>（値は、画面に出ません）。</li>
+</ul>
+<h3 id="61-実証実験の課題の機能を出すときマイグレーション-00350036">6.1 実証実験の「課題」の機能を出すとき（マイグレーション 0035・0036）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>手順</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>npx wrangler d1 migrations list rag-poc-db --remote</code> で、<strong>0035（課題の記録）・0036（やり直し）</strong>が保留中か確認する</td>
+</tr>
+<tr>
+<td>2</td>
+<td>中身を読む（0035: <code>pilot_profile</code>・<code>pilot_sessions</code> を作る ／ 0036: <code>discarded_at</code>・<code>paused_sec</code> の列と、部分一意索引）</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>npm run db:migrate:remote</code> で適用 → もう一度一覧 → 列の存在を確認する</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>npx wrangler deploy</code>（<strong>表を先、Worker を後</strong>。逆だと、新しい Worker が、まだ無い列を読んで失敗する）</td>
+</tr>
+<tr>
+<td>5</td>
+<td>疎通: 鍵なしで <code>/pilot/plan</code>・<code>/pilot/session/reset</code>・<code>/admin/pilot/tasks</code> を呼び、<strong>401</strong>（認証が効いている）になること。<strong>404 なら、Worker が古い</strong></td>
+</tr>
+<tr>
+<td>6</td>
+<td>Houdini パネルを配る（<code>deploy_panels.py</code>）。<strong>Worker より先に配ると、参加者の画面に「サーバーが、この機能にまだ対応していません」と出る</strong></td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>運営（admin）のテストは、参加者番号を取らず、集計に入りません。<strong>割り当ては、一律で番号 1 の順序</strong>になります（実際の参加者は、登録順に 1・2・3 を繰り返します）。</li>
+<li>参加者が「やり直す」で破棄した記録は、消えずに残ります（D1 の <code>pilot_sessions.discarded_at</code>）。集計には入りません。消去の依頼を受けたときの扱いは、<a href="pilot-announcement.md">pilot-announcement.md</a> の確認事項を参照。</li>
+<li>変更の標準の流れは <a href="images/16-change-flow.svg">図16</a>。</li>
 </ul>
 <h2 id="7-配布物を作る">7. 配布物を作る</h2>
 <p><a href="images/06-distribution.svg"><img alt="配布と、キー・予算の管理" src="images/06-distribution.svg" /></a></p>

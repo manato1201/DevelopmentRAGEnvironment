@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第4回 RAG と AI の API（埋め込み・ハイブリッド検索・回答・出典・予算）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a class="current" href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第4回 RAG と AI の API（埋め込み・ハイブリッド検索・回答・出典・予算）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/04-rag-and-ai.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-llmトークンコンテキスト">2.1 LLM・トークン・コンテキスト</a></li><li><a href="#22-埋め込み意味を数の列にする">2.2 埋め込み（意味を数の列にする）</a></li><li><a href="#23-チャンク資料を断片にする">2.3 チャンク（資料を断片にする）</a></li><li><a href="#24-2つの検索とその統合">2.4 2つの検索と、その統合</a></li><li><a href="#25-hyde仮の回答で探す">2.5 HyDE（仮の回答で探す）</a></li><li><a href="#26-回答の生成と出典">2.6 回答の生成と「出典」</a></li><li><a href="#27-namespace知識の置き場の名前">2.7 namespace（知識の置き場の名前）</a></li><li><a href="#28-予算先に確保してあとで精算する">2.8 予算：先に確保して、あとで精算する</a></li><li><a href="#29-説明レベルと習熟度成長">2.9 説明レベルと習熟度（成長）</a></li></ol></li><li><a href="#3-このプロジェクトでは">3. このプロジェクトでは</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> <a href="../../images/11-request-life.svg">図11</a> の <strong>6（予算の確保）〜10（精算・保存）</strong> と、<a href="../../images/03-rag-flow.svg">図03</a> の検索の流れを、自分の言葉で説明できる。「なぜ、検索結果だけを根拠に答えさせるのか」「なぜ予算を『先に確保して、あとで精算』するのか」を言える。<br />
+<strong>前提:</strong> 第1〜3回。 <strong>目安:</strong> 3時間</p>
+<hr />
+<h2 id="1-全体像">1. 全体像</h2>
+<p>AI（大規模言語モデル）は、<strong>知らないことを、もっともらしく答えてしまう</strong>ことがあります。社内の資料や、最新の Houdini の仕様は、AI は知りません。そこで、<strong>質問に関係する資料を先に探して、AI に渡し、「この資料だけを根拠に答えて。出典の番号をつけて」と頼む</strong>。これが <strong>RAG（検索拡張生成）</strong> です。</p>
+<p><a href="../../images/03-rag-flow.svg"><img alt="質問から回答までの流れ" src="../../images/03-rag-flow.svg" /></a></p>
+<h2 id="2-基礎">2. 基礎</h2>
+<h3 id="21-llmトークンコンテキスト">2.1 LLM・トークン・コンテキスト</h3>
+<ul>
+<li><strong>LLM</strong>: 文章の続きを予測して、文章を作る AI。Claude・Gemini など。</li>
+<li><strong>トークン</strong>: LLM が数える、文字の単位。日本語は、1文字が1トークン前後。<strong>入力（質問＋渡した資料）と出力（回答）の合計</strong>で、料金と上限が決まります。</li>
+<li><strong>コンテキスト</strong>: AI に一度に渡せる文章の量。資料を全部渡すことはできないので、<strong>関係する部分だけ</strong>を、探して渡します。</li>
+</ul>
+<h3 id="22-埋め込み意味を数の列にする">2.2 埋め込み（意味を数の列にする）</h3>
+<p>文章を、<strong>意味の方向を表す数の列（ベクトル）</strong>に変換することを、<strong>埋め込み（embedding）</strong>と言います。意味の近い文章は、近いベクトルになります。</p>
+<pre><code>「Pyro の煙を消す」   → [0.12, -0.80, 0.33, …] （768個の数）
+「煙のシミュレーション」→ [0.10, -0.77, 0.30, …]   ← 近い
+「ファイルを保存する」 → [-0.65, 0.20, 0.91, …]   ← 遠い
+</code></pre>
+<p>近さは、<strong>コサイン類似度</strong>（ベクトルの向きの近さ）で測ります。このプロジェクトでは、Gemini の埋め込み（<code>gemini-embedding-001</code>）を使います（<code>src/embeddings.ts</code> の <code>embedText</code>）。</p>
+<h3 id="23-チャンク資料を断片にする">2.3 チャンク（資料を断片にする）</h3>
+<p>長い資料は、そのまま埋め込めません（意味が薄まる）。<strong>1000文字ずつ、150文字ずつ重ねて</strong>切り出します（<code>src/chunking.ts</code> の <code>chunkText(text, size = 1000, overlap = 150)</code>）。重ねるのは、文の途中で切れて、意味が失われるのを避けるためです。</p>
+<h3 id="24-2つの検索とその統合">2.4 2つの検索と、その統合</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>意味検索（Vectorize）</th>
+<th>キーワード検索（D1 の FTS5）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>しくみ</td>
+<td>ベクトルが近いものを探す</td>
+<td>文字（単語）が一致するものを探す（BM25）</td>
+</tr>
+<tr>
+<td>得意</td>
+<td>言い換え・曖昧な質問</td>
+<td>固有名詞・型番・エラーメッセージ</td>
+</tr>
+<tr>
+<td>苦手</td>
+<td>固有名詞の一致</td>
+<td>言い換え</td>
+</tr>
+</tbody>
+</table></div>
+<p>両方で探し、<strong>順位を統合</strong>します。これが<strong>ハイブリッド検索</strong>です。統合は <strong>RRF（Reciprocal Rank Fusion）</strong>。各リストでの<strong>順位</strong>だけを使って点を付け（<code>1 / (k + 順位)</code>、<code>k = 60</code>）、足し合わせます（<code>src/hybrid.ts</code> の <code>rrfMerge</code>）。点数の尺度が違う2つの検索を、<strong>順位だけ</strong>で公平に混ぜられるのが利点です。</p>
+<h3 id="25-hyde仮の回答で探す">2.5 HyDE（仮の回答で探す）</h3>
+<p>質問文は短く、資料の文とは、書き方が違います。そこで、<strong>まず AI に「仮の回答」を書かせ</strong>、その仮回答を埋め込んで探します（<strong>H</strong>ypothetical <strong>D</strong>ocument <strong>E</strong>mbeddings）。質問より、資料に近い文になるので、見つかりやすくなります（<code>hydeExpand</code>。温度 0 で、毎回同じ結果になるようにしてある）。</p>
+<h3 id="26-回答の生成と出典">2.6 回答の生成と「出典」</h3>
+<p>資料（チャンク）を、<strong>番号つきで</strong>プロンプトに入れます。</p>
+<pre><code>[1] （資料A の断片）…
+[2] （資料B の断片）…
+質問: …
+指示: 上の資料だけを根拠に答える。根拠にした資料は [1] [2] の番号で示す。資料に無いことは「分からない」と言う。
+</code></pre>
+<ul>
+<li>回答に <code>[1]</code> <code>[2]</code> が出てくれば、<strong>どの資料を根拠にしたか</strong>が分かります（画面の「出典」）。</li>
+<li><strong>採用比率</strong>（<code>extractionRate</code>）= 回答で使った資料 ÷ 検索で見つかった資料。<strong>引用が1つも無い回答は、出典を示さずに答えている可能性</strong>があるので、警告します（<code>panel_info.py</code> の <code>summarize_sources</code>）。</li>
+<li>検索で何も見つからなかったとき、AI に自由に答えさせず、<strong>「見つかりませんでした」</strong>で返すのが安全です。</li>
+</ul>
+<h3 id="27-namespace知識の置き場の名前">2.7 namespace（知識の置き場の名前）</h3>
+<p>資料は、<strong>namespace</strong> で分かれます（<code>houdini22</code>・<code>shared:tool_docs</code>・<code>personal:&lt;user_id&gt;</code>…）。<strong>キーごとに、使える namespace が決まっています</strong>（<code>key_namespace_grants</code>）。他人の <code>personal:</code> は、読めません。検索は、まず「<strong>この人が使える namespace</strong>」に絞ってから行います（<code>resolveEffectiveNamespaces</code>）。</p>
+<h3 id="28-予算先に確保してあとで精算する">2.8 予算：先に確保して、あとで精算する</h3>
+<p>AI の利用には、お金がかかります。<strong>キーごとのトークン予算</strong>（<code>token_budgets</code>）で、使いすぎを止めます。ここに、<strong>同時に何回も質問された</strong>ときの落とし穴があります。</p>
+<ul>
+<li>悪い実装: ① 予算が残っているか確認 → ② AI を呼ぶ → ③ 使った分を引く。<br />
+  → 同時に10回来ると、10回とも①を通過して、<strong>予算を超えて使えてしまう</strong>（確認と引き算の間に、すき間がある）。</li>
+<li>このプロジェクトの実装（<code>src/budget.ts</code>）:<br />
+  1. <strong><code>reserveBudget</code></strong>: <strong>見積もり分（RAG は 4000 トークン）を、先に引く</strong>。SQL 1文で、「残りが足りるときだけ加算」する（<code>UPDATE … SET used = used + ? WHERE used + ? &lt;= limit</code>）。足りなければ、変更が0行 → 429。<br />
+  2. 処理する。<br />
+  3. <strong><code>reconcileBudget</code></strong>: 実測との<strong>差分だけ</strong>を、戻す（少なく使った）か、足す（多く使った）。<br />
+  4. 失敗したときは、確保した分を<strong>全額戻す</strong>。</li>
+</ul>
+<blockquote>
+<p>学び: 「確認してから引く」を、<strong>1つの原子的な操作</strong>にする（確認と更新を、1つの SQL にする）。</p>
+</blockquote>
+<h3 id="29-説明レベルと習熟度成長">2.9 説明レベルと習熟度（成長）</h3>
+<p>同じ質問でも、初心者と上級者で、<strong>ふさわしい説明が違います</strong>。<code>src/growth.ts</code> は、質問に含まれる<strong>専門用語</strong>を数え（<code>user_terms</code>）、点数にして、<strong>basic（6点未満）・applied（6点以上）・advanced（18点以上）</strong>を決めます。「役に立たなかった」（👎）が<strong>3回続く</strong>と、一段やさしくします。これで、プロンプトに「説明のレベル」を足します。</p>
+<h2 id="3-このプロジェクトでは">3. このプロジェクトでは</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>学んだこと</th>
+<th>実際のコード</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>質問から回答まで</td>
+<td><code>src/query.ts</code>（<code>prepareQuery</code> → <code>finishQuery</code>）。順序: レート制限 → 監査ログ → 予算の確保 → 検索 → 生成 → 精算 → 履歴の保存</td>
+</tr>
+<tr>
+<td>検索</td>
+<td><code>src/retrieve.ts</code>（<code>retrieve</code>）・<code>src/hybrid.ts</code>（<code>hybridSearch</code>・<code>rrfMerge</code>）</td>
+</tr>
+<tr>
+<td>埋め込みと生成</td>
+<td><code>src/embeddings.ts</code>（<code>embedText</code>・<code>generateAnswer</code>・<code>buildAnswerPrompt</code>）</td>
+</tr>
+<tr>
+<td>予算</td>
+<td><code>src/budget.ts</code>（<code>reserveBudget</code>・<code>reconcileBudget</code>）</td>
+</tr>
+<tr>
+<td>レート制限</td>
+<td><code>src/rateLimit.ts</code>（60秒に30回。<code>audit_log</code> の件数を数える）</td>
+</tr>
+<tr>
+<td>履歴</td>
+<td><code>src/memory.ts</code>（<code>saveMemory</code>）・<code>src/threads.ts</code></td>
+</tr>
+<tr>
+<td>説明レベル</td>
+<td><code>src/growth.ts</code></td>
+</tr>
+<tr>
+<td>Claude（チュートリアル生成）</td>
+<td><code>src/claude.ts</code>（<code>/claude/messages</code>。<strong>Worker が中継</strong>し、鍵は Worker だけが持つ。予算の種類は <code>claude</code>）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="4-演習">4. 演習</h2>
+<p><strong>演習 4.1（読む）</strong> <code>src/query.ts</code> の <code>prepareQuery</code> を読み、<strong>図11の 6・7・8・9・10 が、それぞれ、どの関数呼び出しか</strong>を、行番号つきで対応づけてください。</p>
+<p><strong>演習 4.2（実験）</strong> <code>cloudflare-rag-poc/test/</code> に、<code>retrieve_context.test.mjs</code> があります。読んで、「温度 0・2つのクエリベクトル」がなぜテストされているか、説明してください。</p>
+<p><strong>演習 4.3（計算）</strong> <code>rrfMerge</code> の <code>k = 60</code> で、A のリストの1位と、B のリストの3位に載った文書の点数を、計算してください（<code>1/61 + 1/63</code>）。A だけ1位の文書と、どちらが上位になりますか。</p>
+<p><strong>演習 4.4（読む）</strong> <code>src/growth.ts</code> の <code>levelForScore</code>・<code>buildProfile</code> を読み、<strong>点数 17.5 で、直近の評価が [-1,-1,-1] のユーザー</strong>の説明レベルを、答えてください。</p>
+<p><strong>演習 4.5（考える）</strong> 予算の「確保 → 精算」を、「処理が終わってから、1回だけ引く」に変えたら、何が起きるか。具体的な事故を1つ挙げてください。</p>
+<h2 id="5-つまずきやすい点">5. つまずきやすい点</h2>
+<ul>
+<li><strong>「検索結果が少ない = 悪い」とは限らない。</strong> 低い一致を除くのは、わざと（<strong>関係ない資料で、AI が惑わされる</strong>のを防ぐ）。</li>
+<li><strong>AI の回答を、そのまま信じる。</strong> 出典の番号と、元の資料で確かめる（画面にも、そう書いてある）。</li>
+<li><strong>namespace を、全部指定したつもりで、権限が無くて 0 件。</strong> キーの許可（<code>key_namespace_grants</code>）を確認する。</li>
+<li><strong>見積もりが小さすぎる。</strong> 実測が上回ると、<code>reconcileBudget</code> が追加で引くので、予算が<strong>マイナス方向に超える</strong>ことが、ありうる。見積もりは、やや多めにする。</li>
+</ul>
+<h2 id="6-確認問題">6. 確認問題</h2>
+<ol>
+<li>意味検索とキーワード検索を、両方使う理由は？</li>
+<li>RRF が、点数でなく順位を使う理由は？</li>
+<li>チャンクを重ねる理由は？</li>
+<li>予算を「先に確保」する理由は？</li>
+<li>「引用が1つも無い回答」に、警告を出す理由は？</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>4.1: <code>assertNotRateLimited</code>（レート制限）→ <code>startAuditLog</code>（監査ログ。これ自体が「今、処理中」の予約になる）→ <code>reserveBudget</code>（6）→ <code>retrieve</code>（7）→ …生成 → <code>reconcileBudget</code>（精算）→ <code>saveMemory</code>（10）。正確な行は、自分で確かめる。</li>
+<li>4.3: <code>1/61 ≈ 0.01639</code>（A の1位のみ）、<code>1/61 + 1/63 ≈ 0.03226</code>（両方に載る）。<strong>両方に載った文書のほうが上位</strong>。</li>
+<li>4.4: 点数 17.5 は applied（6 以上 18 未満）。直近3回が👎で、<code>scoreLevel !== "basic"</code> なので、一段下げて <strong>basic</strong>。</li>
+<li>4.5: 同時に多数の質問が来ると、全部が確認を通過して、<strong>予算を超えて使えてしまう</strong>。</li>
+<li>確認問題 3: 文の途中で切れて、意味が失われるのを避けるため。</li>
+</ul>
+</main>
+<div class="pager"><a href="03-database.html">← 前へ</a><a href="05-worker-code.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

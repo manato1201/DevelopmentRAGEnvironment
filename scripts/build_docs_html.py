@@ -35,8 +35,23 @@ LEARNING = [
     "05-scripts",
     "06-maintenance-runbook",
 ]
+# 講義シリーズ（2026-10-30追加）。docs/learning/lectures/
+LECTURES = [
+    "README",
+    "01-internet",
+    "02-cloudflare",
+    "03-database",
+    "04-rag-and-ai",
+    "05-worker-code",
+    "06-houdini-panel",
+    "07-web-ui",
+    "08-add-a-feature",
+    "09-test-deploy-operate",
+    "10-troubleshooting",
+]
 DEFAULT_TARGETS: list[tuple[Path, str]] = [
     *[(DOCS / "learning" / f"{n}.md", "座学資料") for n in LEARNING],
+    *[(DOCS / "learning" / "lectures" / f"{n}.md", "講義") for n in LECTURES],
     (DOCS / "user-manual.md", "取扱説明書"),
     (DOCS / "houdini-beginner-guide.md", "Houdini入門"),
     (DOCS / "houdini-video-script.md", "動画の台本と音声"),
@@ -287,18 +302,22 @@ def convert_one(src: Path, category: str, siblings: list[Path], converted: set[P
 
 
 def main(argv: list[str]) -> int:
+    known = {p.resolve(): c for p, c in DEFAULT_TARGETS}
     if argv:
-        targets = [(Path(a).resolve(), "資料") for a in argv]
+        # 指定した資料だけ作り直す。分類は、既定の一覧にあればそれを使う（無ければ「資料」）
+        targets = [(Path(a).resolve(), known.get(Path(a).resolve(), "資料")) for a in argv]
     else:
         targets = DEFAULT_TARGETS
     missing = [str(p) for p, _ in targets if not p.exists()]
     if missing:
         print("見つからない資料:", *missing, sep="\n  ")
         return 1
-    converted = {p.resolve() for p, _ in targets}
-    learning_dir = DOCS / "learning"
-    siblings = [p for p, _ in targets if p.parent == learning_dir]
+    # 相対リンクの付け替えは、一覧の全部を対象にする（一部だけ作り直しても、リンクが切れない）
+    converted = {p.resolve() for p, _ in DEFAULT_TARGETS} | {p.resolve() for p, _ in targets}
+    series_dirs = (DOCS / "learning", DOCS / "learning" / "lectures")
     for src, category in targets:
+        # 「座学資料」と「講義」は、同じフォルダの資料を、前へ・次へでつなぐ
+        siblings = [p for p, _ in DEFAULT_TARGETS if p.parent == src.resolve().parent] if src.resolve().parent in series_dirs else []
         out = convert_one(src.resolve(), category, siblings, converted)
         print(f"{out.relative_to(ROOT).as_posix()}  ({out.stat().st_size // 1024} KB)")
     return 0

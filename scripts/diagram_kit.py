@@ -8,6 +8,13 @@ diagram_kit.py — ドキュメント用の構成図（SVG）を作る小さな�
   ・色は層ごとに固定（意味は凡例に出す）: 画面=橙 / 中核=緑 / 保存=紫 / 外部=青 / 安全=濃緑 / 注意=赤 / 検討中=黄
   ・座標は手で決める（自動配置はしない。図の意図を、そのまま固定するため）
   ・ブランドのロゴは使わない（記号の文字で代用する。他社のロゴ・画像を写さない）
+
+読みやすさの決まり（2026-10-30。DNS・構成図の参考例から）:
+  ・順番のある流れは、矢印に番号の丸（step）をつける。番号は、本文の説明と同じ順にする
+  ・枠は「目的」の名前で呼ぶ（「画面を届ける」「ログイン」のように）。技術名は、枠の中のタイルの名前にする
+  ・主役の流れは実線、補助（鍵の受け渡し・保存の裏側・デプロイ）は破線にする
+  ・特別な道筋（直接つなぐ・書き込みなど）だけ、色を変える。ほかは同じ色
+  ・矢印は、枠の見出しと文字の上を通さない（label_at と via で逃がす）
 """
 
 from __future__ import annotations
@@ -118,7 +125,7 @@ class Diagram:
         return {"l": (x, y + h / 2), "r": (x + w, y + h / 2), "t": (x + w / 2, y), "b": (x + w / 2, y + h)}[side]
 
     def edge(self, a: str, a_side: str, b: str, b_side: str, label: str = "", dashed: bool = False, via: list[tuple[int, int]] | None = None,
-             kind: str = "gray", label_at: tuple[int, int] | None = None, both: bool = False) -> None:
+             kind: str = "gray", label_at: tuple[int, int] | None = None, both: bool = False, step: int | str | None = None) -> None:
         """a から b へ。via は、途中の折れ点（直角に曲げる）。ラベルは、既定で中点。"""
         pts = [self.anchor(a, a_side)] + [(float(px), float(py)) for px, py in (via or [])] + [self.anchor(b, b_side)]
         var = KINDS[kind][0]
@@ -139,8 +146,39 @@ class Diagram:
                         best, seg = length, (p, q)
                 lx, ly = (seg[0][0] + seg[1][0]) / 2, (seg[0][1] + seg[1][1]) / 2 - 6
             self.edges.append(f'<text class="elabel" x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" style="fill:var({var})">{escape(label)}</text>')
+        if step is not None:
+            self._step_badge(step, pts, label, var, label_at)
 
-    def line(self, pts: list[tuple[int, int]], label: str = "", dashed: bool = False, kind: str = "gray", label_at: tuple[int, int] | None = None, arrow: bool = True) -> None:
+    def _step_badge(self, step, pts, label: str, var: str, label_at) -> None:
+        """矢印の番号の丸。ラベルがあれば、その左に。無ければ、一番長い線分の中点に。"""
+        if label_at:
+            bx, by = label_at[0] - (len(label) * 7 + 18 if label else 0), label_at[1] - 5
+        else:
+            best, seg = -1.0, (pts[0], pts[1])
+            for p, q in zip(pts, pts[1:]):
+                length = abs(p[0] - q[0]) + abs(p[1] - q[1])
+                if length > best:
+                    best, seg = length, (p, q)
+            bx = (seg[0][0] + seg[1][0]) / 2 - (len(label) * 7 + 18 if label else 0)
+            by = (seg[0][1] + seg[1][1]) / 2 - 6 - 5
+        self.edges.append(f'<circle cx="{bx:.1f}" cy="{by:.1f}" r="11" fill="var({var})"/>')
+        self.edges.append(f'<text class="badge-n" x="{bx:.1f}" y="{by + 4.5:.1f}" text-anchor="middle">{escape(str(step))}</text>')
+
+    def decision(self, nid: str, x: int, y: int, w: int, h: int, label: str, sub: str = "", kind: str = "warn") -> None:
+        """判断（ひし形）。分かれ道の文字は、矢印のラベルに書く。"""
+        var = KINDS[kind][0]
+        self.nodes[nid] = (x, y, w, h)
+        self.label_bottom[nid] = y + h
+        cx, cy = x + w / 2, y + h / 2
+        self.parts.append(f'<polygon points="{cx},{y} {x + w},{cy} {cx},{y + h} {x},{cy}" fill="var(--card)" stroke="var({var})" stroke-width="2"/>')
+        if sub:
+            self.parts.append(f'<text class="label" x="{cx}" y="{cy - 2}" text-anchor="middle">{escape(label)}</text>')
+            self.parts.append(f'<text class="sub muted" x="{cx}" y="{cy + 15}" text-anchor="middle">{escape(sub)}</text>')
+        else:
+            self.parts.append(f'<text class="label" x="{cx}" y="{cy + 5}" text-anchor="middle">{escape(label)}</text>')
+
+    def line(self, pts: list[tuple[int, int]], label: str = "", dashed: bool = False, kind: str = "gray", label_at: tuple[int, int] | None = None, arrow: bool = True,
+             step: int | str | None = None) -> None:
         """ノードに結ばない矢印（座標だけ）。"""
         var = KINDS[kind][0]
         d = "M " + " L ".join(f"{px} {py}" for px, py in pts)
@@ -150,6 +188,9 @@ class Diagram:
         if label:
             lx, ly = label_at if label_at else ((pts[0][0] + pts[-1][0]) // 2, (pts[0][1] + pts[-1][1]) // 2 - 6)
             self.edges.append(f'<text class="elabel" x="{lx}" y="{ly}" text-anchor="middle" style="fill:var({var})">{escape(label)}</text>')
+        if step is not None:
+            fpts = [(float(px), float(py)) for px, py in pts]
+            self._step_badge(step, fpts, label, var, label_at)
 
     # ── 出力 ────────────────────────────────────────────────────────────
     def svg(self) -> str:

@@ -5,6 +5,8 @@
 **対象:** 開発者本人、およびこのプロジェクトを引き継ぐ人。
 **位置づけ:** 設計資料（`docs/`の他のファイル）は「何がどうなっているか」。この資料は「それを自分で読み書きするために、何を知っている必要があるか」。
 
+> **2026-10-30 追加: [講義シリーズ（全10回）](lectures/README.md)。** 基礎（URL・DNS・HTTP）から順に、図を使って、このシステムを理解し、保守・拡張するまでを、演習つきで進める。**初めて読む人は、こちらから**。下の01〜06は、必要な知識を引く**辞書**として使う。
+
 ---
 
 ## 1. 構成（4段階 ＋ 手順）
@@ -19,6 +21,21 @@
 | 保守 | [06-maintenance-runbook.md](06-maintenance-runbook.md) | 日次・週次・月次の点検、症状別の切り分け、実際に起きた障害の復旧記録 | 随時参照 |
 
 関連: 用語は[glossary.md](../glossary.md)・[terminology.md](../terminology.md)、構造は[architecture-layering-plan.md](../architecture-layering-plan.md)、使い方は[user-manual.md](../user-manual.md)、運用は[cloudflare-rag-operations-manual.md](../cloudflare-rag-operations-manual.md)。
+
+### 講義シリーズとの対応
+
+| 講義 | 深掘り先（辞書） |
+|---|---|
+| [第1回 インターネットの基礎](lectures/01-internet.md) | [01 常識](01-common-knowledge.md) |
+| [第2回 Cloudflare の基礎](lectures/02-cloudflare.md) | [02 基礎](02-fundamentals.md)・[03 専門 §5](03-specialized.md) |
+| [第3回 データベースと SQL](lectures/03-database.md) | [02 基礎（SQL）](02-fundamentals.md) |
+| [第4回 RAG と AI の API](lectures/04-rag-and-ai.md) | [03 専門](03-specialized.md) |
+| [第5回 Worker のコードを読む](lectures/05-worker-code.md) | [04 応用](04-applied.md) |
+| [第6回 Houdini パネルのコードを読む](lectures/06-houdini-panel.md) | [03 専門 §7](03-specialized.md)・[04 応用](04-applied.md) |
+| [第7回 Web 画面の仕組み](lectures/07-web-ui.md) | [04 応用 レシピE](04-applied.md#レシピe-管理画面にカードを足す) |
+| [第8回 機能を足す通し演習](lectures/08-add-a-feature.md) | [04 応用](04-applied.md) |
+| [第9回 テスト・デプロイ・運用](lectures/09-test-deploy-operate.md) | [05 Script](05-scripts.md)・[06 保守](06-maintenance-runbook.md) |
+| [第10回 トラブルシュートと総合演習](lectures/10-troubleshooting.md) | [06 保守](06-maintenance-runbook.md) |
 
 ## 2. 目的別の学習パス
 

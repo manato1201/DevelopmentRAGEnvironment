@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第6回 Houdini パネルのコードを読む（Qt・スレッド・hou・配置とテスト）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a class="current" href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第6回 Houdini パネルのコードを読む（Qt・スレッド・hou・配置とテスト）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/06-houdini-panel.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-qtpyside6とは">2.1 Qt（PySide6）とは</a></li><li><a href="#22-スレッド通信は画面の裏で">2.2 スレッド：通信は、画面の裏で</a></li><li><a href="#23-タイマー">2.3 タイマー</a></li><li><a href="#24-houhoudini-を操作する">2.4 hou（Houdini を操作する）</a></li><li><a href="#25-画面に依存しない部品を別ファイルにする">2.5 画面に依存しない部品を、別ファイルにする</a></li></ol></li><li><a href="#3-配置と再起動最大の落とし穴">3. 配置と再起動（最大の落とし穴）</a></li><li><a href="#4-テスト">4. テスト</a><ol><li><a href="#41-単体テストhoudini-なし">4.1 単体テスト（Houdini なし）</a></li><li><a href="#42-通しの確認hython画面を作る">4.2 通しの確認（hython、画面を作る）</a></li></ol></li><li><a href="#5-このプロジェクトでは">5. このプロジェクトでは</a></li><li><a href="#6-演習">6. 演習</a></li><li><a href="#7-つまずきやすい点">7. つまずきやすい点</a></li><li><a href="#8-確認問題">8. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> <a href="../../images/15-houdini-panel.svg">図15</a> の構成を説明できる。Qt の<strong>画面は、メインスレッドだけで触る</strong>ことと、<strong>通信は別スレッドで行う</strong>ことの理由を言える。画面に依存しない部品と、その単体テストを足せる。<strong>配置（コピー）して再起動する</strong>手順を、間違えずにできる。<br />
+<strong>前提:</strong> 第1回、Python の基本（関数・クラス・<code>import</code>）。 <strong>目安:</strong> 4時間</p>
+<hr />
+<h2 id="1-全体像">1. 全体像</h2>
+<p><a href="../../images/15-houdini-panel.svg"><img alt="Houdini パネルの内部構成" src="../../images/15-houdini-panel.svg" /></a></p>
+<p>Houdini の中に、Python で書いた<strong>パネル</strong>を埋め込んでいます。パネルは、<strong>画面（Qt）</strong>と、<strong>画面に依存しない部品</strong>と、<strong>サーバーとの通信</strong>に分かれています。</p>
+<h2 id="2-基礎">2. 基礎</h2>
+<h3 id="21-qtpyside6とは">2.1 Qt（PySide6）とは</h3>
+<p><strong>Qt</strong> は、ボタンや入力欄のある画面を作る道具です。Houdini 21 以降は、Python から <strong>PySide6</strong> で使います。</p>
+<pre><code class="language-python">from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
+
+class Hello(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)              # 縦に並べる箱
+        self._label = QLabel(&quot;こんにちは&quot;)        # 文字
+        button = QPushButton(&quot;押す&quot;)             # ボタン
+        button.clicked.connect(self._on_click)   # 押されたら、この関数を呼ぶ（signal/slot）
+        layout.addWidget(self._label)
+        layout.addWidget(button)
+
+    def _on_click(self):
+        self._label.setText(&quot;押されました&quot;)
+</code></pre>
+<ul>
+<li><strong>ウィジェット</strong>: 画面の部品（<code>QLabel</code>・<code>QPushButton</code>・<code>QLineEdit</code>・<code>QTabWidget</code>…）。</li>
+<li><strong>レイアウト</strong>: 部品を並べる箱（<code>QVBoxLayout</code>＝縦、<code>QHBoxLayout</code>＝横、<code>QFormLayout</code>＝ラベルと入力欄）。</li>
+<li><strong>signal / slot</strong>: 「何かが起きたら、この関数を呼ぶ」の結びつけ。<code>ボタン.clicked.connect(関数)</code>。</li>
+<li><strong>イベントループ</strong>: 画面は、<strong>1つのループ</strong>が、クリックや再描画を順番に処理して動く。<strong>このループを、長い処理で塞ぐと、画面が固まる</strong>。</li>
+</ul>
+<h3 id="22-スレッド通信は画面の裏で">2.2 スレッド：通信は、画面の裏で</h3>
+<p>サーバーに質問を送ると、数秒〜数十秒かかります。これを<strong>ボタンの関数の中で</strong>待つと、その間、<strong>画面が固まります</strong>（Houdini 全体が反応しなくなる）。そこで、<strong>別のスレッド（<code>QThread</code>）</strong>で通信し、終わったら<strong>signal で画面に知らせます</strong>。</p>
+<pre><code class="language-python">class _CallWorker(QThread):                         # houdini/python_panels/pilot_panel.py
+    finished_with = Signal(object, str)             # (応答, エラー文)
+    def __init__(self, fn): super().__init__(); self._fn = fn
+    def run(self):                                  # ← 別スレッドで動く
+        try:    self.finished_with.emit(self._fn(), &quot;&quot;)
+        except Exception as exc: self.finished_with.emit(None, str(exc))
+</code></pre>
+<pre><code class="language-python">def _call(self, fn, on_done, on_error=None):
+    worker = _CallWorker(fn)
+    def done(result, error):
+        if worker in self._workers: self._workers.remove(worker)
+        if error:
+            self._message.setText(friendly_error(error))   # ← 画面を触るのは、ここ（メインスレッド）
+            if on_error: on_error()
+            return
+        on_done(result)
+    worker.finished_with.connect(done)
+    self._workers.append(worker)       # ★終わるまで、参照を持ち続ける
+    worker.start()
+</code></pre>
+<p><strong>守ること</strong>:<br />
+1. <strong>画面（ウィジェット）を触るのは、メインスレッドだけ。</strong> 別スレッドから <code>setText</code> しない（落ちる・壊れる）。signal で、メインに戻す。<br />
+2. <strong><code>QThread</code> は、変数に持ち続ける</strong>（<code>self._workers.append(worker)</code>）。ローカル変数のままだと、関数が終わった瞬間に<strong>消されて、スレッドが途中で止まる</strong>。<br />
+3. <strong>通信の失敗は、握りつぶさず、利用者向けの文にする</strong>（<code>friendly_error</code>）。生のエラーは、デバッグの記録（<code>panel_debug</code>）に残す。</p>
+<h3 id="23-タイマー">2.3 タイマー</h3>
+<pre><code class="language-python">self._tick = QTimer(self)
+self._tick.timeout.connect(self._on_tick)
+self._tick.start(1000)       # 1000ミリ秒ごとに、_on_tick を呼ぶ
+</code></pre>
+<p>「課題」タブの経過時間の表示（1秒ごと）と、cook エラーの採取（20秒ごと）が、これです。<strong>タイマーの関数も、メインスレッドで動く</strong>ので、<strong>長い処理を入れると、画面が止まります</strong>。だから、採取には<strong>時間の上限（1秒）</strong>を付けてあります（<code>pilot_task.py</code> の <code>SCAN_BUDGET_SEC</code>）。</p>
+<h3 id="24-houhoudini-を操作する">2.4 <code>hou</code>（Houdini を操作する）</h3>
+<p><code>hou</code> は、Houdini が提供する Python のモジュールです。<strong>Houdini の中（または <code>hython</code>）でだけ</strong>、<code>import</code> できます。</p>
+<pre><code class="language-python">try:
+    import hou            # Houdini の外では、ImportError
+except ImportError:
+    hou = None            # 外では「測れない」（None）。0 とは区別する
+</code></pre>
+<ul>
+<li><code>hou.node("/obj")</code> でノードを取り、<code>node.allSubChildren()</code> で配下の全部、<code>node.errors()</code> でエラーを取る。</li>
+<li><strong>Houdini の外（単体テスト）では <code>hou</code> が無い</strong>。だから、<code>hou</code> を<strong>引数で渡す</strong>作りにして、テストでは<strong>偽物</strong>を渡します（<code>ErrorSampler(hou)</code>・<code>scan_error_nodes(hou, …)</code>）。</li>
+</ul>
+<h3 id="25-画面に依存しない部品を別ファイルにする">2.5 画面に依存しない部品を、別ファイルにする</h3>
+<p>画面（Qt）のコードは、<strong>Houdini が無いと、テストしにくい</strong>。そこで、<strong>計算・文言・送信内容</strong>は、Qt を <code>import</code> しないファイルに置きます。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>ファイル</th>
+<th>中身</th>
+<th>テスト</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pilot_task.py</code></td>
+<td>エラーの採取（<code>ErrorSampler</code>）・途中経過の保存（<code>ProgressStore</code>）・文言・送信内容</td>
+<td><code>houdini/tests/test_pilot_task.py</code></td>
+</tr>
+<tr>
+<td><code>panel_info.py</code></td>
+<td>出典の集計・エラーの言い換え（<code>friendly_error</code>）</td>
+<td><code>test_panel_debug.py</code>・<code>test_panel_info.py</code></td>
+</tr>
+<tr>
+<td><code>tutorial_feedback.py</code></td>
+<td>評価の保存・再送・集計</td>
+<td><code>test_report.py</code> ほか</td>
+</tr>
+</tbody>
+</table></div>
+<p>画面（<code>pilot_panel.py</code>）は、これらを<strong>呼ぶだけ</strong>にします。</p>
+<h2 id="3-配置と再起動最大の落とし穴">3. 配置と再起動（最大の落とし穴）</h2>
+<p>Houdini は、<strong><code>Documents/houdini22.0/python_panels/</code> の中の、コピー</strong>を読みます。<strong>リポジトリを直しても、コピーしなければ、実機に反映されません</strong>（2026-09-26、約12日間の修正が届いていなかったことがありました）。</p>
+<pre><code class="language-bash"># リポジトリのルートで
+uv run python houdini/deploy_panels.py 22.0 --check     # 何も書かず、差分だけ見る
+uv run python houdini/deploy_panels.py 22.0 --pypanel   # 配置（上書き前に、自動でバックアップ）
+# → Houdini を再起動する（起動中は、モジュールがキャッシュされたまま）
+</code></pre>
+<ul>
+<li>新しいモジュールを足したら、<code>deploy_panels.py</code> の <code>MODULES</code> に<strong>名前を足す</strong>（足さないと、コピーされず、<code>ImportError</code>）。</li>
+<li><code>--pypanel</code> は、パネル本体（<code>rag_chatbot.py</code>）を、パネル定義（<code>default.pypanel</code>）に<strong>埋め込み直す</strong>。</li>
+</ul>
+<h2 id="4-テスト">4. テスト</h2>
+<h3 id="41-単体テストhoudini-なし">4.1 単体テスト（Houdini なし）</h3>
+<pre><code class="language-bash">uv run python -m unittest discover -s houdini/tests          # 全部（186件）
+uv run python -m unittest houdini.tests.test_pilot_task -v   # 1ファイル
+</code></pre>
+<p>偽の <code>hou</code>（<code>FakeHou</code>・<code>FakeNode</code>）と、一時フォルダ（<code>tempfile</code>）、<code>unittest.mock</code> で、外部に出ずに動きます。</p>
+<h3 id="42-通しの確認hython画面を作る">4.2 通しの確認（hython、画面を作る）</h3>
+<p><code>hython</code> は、画面なしで動く Houdini の Python です。<strong><code>QT_QPA_PLATFORM=offscreen</code></strong> にすると、画面を出さずに Qt が動きます。</p>
+<pre><code class="language-bash">export QT_QPA_PLATFORM=offscreen
+&quot;C:/Program Files/Side Effects Software/Houdini 22.0.459/bin/hython.exe&quot; houdini/tests/smoke_pilot_panel.py
+# → &quot;pilot panel smoke OK&quot;
+</code></pre>
+<p><code>smoke_pilot_panel.py</code> は、<strong>偽のサーバー</strong>（<code>FakeClient</code>）を差し込み、実際に <code>PilotTaskPanel</code> を作り、<strong>ボタンの関数を呼んで</strong>、事前アンケート → 開始 → 計測のやり直し → 送信の失敗と再送 → 終了 → やり直し → 再開、を通します。</p>
+<blockquote>
+<p>単体テストは通るのに、画面の結びつけ（ボタン → 関数）が壊れている、ということがあります。<strong>通しの確認</strong>は、その検出のためです。</p>
+</blockquote>
+<h2 id="5-このプロジェクトでは">5. このプロジェクトでは</h2>
+<ul>
+<li>構成: <a href="../../images/15-houdini-panel.svg">図15</a>。メインは <code>rag_chatbot.py</code>（タブを束ねる。「課題」タブは、既定で<strong>非表示</strong>。接続タブの「実証実験に参加する」で出す）。</li>
+<li>通信: <code>rag_client.py</code> の <code>RAGClient</code>（<code>pilot_plan</code>・<code>pilot_session_start/end/reset</code>…）。<code>post_json</code> は、<code>urllib</code>（標準ライブラリだけ）で POST し、<code>Authorization: Bearer</code> を付ける。</li>
+<li>生成の本体: <code>tutorial_agent.py</code>（Claude に道具を使わせる繰り返し。<strong>最大 80 回</strong>）と <code>houdini_tools.py</code>（<code>hou</code> を操作する道具。<strong>サンドボックス <code>/obj/ai_tutorial_*</code> の中だけ</strong>）。</li>
+<li>画面の状態の保存: <code>panel_widgets.py</code> の <code>ui_state_get/set</code>（<code>~/.houdini/rag_chatbot_ui.json</code>）。課題の途中経過は、<code>~/.houdini/rag_pilot_progress.json</code>。</li>
+</ul>
+<h2 id="6-演習">6. 演習</h2>
+<p><strong>演習 6.1（読む）</strong> <code>pilot_panel.py</code> の <code>PilotTaskPanel._on_finish</code> と <code>_send_end</code> を読み、次に答えてください。(a) 「戻る」を押すと、何が変わるか。(b) 送信に失敗したあと、もう一度ボタンを押すと、アンケートの画面は、また出るか。(c) <code>surveySec</code> は、どこで計算されるか。</p>
+<p><strong>演習 6.2（動かす）</strong> 単体テストを全部動かし、通ることを確認してください。そのあと、<code>houdini/python_panels/pilot_task.py</code> の <code>PAUSE_MIN_SEC</code> を 40 から 10 に変えて、もう一度動かし、<strong>どのテストが落ちるか</strong>を見て、なぜか説明してください。<strong>終わったら、元に戻す。</strong></p>
+<p><strong>演習 6.3（書く）</strong> <code>pilot_task.py</code> に、「経過秒を、<code>H:MM:SS</code> ではなく『12分』と短く言う関数 <code>format_short(seconds)</code>」を足してください。手順: ①<code>test_pilot_task.py</code> に先にテストを書く（<code>format_short(5) == "1分未満"</code>、<code>format_short(750) == "12分"</code>）②落ちることを確認 ③実装 ④通ることを確認。</p>
+<p><strong>演習 6.4（考える）</strong> 次のコードの問題を挙げてください。</p>
+<pre><code class="language-python">def _on_click(self):
+    result = RAGClient(cfg).query(text)      # 数十秒かかる
+    self._answer.setText(result[&quot;answer&quot;])
+</code></pre>
+<p><strong>演習 6.5（確認する）</strong> <code>uv run python houdini/deploy_panels.py 22.0 --check</code> を実行し、リポジトリと、配置済みのコピーの<strong>差分</strong>を読んでください（何も書き換わりません）。</p>
+<h2 id="7-つまずきやすい点">7. つまずきやすい点</h2>
+<ul>
+<li><strong>配置し忘れ・再起動し忘れ。</strong> 「直したのに、変わらない」の第1の原因。</li>
+<li><strong><code>import hou</code> が、単体テストで失敗する。</strong> <code>try/except ImportError</code> で包む。<code>hou</code> を引数で渡す。</li>
+<li><strong>画面の文字が、日本語の絵文字・特殊記号で、表示されない。</strong> Houdini のフォントに無い字がある（例: <code>⚠</code> が出ず、<code>▲</code> に変えた）。</li>
+<li><strong><code>QThread</code> が、途中で消える。</strong> 参照を持ち続ける（2.2 の 2）。</li>
+<li><strong>Windows で、日本語を含む複雑なコマンド（ヒアドキュメント）が崩れる。</strong> スクリプトをファイルに書いてから実行する。</li>
+</ul>
+<h2 id="8-確認問題">8. 確認問題</h2>
+<ol>
+<li>通信を、別スレッドにする理由は？</li>
+<li>別スレッドから、画面を触ると、どうなるか？ どうすればよいか？</li>
+<li><code>hou</code> を、引数で渡す作りにする理由は？</li>
+<li>「直したのに、実機で変わらない」とき、最初に疑うことは？</li>
+<li><code>hython</code> と <code>QT_QPA_PLATFORM=offscreen</code> で、何ができるか？</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>6.1: (a) ダイアログが閉じ、課題は続く（終了は取り消される）。(b) 出ない。<code>_pending_end</code> に答えが残っているので、そのまま再送する。(c) <code>_send_end</code> で、「終了を押した時刻（<code>pressed</code>）」から現在までの秒（<code>time.monotonic()</code> の差）。</li>
+<li>6.2: 「短い空きは中断として数えない」を確かめるテストが、10 秒の空きを数えて落ちる。</li>
+<li>6.4: 通信で画面が固まる。別スレッドにして、signal で結果を受け取る。エラー処理も無い。</li>
+<li>6.5: 差分が無ければ、配置は最新。あれば、<code>--pypanel</code> で配置して再起動。</li>
+</ul>
+</main>
+<div class="pager"><a href="05-worker-code.html">← 前へ</a><a href="07-web-ui.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

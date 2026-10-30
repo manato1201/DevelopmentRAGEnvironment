@@ -128,6 +128,21 @@ npx wrangler deploy
 - 今回の変更（`/tts`、章の見出し・検索の補正）は、**既存のデータを書き換えません**（再クロールするまで、既存の検索は従来どおりです）。
 - シークレットの登録: `npx wrangler secret put <名前>`（値は、画面に出ません）。
 
+### 6.1 実証実験の「課題」の機能を出すとき（マイグレーション 0035・0036）
+
+| 手順 | 内容 |
+|---|---|
+| 1 | `npx wrangler d1 migrations list rag-poc-db --remote` で、**0035（課題の記録）・0036（やり直し）**が保留中か確認する |
+| 2 | 中身を読む（0035: `pilot_profile`・`pilot_sessions` を作る ／ 0036: `discarded_at`・`paused_sec` の列と、部分一意索引） |
+| 3 | `npm run db:migrate:remote` で適用 → もう一度一覧 → 列の存在を確認する |
+| 4 | `npx wrangler deploy`（**表を先、Worker を後**。逆だと、新しい Worker が、まだ無い列を読んで失敗する） |
+| 5 | 疎通: 鍵なしで `/pilot/plan`・`/pilot/session/reset`・`/admin/pilot/tasks` を呼び、**401**（認証が効いている）になること。**404 なら、Worker が古い** |
+| 6 | Houdini パネルを配る（`deploy_panels.py`）。**Worker より先に配ると、参加者の画面に「サーバーが、この機能にまだ対応していません」と出る** |
+
+- 運営（admin）のテストは、参加者番号を取らず、集計に入りません。**割り当ては、一律で番号 1 の順序**になります（実際の参加者は、登録順に 1・2・3 を繰り返します）。
+- 参加者が「やり直す」で破棄した記録は、消えずに残ります（D1 の `pilot_sessions.discarded_at`）。集計には入りません。消去の依頼を受けたときの扱いは、[pilot-announcement.md](pilot-announcement.md) の確認事項を参照。
+- 変更の標準の流れは [図16](images/16-change-flow.svg)。
+
 ## 7. 配布物を作る
 
 [![配布と、キー・予算の管理](images/06-distribution.svg)](images/06-distribution.svg)

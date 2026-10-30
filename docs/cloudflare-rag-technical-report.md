@@ -448,6 +448,38 @@ DOCX/PPTXの変換は、外部ライブラリを追加せず**ZIP形式を自前
 
 `npm test`（`tsx --test`、偽の D1（`node:sqlite`）と偽の外部 API）に、`tts`（上限・払い戻し・声の拒否・並行）、`houdini_context`（URL・見出し・指定・並べ替え・注意書き）、`crawl_houdini`（同名ページが上書きし合わない・旧形式の削除・再実行で二重にならない）、`retrieve_context`（温度0・2つのクエリベクトル・指定とヒント・再現性）を追加した。
 
+## 12. 追補（2026-10-30）: 実証実験の課題の記録、図
+
+### 12.1 追加した表（マイグレーション 0035・0036）
+
+| 表 | 内容 |
+|---|---|
+| `pilot_profile` | 参加者。`pid`（登録順の匿名番号。管理者は NULL）・`slot`（1〜3）・事前アンケート |
+| `pilot_sessions` | 課題1回の記録。`round`（1〜3）・`kind`（fixed／free）・`condition`（system／docs_only）・開始／終了・`duration_sec`・`paused_sec`・アンケート列・`discarded_at` |
+
+- 同じ（人・回・種類）の**有効な行は1つ**（`WHERE discarded_at IS NULL` の部分一意索引）。やり直しは、行を消さず `discarded_at` を入れる。
+- 全体の表の関係 → [図14](images/14-data-model.svg)。
+
+[![データの置き場](images/14-data-model.svg)](images/14-data-model.svg)
+
+### 12.2 流れ
+
+[![実証実験の流れ](images/12-pilot-flow.svg)](images/12-pilot-flow.svg)
+
+- 固定課題の順序は、`LATIN[slot]`（`src/pilotTasks.ts`）。対照の回は、回 = slot。
+- 所要時間 = 終了 − 開始 − 中断。終了の時刻は、送信の時刻から、振り返りに使った秒（`surveySec`）を引いたもの。質問回数は、その時間内の `memory` の数をサーバーが数える。
+- 破棄は、次の回の課題を始める前だけ（`handlePilotSessionReset`）。
+
+[![課題の状態](images/13-task-states.svg)](images/13-task-states.svg)
+
+### 12.3 リクエストの一生
+
+[![リクエストの一生](images/11-request-life.svg)](images/11-request-life.svg)
+
+### 12.4 テスト
+
+`pilot_tasks`（割り当て・操作ミス・次の課題・集計・やり直し・時間の引き算・管理画面の部品）、`pilot_stats`、`growth`、`ascii_art`（背景の生き物を含む）。D1 は `node:sqlite` の実スキーマ（`migrations/` を順に適用）。
+
 ---
 
 *関連ドキュメント: [cloudflare-rag-poc/README.md](../cloudflare-rag-poc/README.md) / [docs/gas-feature-parity.md](gas-feature-parity.md) / [docs/cloudflare-rag-operations-manual.md](cloudflare-rag-operations-manual.md) / [docs/cloudflare-vs-firebase-comparison.md](cloudflare-vs-firebase-comparison.md)*

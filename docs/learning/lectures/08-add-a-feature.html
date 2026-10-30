@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第8回 機能を足す通し演習（「やり直し」を例に、要件から本番まで）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a class="current" href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第8回 機能を足す通し演習（「やり直し」を例に、要件から本番まで）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/08-add-a-feature.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-題材">1. 題材</a></li><li><a href="#2-ステップ-1要件と設計の判断">2. ステップ 1：要件と、設計の判断</a></li><li><a href="#3-ステップ-2マイグレーション表の形">3. ステップ 2：マイグレーション（表の形）</a></li><li><a href="#4-ステップ-3純関数ルールをテストしやすく">4. ステップ 3：純関数（ルールを、テストしやすく）</a></li><li><a href="#5-ステップ-4ハンドラとルート">5. ステップ 4：ハンドラと、ルート</a></li><li><a href="#6-ステップ-5テストサーバー">6. ステップ 5：テスト（サーバー）</a></li><li><a href="#7-ステップ-6パネルhoudini">7. ステップ 6：パネル（Houdini）</a></li><li><a href="#8-ステップ-7通しの確認hython">8. ステップ 7：通しの確認（hython）</a></li><li><a href="#9-ステップ-8ドキュメントと図">9. ステップ 8：ドキュメントと、図</a></li><li><a href="#10-ステップ-9本番に出す図16">10. ステップ 9：本番に出す（図16）</a></li><li><a href="#11-演習">11. 演習</a></li><li><a href="#12-つまずきやすい点">12. つまずきやすい点</a></li><li><a href="#13-確認問題">13. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> 1つの機能を、<strong>要件 → 設計の判断 → マイグレーション → 純関数 → ハンドラ → テスト → パネル → 通しの確認 → ドキュメント → 本番</strong>の順に、自分で進められる。各段階で「何を確かめれば、次へ進んでよいか」を言える。<br />
+<strong>前提:</strong> 第1〜7回。 <strong>目安:</strong> 5時間（読んで追う2時間 ＋ 自分で足す3時間）</p>
+<hr />
+<h2 id="1-題材">1. 題材</h2>
+<p>実際に足した機能です（コミット <code>62560d8</code>、<code>git show 62560d8 --stat</code> で、変更の全体が見えます）。</p>
+<blockquote>
+<p><strong>要望</strong>: 実証実験の「課題」タブで、<strong>間違えて「終了」を押したとき、やり直せない</strong>。また、計測中に<strong>Houdini が落ちたり、処理が重くなったとき</strong>、どうなるのか分からない。</p>
+</blockquote>
+<p>進める前に、<strong><a href="../../images/12-pilot-flow.svg">図12（実験の流れ）</a></strong> と <strong><a href="../../images/13-task-states.svg">図13（課題の状態）</a></strong> を見てください。これが、機能の「地図」です。</p>
+<p><a href="../../images/13-task-states.svg"><img alt="課題の状態" src="../../images/13-task-states.svg" /></a></p>
+<h2 id="2-ステップ-1要件と設計の判断">2. ステップ 1：要件と、設計の判断</h2>
+<p>要望を、<strong>決めること</strong>に分解します。曖昧なまま作り始めると、あとで作り直しになります。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>決めること</th>
+<th>選択肢</th>
+<th>判断と理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>記録を、<strong>消す</strong>か、<strong>残す</strong>か</td>
+<td>物理削除 / <code>discarded_at</code>（論理削除）</td>
+<td><strong>残す</strong>。やり直した回数を、分析で使える（学習効果の確認）。集計と「次の課題」の判定からは、外す</td>
+</tr>
+<tr>
+<td>いつまで、やり直せるか</td>
+<td>いつでも / 次の回を始める前まで</td>
+<td><strong>次の回を始めるまで</strong>。回の順序と、対照の割り当てを崩さないため</td>
+</tr>
+<tr>
+<td>計測中の記録も破棄できるか</td>
+<td>はい / いいえ</td>
+<td><strong>はい</strong>（「計測をやり直す」）。終えた記録と、同じ仕組みで扱う</td>
+</tr>
+<tr>
+<td>所要時間に、振り返りに使った時間を含めるか</td>
+<td>含める / 引く</td>
+<td><strong>引く</strong>。作業の時間ではないから</td>
+</tr>
+<tr>
+<td>Houdini が閉じていた時間は</td>
+<td>含める / 引く（中断）</td>
+<td><strong>引く</strong>。ただし、<strong>落ちずに重かっただけ</strong>の時間は、作業なので引かない</td>
+</tr>
+<tr>
+<td>時間は、どの時計で測るか</td>
+<td>サーバーの時刻 / パネルの時計</td>
+<td><strong>パネルが、同じ時計で測った秒数</strong>を送る。PC とサーバーの時計のずれに、左右されない</td>
+</tr>
+<tr>
+<td>送信に失敗したら</td>
+<td>答えを捨てる / 残して再送</td>
+<td><strong>残して再送</strong>。アンケートを、書き直させない</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>学び: 設計の判断は、<strong>表にして、理由を書く</strong>。あとで「なぜ、こうしたのか」に、答えられる。決めた内容は、設計書（<code>docs/pilot-analysis-design.md</code>）に書く。</p>
+</blockquote>
+<h2 id="3-ステップ-2マイグレーション表の形">3. ステップ 2：マイグレーション（表の形）</h2>
+<p><code>cloudflare-rag-poc/migrations/0036_pilot_redo.sql</code>:</p>
+<pre><code class="language-sql">ALTER TABLE pilot_sessions ADD COLUMN discarded_at INTEGER;
+ALTER TABLE pilot_sessions ADD COLUMN paused_sec INTEGER NOT NULL DEFAULT 0;
+DROP INDEX idx_pilot_sessions_slot;
+CREATE UNIQUE INDEX idx_pilot_sessions_slot ON pilot_sessions(user_id, round, kind) WHERE discarded_at IS NULL;
+</code></pre>
+<p>確かめること:<br />
+- 列は <code>ADD COLUMN</code>（既存の行は、そのまま）。<code>NOT NULL</code> なので <strong><code>DEFAULT 0</code> が要る</strong>。<br />
+- 「同じ（人・回・種類）の記録は1つ」の索引を、<strong>破棄していない行だけ</strong>に変える（第3回 2.4）。そうしないと、やり直した記録（2行目）が、入れられない。<br />
+- <strong>既存の <code>0035</code> は、直さない。</strong></p>
+<h2 id="4-ステップ-3純関数ルールをテストしやすく">4. ステップ 3：純関数（ルールを、テストしやすく）</h2>
+<p><code>src/pilotTasks.ts</code>:</p>
+<pre><code class="language-ts">export function buildHistory(sessions: PlanSession[]): HistoryItem[] {
+  const lastRound = Math.max(0, ...sessions.map((s) =&gt; s.round));
+  return sessions.filter((s) =&gt; s.id).map((s) =&gt; ({
+    sessionId: s.id as string, round: s.round, kind: s.kind,
+    label: …, running: s.ended_at == null, durationSec: s.duration_sec ?? null,
+    redoable: s.round &gt;= lastRound,       // ← 「次の回を始める前」= 最後の回のうち
+  })).sort(…);
+}
+</code></pre>
+<p>「やり直せるか」の<strong>ルール</strong>を、1か所（<code>redoable</code>）に置いています。ハンドラ側（<code>handlePilotSessionReset</code>）は、同じルールを、SQL（<code>round &gt; ?</code> の件数が 0 か）で確かめます。<strong>画面の表示（<code>redoable</code>）と、サーバーの判定は、別々に実装</strong>されます。<strong>サーバーの判定が、本当の関門</strong>で、画面は、親切のための表示です。</p>
+<h2 id="5-ステップ-4ハンドラとルート">5. ステップ 4：ハンドラと、ルート</h2>
+<pre><code class="language-ts">export async function handlePilotSessionReset(req, env, user) {
+  const body = await readBody(req);
+  const id = typeof body.sessionId === &quot;string&quot; ? body.sessionId : &quot;&quot;;
+  const row = id ? await env.DB.prepare(&quot;SELECT user_id, round, discarded_at FROM pilot_sessions WHERE id = ?&quot;).bind(id).first() : null;
+  if (!row || row.user_id !== user.userId || row.discarded_at != null)
+    return jsonResponse(404, { error: &quot;課題の記録が見つかりません&quot; });          // 他人のもの・破棄済みは「無い」
+  const later = await env.DB.prepare(&quot;SELECT COUNT(*) AS n FROM pilot_sessions WHERE user_id = ? AND discarded_at IS NULL AND round &gt; ?&quot;)
+    .bind(user.userId, row.round).first();
+  if ((later?.n ?? 0) &gt; 0) return jsonResponse(409, { error: &quot;次の回を始めたあとは、前の回はやり直せません。…&quot; });
+  await env.DB.prepare(&quot;UPDATE pilot_sessions SET discarded_at = ? WHERE id = ?&quot;).bind(Math.floor(Date.now() / 1000), id).run();
+  return planResponse(env, user.userId);      // 更新後の「次の課題」と記録を返す（画面が、そのまま描ける）
+}
+</code></pre>
+<p><code>src/index.ts</code> に、import と <code>case "/pilot/session/reset": return await handlePilotSessionReset(req, env, user);</code> を足す。<strong>これを忘れると、404</strong>。</p>
+<p>終了のハンドラ（<code>handlePilotSessionEnd</code>）には、<code>surveySec</code>・<code>pausedSec</code> を足して、<strong>範囲に丸めて</strong>使う。</p>
+<pre><code class="language-ts">const endedAt = Math.max(row.started_at, now - clampInt(body.surveySec, 0, 0, 86400));
+const pausedSec = Math.min(clampInt(body.pausedSec, 0, 0, 604800), endedAt - row.started_at);
+// 所要時間 = endedAt − started_at − pausedSec  （異常な値でも、負にならない）
+</code></pre>
+<h2 id="6-ステップ-5テストサーバー">6. ステップ 5：テスト（サーバー）</h2>
+<p><code>test/pilot_tasks.test.mjs</code> に足した主なもの（読んで、<strong>何を確かめているか</strong>を、1行ずつ言う）:</p>
+<ul>
+<li>計測中の記録を破棄 → 新しい記録で、始め直せる（<code>resumed === false</code>）。破棄済みは終えられない（404）。二重の破棄は 404。他人の記録は 404。<strong>破棄した行は、D1 に残っている</strong>（件数が 2）。</li>
+<li>終えた記録を、次の回の前に取り消せる（<code>round</code> が 1 に戻る）。<strong>第2回を始めたあとは、第1回は 409</strong>。</li>
+<li>所要時間: 3600 秒前に開始 → <code>surveySec: 300</code>・<code>pausedSec: 600</code> → 約 2700 秒。異常な値（99999）でも 0 秒（負にならない）。</li>
+<li>集計: 破棄した記録は入らず、<code>redoCount</code> で回数が分かる。</li>
+</ul>
+<p>実行: <code>cd cloudflare-rag-poc; npm run typecheck; npm test</code>。</p>
+<h2 id="7-ステップ-6パネルhoudini">7. ステップ 6：パネル（Houdini）</h2>
+<ol>
+<li><strong>通信</strong>: <code>rag_client.py</code> に <code>pilot_session_reset(session_id)</code>（<code>/pilot/session/reset</code> を POST）。</li>
+<li><strong>画面に依存しない部品</strong>（<code>pilot_task.py</code>）: <code>ProgressStore</code>（途中経過の保存）・<code>resume_state</code>（中断の計算）・<code>format_history_line</code>・<code>build_end_payload</code> の <code>paused_sec</code>。→ <strong>単体テスト</strong>（<code>test_pilot_task.py</code>）を先に書く。</li>
+<li><strong>画面</strong>（<code>pilot_panel.py</code>）: 「計測をやり直す」ボタン・「完了した記録」の「やり直す」・<code>_pending_end</code>（送信の失敗を残す）・<code>_on_sample</code>（採取のたびに、途中経過を保存）。</li>
+<li><strong>配置の一覧</strong>（<code>deploy_panels.py</code> の <code>MODULES</code>）に、新しいモジュールがあれば足す（今回は既存）。</li>
+</ol>
+<h2 id="8-ステップ-7通しの確認hython">8. ステップ 7：通しの確認（hython）</h2>
+<p><code>houdini/tests/smoke_pilot_panel.py</code> に、次を足して、<code>hython</code> で動かす。</p>
+<ul>
+<li>確認で「いいえ」→ 何も起きない／「はい」→ 破棄 → 最初から始められる</li>
+<li>送信の失敗 → 答えが残る → 「答えを再送する」で、同じ内容が送られる（<code>surveySec</code> が増えている）</li>
+<li>完了した記録の「やり直す」→ 同じ課題を、また始められる</li>
+<li>再開（<code>resumed: true</code>）→ 途中経過のエラーのノードを引き継ぎ、閉じていた時間（約300秒）が <code>pausedSec</code> に入る</li>
+</ul>
+<h2 id="9-ステップ-8ドキュメントと図">9. ステップ 8：ドキュメントと、図</h2>
+<ul>
+<li>設計書（<code>docs/pilot-analysis-design.md</code>）の「計測の扱い」。利用者向け（<code>user-manual.md</code> §9.5）。運営者向け（<code>operator-runbook.md</code> §6.1・<code>cloudflare-rag-operations-manual.md</code> §8-4）。</li>
+<li>図: 課題の状態（<a href="../../images/13-task-states.svg">図13</a>）。<code>scripts/build_diagrams_lecture.py</code> の <code>task_states()</code> を直して、<code>uv run python scripts/build_diagrams.py states</code>。</li>
+</ul>
+<h2 id="10-ステップ-9本番に出す図16">10. ステップ 9：本番に出す（<a href="../../images/16-change-flow.svg">図16</a>）</h2>
+<p><a href="../../images/16-change-flow.svg"><img alt="変更から本番まで" src="../../images/16-change-flow.svg" /></a></p>
+<ol>
+<li>型検査・テスト・通しの確認が通る。</li>
+<li><strong>D1 にマイグレーションを適用</strong>（本番）。<strong>一覧 → 中身を読む → 適用 → 一覧</strong>。</li>
+<li><strong>Worker をデプロイ</strong>。</li>
+<li><strong>疎通を確かめる</strong>: 鍵なしで新しい API を呼び、<strong>401</strong>（404 なら、Worker が古い）。D1 に、新しい列があること。</li>
+<li><strong>パネルを配置</strong>（<code>deploy_panels.py</code>）→ Houdini を再起動。</li>
+<li>ドキュメントを直し、<strong>コミット・プッシュ</strong>。</li>
+</ol>
+<blockquote>
+<p>順序の理由: <strong>D1 → Worker → パネル</strong>。逆にすると、新しい Worker が無い列を読んで失敗し、新しいパネルが、まだ無い API を呼んで 404 になる。<strong>実際に、この順序を逆にして、「課題」タブが「未対応」になった</strong>（<a href="10-troubleshooting.html">第10回</a>）。</p>
+</blockquote>
+<h2 id="11-演習">11. 演習</h2>
+<p><strong>演習 8.1（追う）</strong> <code>git show 62560d8 --stat</code> で変更されたファイルの一覧を見て、<strong>ステップ 1〜9 のどれか</strong>を、ファイルごとに対応づけてください。</p>
+<p><strong>演習 8.2（読む）</strong> <code>handlePilotSessionReset</code> の <strong>404 と 409 の分岐</strong>について、「他人の記録を指定したとき」「破棄済みを、もう一度指定したとき」「第2回を始めたあとに、第1回を指定したとき」の応答を、答えてください。テストで確かめてください。</p>
+<p><strong>演習 8.3（足す・小）</strong> 破棄の回数を、プレイヤー（参加者）の画面にも出したい、という要望が来ました。<strong>設計の判断の表</strong>を、自分で作ってください（出すか・誰に・何を出すか・個人が特定されないか）。<strong>コードは書かなくてよい</strong>。</p>
+<p><strong>演習 8.4（足す・中）</strong> 管理者向けに、<code>POST /admin/pilot/redos</code>（参加者番号ごとに、破棄した記録の数を返す）を足してください。ステップ 3〜6 の順で（純関数 → ハンドラ → ルート → テスト）。<strong>マイグレーションは不要</strong>（既存の <code>discarded_at</code> を使う）。型検査・テストが通ったら、<strong>元に戻す</strong>（演習なので、コミットしない）。</p>
+<p><strong>演習 8.5（総合）</strong> 「課題後アンケートに、自由記述の文字数の上限を、画面にも出す」変更を、<strong>要件 → 設計の判断（表）→ 実装 → テスト → ドキュメント</strong>の順で、計画だけ書いてください（1ページ）。どの層（Worker・パネル・画面）のどのファイルを変えるか、どのテストを足すかを、挙げること。</p>
+<h2 id="12-つまずきやすい点">12. つまずきやすい点</h2>
+<ul>
+<li><strong>サーバーの判定を、画面の表示に任せる。</strong> 画面（<code>redoable</code>）は、親切のための表示。<strong>本当の関門は、サーバー</strong>。</li>
+<li><strong>マイグレーションを、あとから直す。</strong> 適用済みの環境には効かない。新しいファイルで直す。</li>
+<li><strong>順序を逆にして、本番に出す。</strong> D1 → Worker → パネルの順。</li>
+<li><strong>テストを、最後にまとめて書く。</strong> 純関数のテストは、<strong>先に書く</strong>と、設計が締まる（失敗することを確かめてから、実装する）。</li>
+</ul>
+<h2 id="13-確認問題">13. 確認問題</h2>
+<ol>
+<li>記録を「消さず」に、<code>discarded_at</code> を入れた理由は？</li>
+<li>「画面の <code>redoable</code>」と「サーバーの判定」を、両方持つ理由は？</li>
+<li><code>surveySec</code> と <code>pausedSec</code> を、パネルの秒数で送る理由は？</li>
+<li>本番に出す順序は？ 逆にすると、何が起きるか？</li>
+<li>設計の判断を、表にして残す利点は？</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>8.2: 他人の記録 → 404。破棄済みの再指定 → 404。次の回を始めたあとの前の回 → 409。</li>
+<li>8.3: 参加者本人に出すのは問題ないが、<strong>他人と比べる表示にしない</strong>。運営の集計は、番号（P01）だけで出す。</li>
+<li>確認問題 3: PC とサーバーの時計がずれていても、結果が狂わないため（同じ時計の差だけを使う）。</li>
+</ul>
+</main>
+<div class="pager"><a href="07-web-ui.html">← 前へ</a><a href="09-test-deploy-operate.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

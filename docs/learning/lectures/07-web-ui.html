@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第7回 Web 画面（chatUi.ts）の仕組み</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a class="current" href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第7回 Web 画面（chatUi.ts）の仕組み</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/07-web-ui.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-テンプレート文字列と3つの禁止">2.1 テンプレート文字列と、3つの禁止</a></li><li><a href="#22-typescript-が守ってくれない場所">2.2 TypeScript が、守ってくれない場所</a></li><li><a href="#23-純関数を文字列として埋め込むasciiarttslistsortts">2.3 純関数を、文字列として埋め込む（asciiArt.ts・listSort.ts）</a></li><li><a href="#24-安全な画面の作り方">2.4 安全な画面の作り方</a></li><li><a href="#25-見た目の決まり">2.5 見た目の決まり</a></li></ol></li><li><a href="#3-実例背景の生き物z20を足した手順">3. 実例：背景の生き物（Z20）を足した手順</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> 画面が<strong>「1つの大きな文字列」</strong>として作られている理由と、その<strong>書き方の決まり</strong>（記号のエスケープ）を説明できる。小さな部品（ボタン・保存される設定）を足し、<strong>テストで守れる</strong>。<br />
+<strong>前提:</strong> 第1・5回、HTML・CSS・JavaScript の基本（タグ・クラス・<code>addEventListener</code>）。 <strong>目安:</strong> 2時間</p>
+<hr />
+<h2 id="1-全体像">1. 全体像</h2>
+<p>ブラウザで <code>https://rag-poc.….workers.dev/</code> を開くと出る画面（チャット・グラフ・履歴・管理）は、<strong><code>cloudflare-rag-poc/src/chatUi.ts</code> の <code>chatUiHtml()</code> が返す、1つの HTML の文字列</strong>です（約 7,200 行）。</p>
+<pre><code>GET /  ──▶ index.ts ──▶ chatUiHtml()（HTML 全体を、文字列で返す）──▶ ブラウザが、描画・実行
+                                  └ &lt;style&gt; … &lt;/style&gt;（CSS）
+                                  └ &lt;body&gt; …（HTML）
+                                  └ &lt;script&gt; …（素の JavaScript。この文字列の中に、直接書く）
+</code></pre>
+<p>React や Vue のような<strong>ビルド工程は、ありません</strong>。1ファイルを直して、デプロイすれば、反映されます。小さなチームで、<strong>仕組みを少なく保つ</strong>ための選択です。</p>
+<h2 id="2-基礎">2. 基礎</h2>
+<h3 id="21-テンプレート文字列と3つの禁止">2.1 テンプレート文字列と、3つの禁止</h3>
+<p><code>chatUiHtml()</code> は、<code>`</code> （バッククォート）で囲んだ<strong>テンプレート文字列</strong>を返します。この中では、次の3つが<strong>特別な意味</strong>を持つので、画面の JavaScript の中に、<strong>そのまま書けません</strong>。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>書きたいもの</th>
+<th>問題</th>
+<th>書き方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>`</code>（バッククォート）</td>
+<td>文字列が、そこで終わってしまう</td>
+<td>使わない。<code>"…"</code> か <code>'…'</code> で書く（JavaScript の文字列の連結 <code>+</code> を使う）</td>
+</tr>
+<tr>
+<td><code>${</code></td>
+<td>テンプレートの「値の差し込み」と解釈される</td>
+<td>使わない。<code>"a" + b</code> と書く</td>
+</tr>
+<tr>
+<td><code>\</code>（バックスラッシュ）</td>
+<td><code>\n</code> が、<strong>本物の改行</strong>に変わってしまう</td>
+<td><strong>2つ重ねて</strong> <code>\\n</code> と書く（画面に届くときに <code>\n</code> になる）</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>画面が<strong>真っ白</strong>になったり、ボタンが<strong>効かなかったり</strong>したら、まず、ブラウザの Console（F12）で、<code>SyntaxError</code> を探す。原因の多くは、この3つです。</p>
+</blockquote>
+<h3 id="22-typescript-が守ってくれない場所">2.2 TypeScript が、守ってくれない場所</h3>
+<p>画面の <code>&lt;script&gt;</code> の中身は、TypeScript から見れば<strong>ただの文字列</strong>です。<strong>書き間違いがあっても、<code>tsc</code> は何も言いません</strong>。ブラウザで開いて、初めて壊れていると分かります。そこで、<strong>テストで守ります</strong>。</p>
+<pre><code class="language-js">// test/ui_syntax.test.mjs
+const { chatUiHtml } = await import(&quot;../src/chatUi&quot;);
+const html = chatUiHtml();
+const scripts = [...html.matchAll(/&lt;script[^&gt;]*&gt;([\s\S]*?)&lt;\/script&gt;/g)].map((m) =&gt; m[1]).filter((c) =&gt; c.trim());
+for (const code of scripts) new vm.Script(code);   // 構文を読むだけ（実行しない）。間違いがあれば SyntaxError
+</code></pre>
+<p>さらに、<strong><code>assert.match(code, /正規表現/)</code></strong> で、「この機能が入っている」「あの危険な書き方が無い」を、文字列として確かめます（<code>test/ascii_art.test.mjs</code>）。</p>
+<h3 id="23-純関数を文字列として埋め込むasciiarttslistsortts">2.3 純関数を、文字列として埋め込む（<code>asciiArt.ts</code>・<code>listSort.ts</code>）</h3>
+<p>画面の <code>&lt;script&gt;</code> の中の関数は、そのままでは<strong>テストしにくい</strong>。そこで、<strong>純関数だけを、別のファイルに文字列で持ち</strong>、画面に<strong>差し込み</strong>ます。</p>
+<pre><code class="language-ts">// src/asciiArt.ts
+export const ASCII_ART_JS = `
+  const ART_RAMPS = { classic: &quot; .:-=+*#%@&quot;, critter: &quot; .ot%8SX@&quot; };
+  function brightnessToChar(b, ramp) { … }
+  function critterFrame(w, h, t, progress, ramp) { … }   // 時刻 t と進み具合だけで絵が決まる純関数
+`;
+</code></pre>
+<pre><code class="language-ts">// src/chatUi.ts（&lt;script&gt; の中）
+${ASCII_ART_JS}
+</code></pre>
+<p>テストは、<strong>同じ文字列を評価して、同じ関数を取り出し</strong>、入力と出力を確かめます（<code>test/ascii_art.test.mjs</code>）。<strong>画面と、テストが、同じコードを見る</strong>ので、ずれません。ただし、この文字列の中にも、<strong>2.1 の3つの禁止</strong>が、そのまま当てはまります（テストで <code>!ASCII_ART_JS.includes("\\")</code> などを確かめている）。</p>
+<h3 id="24-安全な画面の作り方">2.4 安全な画面の作り方</h3>
+<ul>
+<li><strong>ユーザーが入力した文字や、サーバーから来た文字を、<code>innerHTML</code> に入れない。</strong> 入れた文字の中に <code>&lt;script&gt;</code> があると、実行されてしまう（XSS）。<strong><code>textContent</code> か、<code>createElement</code> で作る</strong>。</li>
+</ul>
+<pre><code class="language-js">// 背景の生き物（paintCritter）: 文字は textContent と文字ノードだけで組み立てる
+pre.textContent = &quot;&quot;;
+pre.appendChild(document.createTextNode(plainPart));
+const glow = document.createElement(&quot;span&quot;); glow.textContent = darkPart; pre.appendChild(glow);
+</code></pre>
+<ul>
+<li><strong><code>localStorage</code> は、失敗しうる</strong>（プライベートウィンドウ・無効化）。<strong>必ず <code>try/catch</code> で包み</strong>、<strong>無くても動く</strong>ようにする。</li>
+</ul>
+<pre><code class="language-js">let saved = &quot;off&quot;;
+try { saved = localStorage.getItem(&quot;ragPocWallpaper&quot;) === &quot;critter&quot; ? &quot;critter&quot; : &quot;off&quot;; } catch { /* 不可環境はなし */ }
+</code></pre>
+<h3 id="25-見た目の決まり">2.5 見た目の決まり</h3>
+<ul>
+<li><strong>色は、変数（<code>--accent</code> など）</strong>で持つ。ライトとダークは、変数の値を切り替える（<code>:root[data-theme="light"]</code>、<code>@media (prefers-color-scheme: light)</code>）。<strong>色を直接書かない</strong>。</li>
+<li><strong>動きは、少なく</strong>（原則 P8）。空状態と待ち時間だけ。<strong><code>prefers-reduced-motion</code></strong> のときは、止める。</li>
+<li><strong>画面の外・見えないタブでは、描かない</strong>（<code>IntersectionObserver</code>・<code>document.hidden</code>）。<strong>取り除かれたら、タイマーも止める</strong>（<code>pre.isConnected</code>）。</li>
+<li><strong>操作の邪魔をしない</strong>（装飾に <code>pointer-events: none</code>）。</li>
+</ul>
+<h2 id="3-実例背景の生き物z20を足した手順">3. 実例：背景の生き物（Z20）を足した手順</h2>
+<p>ヘッダーの「背景: なし／クラゲ」は、次の4つで足しました（<code>git log</code> で、コミット <code>e9a3f42</code> を見る）。</p>
+<ol>
+<li><strong>HTML</strong>: <code>themeToggle</code> の隣に、<code>&lt;button id="wallpaperToggle"&gt;背景: なし&lt;/button&gt;</code>。</li>
+<li><strong>CSS</strong>: <code>.ascii-wallpaper { position: fixed; right: 1rem; bottom: 1rem; z-index: -1; opacity: .14; pointer-events: none; }</code>。ライトは濃く（.2）。720px 未満は <code>display: none</code>。</li>
+<li><strong>JavaScript</strong>: <code>initWallpaper()</code>。既存の <code>asciiCritter()</code> を<strong>そのまま使い</strong>（動きを減らす設定・画面の外での停止は、すでに入っている）、<code>document.body</code> に足す／外す。選択は <code>localStorage</code>（<code>try/catch</code>）。<strong>既定は「なし」</strong>。</li>
+<li><strong>テスト</strong>: <code>test/ascii_art.test.mjs</code> に、「既定はなし」「同じ生き物を使う」「<code>z-index: -1</code> と <code>pointer-events: none</code>」「狭い画面で隠す」「外すとタイマーが止まる」を、<code>assert.match</code> で足す。</li>
+</ol>
+<blockquote>
+<p>設計の判断: 原則 P8（動きは空状態と待ち時間だけ）に反するので、<strong>選んだ人だけ</strong>に出す。<strong>新しい動きを足すときは、既定をオフにする</strong>。</p>
+</blockquote>
+<h2 id="4-演習">4. 演習</h2>
+<p><strong>演習 7.1（読む）</strong> <code>chatUi.ts</code> を開き、<code>initTheme</code>（テーマの切り替え）を探して、(a) 選択がどこに保存されるか、(b) 保存できない環境で、どうなるか、を答えてください。</p>
+<p><strong>演習 7.2（壊す）</strong> <code>chatUi.ts</code> の <code>&lt;script&gt;</code> の中の、どこか1か所に <code>${</code> を書き（例: コメントの中に <code>${x}</code>）、<code>npx tsx --test test/ui_syntax.test.mjs</code> を動かして、何が起きるか見てください。<strong>終わったら、元に戻す</strong>（<code>git diff</code> で、何も変わっていないことを確認）。</p>
+<p><strong>演習 7.3（書く）</strong> ヘッダーに、<code>&lt;button id="compactToggle"&gt;表示: ふつう&lt;/button&gt;</code> を足し、押すと、<code>document.body</code> に <code>compact</code> クラスを付け外しして（<code>localStorage</code> に保存。<code>try/catch</code>）、<code>.compact .msg { font-size: .85rem; }</code> で、文字を小さくしてください。<strong>テスト</strong>（<code>assert.match</code>）も、1つ足してください。終わったら、元に戻す。</p>
+<p><strong>演習 7.4（考える）</strong> サーバーから来た <code>title</code>（スレッドの題名）を、<code>element.innerHTML = title</code> で表示すると、何が起きうるか。どう直すか。</p>
+<h2 id="5-つまずきやすい点">5. つまずきやすい点</h2>
+<ul>
+<li><strong><code>\n</code> が、本物の改行になって、文字列が壊れる。</strong> <code>\\n</code> と書く。</li>
+<li><strong><code>${</code> を、うっかり書く。</strong> 画面全体が、<code>undefined</code> 混じりになる、または、構文エラー。</li>
+<li><strong>ボタンを足したのに、効かない。</strong> <code>id</code> の綴りの違い・<code>getElementById</code> が <code>null</code>・<code>addEventListener</code> を呼ぶ前に、要素が無い。Console を見る。</li>
+<li><strong>ライトだけ、文字が読めない。</strong> 色を直接書いている。変数にする。</li>
+</ul>
+<h2 id="6-確認問題">6. 確認問題</h2>
+<ol>
+<li>画面が、1つの文字列である理由は？ 利点と欠点を、1つずつ。</li>
+<li>テンプレート文字列の中で、書いてはいけないものを3つ。</li>
+<li><code>tsc</code> が、画面の <code>&lt;script&gt;</code> の間違いに気づけない理由は？ 何で守るか？</li>
+<li><code>innerHTML</code> を避ける理由は？</li>
+<li>新しい動きを足すとき、既定をオフにする理由は？</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>7.1: <code>localStorage</code>（キー <code>ragPocTheme</code>）。保存できないときは <code>try/catch</code> で握りつぶし、「自動」になる。</li>
+<li>7.2: <code>ui_syntax.test.mjs</code> が <code>SyntaxError</code> で落ちる（または、<code>${x}</code> が評価されて、文字列が変わる）。</li>
+<li>7.4: 題名に <code>&lt;img onerror=…&gt;</code> が含まれると、実行される（XSS）。<code>textContent = title</code> にする。</li>
+<li>確認問題 1: 利点: ビルドが要らず、1ファイルで完結する。欠点: 型の検査が効かず、書き方の禁止事項がある。</li>
+</ul>
+</main>
+<div class="pager"><a href="06-houdini-panel.html">← 前へ</a><a href="08-add-a-feature.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>
