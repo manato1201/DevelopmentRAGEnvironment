@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第9回 テスト・デプロイ・運用（標準の流れ・戻し方・見守り）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a class="current" href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第9回 テスト・デプロイ・運用（標準の流れ・戻し方・見守り）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/09-test-deploy-operate.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-4種類のテスト">2.1 4種類のテスト</a></li><li><a href="#22-本番を変える操作見分ける">2.2 本番を変える操作（見分ける）</a></li><li><a href="#23-順序の理由">2.3 順序の理由</a></li><li><a href="#24-戻し方">2.4 戻し方</a></li><li><a href="#25-日々の見守り">2.5 日々の見守り</a></li><li><a href="#26-費用と上限">2.6 費用と上限</a></li><li><a href="#27-git-の作法">2.7 Git の作法</a></li></ol></li><li><a href="#3-このプロジェクトでは">3. このプロジェクトでは</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> <a href="../../images/16-change-flow.svg">図16</a> の標準の流れを、<strong>順序の理由つき</strong>で実行できる。<strong>本番を変える操作</strong>を見分け、戻し方を言える。日々の点検ができる。<br />
+<strong>前提:</strong> 第2・3・5・6・8回。 <strong>目安:</strong> 3時間</p>
+<hr />
+<h2 id="1-全体像">1. 全体像</h2>
+<p><a href="../../images/16-change-flow.svg"><img alt="変更から本番まで" src="../../images/16-change-flow.svg" /></a></p>
+<h2 id="2-基礎">2. 基礎</h2>
+<h3 id="21-4種類のテスト">2.1 4種類のテスト</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>種類</th>
+<th>何を確かめるか</th>
+<th>速さ</th>
+<th>実行</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>型検査</strong></td>
+<td>型の食い違い（<code>tsc</code>）</td>
+<td>数秒</td>
+<td><code>cd cloudflare-rag-poc; npm run typecheck</code></td>
+</tr>
+<tr>
+<td><strong>純関数・ハンドラ</strong>（Worker）</td>
+<td>ルールと、D1 の読み書き（偽の D1・本物の表）</td>
+<td>数秒〜十数秒</td>
+<td><code>npm test</code>（25ファイル）</td>
+</tr>
+<tr>
+<td><strong>単体テスト</strong>（Houdini 側）</td>
+<td>画面に依存しない部品</td>
+<td>約20秒</td>
+<td><code>uv run python -m unittest discover -s houdini/tests</code></td>
+</tr>
+<tr>
+<td><strong>通しの確認</strong>（hython）</td>
+<td>画面の結びつけ（ボタン → 関数 → 通信）</td>
+<td>数秒</td>
+<td><code>hython houdini/tests/smoke_*.py</code>（<code>QT_QPA_PLATFORM=offscreen</code>）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>どれも、本番には、つながりません。</strong> 偽の D1（<code>node:sqlite</code>）・偽の外部 API・偽のサーバーを使います。</p>
+<blockquote>
+<p>画面の <code>&lt;script&gt;</code>（<code>chatUi.ts</code>）は、型検査では守れません。<code>ui_syntax.test.mjs</code> が、構文を読んで確かめます（第7回）。</p>
+</blockquote>
+<h3 id="22-本番を変える操作見分ける">2.2 本番を変える操作（見分ける）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>本番を変える？</th>
+<th>戻せる？</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>npm test</code>・<code>npm run typecheck</code></td>
+<td>いいえ</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>wrangler d1 migrations list … --remote</code></td>
+<td>いいえ（一覧だけ）</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>wrangler d1 execute … --remote --command "SELECT …"</code></td>
+<td>いいえ（読むだけ）</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>wrangler d1 migrations apply … --remote</code></td>
+<td><strong>はい</strong></td>
+<td><strong>自動では戻らない</strong>（打ち消す SQL を、新しいマイグレーションとして足す）</td>
+</tr>
+<tr>
+<td><code>wrangler deploy</code></td>
+<td><strong>はい</strong></td>
+<td><code>wrangler rollback</code>（直前の版へ）</td>
+</tr>
+<tr>
+<td><code>wrangler secret put</code></td>
+<td><strong>はい</strong></td>
+<td>前の値は見えないので、<strong>控えておく</strong></td>
+</tr>
+<tr>
+<td><code>git push</code></td>
+<td>リポジトリを変える</td>
+<td><code>git revert</code>（新しいコミットで打ち消す）</td>
+</tr>
+<tr>
+<td><code>deploy_panels.py</code></td>
+<td>自分の PC のコピーを変える</td>
+<td>自動バックアップから戻す</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ルール: 本番を変える操作は、人が、操作の名前を挙げて、許可してから行う。</strong> 自動の道具やAIも、<strong>勝手に進めない</strong>。許可は、<strong>その操作ごと</strong>（前の許可は、次に持ち越さない）。</p>
+<h3 id="23-順序の理由">2.3 順序の理由</h3>
+<ol>
+<li><strong>型検査 → テスト → 通しの確認</strong>（手元で、壊れていないことを確かめる）。</li>
+<li><strong>D1 のマイグレーション（本番）→ Worker のデプロイ</strong>。<strong>表の形が先</strong>。新しい Worker が、まだ無い列を読むと、失敗する。</li>
+<li><strong>疎通の確認</strong>: 鍵なしで、新しい API を呼び、<strong>401</strong>（認証が効いている＝窓口がある）。404 なら、Worker が古い。</li>
+<li><strong>パネルの配置</strong>は、<strong>Worker のあと</strong>。先に配ると、新しい機能が「サーバーが、この機能にまだ対応していません」（404）になる。</li>
+<li><strong>ドキュメント → コミット・プッシュ</strong>。<strong>実際に出した内容と同じ版を</strong>記録する。</li>
+</ol>
+<h3 id="24-戻し方">2.4 戻し方</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>戻し方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>デプロイした Worker が、おかしい</td>
+<td><code>cd cloudflare-rag-poc; npx wrangler rollback</code>（直前の版へ。D1 は、そのまま）</td>
+</tr>
+<tr>
+<td>マイグレーションが、おかしい</td>
+<td><strong>新しいマイグレーション</strong>で、打ち消す（例: 追加した列を <code>ALTER TABLE … DROP COLUMN</code>、索引を作り直す）。<strong>データを消す変更は、事前に <code>/admin/backup/export</code> で退避</strong></td>
+</tr>
+<tr>
+<td>配置したパネルが、おかしい</td>
+<td><code>deploy_panels.py</code> が作る <code>python_panels_backup_&lt;日時&gt;</code> から、コピーし戻す。再起動</td>
+</tr>
+<tr>
+<td>間違えてコミットした（秘密・不要なファイル）</td>
+<td><strong>秘密なら、その鍵を失効して作り直す</strong>（履歴から消しても、遅い）。不要なファイルは、<code>git rm --cached</code></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="25-日々の見守り">2.5 日々の見守り</h3>
+<p><a href="../../operator-runbook.html">運営者手順書 §4</a>・<a href="../06-maintenance-runbook.html">06 保守の手順 §1</a> の点検の要点:</p>
+<ul>
+<li><strong>毎日</strong>: 管理画面の「利用状況・コスト」で、<strong>費用の急な増加・429・500 が無いか</strong>。</li>
+<li><strong>毎週</strong>: <code>npx wrangler d1 insights rag-poc-db --timePeriod 7d</code> で、<strong>読み取り行数が突出した SQL が無いか</strong>（2026-10-16 の事故の再発防止）。</li>
+<li><strong>毎月</strong>: 設定バックアップのエクスポート・使っていない鍵の失効・依存の更新確認。</li>
+<li><strong>自動</strong>: Cron（30分ごとのヘルスチェック。異常ならアラート通知）。</li>
+</ul>
+<h3 id="26-費用と上限">2.6 費用と上限</h3>
+<ul>
+<li>Workers Paid（月 $5〜）。D1 の読み取り・書き込みの行数、Vectorize の次元数、AI の API 料金（トークン）が、費用の中心。</li>
+<li><strong>鍵ごとの予算</strong>（<code>token_budgets</code>）で、使いすぎを止める（第4回）。上限に達すると、<strong>実行の前に止まる</strong>（429）。</li>
+<li>数字は変わる。<a href="../../cost-and-quota.html">cost-and-quota.md</a> と、公式ページで確認する（2026-10時点）。</li>
+</ul>
+<h3 id="27-git-の作法">2.7 Git の作法</h3>
+<ul>
+<li><strong>コミットメッセージ</strong>: そのリポジトリの <code>git log</code> の書き方に合わせる（このリポジトリは、英語の短い説明＋必要なら箇条書き）。</li>
+<li><strong>ファイルを、名前で指定してステージする</strong>（<code>git add &lt;ファイル&gt;</code>）。<strong><code>git add -A</code> は使わない</strong>（<code>local-chat/</code> などの、入れないものまで入るため）。</li>
+<li><strong>秘密（鍵・トークン）を、コミットしない</strong>。チャットにも貼らない。</li>
+<li><strong>コミット・プッシュ・デプロイは、頼まれたときだけ。</strong></li>
+</ul>
+<h2 id="3-このプロジェクトでは">3. このプロジェクトでは</h2>
+<ul>
+<li>標準の流れは <a href="../../images/16-change-flow.svg">図16</a>。運営者の手順は <a href="../../operator-runbook.html">operator-runbook.md §6</a>（6.1 に、課題の機能を出すときの手順）。</li>
+<li>実際に、順序を取り違えた事例: パネルを先に配り、Worker が古かったため、「課題」タブが「未対応」になった（2026-10-28。<a href="10-troubleshooting.html">第10回</a>）。その後、<code>friendly_error</code> に、「サーバーが、この機能にまだ対応していません」の文言を足した。</li>
+</ul>
+<h2 id="4-演習">4. 演習</h2>
+<p><strong>演習 9.1（実行）</strong> 手元で、<strong>型検査 → Worker のテスト → Houdini の単体テスト</strong>を、この順に実行し、結果（件数）を記録してください。</p>
+<p><strong>演習 9.2（見分ける）</strong> 次の操作を、「本番を変えない／変える（戻せる）／変える（戻せない）」に分けてください。(a) <code>wrangler d1 migrations list … --remote</code> (b) <code>wrangler d1 migrations apply … --remote</code> (c) <code>wrangler deploy</code> (d) <code>wrangler rollback</code> (e) <code>git push</code> (f) <code>wrangler d1 execute … --remote --command "UPDATE …"</code></p>
+<p><strong>演習 9.3（読む）</strong> <code>deploy_panels.py 22.0 --check</code> を実行し、配置済みのコピーと、リポジトリの差分を読んでください。差分があるとき、<strong>何を疑うか</strong>。</p>
+<p><strong>演習 9.4（計画）</strong> 「<code>pilot_sessions</code> に、<code>device</code> 列（文字列）を足す」変更を、本番に出すまでの<strong>手順書</strong>を、図16の番号に沿って書いてください。各工程で、<strong>何を確かめて、次へ進むか</strong>、<strong>戻すならどうするか</strong>を、書くこと。</p>
+<p><strong>演習 9.5（読む・考える）</strong> <code>docs/learning/06-maintenance-runbook.md</code> の「障害記録 A」を読み、(a) 原因、(b) 見つけ方、(c) 再発防止 を、自分の言葉でまとめてください。この回の「見守り」のどの項目が、その再発防止ですか。</p>
+<h2 id="5-つまずきやすい点">5. つまずきやすい点</h2>
+<ul>
+<li><strong>「テストが通った = 本番で動く」と思う。</strong> 偽の D1・偽のサーバーでの結果。<strong>本番の疎通</strong>（401・実機）は、別に確かめる。</li>
+<li><strong>マイグレーションを、一覧せずに適用する。</strong> 保留中のものが、他にもあるかもしれない。</li>
+<li><strong>デプロイしたのに、変わらない。</strong> <code>npx wrangler deploy</code> の出力の「Current Version ID」を確かめる。別のフォルダで実行していないか。</li>
+<li><strong>許可を、持ち越す。</strong> 前に許可した操作を、次も許可されたと思わない。</li>
+</ul>
+<h2 id="6-確認問題">6. 確認問題</h2>
+<ol>
+<li>型検査とテストが通っても、本番を確かめる理由は？</li>
+<li>D1 → Worker → パネルの順にする理由を、それぞれ言え。</li>
+<li><code>wrangler rollback</code> で、戻らないものは？</li>
+<li><code>git add -A</code> を使わない理由は？</li>
+<li>毎週 <code>d1 insights</code> を見る理由は？</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>9.2: (a) 変えない (b) 変える（戻せない） (c) 変える（戻せる） (d) 変える（戻す操作） (e) リポジトリを変える (f) 変える（戻せない。事前に退避）。</li>
+<li>9.3: 差分があれば、「直したのに実機で変わらない」の原因。<code>--pypanel</code> で配置して、再起動。</li>
+<li>確認問題 3: D1 のデータ・マイグレーション（表の形）。</li>
+<li>確認問題 5: 読み取り行数が突出した SQL（全件走査）を、早く見つけるため（2026-10-16 の事故）。</li>
+</ul>
+</main>
+<div class="pager"><a href="08-add-a-feature.html">← 前へ</a><a href="10-troubleshooting.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

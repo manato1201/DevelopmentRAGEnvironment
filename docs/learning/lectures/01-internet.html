@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第1回 インターネットの基礎（URL・DNS・HTTPS・HTTP・JSON・API キー）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a class="current" href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第1回 インターネットの基礎（URL・DNS・HTTPS・HTTP・JSON・API キー）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/01-internet.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-url宛先の書き方">2.1 URL（宛先の書き方）</a></li><li><a href="#22-dns名前を住所に直す">2.2 DNS（名前を住所に直す）</a></li><li><a href="#23-https暗号化した封筒">2.3 HTTPS（暗号化した封筒）</a></li><li><a href="#24-http手紙と返事の書き方">2.4 HTTP（手紙と返事の書き方）</a></li><li><a href="#25-ステータスコード返事の第一声">2.5 ステータスコード（返事の第一声）</a></li><li><a href="#26-jsonデータの書き方">2.6 JSON（データの書き方）</a></li><li><a href="#27-api-キー誰が出した手紙か">2.7 API キー（誰が出した手紙か）</a></li></ol></li><li><a href="#3-このプロジェクトでは">3. このプロジェクトでは</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> <a href="../../images/11-request-life.svg">図11</a> の <strong>1・2（DNS）・3（HTTPS で送る）・11（JSON で返す）</strong> を、自分の言葉で説明できる。エラーの番号（401・404・429…）から、「どこで止まったか」を言える。<br />
+<strong>前提:</strong> なし。 <strong>目安:</strong> 2時間</p>
+<hr />
+<h2 id="1-全体像">1. 全体像</h2>
+<p>あなたが Houdini のパネルで質問を送ると、パネルは<strong>インターネット越しに</strong>、運営の Worker（Cloudflare 上のプログラム）へ<strong>手紙を出し</strong>、<strong>返事</strong>を受け取ります。手紙と返事の書き方の決まりが <strong>HTTP</strong>、その手紙を盗み見られないようにする封筒が <strong>HTTPS</strong>、宛先の名前から住所を調べる電話帳が <strong>DNS</strong> です。</p>
+<p><a href="../../images/11-request-life.svg"><img alt="リクエストの一生" src="../../images/11-request-life.svg" /></a></p>
+<p>この回で扱うのは、図の左の部分（利用者 → DNS → 拠点）と、最後の「JSON で返す」です。</p>
+<h2 id="2-基礎">2. 基礎</h2>
+<h3 id="21-url宛先の書き方">2.1 URL（宛先の書き方）</h3>
+<pre><code>https://rag-poc.manato1201m.workers.dev/query
+└─┬─┘   └──────────────┬───────────────┘└─┬─┘
+ 方式（scheme）     ホスト名（host）     道筋（path）
+</code></pre>
+<ul>
+<li><strong>方式</strong>: <code>https</code> は「暗号化して送る」。<code>http</code> は暗号化しない（このプロジェクトでは使わない）。</li>
+<li><strong>ホスト名</strong>: どのコンピューター（のグループ）に送るか。<code>workers.dev</code> は Cloudflare が貸している名前の領域で、<code>rag-poc.manato1201m</code> が、運営の Worker の名前。</li>
+<li><strong>道筋（path）</strong>: そのコンピューターの中の、どの窓口か。<code>/query</code>（質問）、<code>/search</code>（検索）、<code>/pilot/plan</code>（実証実験の次の課題）…。Worker は、道筋で処理を振り分けます（第5回）。</li>
+</ul>
+<h3 id="22-dns名前を住所に直す">2.2 DNS（名前を住所に直す）</h3>
+<p>コンピューターは、名前（<code>rag-poc.manato1201m.workers.dev</code>）では通信できません。<strong>住所</strong>（IP アドレス。例: <code>104.18.x.x</code>）が必要です。<strong>DNS</strong> は、名前から住所を調べる、インターネットの電話帳です。</p>
+<ol>
+<li>パネルが「この名前の住所は？」と聞く（図の <strong>1</strong>）</li>
+<li>住所が返る（図の <strong>2</strong>）。結果は、しばらく手元に覚えておく（<strong>キャッシュ</strong>）ので、毎回は聞かない</li>
+</ol>
+<blockquote>
+<p>つまずき: 「サーバーに接続できません」の原因の多くは、(a) ネットワークが切れている、(b) URL の綴りが違って DNS が引けない、(c) サーバーが落ちている、のどれかです。パネルは、この種のエラーを「サーバーに接続できません。ネットワークと、「接続」タブの URL を確認してください。」と言い換えます（<code>houdini/python_panels/panel_info.py</code> の <code>friendly_error</code>）。</p>
+</blockquote>
+<h3 id="23-https暗号化した封筒">2.3 HTTPS（暗号化した封筒）</h3>
+<p>HTTP の手紙は、そのままだと、途中の誰かが<strong>読める</strong>ことがあります。<strong>HTTPS</strong> は、手紙を暗号化する封筒です（TLS という仕組み）。さらに、<strong>相手が本物か</strong>を、証明書で確かめます。</p>
+<ul>
+<li>暗号化されるのは、手紙の中身（<strong>キー</strong>を含む）。<strong>どのホストに送ったか</strong>は、見えます。</li>
+<li>Cloudflare は、利用者に一番近い拠点（エッジ）で、HTTPS を受け止めます（図の <strong>3</strong> の先）。</li>
+</ul>
+<h3 id="24-http手紙と返事の書き方">2.4 HTTP（手紙と返事の書き方）</h3>
+<p><strong>リクエスト（手紙）</strong>:</p>
+<pre><code>POST /query HTTP/1.1                          ← 方法（method）と道筋
+Host: rag-poc.manato1201m.workers.dev         ← 宛先
+Authorization: Bearer &lt;あなたのAPIキー&gt;        ← 誰が出したか（ヘッダー）
+Content-Type: application/json                ← 本文の形
+                                              ← 空行で、ヘッダーと本文を分ける
+{&quot;query&quot;: &quot;Pyroとは？&quot;, &quot;namespaces&quot;: [&quot;houdini22&quot;]}   ← 本文（body）
+</code></pre>
+<p><strong>レスポンス（返事）</strong>:</p>
+<pre><code>HTTP/1.1 200 OK                               ← ステータスコード
+content-type: application/json; charset=utf-8
+
+{&quot;status&quot;:&quot;ok&quot;,&quot;answer&quot;:&quot;…&quot;,&quot;sources&quot;:[…]}    ← 本文
+</code></pre>
+<p><strong>方法（method）</strong> は、<code>GET</code>（取ってくる）と <code>POST</code>（送って処理させる）が主です。このプロジェクトの Worker は、<strong><code>/</code>（画面）と <code>/health</code> などを除き、POST だけ</strong>を受け付けます（それ以外は 405）。</p>
+<h3 id="25-ステータスコード返事の第一声">2.5 ステータスコード（返事の第一声）</h3>
+<p>番号の最初の数字で、おおまかな意味が決まります。<strong>2xx = 成功、4xx = 手紙の側が悪い、5xx = サーバーの側が悪い</strong>。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>番号</th>
+<th>意味</th>
+<th>このプロジェクトでの典型</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>200</td>
+<td>成功</td>
+<td>普通の応答</td>
+</tr>
+<tr>
+<td>400</td>
+<td>手紙の書き方が悪い</td>
+<td><code>kind は fixed か free を指定してください</code>（<code>pilotTasks.ts</code>）</td>
+</tr>
+<tr>
+<td>401</td>
+<td>誰か分からない（認証に失敗）</td>
+<td>キーが無い・違う・期限切れ。<code>index.ts</code> の <code>authenticate</code> が null を返したとき</td>
+</tr>
+<tr>
+<td>403</td>
+<td>誰かは分かるが、権限が無い</td>
+<td>admin 専用の API を、一般ユーザーが呼んだ（<code>ForbiddenError</code>）</td>
+</tr>
+<tr>
+<td>404</td>
+<td>その窓口は無い</td>
+<td><strong>未定義のエンドポイントです: /pilot/plan</strong> ＝ Worker が古い、または綴りの間違い</td>
+</tr>
+<tr>
+<td>405</td>
+<td>その方法は受け付けない</td>
+<td>GET で API を呼んだ</td>
+</tr>
+<tr>
+<td>409</td>
+<td>今の状態では、できない</td>
+<td>完了済みの課題を、もう一度終える・次の回を始めたあとに前の回をやり直す</td>
+</tr>
+<tr>
+<td>429</td>
+<td>回数・予算が上限</td>
+<td>60秒に30回を超えた（<code>rateLimit.ts</code>）・トークン予算が尽きた（<code>budget.ts</code>）</td>
+</tr>
+<tr>
+<td>500</td>
+<td>サーバーの中で例外</td>
+<td>コードのバグ・D1 の枠の超過（<a href="../06-maintenance-runbook.html">06 障害記録 A</a>）</td>
+</tr>
+<tr>
+<td>503</td>
+<td>サーバーが一時的に使えない</td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>覚え方</strong>: 401 は「あなたは誰？」、403 は「あなたには、させない」。404 は「そんな窓口は無い」、409 は「今は、それはできない」。</p>
+</blockquote>
+<h3 id="26-jsonデータの書き方">2.6 JSON（データの書き方）</h3>
+<p>手紙の本文も、返事の本文も、<strong>JSON</strong> という形式で書きます。</p>
+<pre><code class="language-json">{
+  &quot;round&quot;: 1,
+  &quot;fixed&quot;: { &quot;taskId&quot;: &quot;pyro&quot;, &quot;condition&quot;: &quot;docs_only&quot;, &quot;done&quot;: false },
+  &quot;history&quot;: []
+}
+</code></pre>
+<ul>
+<li><code>{ }</code> は、名前と値の組（オブジェクト）。<code>[ ]</code> は、並び（配列）。</li>
+<li>値は、文字列 <code>"…"</code>・数 <code>12</code>・真偽 <code>true/false</code>・<code>null</code>・入れ子。</li>
+<li>末尾のカンマや、シングルクォートは、<strong>間違い</strong>です。</li>
+</ul>
+<p><strong>「Unexpected token '&lt;'」の正体</strong>: 画面は JSON が返ってくると思って読もうとしたのに、実際は <code>&lt;html&gt;…</code> で始まる<strong>エラーページ</strong>だった、という意味です（サーバーが落ちた・Cloudflare のエラーページ）。コードのバグではなく、<strong>サーバーから JSON が返らなかった</strong>ことを疑います。</p>
+<h3 id="27-api-キー誰が出した手紙か">2.7 API キー（誰が出した手紙か）</h3>
+<ul>
+<li>キーは、<strong>利用者を識別する合言葉</strong>です。<code>Authorization: Bearer &lt;キー&gt;</code> として送ります。</li>
+<li>Worker は、キーそのものを<strong>保存しません</strong>。キーの <strong>SHA-256 ハッシュ</strong>（元に戻せない要約）だけを、D1 の <code>users.user_id</code> に持ちます。手紙のキーをハッシュして、一致する行を探します（<code>src/auth.ts</code> の <code>authenticate</code>）。</li>
+<li>したがって、D1 が漏れても、キーは分かりません。</li>
+<li><strong>キーを置いてはいけない場所</strong>: チャット・メール・コミット・スクリーンショット・URL（<code>?key=…</code>）。URL は、履歴やログに残ります。</li>
+<li>Worker 自身が使う外部の鍵（Gemini など）は、コードに書かず、<strong>Secrets</strong>（<code>wrangler secret put</code>）に入れます（第2回）。</li>
+</ul>
+<h2 id="3-このプロジェクトでは">3. このプロジェクトでは</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>学んだこと</th>
+<th>実際のコード</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JSON の返事の作り方</td>
+<td><code>cloudflare-rag-poc/src/http.ts</code> の <code>jsonResponse(status, body)</code></td>
+</tr>
+<tr>
+<td>手紙（JSON）の読み方</td>
+<td><code>src/pilotTasks.ts</code> の <code>readBody(req)</code>（読めなければ空のオブジェクト）</td>
+</tr>
+<tr>
+<td>数のクランプ（不正な値を丸める）</td>
+<td><code>src/http.ts</code> の <code>clampInt(raw, def, min, max)</code></td>
+</tr>
+<tr>
+<td>認証</td>
+<td><code>src/auth.ts</code> の <code>authenticate</code>（<code>Bearer</code> を取り出し、<code>sha256Hex</code>、<code>users</code> を引く）</td>
+</tr>
+<tr>
+<td>401/405/404</td>
+<td><code>src/index.ts</code> の <code>fetch</code>（認証 → POST の確認 → <code>switch (url.pathname)</code> → 未定義は 404）</td>
+</tr>
+<tr>
+<td>パネル側の送信</td>
+<td><code>houdini/python_panels/rag_client.py</code> の <code>post_json</code>（<code>Authorization: Bearer</code> を付けて POST）</td>
+</tr>
+<tr>
+<td>エラーの言い換え</td>
+<td><code>houdini/python_panels/panel_info.py</code> の <code>friendly_error</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="4-演習">4. 演習</h2>
+<p><strong>演習 1.1（読む）</strong> <code>cloudflare-rag-poc/src/index.ts</code> の <code>async fetch(</code> を開き、<strong>リクエストが、401 になる条件</strong>と、<strong>405 になる条件</strong>を、行番号つきで書いてください。</p>
+<p><strong>演習 1.2（読む）</strong> <code>houdini/python_panels/panel_info.py</code> の <code>friendly_error</code> を読み、次の入力がどのメッセージになるか、予想してから、<code>houdini/tests/test_panel_debug.py</code> で確かめてください。<br />
+1. <code>HTTP Error 404: Not Found</code>　2. <code>処理に 15000ms かかりました</code>　3. <code>&lt;urlopen error [Errno 11001] getaddrinfo failed&gt;</code></p>
+<p><strong>演習 1.3（送る）</strong> 本番に<strong>読み取りだけ</strong>の確認を送ります（キーは使いません）。下の PowerShell を実行し、結果を説明してください。</p>
+<pre><code class="language-powershell"># 鍵なしで /pilot/plan を呼ぶ → 401 になるはず（404 なら、Worker が古い）
+try { Invoke-RestMethod -Method Post -Uri &quot;https://rag-poc.manato1201m.workers.dev/pilot/plan&quot; -ContentType &quot;application/json&quot; -Body &quot;{}&quot; }
+catch { $_.Exception.Response.StatusCode.value__ }
+</code></pre>
+<p><strong>演習 1.4（考える）</strong> 次の症状は、HTTP のどの段階の問題ですか。(a) 画面に「応答がJSONではありません」と出る。(b) 「APIキーが無効か、期限が切れています」と出る。(c) 「サーバーに接続できません」と出る。</p>
+<h2 id="5-つまずきやすい点">5. つまずきやすい点</h2>
+<ul>
+<li><strong>401 と 403 を混同する。</strong> 401 は「誰か分からない」、403 は「権限が無い」。</li>
+<li><strong>404 を「バグ」だと決めつける。</strong> このプロジェクトでは、<strong>新しい機能だけ 404</strong> は、ほぼ「Worker が、まだデプロイされていない」です（第9回）。</li>
+<li><strong>curl が Windows で動かない。</strong> PowerShell の <code>Invoke-RestMethod</code>、または Node の <code>fetch</code> を使うと、確実です。</li>
+<li><strong>キーをコピーして、うっかり貼る。</strong> 貼ってしまったら、<strong>そのキーを失効して、作り直す</strong>（運営の管理画面）。</li>
+</ul>
+<h2 id="6-確認問題">6. 確認問題</h2>
+<ol>
+<li>URL <code>https://a.example/b/c</code> の、方式・ホスト名・道筋は？</li>
+<li>DNS が引けないと、どうなるか？ キャッシュは、何のためにあるか？</li>
+<li>HTTPS で、暗号化されるものと、されないものは？</li>
+<li>403 と 409 の違いを、このプロジェクトの例で説明せよ。</li>
+<li>キーを D1 に保存しないのは、なぜか？</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>1.1: <code>index.ts</code> の <code>authenticate</code> の直後（<code>if (!user)</code>）と、<code>req.method !== "POST"</code> を探す。</li>
+<li>1.2: 1 → 「まだ対応していません」、2 → 「うまくいきませんでした」（桁の途中の数字を、ステータスと取り違えない。<code>has_status</code> の正規表現）、3 → 「サーバーに接続できません」。</li>
+<li>1.3: 401。レスポンスが 404 なら、<code>index.ts</code> の <code>case "/pilot/plan"</code> を含むバージョンが、デプロイされていない。</li>
+<li>1.4: (a) 応答の本文が JSON でない（サーバー側）、(b) 認証（401）、(c) 通信の前の段階（DNS・ネットワーク）。</li>
+<li>確認問題 5: D1 が漏れても、キーが復元できないようにするため（ハッシュは一方向）。</li>
+</ul>
+</main>
+<div class="pager"><a href="README.html">← 前へ</a><a href="02-cloudflare.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

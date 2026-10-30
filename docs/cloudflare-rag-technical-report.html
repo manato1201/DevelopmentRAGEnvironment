@@ -75,9 +75,9 @@
 <header class="hero">
   <span class="badge">技術解説書（Cloudflare）</span>
   <h1>Cloudflare RAG POC 技術解説書</h1>
-  <div class="meta">HTML生成: 2026-10-23（元: docs/cloudflare-rag-technical-report.md）</div>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/cloudflare-rag-technical-report.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-概要">1. 概要</a></li><li><a href="#2-なぜcloudflareか">2. なぜCloudflareか</a></li><li><a href="#3-システム全体構成">3. システム全体構成</a></li><li><a href="#4-データモデル">4. データモデル</a></li><li><a href="#5-主要フロー">5. 主要フロー</a><ol><li><a href="#51-ragクエリquery">5.1 RAGクエリ（/query）</a></li><li><a href="#52-知識ベース同期バッチ処理パターン">5.2 知識ベース同期（バッチ処理パターン）</a></li><li><a href="#53-oauthクリック接続2026-09-22追加">5.3 OAuthクリック接続（2026-09-22追加）</a></li></ol></li><li><a href="#6-セキュリティアクセス制御">6. セキュリティ・アクセス制御</a></li><li><a href="#7-知識ベース取り込みパイプライン">7. 知識ベース取り込みパイプライン</a></li><li><a href="#8-実装上の技術的な工夫と実際に発見修正したバグ">8. 実装上の技術的な工夫と、実際に発見・修正したバグ</a></li><li><a href="#9-gas版との機能対応表サマリ">9. GAS版との機能対応表（サマリ）</a></li><li><a href="#10-今後の課題">10. 今後の課題</a></li><li><a href="#11-追補2026-10-21-音声合成章つきのドキュメント有料プラン">11. 追補（2026-10-21）: 音声合成、章つきのドキュメント、有料プラン</a><ol><li><a href="#111-音声合成の中継post-ttssrcttsts">11.1 音声合成の中継（POST /tts、src/tts.ts）</a></li><li><a href="#112-houdini-公式ドキュメントの章srchoudinicontextts">11.2 Houdini 公式ドキュメントの章（src/houdiniContext.ts）</a></li><li><a href="#113-クライアントの章のヒント">11.3 クライアントの章のヒント</a></li><li><a href="#114-プラン">11.4 プラン</a></li><li><a href="#115-テスト">11.5 テスト</a></li></ol></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-概要">1. 概要</a></li><li><a href="#2-なぜcloudflareか">2. なぜCloudflareか</a></li><li><a href="#3-システム全体構成">3. システム全体構成</a></li><li><a href="#4-データモデル">4. データモデル</a></li><li><a href="#5-主要フロー">5. 主要フロー</a><ol><li><a href="#51-ragクエリquery">5.1 RAGクエリ（/query）</a></li><li><a href="#52-知識ベース同期バッチ処理パターン">5.2 知識ベース同期（バッチ処理パターン）</a></li><li><a href="#53-oauthクリック接続2026-09-22追加">5.3 OAuthクリック接続（2026-09-22追加）</a></li></ol></li><li><a href="#6-セキュリティアクセス制御">6. セキュリティ・アクセス制御</a></li><li><a href="#7-知識ベース取り込みパイプライン">7. 知識ベース取り込みパイプライン</a></li><li><a href="#8-実装上の技術的な工夫と実際に発見修正したバグ">8. 実装上の技術的な工夫と、実際に発見・修正したバグ</a></li><li><a href="#9-gas版との機能対応表サマリ">9. GAS版との機能対応表（サマリ）</a></li><li><a href="#10-今後の課題">10. 今後の課題</a></li><li><a href="#11-追補2026-10-21-音声合成章つきのドキュメント有料プラン">11. 追補（2026-10-21）: 音声合成、章つきのドキュメント、有料プラン</a><ol><li><a href="#111-音声合成の中継post-ttssrcttsts">11.1 音声合成の中継（POST /tts、src/tts.ts）</a></li><li><a href="#112-houdini-公式ドキュメントの章srchoudinicontextts">11.2 Houdini 公式ドキュメントの章（src/houdiniContext.ts）</a></li><li><a href="#113-クライアントの章のヒント">11.3 クライアントの章のヒント</a></li><li><a href="#114-プラン">11.4 プラン</a></li><li><a href="#115-テスト">11.5 テスト</a></li></ol></li><li><a href="#12-追補2026-10-30-実証実験の課題の記録図">12. 追補（2026-10-30）: 実証実験の課題の記録、図</a><ol><li><a href="#121-追加した表マイグレーション-00350036">12.1 追加した表（マイグレーション 0035・0036）</a></li><li><a href="#122-流れ">12.2 流れ</a></li><li><a href="#123-リクエストの一生">12.3 リクエストの一生</a></li><li><a href="#124-テスト">12.4 テスト</a></li></ol></li></ol></details></nav>
 <main>
 
 <p><strong>作成日:</strong> 2026-08-26（2026-09-22時点の実装に合わせて全面更新：知識ベース連携の拡張とOAuthクリック接続化を反映）<br />
@@ -543,6 +543,43 @@
 <p>2026-10-21 に <strong>Workers Paid</strong>（月 $5）へ移行。無料プランでは、D1 の読み取り 1日 500万行・書き込み 1日 10万行・Vectorize 500万次元（768次元で約6,500本）が、公式ドキュメント約2,000ページの登録で足りなくなるため。有料では、読み取り 250億行／月、書き込み 5,000万行／月、Vectorize 1,000万次元まで込み。見込みの月額は <a href="cost-and-quota.html">cost-and-quota.md</a>。</p>
 <h3 id="115-テスト">11.5 テスト</h3>
 <p><code>npm test</code>（<code>tsx --test</code>、偽の D1（<code>node:sqlite</code>）と偽の外部 API）に、<code>tts</code>（上限・払い戻し・声の拒否・並行）、<code>houdini_context</code>（URL・見出し・指定・並べ替え・注意書き）、<code>crawl_houdini</code>（同名ページが上書きし合わない・旧形式の削除・再実行で二重にならない）、<code>retrieve_context</code>（温度0・2つのクエリベクトル・指定とヒント・再現性）を追加した。</p>
+<h2 id="12-追補2026-10-30-実証実験の課題の記録図">12. 追補（2026-10-30）: 実証実験の課題の記録、図</h2>
+<h3 id="121-追加した表マイグレーション-00350036">12.1 追加した表（マイグレーション 0035・0036）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>表</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pilot_profile</code></td>
+<td>参加者。<code>pid</code>（登録順の匿名番号。管理者は NULL）・<code>slot</code>（1〜3）・事前アンケート</td>
+</tr>
+<tr>
+<td><code>pilot_sessions</code></td>
+<td>課題1回の記録。<code>round</code>（1〜3）・<code>kind</code>（fixed／free）・<code>condition</code>（system／docs_only）・開始／終了・<code>duration_sec</code>・<code>paused_sec</code>・アンケート列・<code>discarded_at</code></td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>同じ（人・回・種類）の<strong>有効な行は1つ</strong>（<code>WHERE discarded_at IS NULL</code> の部分一意索引）。やり直しは、行を消さず <code>discarded_at</code> を入れる。</li>
+<li>全体の表の関係 → <a href="images/14-data-model.svg">図14</a>。</li>
+</ul>
+<p><a href="images/14-data-model.svg"><img alt="データの置き場" src="images/14-data-model.svg" /></a></p>
+<h3 id="122-流れ">12.2 流れ</h3>
+<p><a href="images/12-pilot-flow.svg"><img alt="実証実験の流れ" src="images/12-pilot-flow.svg" /></a></p>
+<ul>
+<li>固定課題の順序は、<code>LATIN[slot]</code>（<code>src/pilotTasks.ts</code>）。対照の回は、回 = slot。</li>
+<li>所要時間 = 終了 − 開始 − 中断。終了の時刻は、送信の時刻から、振り返りに使った秒（<code>surveySec</code>）を引いたもの。質問回数は、その時間内の <code>memory</code> の数をサーバーが数える。</li>
+<li>破棄は、次の回の課題を始める前だけ（<code>handlePilotSessionReset</code>）。</li>
+</ul>
+<p><a href="images/13-task-states.svg"><img alt="課題の状態" src="images/13-task-states.svg" /></a></p>
+<h3 id="123-リクエストの一生">12.3 リクエストの一生</h3>
+<p><a href="images/11-request-life.svg"><img alt="リクエストの一生" src="images/11-request-life.svg" /></a></p>
+<h3 id="124-テスト">12.4 テスト</h3>
+<p><code>pilot_tasks</code>（割り当て・操作ミス・次の課題・集計・やり直し・時間の引き算・管理画面の部品）、<code>pilot_stats</code>、<code>growth</code>、<code>ascii_art</code>（背景の生き物を含む）。D1 は <code>node:sqlite</code> の実スキーマ（<code>migrations/</code> を順に適用）。</p>
 <hr />
 <p><em>関連ドキュメント: <a href="../cloudflare-rag-poc/README.md">cloudflare-rag-poc/README.md</a> / <a href="gas-feature-parity.md">docs/gas-feature-parity.md</a> / <a href="cloudflare-rag-operations-manual.md">docs/cloudflare-rag-operations-manual.md</a> / <a href="cloudflare-vs-firebase-comparison.html">docs/cloudflare-vs-firebase-comparison.md</a></em></p>
 </main>

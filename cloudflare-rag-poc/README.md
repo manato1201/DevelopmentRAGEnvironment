@@ -26,6 +26,9 @@
 - Webチャット画面（`GET /`）— チャット／グラフ（Three.jsによる3D知識グラフ）／履歴／管理の4タブ構成
 - **Claude Messages APIプロキシ**（`/claude/messages`、2026-08-26追加）— `houdini/python_panels/tutorial_agent.py`（Houdiniチュートリアル生成）がGAS経由で行っていたClaude呼び出しの移行先。RAG自体は引き続きGeminiのみ
 - チャット履歴（メモリ）保存・一覧・評価
+- **実証実験**（2026-10）— `POST /pilot/plan`・`/pilot/profile`・`/pilot/session/start`・`/end`・`/reset`（本人）、`POST /admin/pilot/summary`・`/admin/pilot/tasks`（管理者の集計）。表は `pilot_profile`・`pilot_sessions`（マイグレーション 0035・0036）。やり直しは `discarded_at` で残し、集計から外す。詳しくは [docs/pilot-analysis-design.md](../docs/pilot-analysis-design.md)・[docs/cloudflare-rag-operations-manual.md §8-4](../docs/cloudflare-rag-operations-manual.md)
+- **説明レベルと習熟度**（2026-10）— `POST /me/growth`・`/me/growth/reset`（`user_terms`）。質問で使った専門用語から、説明の段階（basic／applied／advanced）をおまかせで選ぶ
+- 図: [リクエストの一生](../docs/images/11-request-life.svg)・[データの置き場](../docs/images/14-data-model.svg)・[変更から本番まで](../docs/images/16-change-flow.svg)。保守・拡張の講義 → [docs/learning/lectures/README.md](../docs/learning/lectures/README.md)
 - D1（`migrations/`配下）: users / namespaces / token_budgets / audit_log / memory / kb_sources / kb_log / key_namespace_grants ＋ FTS5仮想テーブル`chunks_fts`
 - Vectorize 2インデックス（`VEC_SHARED` / `VEC_PERSONAL`）による共有・個人スコープの分離
 - APIキー（SHA-256ハッシュ）によるユーザー認証、キーごとの共有namespaceアクセス制御（`key_namespace_grants`）

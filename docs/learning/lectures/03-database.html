@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第3回 データベースと SQL（表・索引・マイグレーション・落とし穴）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a class="current" href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>第3回 データベースと SQL（表・索引・マイグレーション・落とし穴）</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/03-database.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-表行列主キー">2.1 表・行・列・主キー</a></li><li><a href="#22-sql-の基本">2.2 SQL の基本</a></li><li><a href="#23-索引インデックス">2.3 索引（インデックス）</a></li><li><a href="#24-一意性と部分一意索引">2.4 一意性と「部分一意索引」</a></li><li><a href="#25-null-の落とし穴">2.5 NULL の落とし穴</a></li><li><a href="#26-マイグレーション表の形の変更を記録する">2.6 マイグレーション（表の形の変更を、記録する）</a></li><li><a href="#27-コードからの-d1prepare-bind-firstallrun">2.7 コードからの D1（prepare → bind → first/all/run）</a></li></ol></li><li><a href="#3-このプロジェクトでは">3. このプロジェクトでは</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
+<main>
+
+<p><strong>到達目標:</strong> <a href="../../images/14-data-model.svg">図14</a> の表の関係を読める。<code>migrations/</code> の SQL を読み書きできる。<strong>SQL の落とし穴</strong>（NULL・索引・<code>LIMIT</code>）を避けられる。D1 のコードの型（<code>prepare → bind → first/all/run</code>）を使える。<br />
+<strong>前提:</strong> 第2回。 <strong>目安:</strong> 3時間</p>
+<hr />
+<h2 id="1-全体像">1. 全体像</h2>
+<p><a href="../../images/14-data-model.svg"><img alt="データの置き場" src="../../images/14-data-model.svg" /></a></p>
+<p>D1 には、「人と権限」「質問と回答」「ナレッジ」「評価」「実証実験」の表が入っています。<strong>どの表も、利用者は <code>user_id</code> で <code>users</code> とつながります</strong>。</p>
+<h2 id="2-基礎">2. 基礎</h2>
+<h3 id="21-表行列主キー">2.1 表・行・列・主キー</h3>
+<p><strong>表（テーブル）</strong>は、Excel の表です。<strong>列</strong>が項目、<strong>行</strong>が1件のデータ。</p>
+<p><code>users</code> の例:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>user_id（主キー）</th>
+<th>display_name</th>
+<th>role</th>
+<th>created_at</th>
+<th>expires_at</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3a7f…（キーのハッシュ）</td>
+<td>田中</td>
+<td>member</td>
+<td>1760000000</td>
+<td>NULL</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>主キー（PRIMARY KEY）</strong>: 1行を、1つに決める列。同じ値は、2回入れられない。</li>
+<li><strong>NULL</strong>: 「値が無い」。0 や空文字とは<strong>違います</strong>（2.5 で詳しく）。</li>
+<li>日時は、<strong>UNIX 秒</strong>（1970-01-01 からの秒数）の整数で持ちます（<code>created_at</code>）。<code>date(created_at, 'unixepoch')</code> で、日付にできます。</li>
+</ul>
+<h3 id="22-sql-の基本">2.2 SQL の基本</h3>
+<pre><code class="language-sql">-- 読む
+SELECT user_id, role FROM users WHERE role = 'admin';
+-- 数える
+SELECT COUNT(*) AS n FROM memory WHERE user_id = ?;
+-- 足す・直す・消す
+INSERT INTO threads (thread_id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?);
+UPDATE pilot_sessions SET discarded_at = ? WHERE id = ?;
+DELETE FROM threads WHERE thread_id = ?;
+</code></pre>
+<ul>
+<li><strong><code>?</code></strong> は、後から値を差し込む場所（<strong>プレースホルダー</strong>）。値を SQL の文字に<strong>直接つなげてはいけません</strong>（SQL インジェクション。第5回）。</li>
+<li><strong>JOIN</strong>: 2つの表を、つなげて読む。</li>
+</ul>
+<pre><code class="language-sql">SELECT p.pid, s.round, s.kind
+FROM pilot_sessions s JOIN pilot_profile p ON p.user_id = s.user_id
+WHERE s.ended_at IS NOT NULL;
+</code></pre>
+<ul>
+<li><strong>GROUP BY</strong>: 同じ値でまとめて、数える・合計する。</li>
+</ul>
+<pre><code class="language-sql">SELECT round, kind, COUNT(*) AS n FROM pilot_sessions GROUP BY round, kind;
+</code></pre>
+<h3 id="23-索引インデックス">2.3 索引（インデックス）</h3>
+<p>索引は、本の<strong>巻末の索引</strong>です。無いと、データベースは、<strong>全部の行を端から読んで</strong>探します（全件走査）。D1 は、<strong>読んだ行数</strong>で料金と枠が決まるので、全件走査は、そのままコストです。</p>
+<pre><code class="language-sql">CREATE INDEX idx_memory_user_created ON memory(user_id, created_at DESC);
+</code></pre>
+<p>この索引があると、<code>WHERE user_id = ? AND created_at &gt;= ?</code> が、該当の行だけを読みます。</p>
+<p><strong>索引が効かない書き方</strong>（Z32 の点検項目）:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>書き方</th>
+<th>問題</th>
+<th>直し方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>WHERE date(created_at,'unixepoch') = '2026-10-30'</code></td>
+<td>列に<strong>関数</strong>をかけると、索引が使えない</td>
+<td><code>WHERE created_at &gt;= ? AND created_at &lt; ?</code>（範囲）</td>
+</tr>
+<tr>
+<td><code>WHERE name LIKE '%abc%'</code></td>
+<td>前に <code>%</code> が付くと、索引が使えない</td>
+<td>前方一致（<code>'abc%'</code>）にする。それが無理なら、件数が少ない表だけで使う</td>
+</tr>
+<tr>
+<td><code>LIMIT</code> だけで <code>ORDER BY</code> が無い</td>
+<td>どの行が返るか、<strong>不定</strong></td>
+<td><code>ORDER BY</code> を付ける。同じ値が並ぶときは、2つ目の並び（<code>, id</code>）も付ける</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="24-一意性と部分一意索引">2.4 一意性と「部分一意索引」</h3>
+<p><strong>UNIQUE</strong>: 同じ値の組を、2行入れられない。</p>
+<p><code>pilot_sessions</code> は、「同じ人・同じ回・同じ種類」を、<strong>1つだけ</strong>にしたい。でも、「やり直し」で破棄した記録は、<strong>残したい</strong>（<code>discarded_at</code> を入れる）。そこで、<strong>破棄していない行だけ</strong>に、一意性をかけます（<code>0036_pilot_redo.sql</code>）。</p>
+<pre><code class="language-sql">CREATE UNIQUE INDEX idx_pilot_sessions_slot
+  ON pilot_sessions(user_id, round, kind) WHERE discarded_at IS NULL;
+</code></pre>
+<blockquote>
+<p>学び: 「消す」代わりに「印を付ける」（<strong>論理削除</strong>）なら、記録が残る。そのとき、一意性は、<strong>印が付いていない行だけ</strong>に、かける。</p>
+</blockquote>
+<h3 id="25-null-の落とし穴">2.5 NULL の落とし穴</h3>
+<p>NULL は、「分からない」です。<strong>NULL との比較は、真でも偽でもなく、「不明」</strong>になり、<code>WHERE</code> では、行が<strong>落ちます</strong>。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>書き方</th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>WHERE x != 'admin'</code></td>
+<td><code>x</code> が NULL の行は、<strong>入らない</strong>（<code>NULL != 'admin'</code> は不明）</td>
+</tr>
+<tr>
+<td><code>WHERE x IS NULL</code></td>
+<td>NULL の行（<code>= NULL</code> は書けない）</td>
+</tr>
+<tr>
+<td><code>COUNT(*)</code> と <code>COUNT(col)</code></td>
+<td><code>COUNT(*)</code> は全行。<code>COUNT(col)</code> は、<strong>col が NULL の行を数えない</strong></td>
+</tr>
+<tr>
+<td><code>NOT IN (SELECT col …)</code></td>
+<td>副問い合わせの中に NULL が1つでもあると、<strong>全体が空になる</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>このプロジェクトでの対策</strong>:<br />
+- <code>users.role</code> は <strong><code>NOT NULL</code></strong>（だから <code>u.role != 'admin'</code> で、行が落ちない）。<br />
+- 孤児のスレッドを消す SQL は、副問い合わせに <strong><code>WHERE thread_id IS NOT NULL</code></strong> を付けて、NULL を除いている（<code>src/index.ts</code>）。<br />
+- <code>pilot_sessions</code> の「到達」「アンケート」の列は、<strong>答えなかった = NULL</strong>（0 と区別）。集計は、NULL を飛ばして計算する（<code>median</code> は <code>null</code> を除く）。</p>
+<h3 id="26-マイグレーション表の形の変更を記録する">2.6 マイグレーション（表の形の変更を、記録する）</h3>
+<p>表の形を変えるときは、<strong>SQL ファイルを足します</strong>（<code>migrations/NNNN_名前.sql</code>）。番号順に、<strong>1回ずつ</strong>適用されます。適用済みの記録は、D1 自身が持ちます。</p>
+<pre><code class="language-bash">npx wrangler d1 migrations list  rag-poc-db --local   # どれが未適用か
+npx wrangler d1 migrations apply rag-poc-db --local   # 未適用のものを、順に適用
+</code></pre>
+<p><strong>決まり</strong>:<br />
+1. <strong>既存のファイルは、直さない。</strong> 適用済みの環境に、効かないから。直したいなら、新しいファイルで、直す。<br />
+2. <strong>戻す SQL は、自動では無い。</strong> 戻したいなら、打ち消す SQL を、<strong>新しいマイグレーション</strong>として足す。<br />
+3. <strong>列を足すとき</strong>: <code>ALTER TABLE … ADD COLUMN</code>。<code>NOT NULL</code> を付けるなら、<strong><code>DEFAULT</code> が必須</strong>（既存の行に入れる値が要るから）。例: <code>ALTER TABLE pilot_sessions ADD COLUMN paused_sec INTEGER NOT NULL DEFAULT 0;</code><br />
+4. <strong>本番に適用する前に、中身を読む。</strong> 本番への適用は、戻せません。</p>
+<h3 id="27-コードからの-d1prepare-bind-firstallrun">2.7 コードからの D1（<code>prepare → bind → first/all/run</code>）</h3>
+<pre><code class="language-ts">// 1行（無ければ null）
+const row = await env.DB.prepare(&quot;SELECT user_id, pid, slot FROM pilot_profile WHERE user_id = ?&quot;)
+  .bind(userId).first&lt;ProfileRow&gt;();
+// 複数行
+const res = await env.DB.prepare(&quot;SELECT … FROM pilot_sessions WHERE user_id = ? AND discarded_at IS NULL&quot;)
+  .bind(userId).all&lt;SessionRow&gt;();
+const rows = res.results ?? [];
+// 書き込み
+await env.DB.prepare(&quot;UPDATE pilot_sessions SET discarded_at = ? WHERE id = ?&quot;)
+  .bind(Math.floor(Date.now() / 1000), id).run();
+</code></pre>
+<ul>
+<li><strong><code>.bind(...)</code></strong> で値を渡す。SQL の文字に、値を<strong>つなげない</strong>。</li>
+<li>複数の書き込みを1回で行うなら、<code>env.DB.batch([...])</code>（<code>src/growth.ts</code> の <code>recordQueryTerms</code>）。</li>
+</ul>
+<h2 id="3-このプロジェクトでは">3. このプロジェクトでは</h2>
+<ul>
+<li>表の一覧と関係: <a href="../../images/14-data-model.svg">図14</a>。作った SQL: <code>cloudflare-rag-poc/migrations/</code>（<code>0001_init.sql</code> から <code>0036_pilot_redo.sql</code>）。</li>
+<li>全文検索は、<code>FTS5</code> という仕組み（<code>chunks_fts</code>）。<code>chunk_rows</code> が、断片（<code>chunk_id</code>）と対応づける。</li>
+<li>SQL の点検の記録（2026-10-30）: <a href="../../../IMPROVEMENT_DESIGN_2026-10.md">IMPROVEMENT_DESIGN_2026-10.md</a> の「Z32 SQL」。結論は「不具合なし。<code>LIKE '%…%'</code> は、管理者向けなので許容」。</li>
+</ul>
+<h2 id="4-演習">4. 演習</h2>
+<p><strong>演習 3.1（読む）</strong> <code>migrations/0035_pilot_tasks.sql</code> と <code>0036_pilot_redo.sql</code> を読み、次に答えてください。(a) <code>pilot_profile.pid</code> は NULL を許すか。なぜか。(b) <code>0036</code> で <code>DROP INDEX</code> してから作り直した理由は。(c) <code>paused_sec</code> に <code>DEFAULT 0</code> が必要な理由は。</p>
+<p><strong>演習 3.2（ローカルで書く）</strong> ローカルの D1 で、次を実行して、結果を予想→確認してください。</p>
+<pre><code class="language-bash">cd cloudflare-rag-poc
+npx wrangler d1 migrations apply rag-poc-db --local
+npx wrangler d1 execute rag-poc-db --local --command &quot;INSERT INTO users (user_id, display_name, role, created_at) VALUES ('t1','試験','member',1)&quot;
+npx wrangler d1 execute rag-poc-db --local --command &quot;SELECT COUNT(*) AS rows_, COUNT(expires_at) AS with_expiry FROM users&quot;
+</code></pre>
+<p><code>rows_</code> と <code>with_expiry</code> が違う理由を、説明してください。</p>
+<p><strong>演習 3.3（点検する）</strong> <code>cloudflare-rag-poc/src/usageStats.ts</code> の <code>SELECT date(created_at, 'unixepoch') …</code> を読み、<code>date()</code> が <strong>SELECT と GROUP BY</strong> にだけあり、<code>WHERE</code> には無いことを確認してください。もし <code>WHERE date(created_at,'unixepoch') &gt;= …</code> と書いたら、何が起きるか説明してください。</p>
+<p><strong>演習 3.4（書く）</strong> 「各参加者の、有効な（破棄していない）課題の数」を出す SQL を、<code>pilot_profile</code> と <code>pilot_sessions</code> を JOIN して書いてください。管理者（<code>pid IS NULL</code>）は除くこと。</p>
+<h2 id="5-つまずきやすい点">5. つまずきやすい点</h2>
+<ul>
+<li><strong><code>= NULL</code> と書いてしまう。</strong> <code>IS NULL</code> と書く。</li>
+<li><strong>ローカルと本番を取り違えて、本番の表を直す。</strong> 第2回の表を再確認。</li>
+<li><strong>適用済みのマイグレーションを書き換える。</strong> 本番には効かないのに、ローカルだけ直ったように見えて、事故になる。</li>
+<li><strong>全件を数える SQL を、画面を開くたびに打つ。</strong> D1 の読み取り枠を使い切る（2026-10-16 の事故）。</li>
+</ul>
+<h2 id="6-確認問題">6. 確認問題</h2>
+<ol>
+<li>主キーと、UNIQUE 索引の違いは？</li>
+<li><code>WHERE role != 'admin'</code> で、<code>role</code> が NULL の行は、入るか？</li>
+<li>論理削除と、物理削除（DELETE）の違いと、使い分けは？</li>
+<li>マイグレーションに「既存のファイルを直さない」決まりがあるのは、なぜか？</li>
+<li><code>SELECT * FROM kb_log LIMIT 50</code> の問題を2つ挙げよ。</li>
+</ol>
+<h2 id="解答の方針">解答の方針</h2>
+<ul>
+<li>3.1: (a) 許す。運営（admin）のテストは、番号を取らないため。(b) <code>UNIQUE INDEX</code> の条件（<code>WHERE discarded_at IS NULL</code>）は、作り直さないと変えられない。(c) 既存の行に、入れる値が要るため。</li>
+<li>3.2: <code>COUNT(*)</code> は全行、<code>COUNT(expires_at)</code> は、<code>expires_at</code> が NULL でない行だけを数える。</li>
+<li>3.3: 全行の <code>created_at</code> に関数をかけてから比べるので、索引が使えず、全件走査になる。</li>
+<li>3.4: <code>SELECT p.pid, COUNT(*) FROM pilot_profile p JOIN pilot_sessions s ON s.user_id = p.user_id WHERE s.discarded_at IS NULL AND p.pid IS NOT NULL GROUP BY p.pid</code>。</li>
+<li>確認問題 5: <code>ORDER BY</code> が無く、どの50件か不定。<code>SELECT *</code> は、不要な列まで読む。</li>
+</ul>
+</main>
+<div class="pager"><a href="02-cloudflare.html">← 前へ</a><a href="04-rag-and-ai.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

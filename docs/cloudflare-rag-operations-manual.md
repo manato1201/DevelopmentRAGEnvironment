@@ -288,11 +288,37 @@ npx wrangler d1 execute rag-poc-db --remote --command "SELECT rating, COUNT(*) F
 
 ```bash
 cd cloudflare-rag-poc
-npm run db:migrate:remote   # 0017（評価）・0018（MCP）
+npm run db:migrate:remote   # 0017（評価）・0018（MCP）・…・0035（課題の記録）・0036（やり直し）
 npm run deploy
 ```
 
 wranglerが`7403`（アカウントが無効）で失敗することがあるが、一時的なAPIエラーのことが多い。`wrangler whoami`でログインとスコープ（d1・workers）を確認し、再実行する。
+
+### 8-4. 実証実験の課題の記録（2026-10-28〜）
+
+参加者の「課題」タブ（Houdini）が使う API と、管理者が見る集計。流れは [図12](images/12-pilot-flow.svg)・[図13](images/13-task-states.svg)、表は [図14](images/14-data-model.svg)。
+
+| API | 誰が | 内容 |
+|---|---|---|
+| `POST /pilot/plan` | 本人 | 次の課題（回・固定課題の題材・条件）と、これまでの記録（`history`） |
+| `POST /pilot/profile` | 本人 | 事前アンケート。参加者番号（登録順）と割り当て番号（1〜3）が決まる。再送しても番号は変わらない |
+| `POST /pilot/session/start` | 本人 | 課題を始める。始めて終えていなければ、その続きを返す（`resumed`） |
+| `POST /pilot/session/end` | 本人 | 終える。到達・自己申告・cook エラー・アンケートと、`surveySec`（振り返りに使った秒）・`pausedSec`（中断の秒）を受け取り、所要時間をサーバーが確定する |
+| `POST /pilot/session/reset` | 本人 | 計測中・終えた記録を**破棄**してやり直す。次の回を始めたあとの、前の回は 409 |
+| `POST /admin/pilot/tasks` | admin | 課題の集計（回・種類・条件ごとの中央値、対照との比較）と、1課題1行のデータ |
+
+- **所要時間** = 終了の時刻 − 開始の時刻 − 中断。終了の時刻は、送信の時刻から `surveySec` を引いたもの。時間はパネルが同じ時計で測った秒数で送る（PC とサーバーの時計のずれに左右されない）。
+- **質問回数**は、課題の時間内の `memory` の数を、サーバーが数える。「公式ドキュメントのみ」の回に質問があれば、集計の「混入」に出る。
+- **やり直し**は消さずに `discarded_at` を入れる。集計・次の課題の判定は、`discarded_at IS NULL` の行だけを見る。同じ（人・回・種類）の有効な行は 1つ（部分一意索引）。
+- D1 で直接確認する例（読み取りだけ）:
+
+```bash
+cd cloudflare-rag-poc
+# 参加者の数（管理者を除く）
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT COUNT(*) AS n FROM pilot_profile WHERE pid IS NOT NULL"
+# 回ごとの完了数と、破棄した記録の数
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT round, kind, SUM(ended_at IS NOT NULL AND discarded_at IS NULL) AS done, SUM(discarded_at IS NOT NULL) AS discarded FROM pilot_sessions GROUP BY round, kind"
+```
 
 ## 9. 障害対応の基本フロー
 

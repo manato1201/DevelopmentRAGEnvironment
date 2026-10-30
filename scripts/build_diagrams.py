@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from diagram_kit import Diagram  # noqa: E402
+from build_diagrams_lecture import LECTURE_DIAGRAMS  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "images"
 
@@ -22,7 +23,7 @@ def overview() -> Diagram:
     d = Diagram(1440, 940, "システム全体の構成", "Houdini の手元の道具と、Cloudflare 上の検索・回答・動画の置き場、外部の AI・サービス",
                 legend=["ui", "core", "store", "ext"])
     d.group(24, 80, 400, 560, "利用者のPC", "Houdini と動画エンジン", "ui")
-    d.group(464, 80, 580, 560, "Cloudflare（rag-poc）", "検索・回答・Claude の中継・MCP・管理画面。鍵は Secrets に保管", "core")
+    d.group(464, 80, 580, 560, "Cloudflare（rag-poc）", "検索・回答・Claude の中継・MCP・管理画面・実証実験。鍵は Secrets に保管", "core")
     d.group(1084, 80, 332, 640, "外部のAI・サービス", "鍵は Worker だけが持つ", "ext")
     d.group(24, 700, 1020, 200, "Cloudflare（ragreel-gallery）", "動画の置き場とダッシュボード", "core")
 
@@ -43,9 +44,9 @@ def overview() -> Diagram:
     d.node("r2", 560, 770, "R2", "動画・サムネイル・目次", glyph="R2", kind="store")
     d.node("dash", 820, 770, "ダッシュボード", "ブラウザで動画を見る", glyph="WEB", kind="ui")
 
-    d.line([(98, 190), (98, 150), (728, 150), (728, 190)], "質問・検索・生成（HTTPS＋APIキー）", kind="ui", label_at=(420, 142))
-    d.line([(298, 190), (298, 150)], "", kind="ui", arrow=False)
-    d.note(318, 172, "音声 /tts", "start", 12.5, True)
+    d.line([(98, 190), (98, 156), (728, 156), (728, 190)], "質問・検索・生成（HTTPS＋APIキー）", kind="ui", label_at=(412, 150), step=1)
+    d.line([(298, 190), (298, 156)], "", kind="ui", arrow=False)
+    d.note(318, 180, "音声 /tts", "start", 12.5, True)
     d.edge("panel", "r", "engine", "l", "動画を作る", kind="ui", label_at=(190, 212))
     d.edge("engine", "bb", "files", "t", "書き出す", kind="ui", label_at=(345, 400))
     d.line([(728, 308), (728, 360), (588, 360), (588, 430)], "", kind="core")
@@ -53,10 +54,10 @@ def overview() -> Diagram:
     d.line([(756, 218), (1064, 218)], "", kind="ext", arrow=False)
     d.line([(1064, 218), (1064, 638)], "", kind="ext", arrow=False)
     d.line([(1064, 218), (1200, 218)], "", kind="ext")
-    d.line([(1064, 358), (1200, 358)], "予算つきで中継", kind="ext", label_at=(1132, 350))
+    d.line([(1064, 358), (1200, 358)], "予算つきで中継", kind="ext", label_at=(1132, 346))
     d.line([(1064, 498), (1200, 498)], "", kind="ext")
-    d.line([(1064, 638), (1200, 638)], "読み取り＋確認つき", kind="ext", label_at=(1124, 630))
-    d.edge("files", "bb", "gal", "t", "アップロード（トークン）", kind="ui", label_at=(380, 676))
+    d.line([(1064, 638), (1200, 638)], "読み取り＋確認つき", kind="ext", label_at=(1128, 626))
+    d.edge("files", "bb", "gal", "t", "アップロード（トークン）", kind="ui", label_at=(420, 670))
     d.edge("gal", "r", "r2", "l", "保存", kind="core")
     d.edge("r2", "r", "dash", "l", "配信", kind="core")
     return d
@@ -352,6 +353,7 @@ DIAGRAMS = {
     "cost": (cost_flow, "08-cost-flow"),
     "positioning": (positioning, "09-positioning"),
     "architecture": (comparison_arch, "10-comparison-architecture"),
+    **LECTURE_DIAGRAMS,  # 11〜16（講義・保守用。build_diagrams_lecture.py）
 }
 
 

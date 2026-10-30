@@ -1,6 +1,6 @@
 # ゲーム開発 RAG 環境
 
-**更新日:** 2026-08-27（2026-09-22：Cloudflare RAG POCの新連携・OAuthクリック接続化、houdini21チュートリアル自動生成の動画連携・完了判定強化を反映）
+**更新日:** 2026-10-30（2026-10-30：実証実験の課題の記録・やり直し・中断からの再開、説明レベル、図と講義資料を反映）／ 2026-08-27（2026-09-22：Cloudflare RAG POCの新連携・OAuthクリック接続化、houdini21チュートリアル自動生成の動画連携・完了判定強化を反映）
 
 ---
 
@@ -34,6 +34,9 @@
 | **houdini21チュートリアル自動生成** | 自然言語の依頼からHoudiniのノードグラフを実際に組み立て、cookエラーなしのチュートリアル（Markdown+ノードグラフJSON）を自動生成。ビューポート画像による視覚的自己検証（`confirm_tutorial`）・多段階の完了判定救済ロジックあり |
 | **チュートリアル動画の自動生成** | 保存したチュートリアルからLearningQt連携で解説動画を自動生成。各ステップのビューポート/ネットワークエディタのスクリーンショットが素材になる |
 | **チュートリアルの評価と学習**（2026-10） | 👍👎・理由タグ・メモと、生成時の自動指標を保存。集計・教訓（承認制）・成功例として次の生成に反映。評価はCloudflareにも送られ、管理者だけが閲覧できる |
+| **説明レベルと習熟度（成長）**（2026-10） | 質問で使った専門用語の数から習熟度を推定し、basic／applied／advanced の説明を**おまかせ**で選ぶ（手動で固定もできる）。「役に立たなかった」が続くと、一段やさしくする |
+| **実証実験の仕組み**（2026-10） | Houdini の「課題」タブ（事前アンケート → 3回 ×（固定課題＋自由課題）の計測 → 課題後アンケート）。固定課題は Pyro・RBD・雲を、ラテン方格で順序をずらし、**1回だけ「公式ドキュメントのみ」の対照**にする。間違えたときの**やり直し**、Houdini が閉じても**続きから再開**できる。評価の集計画面と、未送信の評価の自動再送。管理画面「実証実験」で、氏名なしの番号（P01）で集計・CSV。設計 → [docs/pilot-analysis-design.md](docs/pilot-analysis-design.md) |
+| **待ち時間の演出**（2026-10） | 空の履歴・回答待ちに、文字で描いた生き物（動きを減らす設定では静止）。ヘッダーの「背景」で、右下に薄く出せる（選んだ人だけ） |
 | **公式MCP連携**（2026-10） | Cloudflare WorkerをMCPクライアントにして、公式MCPサーバー（Notion・GitHub・Slack・Google・Canva・Figma・Vercelなど）へ接続（自動登録・PKCE）。RAGチャットから、読み取りのツールと、**確認つきの書き込み**（本人専用の接続・明示的に許可したものだけ）を使える。選定と手順 → [docs/mcp-integration-guide.md](docs/mcp-integration-guide.md) |
 | **ナレッジ追加のポップアップ**（2026-10） | ファイル・URL（YouTube・クロール）・Q&Aを3ステップでまとめて登録。クロールの最大ページ数は上限なし |
 | **Cloudflare RAG**（クラウド RAG の現行実装） | Cloudflare Workers+D1+Vectorize。旧GAS版（2026-10-22に廃止・削除）の機能をすべて置き換え済み。GAS版には無い新機能（再帰URLクローラー・重複コンテンツ検出・Jira/Backlog/Googleカレンダー/Googleマップ連携・OAuthクリック接続化）も追加している |
@@ -45,6 +48,26 @@
 [![システム全体の構成](docs/images/01-system-overview.svg)](docs/images/01-system-overview.svg)
 
 *図: システム全体の構成。手元の Houdini とパネル、Cloudflare の Worker、外部の AI・サービスの関係。*
+
+### 図で見る（番号の順に読む）
+
+| 知りたいこと | 図 |
+|---|---|
+| 質問が届いて、答えが返るまで（DNS → HTTPS → 認証 → 予算 → 検索 → 回答 → 記録） | [11 リクエストの一生](docs/images/11-request-life.svg) |
+| データはどこに、どう置かれているか（D1 の主な表） | [14 データの置き場](docs/images/14-data-model.svg) |
+| Houdini パネルは、どう分かれているか | [15 パネルの内部構成](docs/images/15-houdini-panel.svg) |
+| 実証実験は、どう進むか（3回・固定／自由・対照） | [12 実証実験の流れ](docs/images/12-pilot-flow.svg) |
+| 課題1回は、どう状態が変わるか（やり直し・中断・再開） | [13 課題の状態](docs/images/13-task-states.svg) |
+| 変更してから本番に出すまで（保守・拡張の標準の流れ） | [16 変更から本番まで](docs/images/16-change-flow.svg) |
+
+[![質問が届いて、答えが返るまで](docs/images/11-request-life.svg)](docs/images/11-request-life.svg)
+
+*図: リクエストの一生。矢印の番号は、講義資料の説明と同じ順。*
+
+### 学習資料（保守・拡張できるようになるために）
+
+- **講義シリーズ（基礎から順に。全10回）** → [docs/learning/lectures/README.md](docs/learning/lectures/README.md)
+- 4段階の座学資料（常識・基礎・専門・応用・Script・保守）→ [docs/learning/README.md](docs/learning/README.md)
 
 ## クイックスタート
 

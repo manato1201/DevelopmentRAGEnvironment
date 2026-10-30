@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>講義シリーズ: このシステムを、基礎から理解して、保守・拡張できるようになる</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+<nav class="series" aria-label="シリーズ"><a class="current" href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<header class="hero">
+  <span class="badge">講義</span>
+  <h1>講義シリーズ: このシステムを、基礎から理解して、保守・拡張できるようになる</h1>
+  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/README.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#全体の地図">全体の地図</a></li><li><a href="#講義の一覧">講義の一覧</a></li><li><a href="#学び方">学び方</a></li><li><a href="#各回の形">各回の形</a></li><li><a href="#必要な道具">必要な道具</a></li><li><a href="#図の一覧講義で使う">図の一覧（講義で使う）</a></li><li><a href="#到達度チェック全体">到達度チェック（全体）</a></li><li><a href="#この資料の保守">この資料の保守</a></li></ol></details></nav>
+<main>
+
+<p><strong>作成日:</strong> 2026-10-30 ／ <strong>対象:</strong> このプロジェクトを引き継ぐ人、自分で直せるようになりたい本人<br />
+<strong>位置づけ:</strong> <a href="../README.html">座学資料（01〜06）</a>が「必要な知識の辞書」なのに対し、これは<strong>順番に読む講義</strong>です。1回ごとに「基礎 → このプロジェクトでの実例 → 演習」の順で進みます。<br />
+<strong>前提:</strong> プログラミングを少し書いたことがある（変数・関数・if・for が分かる）。それ以外は、各回で説明します。</p>
+<hr />
+<h2 id="全体の地図">全体の地図</h2>
+<p>まず、この図を見てください。講義は、この図の「右から左へ」「外から中へ」進みます。</p>
+<p><a href="../../images/11-request-life.svg"><img alt="質問が届いて、答えが返るまで" src="../../images/11-request-life.svg" /></a></p>
+<p><em>図: リクエストの一生。第1〜5回で、この図の番号を1つずつ、自分で説明できるようになります。</em></p>
+<h2 id="講義の一覧">講義の一覧</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>回</th>
+<th>題</th>
+<th>身につくこと</th>
+<th>目安</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="01-internet.html">第1回</a></td>
+<td>インターネットの基礎</td>
+<td>URL・DNS・HTTPS・HTTP・JSON・APIキーを、図の 1〜3・11 として説明できる</td>
+<td>2時間</td>
+</tr>
+<tr>
+<td><a href="02-cloudflare.html">第2回</a></td>
+<td>Cloudflare の基礎</td>
+<td>Workers・D1・Vectorize・R2・Secrets・Cron が、何で、どう違うか言える。wrangler を使える</td>
+<td>3時間</td>
+</tr>
+<tr>
+<td><a href="03-database.html">第3回</a></td>
+<td>データベースと SQL</td>
+<td>表・索引・マイグレーションを読み書きできる。SQL の落とし穴を避けられる</td>
+<td>3時間</td>
+</tr>
+<tr>
+<td><a href="04-rag-and-ai.html">第4回</a></td>
+<td>RAG と AI の API</td>
+<td>検索 → 回答 → 出典 → 予算 の仕組みを、図の 5〜10 として説明できる</td>
+<td>3時間</td>
+</tr>
+<tr>
+<td><a href="05-worker-code.html">第5回</a></td>
+<td>Worker のコードを読む</td>
+<td><code>index.ts</code> から、任意のハンドラまで追える。テストを書ける</td>
+<td>4時間</td>
+</tr>
+<tr>
+<td><a href="06-houdini-panel.html">第6回</a></td>
+<td>Houdini パネルのコードを読む</td>
+<td>Qt の基本、スレッド、<code>hou</code>、配置とテストを理解する</td>
+<td>4時間</td>
+</tr>
+<tr>
+<td><a href="07-web-ui.html">第7回</a></td>
+<td>Web 画面（<code>chatUi.ts</code>）の仕組み</td>
+<td>1つの文字列で出す画面の決まりを守って、部品を足せる</td>
+<td>2時間</td>
+</tr>
+<tr>
+<td><a href="08-add-a-feature.html">第8回</a></td>
+<td>機能を足す通し演習</td>
+<td>「やり直し」機能を例に、要件から本番までを、順に実行できる</td>
+<td>5時間</td>
+</tr>
+<tr>
+<td><a href="09-test-deploy-operate.html">第9回</a></td>
+<td>テスト・デプロイ・運用</td>
+<td>標準の流れ（図16）を、理由つきで実行できる。戻せる</td>
+<td>3時間</td>
+</tr>
+<tr>
+<td><a href="10-troubleshooting.html">第10回</a></td>
+<td>トラブルシュートと総合演習</td>
+<td>症状から原因を切り分けられる。総合課題を解く</td>
+<td>4時間</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="学び方">学び方</h2>
+<ol>
+<li><strong>順番に読む。</strong> 第1〜4回は、どの順でも構いませんが、第5回以降は、前の回を前提にします。</li>
+<li><strong>手を動かす。</strong> 各回の「演習」は、実際にこのリポジトリのファイルを開いて答える形です。答えは、各回の末尾の「解答の方針」で確かめます（答えそのものより、<strong>どこを見れば分かるか</strong>を書いてあります）。</li>
+<li><strong>本番に触れない。</strong> 演習は、<code>--remote</code> を付けない（ローカルの開発用 DB）か、読み取りだけです。本番を変える操作（マイグレーション・デプロイ）が出る回では、必ず「<strong>これは本番を変える</strong>」と明記します。</li>
+<li><strong>コメントを読む。</strong> このリポジトリのコードのコメントには、実際に起きた問題と、その対策が書いてあります。設計を変える前に、読んでください。</li>
+</ol>
+<h2 id="各回の形">各回の形</h2>
+<pre><code>到達目標 → 1. 全体像（図） → 2. 基礎（ゼロから） → 3. このプロジェクトでは（ファイルと関数）
+        → 4. 演習 → 5. つまずきやすい点 → 6. 確認問題 → 解答の方針
+</code></pre>
+<h2 id="必要な道具">必要な道具</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>道具</th>
+<th>用途</th>
+<th>確認</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node.js</td>
+<td>Worker の型検査・テスト</td>
+<td><code>node -v</code></td>
+</tr>
+<tr>
+<td><code>uv</code>（Python）</td>
+<td>Houdini 側のテスト・スクリプト</td>
+<td><code>uv --version</code></td>
+</tr>
+<tr>
+<td>Wrangler</td>
+<td>Cloudflare の操作</td>
+<td><code>cd cloudflare-rag-poc; npx wrangler --version</code></td>
+</tr>
+<tr>
+<td>Houdini 21 以上</td>
+<td>パネルの実機確認（第6回）</td>
+<td>無くても、テストは動く</td>
+</tr>
+<tr>
+<td>Git</td>
+<td>変更の記録</td>
+<td><code>git --version</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="図の一覧講義で使う">図の一覧（講義で使う）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>図</th>
+<th>使う回</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../../images/01-system-overview.svg">01 システム全体の構成</a></td>
+<td>全体</td>
+</tr>
+<tr>
+<td><a href="../../images/03-rag-flow.svg">03 質問から回答までの流れ（RAG）</a></td>
+<td>第4回</td>
+</tr>
+<tr>
+<td><a href="../../images/11-request-life.svg">11 リクエストの一生</a></td>
+<td>第1・2・4・5回</td>
+</tr>
+<tr>
+<td><a href="../../images/12-pilot-flow.svg">12 実証実験の流れ</a></td>
+<td>第8回</td>
+</tr>
+<tr>
+<td><a href="../../images/13-task-states.svg">13 課題の状態</a></td>
+<td>第8回</td>
+</tr>
+<tr>
+<td><a href="../../images/14-data-model.svg">14 データの置き場</a></td>
+<td>第3回</td>
+</tr>
+<tr>
+<td><a href="../../images/15-houdini-panel.svg">15 Houdini パネルの内部構成</a></td>
+<td>第6回</td>
+</tr>
+<tr>
+<td><a href="../../images/16-change-flow.svg">16 変更から本番まで</a></td>
+<td>第8・9回</td>
+</tr>
+</tbody>
+</table></div>
+<p>図は <code>scripts/build_diagrams.py</code>（部品は <code>scripts/diagram_kit.py</code>、11〜16 は <code>scripts/build_diagrams_lecture.py</code>）で作ります。内容を変えたら、そのファイルを直して <code>uv run python scripts/build_diagrams.py</code> を実行してください。</p>
+<h2 id="到達度チェック全体">到達度チェック（全体）</h2>
+<ul>
+<li>[ ] 図11の番号 1〜11 を、何も見ずに、自分の言葉で説明できる</li>
+<li>[ ] <code>cloudflare-rag-poc/src/index.ts</code> を開き、<code>/pilot/plan</code> が呼ばれてから応答が返るまでのファイルと関数を、順にたどれる</li>
+<li>[ ] マイグレーションの SQL を1つ読み、表の形と、なぜその形かを説明できる</li>
+<li>[ ] 新しい API を1つ足し、テストを書き、型検査とテストを通せる</li>
+<li>[ ] Houdini パネルに、画面に依存しない部品と、その単体テストを足せる</li>
+<li>[ ] 変更を本番に出す手順を、順序の理由と、戻し方つきで説明できる</li>
+<li>[ ] 「全部の API が 401 を返す」「新しい機能だけ 404」の原因を、順に切り分けられる</li>
+</ul>
+<h2 id="この資料の保守">この資料の保守</h2>
+<ul>
+<li>コードや構成を変えたら、関係する回の「このプロジェクトでは」を直し、先頭の日付を更新する。</li>
+<li>実際に起きた障害は、<a href="../06-maintenance-runbook.html">06 保守の手順</a>の「障害記録」と、第10回の事例に足す。</li>
+<li>数字（無料枠・料金・制限）は古くなる。本文では「2026-10時点」と書き、公式ページを確認する。</li>
+</ul>
+</main>
+<div class="pager"><span></span><a href="01-internet.html">次へ →</a></div>
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>
