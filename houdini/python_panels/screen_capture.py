@@ -175,6 +175,32 @@ def focus_network_on(node_path: str, log_path: Path | None = None) -> None:
 _FRAME_PADDING = 0.18  # 境界ボックスの各辺に足す余白（大きさに対する割合）
 _MIN_ASPECT, _MAX_ASPECT = 0.6, 2.4
 
+# 2026-10-31: 画像の解像度を上げた（動画やビューアで見るとき、ノード名・パラメータの文字がつぶれていたため）。
+#   ・ビューポート: 1280x720 → 1920x1080（flipbook の書き出しサイズ）
+#   ・短いクリップ: 640x360 → 960x540（枚数が多いので、控えめに）
+#   ・描き直す図・カード（ネットワーク図・パラメータカード・パラメータ画面の合成）:
+#       レイアウトは従来どおり 1280x720 の座標のまま、画素だけ RENDER_SCALE 倍で描く（出力は 2560x1440）。
+#       座標を書き換えないので、文字の大きさ・配置の比率は変わらず、細かさだけが上がる。
+#   ・実画面（ネットワークエディタ・パラメータ画面）の切り出し: 以前は 1280x720 に合わせて縮小していた
+#       （高解像度の画面では、半分以下に縮んで文字がつぶれた）。今は、切り出した画素数のまま保存する。
+#       小さすぎるときだけ拡大し、極端に大きいときだけ縮小する（fit_pane_size）。
+VIEWPORT_WIDTH, VIEWPORT_HEIGHT = 1920, 1080
+CLIP_WIDTH, CLIP_HEIGHT = 960, 540
+LOGICAL_WIDTH, LOGICAL_HEIGHT = 1280, 720
+RENDER_SCALE = 2
+PANE_MIN_WIDTH, PANE_MAX_WIDTH = 1280, 3840
+
+
+def fit_pane_size(width: int, height: int, min_width: int = PANE_MIN_WIDTH, max_width: int = PANE_MAX_WIDTH) -> tuple[int, int]:
+    """切り出した画面の保存サイズ。min_width〜max_width の範囲ならそのまま（縮小しない）。
+    狭いときは幅を min_width まで、広すぎるときは max_width まで、縦横比を保って変える。"""
+    if width <= 0 or height <= 0:
+        return width, height
+    target = min(max(width, min_width), max_width)
+    if target == width:
+        return width, height
+    return target, max(1, int(round(height * target / width)))
+
 
 def _displayed_bounds(container_path: str | None, log_path: Path | None):
     """container_path（サンドボックス）の中の、表示中のオブジェクトのジオメトリの境界ボックス（ワールド座標）。
@@ -254,7 +280,7 @@ def _output_size(viewport, width: int, height: int, log_path: Path | None) -> tu
 
 
 def capture_viewport(
-    output_path: Path, width: int = 1280, height: int = 720, log_path: Path | None = None,
+    output_path: Path, width: int = VIEWPORT_WIDTH, height: int = VIEWPORT_HEIGHT, log_path: Path | None = None,
     frame_path: str | None = None,
 ) -> bool:
     """
@@ -303,8 +329,8 @@ def capture_viewport_clip(
     base_name: str,
     frame_count: int = 16,
     fps: int = 12,
-    width: int = 640,
-    height: int = 360,
+    width: int = CLIP_WIDTH,
+    height: int = CLIP_HEIGHT,
     log_path: Path | None = None,
     frame_path: str | None = None,
 ) -> tuple[list[Path], int]:
@@ -558,11 +584,12 @@ def _paint_network_diagram(layers, container_path, focus_path, callout, width, h
         QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen,
     )
 
-    image = QImage(width, height, QImage.Format_ARGB32)
+    image = QImage(width * RENDER_SCALE, height * RENDER_SCALE, QImage.Format_ARGB32)
     image.fill(QColor("#2f2f31"))
     painter = QPainter(image)
     painter.setRenderHint(QPainter.Antialiasing, True)
     painter.setRenderHint(QPainter.TextAntialiasing, True)
+    painter.scale(RENDER_SCALE, RENDER_SCALE)  # 座標は width x height のまま、画素だけ細かくする
 
     # 背景の格子点（Houdiniのネットワークエディタの雰囲気）
     painter.setPen(QPen(QColor("#3b3b3e"), 2))
@@ -796,11 +823,12 @@ def render_parameter_card(
         from PySide6.QtCore import QRectF, Qt
         from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
 
-        image = QImage(width, height, QImage.Format_ARGB32)
+        image = QImage(width * RENDER_SCALE, height * RENDER_SCALE, QImage.Format_ARGB32)
         image.fill(QColor("#2f2f31"))
         p = QPainter(image)
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setRenderHint(QPainter.TextAntialiasing, True)
+        p.scale(RENDER_SCALE, RENDER_SCALE)  # 座標は width x height のまま、画素だけ細かくする
 
         bar_font = QFont("Segoe UI", 12)
         bar_font.setBold(True)
@@ -949,12 +977,13 @@ def _compose_parameter_screen(
         from PySide6.QtCore import QRectF, Qt
         from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
 
-        image = QImage(width, height, QImage.Format_ARGB32)
+        image = QImage(width * RENDER_SCALE, height * RENDER_SCALE, QImage.Format_ARGB32)
         image.fill(QColor("#2f2f31"))
         p = QPainter(image)
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setRenderHint(QPainter.TextAntialiasing, True)
         p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        p.scale(RENDER_SCALE, RENDER_SCALE)  # 座標は width x height のまま、画素だけ細かくする
 
         bar_h = 40
         p.fillRect(QRectF(0, 0, width, bar_h), QColor("#232325"))
@@ -966,13 +995,15 @@ def _compose_parameter_screen(
 
         pane_w = int(width * 0.60)
         area = QRectF(12, bar_h + 12, pane_w - 12, height - bar_h - 24)
-        scaled = pane_image.scaled(int(area.width()), int(area.height()), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        # 切り出した画像は、先に縮小せず、元の画素のまま、描画先の矩形へ直接描く（2倍の画素で描くので、細かさを保つ）。
+        fit = min(area.width() / pane_image.width(), area.height() / pane_image.height())
+        target_w, target_h = pane_image.width() * fit, pane_image.height() * fit
         px = area.x()
         py = area.y()
-        p.drawImage(int(px), int(py), scaled)
+        p.drawImage(QRectF(px, py, target_w, target_h), pane_image)
         p.setPen(QPen(QColor("#4a4a4f"), 1))
         p.setBrush(Qt.NoBrush)
-        p.drawRect(QRectF(px, py, scaled.width(), scaled.height()))
+        p.drawRect(QRectF(px, py, target_w, target_h))
 
         x0 = pane_w + 12.0
         col_w = width - x0 - 20
@@ -1137,12 +1168,14 @@ def capture_network_editor(
         try:
             image = _grab_network_pane(network_editor, log_path)
             if image is not None:
-                if width and height:
+                # 以前は width x height（1280x720）に縮めていたため、高解像度の画面では文字がつぶれた。
+                # 切り出した画素数のまま保存し、狭すぎる／広すぎるときだけ調整する（fit_pane_size）。
+                new_w, new_h = fit_pane_size(image.width(), image.height())
+                if (new_w, new_h) != (image.width(), image.height()):
                     from PySide6.QtCore import Qt as QtNamespace
 
-                    image = image.scaled(
-                        width, height, QtNamespace.KeepAspectRatio, QtNamespace.SmoothTransformation
-                    )
+                    image = image.scaled(new_w, new_h, QtNamespace.IgnoreAspectRatio, QtNamespace.SmoothTransformation)
+                _log(f"network capture size: {image.width()}x{image.height()}", log_path)
                 if image.save(str(output_path), "PNG"):
                     _log("network capture method: screen (qtScreenGeometry)", log_path)
                     return True
