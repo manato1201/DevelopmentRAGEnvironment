@@ -75,7 +75,7 @@
 <header class="hero">
   <span class="badge">講義</span>
   <h1>第10回 トラブルシュートと総合演習</h1>
-  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/10-troubleshooting.md）</div>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/learning/lectures/10-troubleshooting.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-切り分けの基本">1. 切り分けの基本</a></li><li><a href="#2-症状別の表早見">2. 症状別の表（早見）</a></li><li><a href="#3-事例実際に起きたこと">3. 事例（実際に起きたこと）</a><ol><li><a href="#事例-a-2026-10-16-d1-の読み取り枠を使い切り全-api-が-500">事例 A. 2026-10-16 D1 の読み取り枠を使い切り、全 API が 500</a></li><li><a href="#事例-b-2026-10-28-課題タブが未対応と出る新しい機能だけ-404">事例 B. 2026-10-28 「課題」タブが「未対応」と出る（新しい機能だけ 404）</a></li><li><a href="#事例-c-2026-10-28-計測がhoudini-の落ち固まりに弱い">事例 C. 2026-10-28 計測が、Houdini の落ち・固まりに弱い</a></li><li><a href="#事例-d-2026-09-26-直したのに12日間実機に届いていなかった">事例 D. 2026-09-26 直したのに、12日間、実機に届いていなかった</a></li></ol></li><li><a href="#4-総合演習">4. 総合演習</a></li><li><a href="#5-自己採点">5. 自己採点</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
 <main>
@@ -342,7 +342,7 @@
 1. 全員が、突然、「応答がJSONではありません」と出る。昨日は動いた。コードは変えていない。<br />
 2. 管理画面の「実証実験」の表が、空になった。D1 に、<code>pilot_sessions</code> の行は、ある。<br />
 3. 特定の1人だけが、403 になる。</p>
-<p><strong>課題 B（読む）</strong> <code>docs/pilot-announcement.md</code> を読み、参加者に伝える内容（データの扱い）と、<strong>実装が一致しているか</strong>を、確かめてください。一致していない箇所があれば、どのファイルを直すべきか書いてください。（ヒント: 「やり直した記録は、運営に残る」）</p>
+<p><strong>課題 B（読む）</strong> <code>docs/pilot/pilot-announcement.md</code> を読み、参加者に伝える内容（データの扱い）と、<strong>実装が一致しているか</strong>を、確かめてください。一致していない箇所があれば、どのファイルを直すべきか書いてください。（ヒント: 「やり直した記録は、運営に残る」）</p>
 <p><strong>課題 C（機能を足す）</strong> 要望: 「参加者が、<strong>自分の記録の一覧</strong>（回・種類・所要時間・やり直し回数）を見られる」。第8回の手順で、<strong>計画</strong>を書き、可能なら、<strong>実装</strong>（Worker のハンドラ・テスト・パネルの表示）まで進めてください。<strong>必ず、元のコードに影響しない形</strong>（新しい API を足すだけ）にする。<strong>本番には、出さない</strong>。</p>
 <p><strong>課題 D（図）</strong> この回の事例 B の「流れ」を、図にしてください。<code>scripts/build_diagrams_lecture.py</code> に関数を足し、<code>DIAGRAMS</code> に登録して、<code>uv run python scripts/build_diagrams.py &lt;名前&gt;</code> で出力します。<strong>番号つきの矢印</strong>・<strong>目的の名前の枠</strong>・<strong>主役は実線／補助は破線</strong>の決まり（<code>diagram_kit.py</code> の冒頭）を守ること。</p>
 <p><strong>課題 E（保守）</strong> 6か月後、新しい人が入ります。この講義シリーズの<strong>うち、足りない回</strong>を、1つ提案してください（何を、どの順で、どの演習で）。</p>

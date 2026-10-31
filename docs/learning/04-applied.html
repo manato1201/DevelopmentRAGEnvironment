@@ -75,7 +75,7 @@
 <header class="hero">
   <span class="badge">座学資料</span>
   <h1>04. 応用編</h1>
-  <div class="meta">HTML生成: 2026-10-23（元: docs/learning/04-applied.md）</div>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/learning/04-applied.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-このプロジェクトの設計パターン">1. このプロジェクトの設計パターン</a></li><li><a href="#2-レシピ機能の足し方">2. レシピ（機能の足し方）</a><ol><li><a href="#レシピa-新しいapiルートを足す">レシピA: 新しいAPIルートを足す</a></li><li><a href="#レシピb-新しいテーブルマイグレーションを足す">レシピB: 新しいテーブル（マイグレーション）を足す</a></li><li><a href="#レシピc-新しい連携外部サービスとの同期を足す">レシピC: 新しい連携（外部サービスとの同期）を足す</a></li><li><a href="#レシピd-houdiniの道具を足す">レシピD: Houdiniの道具を足す</a></li><li><a href="#レシピe-管理画面にカードを足す">レシピE: 管理画面にカードを足す</a></li></ol></li><li><a href="#3-テストと確認">3. テストと確認</a><ol><li><a href="#31-現状">3.1 現状</a></li><li><a href="#32-当面の確認手順手動">3.2 当面の確認手順（手動）</a></li><li><a href="#33-テストの考え方書くときの型">3.3 テストの考え方（書くときの型）</a></li></ol></li><li><a href="#4-リリース手順チェックリスト">4. リリース手順（チェックリスト）</a></li><li><a href="#5-おすすめの改善ai無しで続けられるようにするために">5. おすすめの改善（AI無しで続けられるようにするために）</a></li><li><a href="#練習">練習</a></li><li><a href="#確認">確認</a></li></ol></details></nav>
 <main>
@@ -197,7 +197,7 @@ CREATE INDEX IF NOT EXISTS idx_notices_created ON notices(created_at);
 - ユーザーを消す処理（<code>keyAdmin.ts</code>の<code>handleDeleteKey</code>）に、<strong>そのユーザーの行を消す1行を足す</strong>。忘れると、消したはずの個人データが残る。<br />
 - 既存の行を埋める処理は、同じファイルに書く。<strong>大きな表を全件読む処理は、1回きり</strong>にする（D1の読み取り枠）。</p>
 <h3 id="レシピc-新しい連携外部サービスとの同期を足す">レシピC: 新しい連携（外部サービスとの同期）を足す</h3>
-<p>今は、既存の連携（<code>backlogSync.ts</code>など）を<strong>写して作る</strong>。将来は共通の骨格になる予定（<a href="../architecture-layering-plan.html#42-コネクタの契約プラグインの形">architecture-layering-plan.md §4.2</a>）。</p>
+<p>今は、既存の連携（<code>backlogSync.ts</code>など）を<strong>写して作る</strong>。将来は共通の骨格になる予定（<a href="../design/architecture-layering-plan.html#42-コネクタの契約プラグインの形">architecture-layering-plan.md §4.2</a>）。</p>
 <ol>
 <li>写す元を決める。<strong>認証がAPIキー方式ならBacklog</strong>、<strong>OAuthならJira</strong>が近い。</li>
 <li>作るもの: <code>xxxOAuth.ts</code>（接続）、<code>xxxSync.ts</code>（同期・プレビュー・失敗分の再同期）。</li>
@@ -228,7 +228,7 @@ CREATE INDEX IF NOT EXISTS idx_notices_created ON notices(created_at);
 <li>HTMLは、<code>&lt;div class="admin-subpanel" data-subtab="…"&gt;</code>の中にカード（<code>&lt;div class="card"&gt;</code>）を足す。</li>
 <li>処理は、同じファイルのスクリプト部分に書く。サーバーとは、<code>api("/admin/xxx", {…})</code>で通信する（失敗の再試行・非JSON応答の判定を含む共通関数）。</li>
 <li><strong>テンプレート文字列の制約:</strong> 文字列中の<code>`</code>と<code>${…}</code>は、そのまま書けない。バックスラッシュも、1つの<code>\</code>が消える（<code>\\</code>と書く）。<strong>表示が壊れたら、まず、ここを疑う。</strong></li>
-<li>画面の部品・色・文言の規約は、<a href="../ui-rules.md">ui-rules.md</a>。</li>
+<li>画面の部品・色・文言の規約は、<a href="../design/ui-rules.md">ui-rules.md</a>。</li>
 <li>管理者専用のものは、<code>class="admin-only-section"</code>を付ける（非管理者には、表示されない）。ただし、<strong>見えないだけで、サーバー側の権限確認は別に必要</strong>（レシピA）。</li>
 </ul>
 <h2 id="3-テストと確認">3. テストと確認</h2>
@@ -353,7 +353,7 @@ CREATE INDEX IF NOT EXISTS idx_notices_created ON notices(created_at);
 <tbody>
 <tr>
 <td>1</td>
-<td><strong><code>chatUi.ts</code>を分解する</strong>（<a href="../architecture-layering-plan.html#44-chatuits-の分解">architecture-layering-plan.md §4.4</a>）</td>
+<td><strong><code>chatUi.ts</code>を分解する</strong>（<a href="../design/architecture-layering-plan.html#44-chatuits-の分解">architecture-layering-plan.md §4.4</a>）</td>
 <td>6,000行超の1つの文字列は、人間が直すのも難しい。画面のテストも作れない</td>
 </tr>
 <tr>

@@ -6,7 +6,7 @@ import { sha256Hex } from "./embeddings";
 // 動画エンジン（RAGReel）が、スライドのナレーションを音声にするために呼ぶ。VOICEVOXを各自の
 // PCに入れなくて済むようにするための経路で、/claude/messages と同じく「鍵をクライアントに渡さない」。
 //
-// 費用の守り（Googleは文字数課金。docs/houdini-distribution-plan.md）:
+// 費用の守り（Googleは文字数課金。docs/design/houdini-distribution-plan.md）:
 //   1. 鍵（user_id）ごとの1日の文字数上限   … TTS_DAILY_CHARS_PER_KEY（既定 50,000）
 //   2. 全体の1日の文字数上限               … TTS_DAILY_CHARS_GLOBAL（既定 300,000）
 //   3. 同じ文章・声・速さの再合成はキャッシュから返し、文字数を数えない

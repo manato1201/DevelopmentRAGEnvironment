@@ -58,7 +58,7 @@
 
 ### 2.5 日々の見守り
 
-[運営者手順書 §4](../../operator-runbook.md)・[06 保守の手順 §1](../06-maintenance-runbook.md) の点検の要点:
+[運営者手順書 §4](../../pilot/operator-runbook.md)・[06 保守の手順 §1](../06-maintenance-runbook.md) の点検の要点:
 
 - **毎日**: 管理画面の「利用状況・コスト」で、**費用の急な増加・429・500 が無いか**。
 - **毎週**: `npx wrangler d1 insights rag-poc-db --timePeriod 7d` で、**読み取り行数が突出した SQL が無いか**（2026-10-16 の事故の再発防止）。
@@ -69,7 +69,7 @@
 
 - Workers Paid（月 $5〜）。D1 の読み取り・書き込みの行数、Vectorize の次元数、AI の API 料金（トークン）が、費用の中心。
 - **鍵ごとの予算**（`token_budgets`）で、使いすぎを止める（第4回）。上限に達すると、**実行の前に止まる**（429）。
-- 数字は変わる。[cost-and-quota.md](../../cost-and-quota.md) と、公式ページで確認する（2026-10時点）。
+- 数字は変わる。[cost-and-quota.md](../../operations/cost-and-quota.md) と、公式ページで確認する（2026-10時点）。
 
 ### 2.7 Git の作法
 
@@ -80,7 +80,7 @@
 
 ## 3. このプロジェクトでは
 
-- 標準の流れは [図16](../../images/16-change-flow.svg)。運営者の手順は [operator-runbook.md §6](../../operator-runbook.md)（6.1 に、課題の機能を出すときの手順）。
+- 標準の流れは [図16](../../images/16-change-flow.svg)。運営者の手順は [operator-runbook.md §6](../../pilot/operator-runbook.md)（6.1 に、課題の機能を出すときの手順）。
 - 実際に、順序を取り違えた事例: パネルを先に配り、Worker が古かったため、「課題」タブが「未対応」になった（2026-10-28。[第10回](10-troubleshooting.md)）。その後、`friendly_error` に、「サーバーが、この機能にまだ対応していません」の文言を足した。
 
 ## 4. 演習

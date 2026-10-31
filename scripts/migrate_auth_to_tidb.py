@@ -2,10 +2,10 @@
 """
 migrate_auth_to_tidb.py — data/auth.db（SQLite）→ TiDB 移行スクリプト（参考実装）
 
-IMPROVEMENT_PLAN.md Phase3 / docs/tidb-tikv-migration-design.md §2.4 の
+IMPROVEMENT_PLAN.md Phase3 / docs/design/tidb-tikv-migration-design.md §2.4 の
 参考実装。**実際のTiDBインスタンスに対しては未実行・未検証。** このリポジトリの
 本番経路（rag_local_bridge.py 等）からは呼ばれない独立スクリプトであり、
-実装着手条件（docs/tidb-tikv-migration-design.md §3）を満たすまでは実行しない。
+実装着手条件（docs/design/tidb-tikv-migration-design.md §3）を満たすまでは実行しない。
 
 事前準備:
     uv add pymysql   # 現時点ではこのリポジトリの依存関係に含めていない
@@ -29,7 +29,7 @@ from typing import Any
 _REPO_ROOT = Path(__file__).parent.parent
 _DEFAULT_AUTH_DB = _REPO_ROOT / "data" / "auth.db"
 
-# docs/tidb-tikv-migration-design.md §2.2 のDDLと対応させること。
+# docs/design/tidb-tikv-migration-design.md §2.2 のDDLと対応させること。
 _SCHEMA_TIDB = """
 CREATE TABLE IF NOT EXISTS users (
     id                 VARCHAR(64)  PRIMARY KEY,
@@ -143,7 +143,7 @@ def _migrate(tables: dict[str, list[dict[str, Any]]], dry_run: bool) -> None:
                 )
 
         conn.commit()
-        print("移行が完了しました。件数突合を必ず行ってください（docs/tidb-tikv-migration-design.md §2.3）。")
+        print("移行が完了しました。件数突合を必ず行ってください（docs/design/tidb-tikv-migration-design.md §2.3）。")
     except Exception:
         conn.rollback()
         raise

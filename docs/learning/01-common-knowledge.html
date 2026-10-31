@@ -75,7 +75,7 @@
 <header class="hero">
   <span class="badge">座学資料</span>
   <h1>01. 常識編</h1>
-  <div class="meta">HTML生成: 2026-10-23（元: docs/learning/01-common-knowledge.md）</div>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/learning/01-common-knowledge.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-コンピュータとosの常識">1. コンピュータとOSの常識</a></li><li><a href="#2-ネットワークとwebの常識">2. ネットワークとWebの常識</a><ol><li><a href="#21-urlとhttp">2.1 URLとHTTP</a></li><li><a href="#22-応答がjsonではありませんの正体">2.2 「応答がJSONではありません」の正体</a></li><li><a href="#23-dnshttpscorsを一言で">2.3 DNS・HTTPS・CORSを一言で</a></li></ol></li><li><a href="#3-データ形式の常識">3. データ形式の常識</a></li><li><a href="#4-セキュリティの常識">4. セキュリティの常識</a></li><li><a href="#5-gitの常識">5. Gitの常識</a></li><li><a href="#6-仕事の進め方の常識">6. 仕事の進め方の常識</a></li><li><a href="#7-費用と上限の常識">7. 費用と上限の常識</a></li><li><a href="#練習">練習</a></li><li><a href="#確認">確認</a></li></ol></details></nav>
 <main>
@@ -355,7 +355,7 @@
 <li>ブラウザの開発者ツールを開き、管理画面で何かの操作をして、Networkタブでリクエスト1つを選ぶ。メソッド・URL・ステータス・レスポンスの本文を、それぞれ書き出す。</li>
 <li><a href="../../cloudflare-rag-poc/src/http.ts"><code>src/http.ts</code></a> の <code>jsonResponse</code> が返すレスポンスの、ステータス・ヘッダ・本文を、言葉で説明する。</li>
 <li><code>git log --oneline -10</code> を実行し、コミットメッセージの書き方の規則を、1行で説明する。</li>
-<li>「APIキーを誤ってチャットに貼ってしまった」とき、§4の手順を、このプロジェクトの具体的な操作（管理画面のどのボタンか）に置き換えて書く。（<a href="../user-manual.html">user-manual.md</a>を参照）</li>
+<li>「APIキーを誤ってチャットに貼ってしまった」とき、§4の手順を、このプロジェクトの具体的な操作（管理画面のどのボタンか）に置き換えて書く。（<a href="../guides/user-manual.html">user-manual.md</a>を参照）</li>
 <li>「Workersの<code>1102</code>エラー」と「D1の上限超過」は、どちらも画面では「500」に見える。どうやって区別するか、考える。</li>
 </ol>
 <p><strong>ヒント:</strong> 1は、Network → 対象を選ぶ → Headers／Response。2は、<code>content-type</code>ヘッダに注目。3は、<code>feat:</code> <code>fix:</code> <code>docs:</code> の有無。5は、エラーメッセージの文言（<a href="06-maintenance-runbook.html">06-maintenance-runbook.md</a>の障害記録）。</p>

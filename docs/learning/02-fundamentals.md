@@ -208,7 +208,7 @@ Houdini内のPythonは、**Houdini同梱のPython**で動く。追加のパッ�
 
 Unity側（`Assets/Editor/RAGChatbot/`）の読み方の最低限。
 
-- `interface IRAGClient` は「できること」の約束。`CloudRAGClient`・`LocalRAGClient`が、それぞれ実装する。**接続先を切り替えても、画面側のコードは変わらない。**（Workerの層の考え方と同じ。→ [architecture-layering-plan.md](../architecture-layering-plan.md)）
+- `interface IRAGClient` は「できること」の約束。`CloudRAGClient`・`LocalRAGClient`が、それぞれ実装する。**接続先を切り替えても、画面側のコードは変わらない。**（Workerの層の考え方と同じ。→ [architecture-layering-plan.md](../design/architecture-layering-plan.md)）
 - `EditorWindow`を継承したクラスが、Unityのエディタ内のウィンドウになる（`RAGChatbotWindow.cs`）。
 - 通信は非同期。画面の更新は、Unityのメインスレッドで行う。
 

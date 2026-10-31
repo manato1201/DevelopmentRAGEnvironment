@@ -260,7 +260,7 @@ HoudiniのPython API。ノード・パラメータ・ジオメトリを操作す
 ### 7.3 Python Panel と PySide6
 
 - Houdiniの画面にパネルを出す仕組み。UIは**PySide6（Qt）**。
-- Python Panelは、コードを**文字列として実行**するため、`__file__`が未定義になる。`rag_chatbot.py`は、`hou.homeHoudiniDirectory()`から探して`sys.path`に足している。（→ 配布の整理: [distribution-strategy.md §5](../distribution-strategy.md)）
+- Python Panelは、コードを**文字列として実行**するため、`__file__`が未定義になる。`rag_chatbot.py`は、`hou.homeHoudiniDirectory()`から探して`sys.path`に足している。（→ 配布の整理: [distribution-strategy.md §5](../design/distribution-strategy.md)）
 - **配置先に注意:** 実機は`Documents/houdini21.0/python_panels`の手動コピーを読む。**リポジトリを直しても、実機には反映されない。**
 
 ### 練習
@@ -272,7 +272,7 @@ HoudiniのPython API。ノード・パラメータ・ジオメトリを操作す
 
 - エディタ拡張のウィンドウ（`RAGChatbotWindow`）は、`IRAGClient`を通して通信する。**Cloud/Localの切り替えは、設定だけ**。
 - 通信はHTTP＋JSON。認証は、他のクライアントと同じBearerキー。
-- 保守の焦点: **APIの契約が変わったら、C#の型（`RAGMessage`、`RAGGraphData`）も合わせる**。→ [architecture-layering-plan.md §6](../architecture-layering-plan.md)
+- 保守の焦点: **APIの契約が変わったら、C#の型（`RAGMessage`、`RAGGraphData`）も合わせる**。→ [architecture-layering-plan.md §6](../design/architecture-layering-plan.md)
 
 ## 確認
 

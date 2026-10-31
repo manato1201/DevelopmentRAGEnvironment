@@ -2,7 +2,7 @@
 
 **作成日:** 2026-08-14
 **対象:** [gas_mcp_demo.js](gas_mcp_demo.js)（本番のcloudRAGパイプライン（[gas_cloud_rag.js](../scripts/gas_cloud_rag.js)）とは独立した検証用スクリプト。本番には一切組み込んでいない）
-**位置づけ:** 技術資料。「GeminiでMCP連携してどこまで操作できるか」をGAS上で実機検証した記録。Google純正MCPサーバー（Calendar）で実際に直面した壁、サードパーティMCP（DeepWiki）・複数サーバー横断の成功、代替として実装したGASネイティブサービス経由のGoogle連携、テスト用Web GUIまでをまとめる。[docs/model-strategy-report.md](../docs/model-strategy-report.md)で行ったGoogle管理MCPサーバーの調査（一次情報収集）を踏まえて、実際に実装・実機検証した記録という位置づけ。
+**位置づけ:** 技術資料。「GeminiでMCP連携してどこまで操作できるか」をGAS上で実機検証した記録。Google純正MCPサーバー（Calendar）で実際に直面した壁、サードパーティMCP（DeepWiki）・複数サーバー横断の成功、代替として実装したGASネイティブサービス経由のGoogle連携、テスト用Web GUIまでをまとめる。[docs/reports/model-strategy-report.md](../docs/reports/model-strategy-report.md)で行ったGoogle管理MCPサーバーの調査（一次情報収集）を踏まえて、実際に実装・実機検証した記録という位置づけ。
 
 ---
 
@@ -170,7 +170,7 @@ sequenceDiagram
 
 ## 5. 方針転換：GASネイティブサービス経由の実装
 
-ここまでのCalendar MCPでの経験を踏まえ、「決定的な処理（判断を伴わない自動化）にLLM/MCPを挟む必要は無い」という原則（[docs/model-strategy-report.md](../docs/model-strategy-report.md)の運用方針とも整合）のもと、GASの組み込みAdvanced Servicesで同じ目的を達成する実装に切り替えた。
+ここまでのCalendar MCPでの経験を踏まえ、「決定的な処理（判断を伴わない自動化）にLLM/MCPを挟む必要は無い」という原則（[docs/reports/model-strategy-report.md](../docs/reports/model-strategy-report.md)の運用方針とも整合）のもと、GASの組み込みAdvanced Servicesで同じ目的を達成する実装に切り替えた。
 
 ```mermaid
 flowchart LR
@@ -246,4 +246,4 @@ flowchart TB
 
 ---
 
-*関連ドキュメント: [docs/model-strategy-report.md](../docs/model-strategy-report.md)（Google管理MCPサーバーの一次調査） / [docs/claude-token-security-report.md](../docs/claude-token-security-report.md)（cloudRAGのClaude APIセキュリティ設計） / [setup-guide.md](setup-guide.md)（このデモの導入手順書）*
+*関連ドキュメント: [docs/reports/model-strategy-report.md](../docs/reports/model-strategy-report.md)（Google管理MCPサーバーの一次調査） / [docs/operations/claude-token-security-report.md](../docs/operations/claude-token-security-report.md)（cloudRAGのClaude APIセキュリティ設計） / [setup-guide.md](setup-guide.md)（このデモの導入手順書）*

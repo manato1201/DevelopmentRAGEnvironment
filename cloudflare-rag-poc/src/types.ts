@@ -1,5 +1,5 @@
 // 既存の rag_local_bridge.py（scripts/rag_local_bridge.py）との契約を維持するための型定義。
-// docs/cloud-local-unification-plan.md §8.3 を参照。
+// docs/design/cloud-local-unification-plan.md §8.3 を参照。
 
 export interface Env {
   DB: D1Database;

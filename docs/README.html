@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ドキュメントの索引</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">資料の索引</span>
+  <h1>ドキュメントの索引</h1>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/README.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#目的別の入口">目的別の入口</a></li><li><a href="#フォルダ別の一覧">フォルダ別の一覧</a><ol><li><a href="#guides-使い方">guides/ — 使い方</a></li><li><a href="#pilot-実証実験">pilot/ — 実証実験</a></li><li><a href="#operations-運用安全規約">operations/ — 運用・安全・規約</a></li><li><a href="#design-設計仕様">design/ — 設計・仕様</a></li><li><a href="#reports-調査検証報告">reports/ — 調査・検証・報告</a></li><li><a href="#reference-用語">reference/ — 用語</a></li><li><a href="#learning-学習資料">learning/ — 学習資料</a></li><li><a href="#その他">その他</a></li></ol></li><li><a href="#この索引の保守">この索引の保守</a></li></ol></details></nav>
+<main>
+
+<p><strong>更新日:</strong> 2026-10-31（資料を、目的別のフォルダに整理）<br />
+<strong>使い方:</strong> まず「目的別の入口」で、読む資料を選ぶ。全部の一覧は、下の「フォルダ別の一覧」。</p>
+<blockquote>
+<p><strong>フォルダの考え方:</strong> 「<strong>誰が、何のために読むか</strong>」で分けています。<strong>使う人</strong>は <code>guides/</code>、<strong>実証実験を運営する人</strong>は <code>pilot/</code>、<strong>動かし続ける人</strong>は <code>operations/</code>、<strong>作り・直す人</strong>は <code>design/</code> と <code>learning/</code>、<strong>経緯を知りたい人</strong>は <code>reports/</code>、<strong>言葉を引く人</strong>は <code>reference/</code>。</p>
+</blockquote>
+<hr />
+<h2 id="目的別の入口">目的別の入口</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>こうしたい</th>
+<th>読む資料</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>初めて、全体を知りたい</strong></td>
+<td><a href="../README.md">ルートの README</a> → <a href="design/project-overview.html">プロジェクト概要</a> → <a href="system-guide.html">システムガイド</a>（図で見る）</td>
+</tr>
+<tr>
+<td><strong>使い方を知りたい</strong>（Houdini パネル・チャット・管理画面）</td>
+<td><a href="guides/user-manual.html">ツール取扱説明書</a>、チュートリアル生成は <a href="guides/manual-houdini-tutorial.html">取扱説明書（Houdini）</a></td>
+</tr>
+<tr>
+<td><strong>Houdini が初めて</strong></td>
+<td><a href="guides/houdini-beginner-guide.html">Houdini 初心者ガイド</a></td>
+</tr>
+<tr>
+<td><strong>動画生成を使いたい</strong></td>
+<td><a href="guides/manual-ragreel.html">RAGReel 取扱説明書</a></td>
+</tr>
+<tr>
+<td><strong>Slack から質問したい</strong></td>
+<td><a href="guides/slack-canvas-guide.md">RAGボットの使い方</a></td>
+</tr>
+<tr>
+<td><strong>実証実験を運営する</strong></td>
+<td><a href="pilot/operator-runbook.html">運営者向け手順書</a> → <a href="pilot/pilot-announcement.md">告知</a>・<a href="pilot/pilot-analysis-design.md">分析設計</a></td>
+</tr>
+<tr>
+<td><strong>障害が起きた・日々の点検をする</strong></td>
+<td><a href="operations/cloudflare-rag-operations-manual.md">運用手順書</a>、症状別は <a href="learning/06-maintenance-runbook.html">保守の手順（障害記録つき）</a></td>
+</tr>
+<tr>
+<td><strong>費用・上限を知りたい</strong></td>
+<td><a href="operations/cost-and-quota.html">費用と利用枠</a></td>
+</tr>
+<tr>
+<td><strong>仕組みを理解して、直す・足す人になりたい</strong></td>
+<td><a href="learning/lectures/README.html">講義シリーズ（全16回）</a> → <a href="learning/README.html">座学資料</a></td>
+</tr>
+<tr>
+<td><strong>設計の詳細を知りたい</strong>（Cloudflare）</td>
+<td><a href="design/cloudflare-rag-technical-report.html">Cloudflare RAG 技術解説書</a></td>
+</tr>
+<tr>
+<td><strong>言葉が分からない</strong></td>
+<td><a href="reference/glossary.html">用語集</a>・<a href="reference/terminology.md">用語・技術解説</a></td>
+</tr>
+<tr>
+<td><strong>セキュリティ・規約を確かめる</strong></td>
+<td><a href="operations/security-audit-2026-10-22.html">Worker の点検</a>・<a href="operations/license-compliance.md">ライセンス</a>・<a href="operations/sandbox-policy.md">隔離方針</a></td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="フォルダ別の一覧">フォルダ別の一覧</h2>
+<h3 id="guides-使い方"><code>guides/</code> — 使い方</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>資料</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="guides/user-manual.html">user-manual.md</a></td>
+<td>ツール取扱説明書（チャット・グラフ・管理画面・課題タブ・背景など。2026-10-17）</td>
+</tr>
+<tr>
+<td><a href="guides/manual-houdini-tutorial.html">manual-houdini-tutorial.md</a></td>
+<td>Houdini チュートリアル生成パネルの取扱説明書</td>
+</tr>
+<tr>
+<td><a href="guides/manual-ragreel.html">manual-ragreel.md</a></td>
+<td>RAGReel（動画生成）の取扱説明書</td>
+</tr>
+<tr>
+<td><a href="guides/houdini-beginner-guide.html">houdini-beginner-guide.md</a></td>
+<td>Houdini の基礎知識とショートカットキー一覧</td>
+</tr>
+<tr>
+<td><a href="guides/slack-canvas-guide.md">slack-canvas-guide.md</a></td>
+<td>Slack の RAG ボットの使い方</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="pilot-実証実験"><code>pilot/</code> — 実証実験</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>資料</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="pilot/operator-runbook.html">operator-runbook.md</a></td>
+<td>運営者向け手順書（配布・課題の運営・デプロイ順序）</td>
+</tr>
+<tr>
+<td><a href="pilot/pilot-announcement.md">pilot-announcement.md</a></td>
+<td>参加者への告知（たたき台。データの扱い・FAQ）</td>
+</tr>
+<tr>
+<td><a href="pilot/pilot-analysis-design.md">pilot-analysis-design.md</a></td>
+<td>分析設計（ラテン方格・指標・集計・変更履歴）</td>
+</tr>
+<tr>
+<td><a href="pilot/pilot-test-proposal.html">pilot-test-proposal.md</a></td>
+<td>ベータテスト・本格実証実験の実施提案書（2026-08-22）</td>
+</tr>
+<tr>
+<td><a href="pilot/houdini21-learning-effect-study.md">houdini21-learning-effect-study.md</a></td>
+<td>学習効果検証 A/B テストの実験設計（2026-08-06）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="operations-運用安全規約"><code>operations/</code> — 運用・安全・規約</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>資料</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="operations/cloudflare-rag-operations-manual.md">cloudflare-rag-operations-manual.md</a></td>
+<td>Cloudflare RAG の日常運用（同期・D1 の確認・障害対応）</td>
+</tr>
+<tr>
+<td><a href="operations/cost-and-quota.html">cost-and-quota.md</a></td>
+<td>トークン・費用の見積もりと、配る量の決め方</td>
+</tr>
+<tr>
+<td><a href="operations/security-audit-2026-10-22.html">security-audit-2026-10-22.md</a></td>
+<td>Worker のセキュリティ点検</td>
+</tr>
+<tr>
+<td><a href="operations/claude-token-security-report.html">claude-token-security-report.md</a></td>
+<td>Claude API トークンのセキュリティ強化（予算制・自動回復）</td>
+</tr>
+<tr>
+<td><a href="operations/license-compliance.md">license-compliance.md</a></td>
+<td>ライセンス・利用規約のコンプライアンス</td>
+</tr>
+<tr>
+<td><a href="operations/sandbox-policy.md">sandbox-policy.md</a></td>
+<td>実行環境の隔離方針（R4）</td>
+</tr>
+<tr>
+<td><a href="operations/AUTOMATION_RULES.md">AUTOMATION_RULES.md</a></td>
+<td>自動化の運用ルール（R8）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="design-設計仕様"><code>design/</code> — 設計・仕様</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>資料</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="design/project-overview.html">project-overview.md</a></td>
+<td><strong>プロジェクト概要</strong>: 機能一覧・設計思想・ディレクトリ構成の詳細・CI</td>
+</tr>
+<tr>
+<td><a href="design/cloud-rag.md">cloud-rag.md</a></td>
+<td>クラウド RAG 環境ガイド（設計・セットアップ）</td>
+</tr>
+<tr>
+<td><a href="design/local-rag.md">local-rag.md</a></td>
+<td>ローカル RAG の統合ガイド</td>
+</tr>
+<tr>
+<td><a href="design/cloudflare-rag-technical-report.html">cloudflare-rag-technical-report.md</a></td>
+<td>Cloudflare RAG の技術解説書（データフロー・修正したバグ）</td>
+</tr>
+<tr>
+<td><a href="design/cloud-local-unification-plan.html">cloud-local-unification-plan.md</a></td>
+<td>Cloud/Local RAG の統合方針と移行設計</td>
+</tr>
+<tr>
+<td><a href="design/architecture-layering-plan.html">architecture-layering-plan.md</a></td>
+<td>共通層・固有層の整理と、ライブラリ化・プラグイン化の設計案</td>
+</tr>
+<tr>
+<td><a href="design/content-generation.md">content-generation.md</a></td>
+<td>コンテンツ動的生成の設計（houdini21）</td>
+</tr>
+<tr>
+<td><a href="design/content-generation-braintq.md">content-generation-braintq.md</a></td>
+<td>コンテンツ動的生成の設計（BrainTQ）</td>
+</tr>
+<tr>
+<td><a href="design/houdini-tutorial-technical-report.html">houdini-tutorial-technical-report.md</a></td>
+<td>Houdini チュートリアル生成と動画生成の技術解説書</td>
+</tr>
+<tr>
+<td><a href="design/houdini-lesson-design.html">houdini-lesson-design.md</a></td>
+<td>チュートリアル生成を「レッスン」にする設計</td>
+</tr>
+<tr>
+<td><a href="design/houdini-video-script.html">houdini-video-script.md</a></td>
+<td>チュートリアル動画の台本と音声の改善</td>
+</tr>
+<tr>
+<td><a href="design/houdini-distribution-plan.html">houdini-distribution-plan.md</a></td>
+<td>チュートリアル・動画生成の配布計画</td>
+</tr>
+<tr>
+<td><a href="design/distribution-strategy.md">distribution-strategy.md</a></td>
+<td>配布戦略の調査・提案書</td>
+</tr>
+<tr>
+<td><a href="design/mcp-integration-guide.html">mcp-integration-guide.md</a></td>
+<td>外部サービス連携（公式 MCP）の選定と使い方</td>
+</tr>
+<tr>
+<td><a href="design/tidb-tikv-migration-design.md">tidb-tikv-migration-design.md</a></td>
+<td>TiDB Cloud / TiKV 移行設計書</td>
+</tr>
+<tr>
+<td><a href="design/ui-rules.md">ui-rules.md</a></td>
+<td>UI の決めごと表（<code>chatUi.ts</code>）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="reports-調査検証報告"><code>reports/</code> — 調査・検証・報告</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>資料</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="reports/houdini21-tutorial-gen-report.html">houdini21-tutorial-gen-report.md</a></td>
+<td>houdini21 チュートリアル自動生成の実機検証レポート</td>
+</tr>
+<tr>
+<td><a href="reports/model-strategy-report.html">model-strategy-report.md</a></td>
+<td>モデル運用戦略と Google MCP 調査</td>
+</tr>
+<tr>
+<td><a href="reports/improvement-report-2026-10.md">improvement-report-2026-10.md</a></td>
+<td>2026-10 の改善の実施報告</td>
+</tr>
+<tr>
+<td><a href="reports/project-status-2026-08.md">project-status-2026-08.md</a></td>
+<td>プロジェクトの現状整理（2026-08 時点）</td>
+</tr>
+<tr>
+<td><a href="reports/gas-feature-parity.md">gas-feature-parity.md</a></td>
+<td>GAS 版から Cloudflare への移行の記録（GAS 版は廃止済み）</td>
+</tr>
+<tr>
+<td><a href="reports/cloudflare-vs-firebase-comparison.html">cloudflare-vs-firebase-comparison.md</a></td>
+<td>Cloudflare と Firebase で作った場合の違い</td>
+</tr>
+<tr>
+<td><a href="reports/comparison-houdini-mcp.html">comparison-houdini-mcp.md</a></td>
+<td>他の Houdini × AI の道具との比較</td>
+</tr>
+<tr>
+<td><a href="reports/new-project-ideas-borrowed-tech-2026-10.md">new-project-ideas-borrowed-tech-2026-10.md</a></td>
+<td>新規プロジェクト案と「他アプリから借りる技術」の調査</td>
+</tr>
+<tr>
+<td><a href="reports/other-project-rag-integration-plan.md">other-project-rag-integration-plan.md</a></td>
+<td>別プロジェクトへの RAG 環境の統合計画</td>
+</tr>
+<tr>
+<td><a href="reports/other-project-knowledge-features-backport.md">other-project-knowledge-features-backport.md</a></td>
+<td>別プロジェクトのナレッジ登録機能の逆輸入ガイド</td>
+</tr>
+<tr>
+<td><a href="reports/graduation-research-novelty-and-insights.md">graduation-research-novelty-and-insights.md</a></td>
+<td>卒業研究・論文執筆用メモ（比較・新規性）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="reference-用語"><code>reference/</code> — 用語</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>資料</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="reference/glossary.html">glossary.md</a></td>
+<td>用語集（この資料群で使う言葉）</td>
+</tr>
+<tr>
+<td><a href="reference/terminology.md">terminology.md</a></td>
+<td>技術・用語の解説</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="learning-学習資料"><code>learning/</code> — 学習資料</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>資料</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="learning/lectures/README.html">講義シリーズ（全16回）</a></td>
+<td>基礎から順に、図と演習で。第1〜10回＝仕組みと運用、第11〜16回＝アルゴリズムとスクリプト</td>
+</tr>
+<tr>
+<td><a href="learning/README.html">座学資料（01〜06）</a></td>
+<td>必要な知識を引く辞書（常識・基礎・専門・応用・Script・保守）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="その他">その他</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>場所</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="images/">images/</a></td>
+<td>構成図・流れ図（SVG）。<code>scripts/build_diagrams.py</code> で生成</td>
+</tr>
+<tr>
+<td><a href="system-guide.html">system-guide.html</a></td>
+<td>システムガイド（図でまとめたもの。<code>scripts/build_system_guide.py</code> で生成）</td>
+</tr>
+<tr>
+<td><a href="../cloudflare-rag-poc/docs/">../cloudflare-rag-poc/docs/</a></td>
+<td>Worker 側の個別資料（MCP クライアント・使いやすさ・同期の統制・Google 連携）</td>
+</tr>
+<tr>
+<td><code>../IMPROVEMENT_*.md</code></td>
+<td>改善の計画・設計（ルートに置いたまま。コードのコメントが、この名前で参照している）</td>
+</tr>
+<tr>
+<td><code>../lecture/</code></td>
+<td>講義資料（HTML。クラウド RAG・ローカル RAG など）</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="この索引の保守">この索引の保守</h2>
+<ul>
+<li><strong>資料を足したら、この表に1行足す。</strong> どのフォルダに置くかは、冒頭の「フォルダの考え方」で決める（迷ったら、<strong>読む人</strong>で選ぶ）。</li>
+<li><strong><code>.md</code> が元です。</strong> <code>.html</code> は <code>scripts/build_docs_html.py</code> が作る（直接直さない）。新しい資料を HTML にするときは、そのスクリプトの <code>DEFAULT_TARGETS</code> に足す。</li>
+<li><strong>ファイルを移したら、リンクが切れていないか確かめる</strong>（第16回の点検スクリプトの見本が使えます）。</li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

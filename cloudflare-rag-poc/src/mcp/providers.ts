@@ -7,7 +7,7 @@
 // 新しいサービスを足すときは、公式のリモートMCPサーバーのURLを1件足すだけでよい。
 // 【2026-10-22】必要なものだけに絞った（企画書=Notion/Drive/Canva・UI=Figma/Canva・バージョン管理=GitHub・
 // 連絡=Slack/Gmail/カレンダー・配信=Vercel・開発資料=Cloudflare Docs）。使わないLinear・Sentry・Microsoft Learn・
-// Atlassianは外した。ローカルで動くMCP（Blender・Unity・Docker）は、Workerから届かないので対象外（docs/mcp-integration-guide.md）。
+// Atlassianは外した。ローカルで動くMCP（Blender・Unity・Docker）は、Workerから届かないので対象外（docs/design/mcp-integration-guide.md）。
 // 認可に必要な情報（OAuthの探索・クライアントの自動登録・PKCE）は共通層が行うので、
 // 自動登録に対応したサーバーはOAuthアプリ登録もsecret設定も要らない。対応しないサーバー
 // （GitHub・Slack・Google）だけ staticClient でsecretを使う。認証が要らない公開サーバーは auth: "none"。

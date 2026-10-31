@@ -1,6 +1,6 @@
 import type { Env } from "./types";
 
-// Gemini Embedding API（要件通りGemini APIのみを使用。docs/cloud-local-unification-plan.md §5参照）
+// Gemini Embedding API（要件通りGemini APIのみを使用。docs/design/cloud-local-unification-plan.md §5参照）
 // https://ai.google.dev/api/embeddings
 // text-embedding-004はGoogle側で廃止済み（2026-08-23確認：404 NOT_FOUND）。
 // 後継のgemini-embedding-001はoutputDimensionalityを明示しないと3072次元で返ってくるため、
@@ -144,7 +144,7 @@ async function generateContent(env: Env, prompt: string, generationConfig?: { te
 
 // HyDE（Hypothetical Document Embeddings）: 質問文の代わりに「こう答えるだろう」という
 // 仮の回答を先に生成し、それを埋め込みに使うことで、言い回しギャップを補正する
-// （既存GAS hydeExpand_相当。docs/glossary.md「HyDE」参照）。
+// （既存GAS hydeExpand_相当。docs/reference/glossary.md「HyDE」参照）。
 // 2026-10-21: 温度を0にして、同じ質問から毎回ほぼ同じ仮の回答を作る（検索結果が実行のたびに変わるのを抑える）。
 // また、質問に章（SOP / VOP / APEX など）が書かれていないとき、仮の回答が勝手に1つの章に決め打ちして、
 // 検索がその章に偏るのを避ける。

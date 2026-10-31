@@ -38,7 +38,7 @@
 ## Phase 3: R3 / R4 / R8 の運用
 - CodeBoarding を `scripts/` と `cloudflare-rag-poc/src` に実行し、Markdown + Mermaid を `docs/` に出す。C#・Python・TypeScriptに対応。GitHub Action で更新できる。
 - サンドボックスは、6方式のうち「サンドボックス化した Bash ツール」から始め、Houdini 実行部は別扱いにする(GUI・ライセンスの都合)。
-- 運用ルール文書を `docs/AUTOMATION_RULES.md` に置く。
+- 運用ルール文書を `docs/operations/AUTOMATION_RULES.md` に置く。
 
 ## Phase 4: UI(R5〜R7)
 - R5: 取り込みの5段階(クロール → 分割 → 埋め込み → upsert → 検証)を等角投影の机と矢印で表す。各段階にトークン消費を表示。静的SVG + CSSで足りる。

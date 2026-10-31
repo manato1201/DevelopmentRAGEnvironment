@@ -71,11 +71,11 @@
 </head>
 <body>
 <div class="wrap" id="page">
-<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a class="current" href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a class="current" href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a><a href="11-algorithm-basics.html">11</a><a href="12-search-algorithms.html">12</a><a href="13-control-algorithms.html">13</a><a href="14-graph-algorithms.html">14</a><a href="15-experiment-and-growth.html">15</a><a href="16-scripts.html">16</a></nav>
 <header class="hero">
   <span class="badge">講義</span>
   <h1>第2回 Cloudflare の基礎（Workers・D1・Vectorize・R2・Secrets・Cron・wrangler）</h1>
-  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/02-cloudflare.md）</div>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/learning/lectures/02-cloudflare.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-workersサーバーが無いサーバー">2.1 Workers（サーバーが無いサーバー）</a></li><li><a href="#22-bindingsworker-と置き場のつなぎ方">2.2 bindings（Worker と置き場のつなぎ方）</a></li><li><a href="#23-d1データベース">2.3 D1（データベース）</a></li><li><a href="#24-vectorize意味で探す索引">2.4 Vectorize（意味で探す索引）</a></li><li><a href="#25-r2ファイルの置き場">2.5 R2（ファイルの置き場）</a></li><li><a href="#26-secrets-と-vars秘密の値">2.6 Secrets と vars（秘密の値）</a></li><li><a href="#27-wrangler操作の道具とローカル本番">2.7 wrangler（操作の道具）と、ローカル／本番</a></li><li><a href="#28-cron決まった時刻に動く">2.8 Cron（決まった時刻に動く）</a></li></ol></li><li><a href="#3-このプロジェクトでは">3. このプロジェクトでは</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
 <main>
@@ -255,7 +255,7 @@
 </tr>
 </tbody>
 </table></div>
-<p><strong>ルール</strong>: 本番を変えるコマンドは、<strong>意図して</strong>打つ。「一覧 → 中身を読む → 適用 → もう一度一覧」の順（<a href="../../operator-runbook.html">運営者手順書 §6</a>）。</p>
+<p><strong>ルール</strong>: 本番を変えるコマンドは、<strong>意図して</strong>打つ。「一覧 → 中身を読む → 適用 → もう一度一覧」の順（<a href="../../pilot/operator-runbook.html">運営者手順書 §6</a>）。</p>
 <h3 id="28-cron決まった時刻に動く">2.8 Cron（決まった時刻に動く）</h3>
 <p><code>triggers.crons</code> に書いた時刻に、<code>index.ts</code> の <code>scheduled()</code> が呼ばれます。</p>
 <div class="table-scroll"><table>
@@ -309,7 +309,7 @@ npx wrangler d1 execute rag-poc-db --local --command &quot;SELECT name FROM sqli
 <li><strong><code>--remote</code> の付け忘れ・付け間違い。</strong> ローカルで試したつもりが本番、または逆。コマンドを打つ前に、<code>--remote</code> の有無を、声に出して確認する。</li>
 <li><strong>ローカルの D1 に、データが無い。</strong> ローカルは空の別データです。本番のデータは、入っていません。</li>
 <li><strong>Cron の時刻が、日本時間だと思い込む。</strong> UTC です。</li>
-<li><strong><code>wrangler</code> が <code>7403</code> で失敗する。</strong> 一時的な API エラーのことが多い。<code>npx wrangler whoami</code> で、ログインと権限（d1・workers）を確認して、再実行（<a href="../../cloudflare-rag-operations-manual.md">運用手順書 8-3</a>）。</li>
+<li><strong><code>wrangler</code> が <code>7403</code> で失敗する。</strong> 一時的な API エラーのことが多い。<code>npx wrangler whoami</code> で、ログインと権限（d1・workers）を確認して、再実行（<a href="../../operations/cloudflare-rag-operations-manual.md">運用手順書 8-3</a>）。</li>
 </ul>
 <h2 id="6-確認問題">6. 確認問題</h2>
 <ol>

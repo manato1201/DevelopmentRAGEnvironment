@@ -71,11 +71,11 @@
 </head>
 <body>
 <div class="wrap" id="page">
-<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a class="current" href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a class="current" href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a><a href="11-algorithm-basics.html">11</a><a href="12-search-algorithms.html">12</a><a href="13-control-algorithms.html">13</a><a href="14-graph-algorithms.html">14</a><a href="15-experiment-and-growth.html">15</a><a href="16-scripts.html">16</a></nav>
 <header class="hero">
   <span class="badge">講義</span>
   <h1>第5回 Worker のコードを読む（index.ts からハンドラまで・テストの書き方）</h1>
-  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/05-worker-code.md）</div>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/learning/lectures/05-worker-code.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎typescript-の読み方">2. 基礎（TypeScript の読み方）</a><ol><li><a href="#21-型">2.1 型</a></li><li><a href="#22-ハンドラの形">2.2 ハンドラの形</a></li><li><a href="#23-エラーの返し方">2.3 エラーの返し方</a></li><li><a href="#24-純関数とハンドラを分ける">2.4 純関数とハンドラを分ける</a></li><li><a href="#25-ファイルの地図src">2.5 ファイルの地図（src/）</a></li></ol></li><li><a href="#3-テストの書き方">3. テストの書き方</a><ol><li><a href="#31-実行">3.1 実行</a></li><li><a href="#32-偽の-d1本物のスキーマで">3.2 偽の D1（本物のスキーマで）</a></li><li><a href="#33-ハンドラを呼ぶ">3.3 ハンドラを呼ぶ</a></li><li><a href="#34-良いテストの条件">3.4 良いテストの条件</a></li></ol></li><li><a href="#4-このプロジェクトではたどってみる">4. このプロジェクトでは（たどってみる）</a></li><li><a href="#5-演習">5. 演習</a></li><li><a href="#6-つまずきやすい点">6. つまずきやすい点</a></li><li><a href="#7-確認問題">7. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
 <main>

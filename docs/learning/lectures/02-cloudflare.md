@@ -102,7 +102,7 @@ export interface Env {
 | `npx wrangler secret put <名前>` | 本番の Secret を登録 | 本番を変える |
 | `npx wrangler whoami` | ログイン中のアカウントと権限 | 確認だけ |
 
-**ルール**: 本番を変えるコマンドは、**意図して**打つ。「一覧 → 中身を読む → 適用 → もう一度一覧」の順（[運営者手順書 §6](../../operator-runbook.md)）。
+**ルール**: 本番を変えるコマンドは、**意図して**打つ。「一覧 → 中身を読む → 適用 → もう一度一覧」の順（[運営者手順書 §6](../../pilot/operator-runbook.md)）。
 
 ### 2.8 Cron（決まった時刻に動く）
 
@@ -151,7 +151,7 @@ npx wrangler d1 migrations list rag-poc-db --remote
 - **`--remote` の付け忘れ・付け間違い。** ローカルで試したつもりが本番、または逆。コマンドを打つ前に、`--remote` の有無を、声に出して確認する。
 - **ローカルの D1 に、データが無い。** ローカルは空の別データです。本番のデータは、入っていません。
 - **Cron の時刻が、日本時間だと思い込む。** UTC です。
-- **`wrangler` が `7403` で失敗する。** 一時的な API エラーのことが多い。`npx wrangler whoami` で、ログインと権限（d1・workers）を確認して、再実行（[運用手順書 8-3](../../cloudflare-rag-operations-manual.md)）。
+- **`wrangler` が `7403` で失敗する。** 一時的な API エラーのことが多い。`npx wrangler whoami` で、ログインと権限（d1・workers）を確認して、再実行（[運用手順書 8-3](../../operations/cloudflare-rag-operations-manual.md)）。
 
 ## 6. 確認問題
 

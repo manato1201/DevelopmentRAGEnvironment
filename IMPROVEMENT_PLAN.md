@@ -3,7 +3,7 @@
 **改善指標: 学習レベル適応型RAG出力+VLM対応+スケール移行の準備**
 作成日: 2026-08-11 / 調査範囲: Python≥3.13、`scripts/`(約30ファイル)、`houdini/python_panels/`(8ファイル・3,624行)
 
-本計画はCloud RAG(Notion+Gemini)とLocal RAG(ChromaDB+BM25)の二本立て構成を前提に、学習者の習熟度に応じた出力レベリング・VLM対応・将来のスケール移行という3方向の技術判断を扱う。`docs/distribution-strategy.md`は配布方式のみを扱う調査書(コード変更不可・新規ドキュメントファイルのみ)であり、本計画のいずれのフェーズもその内容とは独立して進行する。
+本計画はCloud RAG(Notion+Gemini)とLocal RAG(ChromaDB+BM25)の二本立て構成を前提に、学習者の習熟度に応じた出力レベリング・VLM対応・将来のスケール移行という3方向の技術判断を扱う。`docs/design/distribution-strategy.md`は配布方式のみを扱う調査書(コード変更不可・新規ドキュメントファイルのみ)であり、本計画のいずれのフェーズもその内容とは独立して進行する。
 
 ---
 
@@ -22,7 +22,7 @@
 
 `scripts/`配下は約30本のフラットなファイル構成で、プラグイン機構やサービス境界は存在しない。中核は`document_pipeline.py`(SemanticChunker、512トークン/64オーバーラップ)/`document_processor.py`(247行)/`embedding_generator.py`/`vector_database.py`/`rag_service.py`(228行、処理段の統合層)/`score_engine.py`(153行)/`pep.py`(116行)。`houdini/python_panels/`の`tutorial_agent.py`(562行、Claude Sonnet系エージェントループ。`MAX_ITERATIONS=40`・`COST_LIMIT_USD=$5.00`で打ち切り)が自然言語の依頼からHoudiniノードグラフを組み立てるオーケストレーターで、`houdini_tools.py`(708行、`create_node`等のhouラッパーツール群)とセットで動く。全ノード操作は`/obj/ai_tutorial_<timestamp>`サンドボックス内に限定され、サンドボックス外パスは`SandboxViolation`で拒否・監査ログに記録される。
 
-`docs/content-generation.md`はこの自動生成の設計文書で、houdini21向けは実装済み・実機検証済み、飲食店ドメイン(BrainTQ)向けは設計中と役割が分かれている。Phase1のレベル軸(`{level}`プレースホルダ)はhoudini21固有にせず、`_SYSTEM_PROMPT_TEMPLATE`の他ドメイン展開(BrainTQ等)でも再利用できる形で設計する。
+`docs/design/content-generation.md`はこの自動生成の設計文書で、houdini21向けは実装済み・実機検証済み、飲食店ドメイン(BrainTQ)向けは設計中と役割が分かれている。Phase1のレベル軸(`{level}`プレースホルダ)はhoudini21固有にせず、`_SYSTEM_PROMPT_TEMPLATE`の他ドメイン展開(BrainTQ等)でも再利用できる形で設計する。
 
 ### 既存ガバナンス: pep.py と理解度スコアの既存パターン
 
@@ -48,7 +48,7 @@ README記載の検索品質向上機能——HyDE(仮説文書埋め込み、ド
 
 ### アンチパターン(全フェーズ共通)
 
-- `docs/distribution-strategy.md`は「調査・提案書。本ドキュメントはコード変更を行わない(新規ドキュメントファイルのみ)」と明記された文書(同書冒頭「位置づけ」)。配布方式(PyInstaller/pipx/インストーラー/Docker)の実装は本計画のどのフェーズの対象にもしない
+- `docs/design/distribution-strategy.md`は「調査・提案書。本ドキュメントはコード変更を行わない(新規ドキュメントファイルのみ)」と明記された文書(同書冒頭「位置づけ」)。配布方式(PyInstaller/pipx/インストーラー/Docker)の実装は本計画のどのフェーズの対象にもしない
 - 既存のnamespaceガバナンス(`pep.py`)を迂回する新規アクセス制御ルールを作らない。新機能は`authorize()`/`filter_namespaces()`経由で判定させる
 - ECS・重量DIコンテナ・専用静的解析基盤の類は、後続フェーズ(Phase4/5)で理由とともに明示的に不採用と判断する。「大規模ゲームエンジン的パターンをとりあえず持ち込む」ことはしない
 
@@ -90,7 +90,7 @@ README記載の検索品質向上機能——HyDE(仮説文書埋め込み、ド
    // レスポンス(sources[] に difficulty を追加。既存フィールド・型は変更なし)
    { "texts": ["..."], "sources": [{ "file": "...", "difficulty": "basic", "cited": true }], "status": "ok" }
    ```
-4. 評価は`docs/houdini21-learning-effect-study.md`が定義する客観指標/主観指標(5段階Likert)・統計解析計画をそのまま評価基盤として再利用する。レベリング固有の追加指標(basic→advanced進行時の理解度スコア変化率)のみ新設する
+4. 評価は`docs/pilot/houdini21-learning-effect-study.md`が定義する客観指標/主観指標(5段階Likert)・統計解析計画をそのまま評価基盤として再利用する。レベリング固有の追加指標(basic→advanced進行時の理解度スコア変化率)のみ新設する
 
 **検証チェックリスト:**
 - [ ] 同一トピックでbasic/applied/advancedを生成し、`prior_level_summary`が次段プロンプトに実際に含まれることをログで確認
@@ -105,7 +105,7 @@ README記載の検索品質向上機能——HyDE(仮説文書埋め込み、ド
 
 ## Phase 2: VLM対応(画面キャプチャ入力の再利用)
 
-**現状:** Cloud RAG(`gas_cloud_rag.js`)は画像アップロードをOCR経由(`ocrLanguage: 'ja'`、`MAX_DRIVE_CONVERT_MB`既定25MB)でテキスト化し知識ベースへ取り込む機能を既に持つ(Word/Excel/PPT/PDF/画像、`docs/cloud-rag.md`)が、これはコーパス投入時の一方向変換であり、クエリ時に画像を渡す質疑応答(VLM的な用途)はできない。Local RAGはテキスト埋め込み(`multilingual-e5-large`)のみで画像埋め込みを持たない。Houdini側には`screen_capture.py`(361行)があり、`capture_viewport()`/`capture_viewport_clip()`(いずれも実機検証済み)、`capture_network_editor()`(既知の不安定挙動がコメントに記録済み)を提供する。
+**現状:** Cloud RAG(`gas_cloud_rag.js`)は画像アップロードをOCR経由(`ocrLanguage: 'ja'`、`MAX_DRIVE_CONVERT_MB`既定25MB)でテキスト化し知識ベースへ取り込む機能を既に持つ(Word/Excel/PPT/PDF/画像、`docs/design/cloud-rag.md`)が、これはコーパス投入時の一方向変換であり、クエリ時に画像を渡す質疑応答(VLM的な用途)はできない。Local RAGはテキスト埋め込み(`multilingual-e5-large`)のみで画像埋め込みを持たない。Houdini側には`screen_capture.py`(361行)があり、`capture_viewport()`/`capture_viewport_clip()`(いずれも実機検証済み)、`capture_network_editor()`(既知の不安定挙動がコメントに記録済み)を提供する。
 
 **実装内容:**
 1. Cloud RAG側: `gas_cloud_rag.js`の既存Gemini呼び出しプロキシを拡張し、クエリ時に画像(base64/inlineData)を添付できるようにする。OCR取り込み経路とは別の、質問応答用の入力チャネルとして追加する

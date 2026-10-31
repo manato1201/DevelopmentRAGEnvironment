@@ -1,7 +1,7 @@
 """
 tutorial_agent.py — Houdini チュートリアル自動生成オーケストレーター（検索対象はHoudiniのバージョン別namespace）
 
-docs/content-generation.md §2 の設計に基づく:
+docs/design/content-generation.md §2 の設計に基づく:
   ① RAG検索: houdini21 namespace のみから取得（license-compliance のホワイト
      リスト方針。他 namespace は参照しない）。取得先は rag_mode で切り替える:
        - "local": ローカルブリッジ /search（rag_local_bridge.py）
