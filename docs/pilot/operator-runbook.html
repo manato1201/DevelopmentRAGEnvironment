@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>運営者向け手順書（実証実験の運営）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">運営者向け手順書</span>
+  <h1>運営者向け手順書（実証実験の運営）</h1>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/pilot/operator-runbook.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体の構成">1. 全体の構成</a></li><li><a href="#2-実証実験の前にやることチェックリスト">2. 実証実験の前にやること（チェックリスト）</a></li><li><a href="#3-テスターの鍵を発行する">3. テスターの鍵を発行する</a></li><li><a href="#4-日々の見守り">4. 日々の見守り</a></li><li><a href="#5-houdini-公式ドキュメントの登録約2000ページ">5. Houdini 公式ドキュメントの登録（約2,000ページ）</a><ol><li><a href="#51-方針なぜこうするか">5.1 方針（なぜこうするか）</a></li><li><a href="#52-手順">5.2 手順</a></li><li><a href="#53-費用と時間の目安">5.3 費用と時間の目安</a></li><li><a href="#54-注意">5.4 注意</a></li></ol></li><li><a href="#6-worker-の更新デプロイ">6. Worker の更新（デプロイ）</a><ol><li><a href="#61-実証実験の課題の機能を出すときマイグレーション-00350036">6.1 実証実験の「課題」の機能を出すとき（マイグレーション 0035・0036）</a></li></ol></li><li><a href="#7-配布物を作る">7. 配布物を作る</a></li><li><a href="#8-実験の終了後片付け">8. 実験の終了・後片付け</a></li><li><a href="#9-困ったとき">9. 困ったとき</a></li></ol></details></nav>
+<main>
+
+<p><strong>対象:</strong> サーバー（Cloudflare）と、テスターの鍵・予算を管理する人 ／ <strong>版:</strong> 2026-10-21</p>
+<p>テスター向けの説明は <a href="../guides/manual-houdini-tutorial.html">manual-houdini-tutorial.md</a> と <a href="../guides/manual-ragreel.html">manual-ragreel.md</a>、費用の根拠は <a href="../operations/cost-and-quota.html">cost-and-quota.md</a> にあります。</p>
+<h2 id="1-全体の構成">1. 全体の構成</h2>
+<p><a href="../images/01-system-overview.svg"><img alt="システム全体の構成" src="../images/01-system-overview.svg" /></a></p>
+<p><em>図: システム全体の構成。手元の Houdini とパネル、Cloudflare の Worker、外部の AI・サービスの関係。</em></p>
+<pre><code>テスターのPC                         あなたのCloudflare（Worker）                 外部サービス
+Houdini パネル ──(鍵)──▶ /claude/messages ─────────────────────────────▶ Anthropic（Claude）
+                 ──(鍵)──▶ /search（検索）──▶ D1（全文検索）+ Vectorize ──▶ Gemini（埋め込み・仮の回答）
+RAGReel（動画） ──(鍵)──▶ /tts ───────────────────────────────────────▶ Google Cloud Text-to-Speech
+Houdini パネル ──(鍵)──▶ /tutorial-feedback/submit（評価）──▶ D1
+</code></pre>
+<ul>
+<li><strong>配るもの:</strong> Houdini パネル（zip）と、RAGReel（インストーラー）だけです。Cloudflare は配りません。</li>
+<li><strong>鍵:</strong> テスターは、<strong>あなたが発行した API キー1つ</strong>だけを持ちます。Anthropic・Google・Gemini の鍵は、<strong>Worker のシークレット</strong>にあり、テスターには渡りません。</li>
+<li><strong>費用の上限:</strong> Claude は<strong>鍵ごとの予算</strong>、音声は<strong>鍵ごと・全体の1日の文字数</strong>で、サーバー側が止めます（クライアントでは回避できません）。</li>
+</ul>
+<h2 id="2-実証実験の前にやることチェックリスト">2. 実証実験の前にやること（チェックリスト）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>作業</th>
+<th>状態の確認方法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Workers Paid に切り替える</strong>（月 $5）。ダッシュボード → Workers &amp; Pages → Plans</td>
+<td>済</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Cloudflare の課金アラート</strong>を作る（例: $10）</td>
+<td>ダッシュボード → Billing → Notifications</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Google Cloud の音声合成</strong>: API を有効化し、<strong>鍵を作り、「Cloud Text-to-Speech API だけ」に制限</strong>する。割り当て（クォータ）で、1日の文字数を下げる。予算アラートを作る（アラートは通知のみ。<strong>止まりません</strong>）</td>
+<td><code>npx wrangler secret list</code> に <code>GOOGLE_TTS_API_KEY</code>（済）</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Worker のシークレット</strong>が揃っているか</td>
+<td><code>npx wrangler secret list</code>: <code>ANTHROPIC_API_KEY</code>、<code>GEMINI_API_KEY</code>、<code>GOOGLE_TTS_API_KEY</code> ほか</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>最新の Worker をデプロイ</strong>し、マイグレーションを適用する</td>
+<td>§6</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Houdini 公式ドキュメントを登録</strong>する（章の見出しつき）</td>
+<td>§5</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>自分で1本通しで試す</strong>（生成 → 動画 → 評価）。品質チェックの点数、動画の音声、プログレスバーを確認</td>
+<td>—</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>テスターの鍵を発行</strong>（§3）</td>
+<td>管理画面</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>配布物を作る</strong>（§7）と、同意書・質問票の準備（学生は、先生との相談後）</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-テスターの鍵を発行する">3. テスターの鍵を発行する</h2>
+<p>管理画面 →「ユーザー・権限」→「新しいAPIキーを発行」。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>設定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>名前</td>
+<td>匿名のID（例: <code>tester-e01</code>（企業）、<code>tester-s01</code>（学生））。<strong>個人名は入れない</strong>（学生の評価は匿名で扱うため）</td>
+</tr>
+<tr>
+<td>ロール</td>
+<td><code>member</code>（質問・生成・評価を使える最小限）。<strong>admin にしない</strong></td>
+</tr>
+<tr>
+<td>アクセスできる namespace</td>
+<td><code>shared:houdini22</code>（と、使う版 <code>shared:houdini21</code>）。<strong>他の知識（社内資料など）は、含めない</strong></td>
+</tr>
+<tr>
+<td>RAG 予算</td>
+<td>既定のままでよい（検索の回数の上限）</td>
+</tr>
+<tr>
+<td><strong>Claude 予算</strong></td>
+<td><strong>420,000 トークン</strong>（チュートリアル＋動画の台本 10回分に、5割の余裕と、先確保の余裕を足した値。根拠は <a href="../operations/cost-and-quota.html">cost-and-quota.md</a>）</td>
+</tr>
+<tr>
+<td>有効期限</td>
+<td>実験の終了日（例: 8週間後）</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>生のキーは、発行の画面で一度しか見られません。</strong> コピーして、すぐ本人に渡します。メールで送るときは、<strong>URL と別の経路</strong>で（例: URL はメール、キーは別のチャット）。</li>
+<li>追加でチャージするとき: 「予算」で上限を上げる（<code>/admin/keys/charge</code>）。</li>
+<li>やめてもらうとき: 「失効」または「削除」。<strong>削除すると、その人の個人用の資料・履歴・評価の紐づけも消えます。</strong></li>
+<li><strong>音声</strong>は、鍵ごとに1日 50,000 文字（既定）、全体で1日 300,000 文字（既定）が上限です。変えるときは、Worker の変数 <code>TTS_DAILY_CHARS_PER_KEY</code>・<code>TTS_DAILY_CHARS_GLOBAL</code> を設定してデプロイします。</li>
+</ul>
+<h2 id="4-日々の見守り">4. 日々の見守り</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>見るもの</th>
+<th>場所</th>
+<th>目安</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Claude の使用量・推定費用</td>
+<td>管理 → 利用状況・コスト</td>
+<td>鍵ごとの使用が、予算の8割に近い人に連絡</td>
+</tr>
+<tr>
+<td>評価（👍👎・タグ・点数）</td>
+<td>管理 → Houdiniチュートリアルの評価（CSV 出力あり）</td>
+<td><code>lesson_score</code>（レッスン品質点数）と評価を突き合わせる</td>
+</tr>
+<tr>
+<td>音声の使用量</td>
+<td>D1 の <code>tts_usage</code> 表（日・鍵ごとの文字数）</td>
+<td>全体の上限の8割で、原因を確認</td>
+</tr>
+<tr>
+<td>D1 の読み取り・書き込み</td>
+<td>Cloudflare ダッシュボード → D1 → Metrics</td>
+<td>有料では、込み分（読み取り 250億行／月、書き込み 5,000万行／月）に遠く及ばない</td>
+</tr>
+<tr>
+<td>ヘルスチェック</td>
+<td>管理 → システム</td>
+<td>30分ごとに自動。異常は Slack／Gmail で通知</td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-bash">npx wrangler d1 execute rag-poc-db --remote --command &quot;SELECT day, user_id, chars FROM tts_usage ORDER BY day DESC LIMIT 20&quot;
+</code></pre>
+<h2 id="5-houdini-公式ドキュメントの登録約2000ページ">5. Houdini 公式ドキュメントの登録（約2,000ページ）</h2>
+<h3 id="51-方針なぜこうするか">5.1 方針（なぜこうするか）</h3>
+<p>同名のノード（Transform / Merge / Null …）が、SOP・VOP・DOP・LOP・APEX などの章に別々にあります。章の情報が無いと、<strong>後から登録した章が、先のものを上書き</strong>し、検索でも別の章の説明が混ざります。そこで、次のようにしています。</p>
+<ul>
+<li><strong>namespace は分けません</strong>（切り替え不要）。</li>
+<li>URL から章（SOP / VOP / …）を決め、<strong>本文の先頭に見出し</strong>（<code>【Houdini 22 / SOP / merge】</code>）を入れ、<strong>ファイル名にも章</strong>を付けます（<code>Merge [SOP]</code>）。</li>
+<li>検索では、質問に「SOPで」などの指定があるときだけ、その章の結果を先に並べます（除外はしません）。指定が無く、同名ノードが複数の章にあるときは、<strong>既定（SOP）で答え、他の章があることを1行添えます。</strong></li>
+</ul>
+<h3 id="52-手順">5.2 手順</h3>
+<ol>
+<li><strong>バックアップ:</strong> 管理 → システム →「設定バックアップ」の「エクスポート」。（ナレッジ本文は含まれません。本文は、再クロールで作り直せます。）</li>
+<li><strong>最新の Worker をデプロイ</strong>（§6）。マイグレーションがあるときは、先に適用。</li>
+<li><strong>少数のページで試す:</strong> ナレッジ登録 → サイトのクロール。<br />
+   - 起点: <code>https://www.sidefx.com/docs/houdini/nodes/sop/index.html</code><br />
+   - 登録先: <code>shared:houdini22</code>、階層 1、最大ページ数 5〜10。<br />
+   - 確認: 「登録済みナレッジ」に <code>Merge [SOP]</code> のような名前で並ぶこと。チャンクの先頭に <code>【Houdini 22 / SOP / …】</code> があること。<strong>本文の先頭に <code>window.dataLayer</code>（解析のスクリプト）が無い</strong>こと。</li>
+<li><strong>本番の登録:</strong> 章ごとに、起点を変えて実行します（ノードの一覧のページ）。</li>
+</ol>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>章</th>
+<th>起点（例）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SOP</td>
+<td><code>https://www.sidefx.com/docs/houdini/nodes/sop/index.html</code></td>
+</tr>
+<tr>
+<td>VOP</td>
+<td><code>…/nodes/vop/index.html</code></td>
+</tr>
+<tr>
+<td>DOP</td>
+<td><code>…/nodes/dop/index.html</code></td>
+</tr>
+<tr>
+<td>LOP</td>
+<td><code>…/nodes/lop/index.html</code></td>
+</tr>
+<tr>
+<td>COP</td>
+<td><code>…/nodes/cop/index.html</code></td>
+</tr>
+<tr>
+<td>APEX</td>
+<td><code>…/nodes/apex/index.html</code></td>
+</tr>
+<tr>
+<td>その他（OBJ・TOP・CHOP・out・VEX 関数 <code>…/vex/functions/</code>）</td>
+<td>同様</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>起点の URL は例です。実際の目次ページの URL を、ブラウザで確認してから使ってください</strong>（ページの作りが変わっていることがあります）。パスの絞り込み（pathPrefix）に、章のパス（例: <code>/docs/houdini/nodes/sop/</code>）を入れると、他の章へ流れません。<strong>止まったときは、同じ操作をやり直す</strong>と、続きから再開します。<br />
+5. <strong>古い登録は、自動で置き換わります。</strong> 見出しの無い旧形式の登録（<code>Merge</code> など）は、章つきの名前で登録し直すときに、1回だけ削除されます。同じページを再実行しても、二重になりません。<br />
+6. <strong>確認:</strong> 同名ノードの質問（例:「Transform の使い方」）で、答えに「前提: SOP の場合」が付くこと。「VOP の Transform」と書くと、VOP の説明になること。<br />
+7. <strong>定期の再クロール</strong>（任意）: 有効にしたものだけ動きます。見出しの版が変わったときは、次の再クロールで、全ページが登録し直されます。</p>
+<h3 id="53-費用と時間の目安">5.3 費用と時間の目安</h3>
+<ul>
+<li>約2,000ページ → 約1.2万チャンク。<strong>Gemini の埋め込みで約 $1 未満</strong>（無料枠なら $0）。</li>
+<li>Cloudflare は、込み分の範囲（書き込み 約24万行）。</li>
+<li>時間: 1ページあたり数秒。1回の呼び出しは、時間の予算の範囲で少しずつ進みます。<strong>数時間のつもり</strong>で。</li>
+</ul>
+<h3 id="54-注意">5.4 注意</h3>
+<ul>
+<li><strong>著作権・利用規約:</strong> 公式ドキュメントを、テスターが使う検索の知識として載せることの可否は、SideFX の利用規約を確認してください（<code>docs/operations/license-compliance.md</code>）。回答には、引用の番号と、元のファイル名が出ます。</li>
+<li>登録済みの旧形式のページ（解析のスクリプトが混ざったもの）は、再クロールで直ります。<strong>直るまでは、検索の質が低め</strong>です。</li>
+</ul>
+<h2 id="6-worker-の更新デプロイ">6. Worker の更新（デプロイ）</h2>
+<pre><code class="language-bash">cd cloudflare-rag-poc
+npm run typecheck &amp;&amp; npm test                  # 型と、自動テスト（偽のD1・偽の外部API。本番には繋がらない）
+npx wrangler d1 migrations list rag-poc-db --remote     # 保留中のマイグレーションを確認
+npm run db:migrate:remote                       # あれば適用
+npx wrangler deploy
+</code></pre>
+<ul>
+<li>マイグレーションは、<strong>一覧 → 中身を読む → 適用 → もう一度一覧</strong>の順で。</li>
+<li>今回の変更（<code>/tts</code>、章の見出し・検索の補正）は、<strong>既存のデータを書き換えません</strong>（再クロールするまで、既存の検索は従来どおりです）。</li>
+<li>シークレットの登録: <code>npx wrangler secret put &lt;名前&gt;</code>（値は、画面に出ません）。</li>
+</ul>
+<h3 id="61-実証実験の課題の機能を出すときマイグレーション-00350036">6.1 実証実験の「課題」の機能を出すとき（マイグレーション 0035・0036）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>手順</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>npx wrangler d1 migrations list rag-poc-db --remote</code> で、<strong>0035（課題の記録）・0036（やり直し）</strong>が保留中か確認する</td>
+</tr>
+<tr>
+<td>2</td>
+<td>中身を読む（0035: <code>pilot_profile</code>・<code>pilot_sessions</code> を作る ／ 0036: <code>discarded_at</code>・<code>paused_sec</code> の列と、部分一意索引）</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>npm run db:migrate:remote</code> で適用 → もう一度一覧 → 列の存在を確認する</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>npx wrangler deploy</code>（<strong>表を先、Worker を後</strong>。逆だと、新しい Worker が、まだ無い列を読んで失敗する）</td>
+</tr>
+<tr>
+<td>5</td>
+<td>疎通: 鍵なしで <code>/pilot/plan</code>・<code>/pilot/session/reset</code>・<code>/admin/pilot/tasks</code> を呼び、<strong>401</strong>（認証が効いている）になること。<strong>404 なら、Worker が古い</strong></td>
+</tr>
+<tr>
+<td>6</td>
+<td>Houdini パネルを配る（<code>deploy_panels.py</code>）。<strong>Worker より先に配ると、参加者の画面に「サーバーが、この機能にまだ対応していません」と出る</strong></td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>運営（admin）のテストは、参加者番号を取らず、集計に入りません。<strong>割り当ては、一律で番号 1 の順序</strong>になります（実際の参加者は、登録順に 1・2・3 を繰り返します）。</li>
+<li>参加者が「やり直す」で破棄した記録は、消えずに残ります（D1 の <code>pilot_sessions.discarded_at</code>）。集計には入りません。消去の依頼を受けたときの扱いは、<a href="pilot-announcement.md">pilot-announcement.md</a> の確認事項を参照。</li>
+<li>変更の標準の流れは <a href="../images/16-change-flow.svg">図16</a>。</li>
+</ul>
+<h2 id="7-配布物を作る">7. 配布物を作る</h2>
+<p><a href="../images/06-distribution.svg"><img alt="配布と、キー・予算の管理" src="../images/06-distribution.svg" /></a></p>
+<p><em>図: 配布と、キー・予算の管理。運営が配り、鍵と予算は運営の Worker で管理する。</em></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>配布物</th>
+<th>作り方</th>
+<th>渡し方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Houdini パネル（zip）</strong></td>
+<td><code>uv run python scripts/build_houdini_package.py --version &lt;版&gt;</code> → <code>dist/RAGReelTutorial-&lt;版&gt;.zip</code></td>
+<td>zip のまま</td>
+</tr>
+<tr>
+<td><strong>RAGReel（インストーラー）</strong></td>
+<td>RAGReel リポジトリで、ビルド後に <code>installer\ragreel.iss</code> を Inno Setup でコンパイル → <code>installer\Output\RAGReel-Setup-&lt;版&gt;.exe</code></td>
+<td>exe のまま（未署名のため、初回に Windows の警告が出ます。<a href="../guides/manual-ragreel.html">manual-ragreel.md</a> §2）</td>
+</tr>
+<tr>
+<td>説明書</td>
+<td><a href="../guides/manual-houdini-tutorial.html">manual-houdini-tutorial.md</a>、<a href="../guides/manual-ragreel.html">manual-ragreel.md</a></td>
+<td>PDF または HTML（<code>scripts/build_docs_html.py</code>）</td>
+</tr>
+<tr>
+<td><strong>接続先 URL と API キー</strong></td>
+<td>§3</td>
+<td><strong>別の経路</strong>で</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>配布前の通しのテスト（必須）:</strong> 自分の別のPC、または新しい Windows ユーザーで、zip → <code>install.cmd</code> → Houdini でパネル表示 → 生成 → 動画 まで確認してください。</p>
+<h2 id="8-実験の終了後片付け">8. 実験の終了・後片付け</h2>
+<ol>
+<li>鍵を<strong>失効</strong>（または期限切れに）。</li>
+<li>評価のデータを、CSV で出力して保存。</li>
+<li>学生の評価・利用記録は、同意の範囲で扱い、<strong>匿名のIDのまま</strong>集計。</li>
+<li>不要になった鍵を削除。Google・Gemini・Anthropic の鍵は、必要なら<strong>ローテーション</strong>（作り直して、Worker のシークレットを更新）。</li>
+</ol>
+<h2 id="9-困ったとき">9. 困ったとき</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因と対処</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>テスターが、429（予算の上限）になる</td>
+<td>鍵の予算を確認。<strong>残りが、1回の呼び出しの先確保（約4万）より少ないと、実際は足りていても 429 になります。</strong> 上限を上げる。</td>
+</tr>
+<tr>
+<td>音声が従来の声になる</td>
+<td><code>GOOGLE_TTS_API_KEY</code> の設定、Google 側の API の有効化・鍵の制限、1日の上限（<code>tts_usage</code>）を確認。</td>
+</tr>
+<tr>
+<td><code>/tts</code> が 403（error code: 1010）</td>
+<td>クライアントの User-Agent が、Cloudflare に弾かれています（Python 標準の <code>urllib</code> など）。動画エンジンと配布スクリプトは、対応済みです。</td>
+</tr>
+<tr>
+<td>D1 の「Rows read」が、急に増えた</td>
+<td>無料プランでは、1日 500万行で止まります。有料では、込み分が大きく、通常は起きません。全文検索の全件走査を避ける仕組み（<code>chunk_rows</code>、<code>stats_cache</code>）は入っています。</td>
+</tr>
+<tr>
+<td>登録したページの先頭に解析のスクリプト</td>
+<td>旧形式の登録です。再クロールで直ります（§5）。</td>
+</tr>
+</tbody>
+</table></div>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

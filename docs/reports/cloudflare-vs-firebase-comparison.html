@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cloudflareで作った場合とFirebaseで作った場合の違い</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">比較資料</span>
+  <h1>Cloudflareで作った場合とFirebaseで作った場合の違い</h1>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/reports/cloudflare-vs-firebase-comparison.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-結論">1. 結論</a></li><li><a href="#2-コンポーネント対応表">2. コンポーネント対応表</a></li><li><a href="#3-違いが設計に直結する3つのポイント">3. 違いが設計に直結する3つのポイント</a><ol><li><a href="#31-フルテキスト検索d1-fts5-vs-firestoreに検索機能が無い">3.1 フルテキスト検索：D1 FTS5 vs Firestoreに検索機能が無い</a></li><li><a href="#32-ベクトル検索vectorize-vs-vertex-ai-vector-search">3.2 ベクトル検索：Vectorize vs Vertex AI Vector Search</a></li><li><a href="#33-cloudflare-workers特有の実行制約が生んだバッチ処理化という設計">3.3 Cloudflare Workers特有の実行制約が生んだ「バッチ処理化」という設計</a></li></ol></li><li><a href="#4-逆にfirebaseの方が簡単になる点">4. 逆にFirebaseの方が簡単になる点</a><ol><li><a href="#41-google-api認証">4.1 Google API認証</a></li><li><a href="#42-バイナリ文書の変換">4.2 バイナリ文書の変換</a></li></ol></li><li><a href="#5-コスト構造の違い">5. コスト構造の違い</a></li><li><a href="#6-総合的にどちらが向いていたか">6. 総合的にどちらが向いていたか</a></li><li><a href="#7-追記2026-10-17-cloudflare-workersfirebase-hostingcloud-run-の比較">7. 追記（2026-10-17）: Cloudflare Workers／Firebase Hosting／Cloud Run の比較</a><ol><li><a href="#71-まずこの3つは同じ階層のものではない">7.1 まず、この3つは「同じ階層のもの」ではない</a></li><li><a href="#72-それぞれの利点">7.2 それぞれの利点</a></li><li><a href="#73-このプロジェクトでは">7.3 このプロジェクトでは</a></li><li><a href="#74-配布の観点architecture-layering-planmdと合わせて">7.4 配布の観点（architecture-layering-plan.mdと合わせて）</a></li></ol></li></ol></details></nav>
+<main>
+
+<p><strong>作成日:</strong> 2026-08-26<br />
+<strong>位置づけ:</strong> <a href="../../cloudflare-rag-poc/">cloudflare-rag-poc/</a>は実際にCloudflare Workers + D1 + Vectorizeで実装したが、「同じことをFirebase（Cloud Functions + Firestore等）でやっていたら同じやり方で済んだか」という疑問に対する検証・比較資料。<strong>結論を先に言うと、機能的には同等のものを作れるが、やり方は大きく異なる。</strong> 特に「フルテキスト検索」「ベクトル検索」「Cloudflare特有の制約回避策（バッチ処理化・自前ZIPパーサ等）」の3点で、設計そのものが変わる。</p>
+<hr />
+<hr />
+<h2 id="1-結論">1. 結論</h2>
+<p><strong>「同じやり方」ではない。</strong> 今回Cloudflareで実装した際に生まれた設計上の工夫（D1 FTS5でのキーワード検索、サブリクエスト数上限を避けるためのバッチ処理化、自前のZIPパーサ、JWTの手動署名）は、いずれもCloudflare Workers特有の制約が理由で必要になったものであり、Firebase（Cloud Functions）で作る場合はこれらの制約自体が存在しない、または別の形で存在する。</p>
+<p>一方で、Firebaseには「Cloudflareには無いが必要になるもの」もある（Firestoreにはフルテキスト検索機能が無いため外部サービスが必須、ベクトル検索も専用サービスの構築が必要、など）。<strong>トータルで見ると「Cloudflareは3サービスに機能が凝縮されている分シンプル、Firebaseはより自由度が高い分、複数のGCPサービスを組み合わせる設計力が必要」</strong>という違いになる。</p>
+<h2 id="2-コンポーネント対応表">2. コンポーネント対応表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>役割</th>
+<th>Cloudflare（今回採用）</th>
+<th>Firebase/GCPで代替する場合</th>
+<th>備考</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>コンピュート</td>
+<td>Workers（V8 isolate、エッジ実行）</td>
+<td>Cloud Functions for Firebase（内部的にはCloud Run）</td>
+<td>実行モデルが根本的に異なる（後述）</td>
+</tr>
+<tr>
+<td>リレーショナルDB</td>
+<td>D1（SQLite互換）</td>
+<td>Cloud SQL、またはFirestore（NoSQL）</td>
+<td>Firestoreを使う場合はSQL的な操作（JOIN等）を諦める必要がある</td>
+</tr>
+<tr>
+<td>フルテキスト検索（BM25）</td>
+<td>D1 FTS5（trigramトークナイザ）</td>
+<td><strong>Firestoreにはネイティブ機能が無い</strong>。Algolia / Typesense / Elasticsearch等の外部サービスが必須</td>
+<td>今回の設計の根幹（ハイブリッド検索）に直結する最大の違い</td>
+</tr>
+<tr>
+<td>ベクトル検索</td>
+<td>Vectorize（ネイティブ統合）</td>
+<td>Vertex AI Vector Search（要インデックスエンドポイントのデプロイ）</td>
+<td>Vertex AI側はセットアップがかなり重く、常時起動コストもかかる</td>
+</tr>
+<tr>
+<td>スケジュール実行</td>
+<td>Cron Triggers（<code>wrangler.jsonc</code>に1行）</td>
+<td>Cloud Scheduler + Pub/Sub（<code>firebase-functions</code>の<code>onSchedule</code>が内部でラップ）</td>
+<td>Firebase側もAPIとしては簡単だが、裏で複数のGCPリソースが動く</td>
+</tr>
+<tr>
+<td>シークレット管理</td>
+<td><code>wrangler secret put</code></td>
+<td>Google Secret Manager（<code>firebase functions:secrets:set</code>）</td>
+<td>使い勝手はほぼ同等</td>
+</tr>
+<tr>
+<td>Google API認証（Drive/Gmail）</td>
+<td>サービスアカウントJWTを<code>crypto.subtle</code>で自前署名（<code>googleAuth.ts</code>約90行）</td>
+<td>Application Default Credentials（<code>google-auth-library</code>）がそのまま使える</td>
+<td>Firebase側が圧倒的に簡単（後述）</td>
+</tr>
+<tr>
+<td>ファイル処理（PDF/DOCX/PPTX）</td>
+<td>自前ZIPパーサ・Geminiのネイティブ文書理解</td>
+<td><code>pdf-parse</code>・<code>mammoth</code>・<code>officeparser</code>等の成熟したnpmライブラリがそのまま使える</td>
+<td>Firebase側の方が実装が楽で堅牢</td>
+</tr>
+<tr>
+<td>HTMLパース（URL登録機能）</td>
+<td>Workers組み込みの<code>HTMLRewriter</code></td>
+<td><code>cheerio</code>・<code>jsdom</code>等のnpmライブラリ</td>
+<td>どちらも実用上は十分</td>
+</tr>
+<tr>
+<td>エッジ配信</td>
+<td>自動（300都市以上）</td>
+<td>単一リージョン（マルチリージョン構成は別途設計が必要）</td>
+<td>グローバルなレイテンシに影響</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-違いが設計に直結する3つのポイント">3. 違いが設計に直結する3つのポイント</h2>
+<h3 id="31-フルテキスト検索d1-fts5-vs-firestoreに検索機能が無い">3.1 フルテキスト検索：D1 FTS5 vs Firestoreに検索機能が無い</h3>
+<p>今回のハイブリッド検索（ベクトル検索＋BM25キーワード検索をRRFで統合）は、D1がSQLiteベースでFTS5仮想テーブルをネイティブサポートしているからこそ、<strong>追加サービス無しで</strong>実現できた。</p>
+<p>Firestoreに乗り換えた場合、Firestore自体にはBM25のようなキーワード検索機能が一切無いため、<strong>Algolia・Typesense・Elasticsearchのような外部の検索サービスを別途契約・統合する必要がある</strong>。これは設計・運用コストの両方を押し上げる。「D1 FTS5で日本語をtrigramトークナイザで検索できるようにした」という今回の工夫（<a href="../design/cloudflare-rag-technical-report.html">技術解説書</a>参照）は、Firebase構成では丸ごと別サービスに置き換わる。</p>
+<div class="mermaid">graph LR
+    subgraph Cloudflare[&quot;Cloudflare構成&quot;]
+        D1FTS[&quot;D1 FTS5&lt;br/&gt;（同一DB内で完結）&quot;]
+    end
+    subgraph Firebase[&quot;Firebase構成&quot;]
+        Firestore[&quot;Firestore&lt;br/&gt;（検索機能なし）&quot;] -.-&gt;|&quot;別サービスが必須&quot;| Algolia[&quot;Algolia / Typesense&lt;br/&gt;（追加契約・追加統合）&quot;]
+    end
+</div>
+<h3 id="32-ベクトル検索vectorize-vs-vertex-ai-vector-search">3.2 ベクトル検索：Vectorize vs Vertex AI Vector Search</h3>
+<p>Vectorizeは「インデックスを作ってupsert/queryするだけ」で使えるサーバーレスなベクトルDBで、アイドル時のコストも掛からない。</p>
+<p>Vertex AI Vector Search（Firebase/GCP側の対応サービス）は機能的には同等だが、<strong>インデックスを「デプロイ」してエンドポイントを常時起動しておく必要があり、使っていない時間も課金される</strong>。セットアップの手順もVectorizeよりかなり複雑（インデックス作成→デプロイ→エンドポイント作成→デプロイ、の多段階）。小規模な検証用途では、Vectorizeの方が圧倒的に着手しやすい。</p>
+<h3 id="33-cloudflare-workers特有の実行制約が生んだバッチ処理化という設計">3.3 Cloudflare Workers特有の実行制約が生んだ「バッチ処理化」という設計</h3>
+<p>今回、Notion/Drive同期を「1リクエストで全件処理」ではなく「<code>startIndex</code>/<code>batchSize</code>/<code>opId</code>でクライアントがループする」設計にしたのは、<strong>Cloudflare Workersの「1回の呼び出しあたりのサブリクエスト数上限」</strong>（外部API呼び出しの累計回数に対する制限）に実際に遭遇したためだった。</p>
+<p>Cloud Functions（Firebase）にはこの種の「サブリクエスト数」という制限は無い。実行時間の上限はあるが（2nd genで最大60分、メモリも最大32GBまで設定可能）、Workersよりずっと緩やかで、<strong>80ページのNotionデータベースや335ファイルのDriveフォルダを1回の関数呼び出しで最後まで処理しきれた可能性が高い</strong>。つまり、今回実装した「バッチループ・進捗表示・opIdでの継続」という一連の仕組みは、Firebase構成であればそもそも不要だった可能性がある。</p>
+<p>一方で、Cloud Functionsにも「タイムアウトに達したら処理が失敗する」というリスク自体は残るため、大規模なデータセットに対しては何らかの分割実行の仕組みは結局必要になる可能性はある（Cloud Tasksでのキュー化等）。「不要になる」というより「必要になる規模の閾値が大きく後退する」という表現が正確。</p>
+<h2 id="4-逆にfirebaseの方が簡単になる点">4. 逆にFirebaseの方が簡単になる点</h2>
+<h3 id="41-google-api認証">4.1 Google API認証</h3>
+<p>今回<code>googleAuth.ts</code>で実装したサービスアカウントのJWT署名（<code>crypto.subtle</code>でRS256署名を自前実装、約90行）は、<strong>Cloudflare WorkersがGCPネイティブな実行環境ではない</strong>ために必要になった回避策だった。</p>
+<p>Firebase（Cloud Functions）はGCP上で動くため、<strong>Application Default Credentials</strong>がそのまま使え、<code>google-auth-library</code>の<code>GoogleAuth()</code>を数行呼ぶだけでDrive/Gmail APIの認証が完了する。今回発生した「GCPの<code>iam.disableServiceAccountKeyCreation</code>組織ポリシーでサービスアカウントキーが作れない」という問題（<a href="../design/cloudflare-rag-technical-report.html#s8">技術解説書§8</a>参照）自体も、Cloud Functions側であればサービスアカウントの「キー」を発行する必要が無く（実行環境に紐づくデフォルトのサービスアカウントか、キーレスなワークロードIDが使えるため）、根本的に発生しなかった可能性が高い。</p>
+<h3 id="42-バイナリ文書の変換">4.2 バイナリ文書の変換</h3>
+<p>Cloudflare Workersは（<code>nodejs_compat</code>フラグはあるものの）完全なNode.js環境ではなく、ネイティブバインディングを持つnpmパッケージや一部のNode組み込みAPIに依存するライブラリが動かないことがある。今回PDF変換にGeminiのマルチモーダル理解を、DOCX/PPTX変換に自前のZIPパーサを実装したのは、この制約を回避するためだった。</p>
+<p>Cloud Functionsは完全なNode.js/Pythonランタイムのため、<code>pdf-parse</code>・<code>mammoth</code>（DOCX→テキスト）・<code>officeparser</code>（PPTX含む各種Office形式）のような成熟したライブラリがそのまま使え、実装量・堅牢性の両面で有利だったと考えられる。</p>
+<h2 id="5-コスト構造の違い">5. コスト構造の違い</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>Cloudflare</th>
+<th>Firebase/GCP</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>コンピュート課金単位</td>
+<td>リクエスト数＋CPU時間</td>
+<td>呼び出し回数＋実行時間×メモリ量</td>
+</tr>
+<tr>
+<td>DB課金単位</td>
+<td>D1: 読み書き行数＋ストレージ</td>
+<td>Firestore: ドキュメント読み書き削除数</td>
+</tr>
+<tr>
+<td>ベクトルDBのアイドルコスト</td>
+<td>なし（サーバーレス）</td>
+<td>あり（Vertex AI Vector Searchはエンドポイント常時課金）</td>
+</tr>
+<tr>
+<td>フルテキスト検索の追加コスト</td>
+<td>なし（D1に内包）</td>
+<td>あり（Algolia等の別サービス契約が必要）</td>
+</tr>
+<tr>
+<td>コールドスタート</td>
+<td>ほぼ無い（V8 isolate）</td>
+<td>発生しうる（min-instances設定で緩和可能、追加コスト）</td>
+</tr>
+</tbody>
+</table></div>
+<p>小〜中規模のRAG用途では、Cloudflareの方が<strong>追加サービスを増やさずに済む分、月額コストの見通しが立てやすい</strong>。Firestore＋Vertex AI Vector Search＋Algolinaの組み合わせは、機能的には同等でも運用するサービス数が増え、それぞれに個別のコスト・監視が発生する。</p>
+<h2 id="6-総合的にどちらが向いていたか">6. 総合的にどちらが向いていたか</h2>
+<p>今回のような「ハイブリッド検索（ベクトル＋キーワード）を中核に据えたRAGシステムを、複数の外部サービスと連携させながら小〜中規模で運用する」という要件には、<strong>Cloudflareの方が構成要素が少なく済み、着手のハードルが低かった</strong>と評価できる。特にD1のFTS5がSQLite標準機能としてタダで使えた点は、Firebase構成では代替コストが大きい部分だった。</p>
+<p>逆に、<strong>Google Workspaceのエコシステムに深く統合する必要がある場合</strong>（社内向けで、既にGCP/Workspace管理下にあるサービスアカウント・IAMを流用したい等）や、<strong>巨大なファイル・大規模なバッチ処理を頻繁に行う</strong>ことが分かっている場合は、Cloud Functionsの緩やかな実行制約とGCPネイティブな認証の恩恵の方が大きく、Firebase/GCP構成に軍配が上がった可能性がある。</p>
+<p>今回のプロジェクトが実際に遭遇した問題（Vectorizeの各種上限、サブリクエスト数上限、GCPの組織ポリシーでのサービスアカウントキー作成不可）を踏まえると、<strong>「Cloudflareを選んだことで得たシンプルさ」と「Cloudflare特有の制約への対処に費やした工数」はトレードオフの関係にあり、どちらが正解というよりは要件次第</strong>というのが実装を通じての実感である。</p>
+<hr />
+<h2 id="7-追記2026-10-17-cloudflare-workersfirebase-hostingcloud-run-の比較">7. 追記（2026-10-17）: Cloudflare Workers／Firebase Hosting／Cloud Run の比較</h2>
+<blockquote>
+<p>§1〜6は「CloudflareとFirebase（Cloud Functions）」の比較。ここでは、<strong>Firebase Hosting</strong>と<strong>Cloud Run</strong>を加えた3つを比べる。数字や制限は2026-10時点の認識で、変わりうる。<strong>採用の前に、各社の公式ページで確認する。</strong></p>
+</blockquote>
+<h3 id="71-まずこの3つは同じ階層のものではない">7.1 まず、この3つは「同じ階層のもの」ではない</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>何か</th>
+<th>コードを動かせるか</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Cloudflare Workers</strong></td>
+<td>世界中の拠点で、<strong>V8（JavaScriptの実行環境）</strong>のコードを動かす。D1・Vectorizeなどを、設定で直接つなげる</td>
+<td>○</td>
+</tr>
+<tr>
+<td><strong>Firebase Hosting</strong></td>
+<td><strong>静的ファイル（HTML・CSS・JS・画像）を配信するCDN</strong>。設定で、特定のURLを、Cloud FunctionsやCloud Runに<strong>振り分けられる</strong></td>
+<td>×（配信と振り分けだけ）</td>
+</tr>
+<tr>
+<td><strong>Cloud Run</strong></td>
+<td><strong>コンテナ（Dockerのイメージ）</strong>をサーバーレスで動かす。Firebaseの<strong>Cloud Functions（第2世代）の実体</strong>でもある</td>
+<td>○（言語・ライブラリは自由）</td>
+</tr>
+</tbody>
+</table></div>
+<p>つまり、<strong>「Firebase Hosting ＋ Cloud Run」で、「Workers」1つ分</strong>に近い。比べる相手は、Workersに対して、Cloud Run（コンピュート）と、Firebase Hosting（画面の配信）の組み合わせ。</p>
+<h3 id="72-それぞれの利点">7.2 それぞれの利点</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>観点</th>
+<th>Cloudflare Workers</th>
+<th>Firebase Hosting</th>
+<th>Cloud Run</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>得意なこと</strong></td>
+<td>軽い処理を、世界中で、遅延なく。D1・Vectorize・Cronなどが、同じ場所にそろう</td>
+<td>静的な画面の高速配信。HTTPS・独自ドメイン・<strong>プレビュー用のURL</strong>・ロールバックが簡単</td>
+<td><strong>何でも動かせる</strong>。重い処理、長い処理、Python、ネイティブのライブラリ</td>
+</tr>
+<tr>
+<td><strong>起動の遅さ（コールドスタート）</strong></td>
+<td>ほぼ無い</td>
+<td>なし（静的）</td>
+<td>起こりうる（数秒。常時起動の設定で緩和できるが、待機中も課金）</td>
+</tr>
+<tr>
+<td><strong>処理時間・メモリ</strong></td>
+<td>厳しい（無料枠はCPU時間が短く、外部呼び出し数・メモリ（128MB）にも上限。本プロジェクトで実際に遭遇）</td>
+<td>該当なし</td>
+<td><strong>ゆるい</strong>（1リクエストを長時間、メモリ・CPUも大きく選べる）。GPUを使える構成もある</td>
+</tr>
+<tr>
+<td><strong>言語・ライブラリ</strong></td>
+<td>JavaScript／TypeScript（ネイティブ拡張を持つnpmは動かないことがある）</td>
+<td>該当なし</td>
+<td><strong>自由</strong>（Node・Python・Go・何でも。<code>pdf-parse</code>や<code>sentence-transformers</code>もそのまま）</td>
+</tr>
+<tr>
+<td><strong>データ</strong></td>
+<td>D1（SQLite）、Vectorize、KV、R2などを、すぐ使える</td>
+<td>Firebaseの他の部品（Firestore・Auth）と連携しやすい</td>
+<td>Cloud SQL・Firestore・Vertex AIなど、<strong>GCPの部品を、別途選んで組む</strong>（全文検索・ベクトル検索は、自分で用意する）</td>
+</tr>
+<tr>
+<td><strong>Googleとの連携</strong></td>
+<td>サービスアカウントの署名を自前で実装（約90行）。組織ポリシーで鍵が作れない問題にも遭遇</td>
+<td>—</td>
+<td><strong>標準の認証（ADC）がそのまま使える</strong>。Drive・Gmailなどに、鍵なしで入れる</td>
+</tr>
+<tr>
+<td><strong>料金の形</strong></td>
+<td>リクエスト数＋CPU時間。無料枠が大きいが、<strong>D1の日次の読み取り行数に上限</strong>（2026-10-16に実際に超過）</td>
+<td>転送量・保存量。無料枠あり</td>
+<td>使った時間×CPU・メモリ。<strong>無料枠はあるが、課金アカウントの登録が必要</strong>。待機（常時起動）に課金されうる</td>
+</tr>
+<tr>
+<td><strong>配布のしやすさ</strong></td>
+<td>アカウント＋<code>wrangler</code>の数コマンド。無料枠でも動く</td>
+<td>Firebaseプロジェクトが必要。FunctionsやRun連携には、従量課金プラン（Blaze）が必要</td>
+<td>GCPプロジェクト＋課金＋IAM＋コンテナのビルド。<strong>導入の手間は最も大きい</strong></td>
+</tr>
+<tr>
+<td><strong>世界配信</strong></td>
+<td>標準（300都市以上）</td>
+<td>CDNで、標準</td>
+<td>単一リージョン（複数にするなら、別途設計）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="73-このプロジェクトでは">7.3 このプロジェクトでは</h3>
+<ul>
+<li><strong>今の構成（Workers）は、妥当。</strong> ハイブリッド検索（D1のFTS5＋Vectorize）、Cron、世界配信、コールドスタートがほぼ無いこと、配布の軽さが、要件に合っている。</li>
+<li><strong>Firebase Hostingは、今は不要。</strong> 画面は、Worker自身が返せる（将来、<code>chatUi.ts</code>を静的ファイルに分解したら、<strong>WorkersのStatic Assets</strong>で配信できる。→ <a href="../design/architecture-layering-plan.html#44-chatuits-の分解">architecture-layering-plan.md §4.4</a>）。Firebase Authなど、Firebaseの他の部品を使うときに、改めて検討する。</li>
+<li><strong>Cloud Runが効く場面は、はっきりしている。</strong></li>
+</ul>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>場面</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>重いファイル変換（PDF・Office・音声・動画）を、Workersの制限を気にせず行いたい</td>
+<td>ネイティブのライブラリがそのまま使え、時間・メモリがゆるい</td>
+</tr>
+<tr>
+<td><strong>ローカルRAG（ChromaDB＋<code>sentence-transformers</code>、約1.2GBのモデル）を、共有サーバーとして公開したい</strong></td>
+<td>Pythonのコンテナとして、そのまま動かせる。Workersには載らない</td>
+</tr>
+<tr>
+<td>大規模なクロール・同期を、<strong>1回の呼び出しで最後まで</strong>処理したい</td>
+<td>「バッチ＋再開」の仕組みが、不要になる規模が大きくなる</td>
+</tr>
+<tr>
+<td>GPUが必要な処理（画像・音声のモデルなど）</td>
+<td>Cloud Runは、GPUを選べる構成がある</td>
+</tr>
+</tbody>
+</table></div>
+<p>組み方は、<strong>Workerを入口のままにして、重い処理だけを、HTTPでCloud Runに任せる</strong>（サイドカー型）。全面的な移行は、D1のFTS5・Vectorize・Cronを、別のサービスで作り直すことになり、割に合わない。<br />
+- <strong>判断の目安:</strong> 「Workersの制限（CPU時間・メモリ・外部呼び出し数）に、<strong>繰り返し</strong>当たって、設計で回避するコストが、Cloud Runの導入コストを上回った」ときに、Cloud Runを足す。<strong>当たっていないうちは、足さない。</strong></p>
+<h3 id="74-配布の観点architecture-layering-planmdと合わせて">7.4 配布の観点（<a href="../design/architecture-layering-plan.html">architecture-layering-plan.md</a>と合わせて）</h3>
+<ul>
+<li>受け取る側の手間は、<strong>Cloudflareのみ</strong>が最小。Cloud Runを必須にすると、配布の相手が、GCPの課金設定までできる人に限られる。</li>
+<li>そのため、<strong>Cloud Runは「任意のプラグイン」</strong>（無くても、基本機能が動く）にするのが、配布と相性が良い。</li>
+</ul>
+<hr />
+<p><em>関連ドキュメント: <a href="../design/cloudflare-rag-technical-report.html">docs/design/cloudflare-rag-technical-report.md</a> / <a href="../../cloudflare-rag-poc/README.md">cloudflare-rag-poc/README.md</a> / <a href="../design/architecture-layering-plan.html">docs/design/architecture-layering-plan.md</a></em></p>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+</body>
+</html>

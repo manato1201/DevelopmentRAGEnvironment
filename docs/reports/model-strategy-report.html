@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>houdini21チュートリアル生成 モデル運用戦略とGoogle MCP調査レポート</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">調査・報告</span>
+  <h1>houdini21チュートリアル生成 モデル運用戦略とGoogle MCP調査レポート</h1>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/reports/model-strategy-report.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-概要">1. 概要</a></li><li><a href="#2-houdini自動操作の実態mcpではなくツールユース">2. Houdini自動操作の実態（MCPではなくツールユース）</a></li><li><a href="#3-モデル利用状況の確認">3. モデル利用状況の確認</a></li><li><a href="#4-token消費対策チュートリアル生成モデルの選択制対応">4. token消費対策：チュートリアル生成モデルの選択制対応</a><ol><li><a href="#41-モデル別単価テーブル">4.1 モデル別単価テーブル</a></li><li><a href="#42-実装の変更点">4.2 実装の変更点</a></li></ol></li><li><a href="#5-google管理mcpサーバーの調査参考情報">5. Google管理MCPサーバーの調査（参考情報）</a></li><li><a href="#6-変更ファイル一覧">6. 変更ファイル一覧</a></li><li><a href="#7-動作確認手順">7. 動作確認手順</a></li><li><a href="#8-運用上の注意今後の課題">8. 運用上の注意・今後の課題</a></li></ol></details></nav>
+<main>
+
+<p><strong>作成日:</strong> 2026-08-14<br />
+<strong>対象機能:</strong> houdini21チュートリアル自動生成（<a href="../../houdini/python_panels/tutorial_agent.py">tutorial_agent.py</a>）のモデル選択・コスト構造、および将来のGoogleサービス連携検討のための調査<br />
+<strong>位置づけ:</strong> 技術資料。「Houdiniの自動操作はMCPなのか」という用語整理から出発し、実際のモデル利用状況の棚卸し、token消費対策（生成モデルの選択制対応）の実装、Googleが提供するMCPサーバー（Gmail/Calendar/Maps）の調査までをまとめた記録。</p>
+<hr />
+<hr />
+<h2 id="1-概要">1. 概要</h2>
+<p>「Houdiniの操作はMCP連携でやっているのか」という素朴な疑問をきっかけに、実装の実態を確認したところ、Houdini自動操作は<strong>MCP（Model Context Protocol）ではなくAnthropicのネイティブなツールユース（function calling）</strong>であることが判明した。あわせてモデル利用状況を棚卸しした結果、チュートリアル生成（<code>tutorial_agent.py</code>）だけが高コストな<code>claude-sonnet-5</code>を最大40回のエージェントループで呼んでおり、これがコスト面の主な要因だと分かった。そこで生成モデルを<code>claude-sonnet-5</code>（既定・高品質）と<code>claude-haiku-4-5</code>（低コスト）から選択できるようにする対策を実装した。さらに、将来Google系サービス（Gmail/Calendar/Maps）と連携する可能性を見据え、Googleが公式提供するMCPサーバーの状況も調査した。</p>
+<div class="mermaid">flowchart LR
+    A[&quot;素朴な疑問：&lt;br/&gt;HoudiniはMCP連携か？&quot;] --&gt; B[&quot;実態調査：&lt;br/&gt;実際はAnthropicツールユース&quot;]
+    B --&gt; C[&quot;モデル利用状況の棚卸し&quot;]
+    C --&gt; D[&quot;コスト高の原因を特定：&lt;br/&gt;tutorial_agent.pyのSonnet 5×最大40反復&quot;]
+    D --&gt; E[&quot;token消費対策：&lt;br/&gt;モデル選択制を実装&quot;]
+    E --&gt; F[&quot;将来検討のためGoogle管理&lt;br/&gt;MCPサーバーを調査&quot;]
+</div>
+<hr />
+<h2 id="2-houdini自動操作の実態mcpではなくツールユース">2. Houdini自動操作の実態（MCPではなくツールユース）</h2>
+<p><code>houdini/python_panels/*.py</code> および <code>docs/</code> 配下を確認したところ、"MCP" という文字列は一切登場しない。実際の仕組みは、Anthropicの通常のツールユース（tool-use / function calling）であり、MCPサーバーは存在しない。</p>
+<div class="mermaid">sequenceDiagram
+    participant Tools as houdini_tools.py&lt;br/&gt;HOUDINI_TOOLS + HoudiniToolExecutor
+    participant Agent as tutorial_agent.py&lt;br/&gt;TutorialAgent（エージェントループ）
+    participant GAS as gas_cloud_rag.js&lt;br/&gt;doPost action:'claude_messages'
+    participant Claude as Claude API
+
+    Agent-&gt;&gt;Agent: HOUDINI_TOOLSのツール定義をシステムプロンプトに同梱
+    loop 最大MAX_ITERATIONS回
+        Agent-&gt;&gt;GAS: POST { model, tools, messages }
+        GAS-&gt;&gt;Claude: callClaudeProxy_()
+        Claude--&gt;&gt;GAS: tool_use ブロック（create_node等）
+        GAS--&gt;&gt;Agent: content
+        Agent-&gt;&gt;Tools: HoudiniToolExecutorでノード操作を実行
+        Tools--&gt;&gt;Agent: 実行結果（cook結果・エラー等）
+    end
+</div>
+<p><strong>ポイント</strong></p>
+<ul>
+<li>クライアントは生の<code>ANTHROPIC_API_KEY</code>を持たず、Claude API呼び出しは必ずGAS（<code>gas_cloud_rag.js</code>、<code>action:'claude_messages'</code>）経由（<a href="../operations/claude-token-security-report.html">docs/operations/claude-token-security-report.md</a>参照）</li>
+<li>ツール定義（<code>HOUDINI_TOOLS</code>）と実行部（<code>HoudiniToolExecutor</code>）はAnthropicの標準的なtool-use契約に沿ったもので、MCPのJSON-RPCハンドシェイク（<code>initialize</code>/<code>tools/list</code>/<code>tools/call</code>）は使っていない</li>
+<li>「MCP連携」という表現は誤解であり、正しくは「Anthropicツールユースによるエージェントループ」</li>
+</ul>
+<hr />
+<h2 id="3-モデル利用状況の確認">3. モデル利用状況の確認</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>用途</th>
+<th>ファイル</th>
+<th>モデル</th>
+<th>単価（入力/出力、USD/1Mトークン）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>チュートリアル生成エージェント</td>
+<td><a href="../../houdini/python_panels/tutorial_agent.py">tutorial_agent.py</a></td>
+<td><code>claude-sonnet-5</code>（既定）</td>
+<td>$3.00 / $15.00</td>
+</tr>
+<tr>
+<td>ローカルRAGチャット（Claude）</td>
+<td><a href="../../scripts/rag_local_bridge.py">rag_local_bridge.py</a></td>
+<td><code>claude-haiku-4-5</code></td>
+<td>$1.00 / $5.00</td>
+</tr>
+<tr>
+<td>ローカルRAGチャット（Gemini）</td>
+<td><a href="../../scripts/rag_local_bridge.py">rag_local_bridge.py</a></td>
+<td><code>gemini-3.6-flash</code></td>
+<td>（Gemini側の低コスト帯）</td>
+</tr>
+<tr>
+<td>クラウドRAGチャット・HyDE</td>
+<td><a href="../scripts/gas_cloud_rag.js">gas_cloud_rag.js</a></td>
+<td><code>gemini-3.6-flash</code></td>
+<td>（Gemini側の低コスト帯）</td>
+</tr>
+</tbody>
+</table></div>
+<p>チャット系の応答生成は既にHaiku 4.5 / Gemini Flashという低コスト帯を使っており、<strong>「Geminiは安いのにClaudeは高い」という体感の主因は、比較しているタスクの種類が違うこと</strong>にある。チャットは1往復・低コストモデル同士の比較になる一方、チュートリアル生成は高コストなSonnet 5ベースで最大40回ツールを呼ぶエージェントループのため、単価もリクエスト数も桁違いになる。</p>
+<div class="mermaid">flowchart TB
+    subgraph Chat[&quot;チャット（1往復）&quot;]
+        C1[&quot;claude-haiku-4-5&quot;] -.-&gt;|同程度の低コスト帯| C2[&quot;gemini-3.6-flash&quot;]
+    end
+    subgraph Tutorial[&quot;チュートリアル生成（最大40反復）&quot;]
+        T1[&quot;claude-sonnet-5&lt;br/&gt;単価が高い×反復回数が多い&quot;]
+    end
+    Chat -.-&gt;|&quot;体感差の主因はここではない&quot;| Note1(( ))
+    Tutorial --&gt;|&quot;コスト高の主因はここ&quot;| Note2(( ))
+</div>
+<hr />
+<h2 id="4-token消費対策チュートリアル生成モデルの選択制対応">4. token消費対策：チュートリアル生成モデルの選択制対応</h2>
+<p>チュートリアル生成のモデルを<code>claude-sonnet-5</code>（既定・高品質）と<code>claude-haiku-4-5</code>（低コスト）から選択できるようにした。既定値は変更せず、選ぶかどうかはユーザー側の判断に委ねる方針（品質優先のタスクのため、既定を勝手に下げない）。</p>
+<div class="mermaid">flowchart LR
+    UI[&quot;Settingsタブ&lt;br/&gt;QComboBox（モデル選択）&quot;] --&gt;|&quot;保存&quot;| Cfg[&quot;rag_chatbot_config.json&lt;br/&gt;tutorial_model&quot;]
+    Cfg --&gt;|&quot;cfg.get('tutorial_model')&quot;| View[&quot;tutorial_view.py&lt;br/&gt;単発生成 / 3段階チェーン生成&quot;]
+    View --&gt;|&quot;model=...&quot;| Agent[&quot;TutorialAgent.__init__&lt;br/&gt;build_level_chain()&quot;]
+    Agent --&gt;|&quot;self._model&quot;| Call[&quot;_call_api()&lt;br/&gt;GASへPOST&quot;]
+    Call --&gt;|&quot;model: self._modelをそのまま送信&quot;| GAS[&quot;gas_cloud_rag.js&lt;br/&gt;body.modelをAnthropicへ転送&lt;br/&gt;（サーバー側の制限なし）&quot;]
+    GAS --&gt; Claude[&quot;Claude API&quot;]
+</div>
+<h3 id="41-モデル別単価テーブル">4.1 モデル別単価テーブル</h3>
+<p><code>_PRICE</code>（単一モデル固定）を<code>_MODEL_PRICES</code>（モデル別辞書）に置き換え、コスト計算・打ち切り判定（<code>COST_LIMIT_USD</code>）がどちらのモデルでも正しく効くようにした。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>モデル</th>
+<th>入力</th>
+<th>出力</th>
+<th>cache_write</th>
+<th>cache_read</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>claude-sonnet-5</code>（既定）</td>
+<td>$3.00</td>
+<td>$15.00</td>
+<td>$3.75</td>
+<td>$0.30</td>
+</tr>
+<tr>
+<td><code>claude-haiku-4-5</code>（低コスト）</td>
+<td>$1.00</td>
+<td>$5.00</td>
+<td>$1.25</td>
+<td>$0.10</td>
+</tr>
+</tbody>
+</table></div>
+<p>単価だけで比較すると、Haiku 4.5は入力・出力とも<strong>約1/3</strong>。cache_write/cache_readはHaiku 4.5の公表値がないため、他モデルと同じ比率（write=input×1.25、read=input×0.1）で概算している。</p>
+<h3 id="42-実装の変更点">4.2 実装の変更点</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>変更内容</th>
+<th>該当箇所</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MODEL</code>定数（単一固定）→ <code>DEFAULT_MODEL</code> + <code>_MODEL_PRICES</code>辞書</td>
+<td><a href="../../houdini/python_panels/tutorial_agent.py">tutorial_agent.py:45</a></td>
+</tr>
+<tr>
+<td><code>TutorialAgent.__init__</code>に<code>model</code>引数を追加（未知の値は<code>DEFAULT_MODEL</code>にフォールバック）</td>
+<td><a href="../../houdini/python_panels/tutorial_agent.py">tutorial_agent.py</a></td>
+</tr>
+<tr>
+<td><code>_usage_cost()</code>を静的メソッドからインスタンスメソッドに変更し、<code>self._model</code>の単価を参照</td>
+<td><a href="../../houdini/python_panels/tutorial_agent.py">tutorial_agent.py</a></td>
+</tr>
+<tr>
+<td><code>build_level_chain()</code>（3段階連続生成）にも<code>model</code>引数を追加し、各段の<code>TutorialAgent</code>に伝播</td>
+<td><a href="../../houdini/python_panels/tutorial_agent.py">tutorial_agent.py</a></td>
+</tr>
+<tr>
+<td>Settingsタブに「チュートリアル生成モデル」プルダウンを追加（<code>AVAILABLE_MODELS</code>をインポートして選択肢を一元化）</td>
+<td><a href="../../houdini/python_panels/rag_chatbot.py">rag_chatbot.py</a></td>
+</tr>
+<tr>
+<td><code>tutorial_model</code>設定キーを追加（既定値<code>claude-sonnet-5</code>）</td>
+<td><a href="../../houdini/python_panels/rag_chatbot.py">rag_chatbot.py</a></td>
+</tr>
+<tr>
+<td>単発生成・3段階チェーン生成の両方で選択モデルを<code>TutorialAgent</code>/<code>build_level_chain</code>に渡すよう変更</td>
+<td><a href="../../houdini/python_panels/tutorial_view.py">tutorial_view.py</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>GAS側（<code>gas_cloud_rag.js</code>）は<code>body.model</code>を検証せずそのままAnthropic APIに転送する実装だったため、<strong>サーバー側の変更は不要</strong>だった。</p>
+<hr />
+<h2 id="5-google管理mcpサーバーの調査参考情報">5. Google管理MCPサーバーの調査（参考情報）</h2>
+<p>将来Gmail/Calendar/Maps等のGoogleサービスと連携する可能性を見据え、Googleが公式提供するMCPサーバーの状況を調査した（Google Cloud Next '26で発表）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>サービス</th>
+<th>状況</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gmail MCP Server</td>
+<td>Google Workspace配下でMCPサーバー化済み</td>
+</tr>
+<tr>
+<td>Calendar MCP Server</td>
+<td>エンドポイント <code>https://calendarmcp.googleapis.com/mcp/v1</code>。OAuth 2.0スコープ3種（<code>calendar.calendarlist.readonly</code> / <code>calendar.events.freebusy</code> / <code>calendar.events.readonly</code>）が必要</td>
+</tr>
+<tr>
+<td>Maps Grounding Lite MCP Server</td>
+<td>Google Workspace外だが同様にMCPサーバー化済み</td>
+</tr>
+<tr>
+<td>Drive / Chat / People API</td>
+<td>Workspace配下で同様に対応</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Claudeから使う場合</strong>の要件：</p>
+<ul>
+<li>claude.ai のカスタムコネクタ設定でOAuthクライアントID/シークレット・リダイレクトURI（<code>https://claude.ai/api/mcp/auth_callback</code>）の登録が必要</li>
+<li><strong>Enterprise/Pro/Max/Teamプランが必要</strong>（無料プランでは利用不可）</li>
+</ul>
+<p><strong>Gemini自体のMCP対応</strong>（比較検討のための参考情報）：</p>
+<ul>
+<li>Gemini CLI（および後継のAntigravity CLI）はMCPクライアントを標準搭載しており、外部MCPサーバーに接続してツールを発見・実行できる</li>
+<li>Gemini API（<code>google-genai</code> SDK）は2026年3月にネイティブMCPサポートを追加。Python/JavaScript SDKからリモートMCPサーバー（Streamable HTTP）に直接接続可能だが、現状は<code>tools/list</code>によるツール呼び出しのみでresources/promptsは未対応、かつexperimental扱い</li>
+</ul>
+<p>この調査は「今後Googleサービスと連携する際にどの経路が現実的か」を判断するための一次情報であり、本レポート時点では実装には着手していない。</p>
+<blockquote>
+<p>その後、この一次情報を元にGAS上でMCPクライアントを自前実装し、Google純正MCP（Calendar）・サードパーティMCP（DeepWiki）・複数サーバー横断・代替のネイティブサービス実装までを実機検証した。詳細は <a href="../../MCPdemo/gas-mcp-demo-report.html">MCPdemo/gas-mcp-demo-report.md</a> を参照。</p>
+</blockquote>
+<hr />
+<h2 id="6-変更ファイル一覧">6. 変更ファイル一覧</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>ファイル</th>
+<th>変更内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../../houdini/python_panels/tutorial_agent.py">houdini/python_panels/tutorial_agent.py</a></td>
+<td><code>MODEL</code>→<code>DEFAULT_MODEL</code>+<code>_MODEL_PRICES</code>辞書化、<code>TutorialAgent(model=...)</code>対応、<code>_usage_cost()</code>のインスタンスメソッド化、<code>build_level_chain(model=...)</code>対応</td>
+</tr>
+<tr>
+<td><a href="../../houdini/python_panels/rag_chatbot.py">houdini/python_panels/rag_chatbot.py</a></td>
+<td><code>tutorial_model</code>設定キー追加、Settingsタブにモデル選択プルダウン追加</td>
+</tr>
+<tr>
+<td><a href="../../houdini/python_panels/tutorial_view.py">houdini/python_panels/tutorial_view.py</a></td>
+<td>単発生成・チェーン生成の両方で選択モデルを<code>TutorialAgent</code>/<code>build_level_chain</code>に渡すよう変更</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="7-動作確認手順">7. 動作確認手順</h2>
+<ol>
+<li>Houdiniの <code>rag_chatbot.py</code>（<code>tutorial_agent.py</code>/<code>tutorial_view.py</code>同梱）を起動し、<strong>Settings</strong>タブを開く</li>
+<li>「チュートリアル生成モデル（コスト影響あり）」のプルダウンで <code>claude-haiku-4-5</code> を選択し、「設定を保存」を押す</li>
+<li><strong>Tutorial</strong>タブでトピックを入力して生成を実行</li>
+<li>生成完了後のMarkdownプレビュー末尾（<code>*自動生成: model=... / iterations=... / cost=$...</code>）で、指定したモデル名（<code>claude-haiku-4-5</code>）とコストが表示されていることを確認する</li>
+<li>同じトピックで <code>claude-sonnet-5</code> に戻して再生成し、末尾のコスト表示が前述の単価テーブルどおり約3倍程度になることを確認する（生成内容の違いはトピックや反復回数に依存するため厳密な倍率一致は求めない）</li>
+<li>3段階チェーン生成（Chainチェックボックス）でも同様に、選択したモデルが各段（basic/applied/advanced）に反映されることを確認する</li>
+</ol>
+<hr />
+<h2 id="8-運用上の注意今後の課題">8. 運用上の注意・今後の課題</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>既定値は変更していない</td>
+<td>品質優先のタスクのため、既定は引き続き<code>claude-sonnet-5</code>。Haiku 4.5への切り替えは常にユーザーの明示的な選択</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Haiku 4.5選択時の品質リスク</td>
+<td>ノードグラフ組み立て・エラー自己修正の精度がSonnet 5より下がる可能性があり、未検証。実際の生成品質は今後の実機検証で確認する必要がある</td>
+</tr>
+<tr>
+<td>3</td>
+<td>GAS側にモデル制限なし</td>
+<td><code>gas_cloud_rag.js</code>は<code>body.model</code>を検証せず転送するため、クライアント側の<code>AVAILABLE_MODELS</code>以外の値も理論上は通ってしまう。悪用シナリオは低いが、将来的にGAS側でも許可モデルのホワイトリスト化を検討する余地がある</td>
+</tr>
+<tr>
+<td>4</td>
+<td>cache_write/cache_read単価は概算</td>
+<td>Haiku 4.5のキャッシュ単価はAnthropic公表値がなく、他モデルと同じ比率で概算している。実測との乖離があればコスト打ち切り判定（<code>COST_LIMIT_USD</code>）の精度に影響する</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Google MCP連携は未着手</td>
+<td>前述のGoogle MCPサーバーの調査は情報収集の段階であり、実装には進んでいない。着手する場合はEnterprise/Pro/Max/Teamプランの要否・OAuth設定コストを踏まえて優先度を判断する</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<p><em>関連ドキュメント: <a href="../operations/claude-token-security-report.html">docs/operations/claude-token-security-report.md</a> / <a href="../design/content-generation.md">docs/design/content-generation.md</a> / <a href="houdini21-tutorial-gen-report.html">docs/reports/houdini21-tutorial-gen-report.md</a> / <a href="../../MCPdemo/gas-mcp-demo-report.html">MCPdemo/gas-mcp-demo-report.md</a>（本レポートのGoogle MCP調査に対する実機検証編）</em></p>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+</body>
+</html>

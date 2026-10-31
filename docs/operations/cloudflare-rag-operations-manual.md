@@ -1,0 +1,348 @@
+# Cloudflare RAG POC 運用手順書
+
+**作成日:** 2026-08-26（2.4〜2.7節は2026-09-22追加：Jira/Backlog/Googleカレンダー/Googleマップ連携、OAuthクリック接続化、再帰クローラー、重複検出）
+**対象:** [cloudflare-rag-poc/](../../cloudflare-rag-poc/)
+**位置づけ:** 初期セットアップと日常運用の手順を、実際にこの検証環境を構築・運用した手順に沿ってまとめたもの。設計・アーキテクチャの説明は[技術解説書](../design/cloudflare-rag-technical-report.md)を参照。
+
+---
+
+## 目次
+
+1. [初期セットアップ](#1-初期セットアップ)
+2. [知識ベースの追加・同期](#2-知識ベースの追加同期)
+   - 2.4 [再帰URLクローラー](#24-再帰urlクローラー) / 2.5 [Jira・Backlog・Googleカレンダー・Googleマップ連携](#25-jira--backlog--googleカレンダー--googleマップ連携) / 2.6 [OAuth接続の管理](#26-oauth接続の管理) / 2.7 [重複コンテンツの確認・削除](#27-重複コンテンツの確認削除)
+3. [APIキー・namespaceの管理](#3-apiキーnamespaceの管理)
+4. [検索精度のチューニング](#4-検索精度のチューニング)
+5. [ヘルスチェック・アラートの運用](#5-ヘルスチェックアラートの運用)
+6. [バックアップとロールバック](#6-バックアップとロールバック)
+7. [Houdiniチュートリアル生成をCloudflare経由に切り替える](#7-houdiniチュートリアル生成をcloudflare経由に切り替える)
+8. [公式MCP連携・チュートリアル評価の運用](#8-公式mcp連携チュートリアル評価の運用2026-10追加)
+9. [障害対応の基本フロー](#9-障害対応の基本フロー)
+
+---
+
+## 1. 初期セットアップ
+
+[![システム全体の構成](../images/01-system-overview.svg)](../images/01-system-overview.svg)
+
+*図: システム全体の構成。手元の Houdini とパネル、Cloudflare の Worker、外部の AI・サービスの関係。*
+
+```mermaid
+flowchart TD
+    A["wrangler login"] --> B["D1データベース作成"]
+    B --> C["Vectorizeインデックス作成<br/>(shared / personal、768次元・cosine)"]
+    C --> D["★メタデータインデックス作成<br/>（データ投入前に必須）"]
+    D --> E["シークレット登録<br/>GEMINI_API_KEY等"]
+    E --> F["D1マイグレーション適用"]
+    F --> G["wrangler deploy"]
+    G --> H["POST /admin/bootstrap で<br/>最初の管理者キーを発行"]
+    H --> I["/health で疎通確認"]
+```
+
+詳細なコマンドは[README.mdのセットアップ手順](../../cloudflare-rag-poc/README.md#セットアップ手順)を参照。特に**手順Dのメタデータインデックス作成を飛ばすと、データを投入した後でも`/search`が常に0件を返す**という分かりにくい不具合になるため注意（実際にこの順序で1度失敗している）。
+
+### 1.1 最初の管理者キーを発行する
+
+Admin APIは管理者キーを持っていることが前提だが、初回セットアップ時点ではそのキー自体が存在しないという鶏卵問題がある。これまでは`wrangler d1 execute`で直接INSERTして凌いでいたが、専用のブートストラップ用エンドポイントを用意した（2026-08-27追加）。
+
+```bash
+curl -X POST https://<デプロイ先>/admin/bootstrap \
+  -H "content-type: application/json" \
+  -d '{"displayName":"管理者"}'
+```
+
+**管理者ロールのユーザーが1人でも既に存在する場合は403で拒否される**（GAS版の`bootstrapFirstAdminKey`と同じ安全策）。つまりこのエンドポイントは初回セットアップの一度きりしか使えず、認証をバイパスできる抜け穴にはならない。2回目以降の管理者キー発行は通常通り管理タブ（`POST /admin/keys/create`）から行う。
+
+## 2. 知識ベースの追加・同期
+
+### 2.1 同期元の登録
+
+管理タブの「知識ベース同期」、または`POST /admin/kb/set-source`で、namespaceごとにNotionデータベースID・Google DriveフォルダIDを登録する。
+
+### 2.2 同期の実行
+
+```mermaid
+flowchart LR
+    Start["管理タブの<br/>「Notion同期を実行」/「Drive同期を実行」"] --> Batch["batchSize件ずつ<br/>クライアントJSがループ"]
+    Batch --> Check{"nextIndexは<br/>nullか？"}
+    Check -->|"いいえ"| Batch
+    Check -->|"はい"| Done["完了。同期履歴に記録"]
+```
+
+**batchSizeの目安**（実機検証で判明した値）：
+
+| 同期元 | 内容 | 推奨batchSize |
+|---|---|---|
+| Notion | テキストのみ、変換処理なし | 5（既定） |
+| Google Drive（テキスト/Googleドキュメント中心） | 変換処理が軽い | 3〜5 |
+| Google Drive（PDF/PPTX/音声動画が混在） | Gemini呼び出しを伴う変換処理が重い | **1**（既定をこれに変更済み） |
+
+batchSizeが大きすぎると、1リクエストが100秒を超えてブラウザ/プロキシのタイムアウトに引っかかり、`Unexpected token '<'`というJSON解析エラーになる（実機で確認済み、[技術解説書§8](../design/cloudflare-rag-technical-report.md#s8)参照）。
+
+### 2.3 対応形式
+
+| 形式 | 対応方法 |
+|---|---|
+| Notionページ本文 | そのまま取得 |
+| Googleドキュメント・テキスト・Markdown | そのまま取得 |
+| PDF | Geminiのネイティブ文書理解（18MB以下はインライン、超えるとFile API） |
+| Word（.docx）・PowerPoint（.pptx）（Drive同期） | 自前のZIPパーサ＋HTTP Rangeで、ファイル全体をダウンロードせず本文XMLだけを取得（2026-08-27〜、事実上ファイルサイズ無制限） |
+| Word（.docx）・PowerPoint（.pptx）（手動アップロード`/admin/kb/upload-doc`） | base64でリクエストボディに載せる方式のため、こちらは約20MBまで |
+| 音声・動画ファイル | Gemini File APIにアップロードして文字起こし |
+| YouTube URL | `POST /admin/kb/import-youtube`（ダウンロード不要） |
+| 任意のWebページURL | `POST /admin/kb/import-url`（HTMLRewriterでテキスト抽出） |
+| QAペアのCSV | `POST /admin/kb/import-qa-csv`（question, answer列が必要） |
+| FAQ1件だけ登録 | `POST /admin/kb/add-faq`（管理タブ「FAQ単発登録」。`alsoWriteToNotion`指定でnamespaceの同期先Notion DBにもページ作成、2026-08-27追加） |
+
+PDF・音声・動画ファイルはGeminiに実データを渡す必要があるため、Drive同期でもダウンロード自体は避けられず、Workersのメモリ上限（128MB）に対する安全マージンとして約90MBの上限がある（超えると同期結果の`skipped`欄に理由が出る）。DOCX/PPTXはこの制約を受けない（上表参照）。
+
+### 2.4 再帰URLクローラー
+
+`POST /admin/kb/crawl-url`（管理タブ「ナレッジ登録」→「ナレッジを追加」→「URL」）で、起点URLから同一オリジン配下のリンクを辿って複数ページをまとめて登録できる。`depth`（辿る階層数）・`maxPages`・`pathPrefix`（パス接頭辞での絞り込み）・`excludePatterns`（除外パターン、単純な部分一致）・`skipExisting`（同名ファイルが既にあればスキップ）を指定できる。§2.2と同じバッチ処理パターンのため、`batchSize`を大きくしすぎるとタイムアウトしやすい点は同様（既定1）。クロールの継続状態は`crawl_jobs`テーブルに保存され、完了時に自動削除される。
+
+### 2.5 Jira / Backlog / Googleカレンダー / Googleマップ連携
+
+管理タブの「連携」サブタブから利用する。認証方式は2通りある：
+
+- **OAuthクリック接続（推奨）**：管理タブの「接続する」ボタン→ブラウザで認証するだけで完了する。技術者が事前に各サービスのOAuthアプリを一度だけ登録しておく必要がある（登録手順は[cloudflare-rag-poc/README.md](../../cloudflare-rag-poc/README.md)の各サービス節を参照）
+- **従来方式（APIトークン等をシークレット登録）**：OAuthアプリを登録しない場合の代替。OAuth接続がある場合はそちらが自動的に優先される
+
+どちらの方式でも、namespaceとプロジェクト/カレンダーの紐付け（プロジェクトキー・カレンダーID・絞り込み条件等）は管理タブで直接入力する。Jira/Backlogは毎日UTC 4時のCron Triggerで自動差分同期される（前回同期以降に更新された分だけ追加登録）。初回の全件取り込みは、管理タブの「Jira同期を実行」/「Backlog同期を実行」を手動で1回実行する必要がある（Cronは差分キャッチアップ専用で、未接続状態からの初回実行では「過去24時間分」しか見ない）。Googleカレンダーは差分検知をせず、毎回固定の時間窓（既定：過去7日〜未来90日）を自動で丸ごと再取得する。
+
+各連携には「接続テスト」ボタンがあり、実際の登録は行わずsecret・IDの妥当性だけを確認できる。同期を実行する前にまずこれで確認するとよい。
+
+### 2.6 OAuth接続の管理
+
+- **接続状況の確認**：管理タブの「ナレッジ登録」タブを開くと自動的に`POST /admin/oauth/status`が呼ばれ、各サービスの接続状況が表示される
+- **接続の解除**：各サービスの「接続を解除」ボタン、または`POST /admin/oauth/<service>/disconnect`（`jira`/`backlog`/`google_calendar`/`slack`）。解除してもnamespaceとの紐付け設定（プロジェクトキー等）は残るため、再接続すれば同じ設定のまま同期を再開できる
+- **トラブル時の直接確認**：`wrangler d1 execute rag-poc-db --remote --command "SELECT service, expires_at, connected_at FROM oauth_connections;"`で、どのサービスがいつ接続され、アクセストークンがいつ失効するかを確認できる（[§6.3](#63-d1データを直接確認する)参照）
+
+### 2.7 重複コンテンツの確認・削除
+
+管理タブ「重複コンテンツの確認・削除」で、namespace内の登録済みドキュメントのうち、先頭チャンク本文と全体の文字数が完全一致するもの（＝ソースやfile名が違うだけで内容が重複しているもの）を検出できる。同じページをURL登録とクロールの両方で登録した、Notion/Drive/Jira間で内容が重複した、といったケースを想定している。検出結果は組ごとに一覧表示され、管理者が個別に「削除」ボタンで不要な方を選んで削除する（自動一括削除はしない）。ソースをまたいだ重複も自動的に検出対象になる（`kb_documents`テーブルがnamespace単位で全ソースを横断しているため、追加設定は不要）。
+
+## 3. APIキー・namespaceの管理
+
+[![費用と上限の流れ](../images/08-cost-flow.svg)](../images/08-cost-flow.svg)
+
+*図: 費用と上限の流れ。処理ごとに「確保 → 実行 → 精算」。足りなければ、実行の前に止める。*
+
+- **APIキー発行**：管理タブ「新しいAPIキーを発行」、または`POST /admin/keys/create`。**生キーはこの応答でしか取得できない**ため、発行時に必ず控える。画面上の表示は「コピー」ボタンでの取得を想定しており、60秒後の自動非表示・「隠す」ボタン・管理タブを離れた時点でのクリアのいずれかで画面から消える（ページを再読み込みしない限り表示され続けていた不具合の対策、2026-08-27）
+- **namespaceアクセス制御**：新規発行キーは、`namespaces`を明示的に指定しない限りどのshared namespaceも見えない（2026-08-24以降の挙動）。キーごとに`key_namespace_grants`で許可リストを管理する
+- **個人用namespace**：各キー発行時に`personal:<userId>`が自動作成される。チャットUIの個別DB選択ドロップダウンでは「🔒 個人用（自分専用）」と表示される
+
+## 4. 検索精度のチューニング
+
+### 4.1 個別DBに絞った検索
+
+チャットUIのヘッダーにある検索対象ドロップダウンで、「🌐 全DB横断検索」（既定）と個別のnamespaceを選べる。無関係なnamespaceの結果が紛れ込んで回答の質が下がる場合に有効（実際に「SOPとは」という質問で無関係なcedecnotesの資料が上位に混ざる事例で導入した）。
+
+### 4.2 namespace別の検索件数上限
+
+管理タブ「namespace管理」で、namespaceごとに検索結果の採用件数上限（`result_limit`）を設定できる。複数DBを横断検索する際、特定のDBが結果を占有しすぎるのを防ぐのに使う。
+
+```mermaid
+flowchart LR
+    Query["検索クエリ"] --> Hybrid["ハイブリッド検索<br/>(ベクトル+BM25, RRF統合)"]
+    Hybrid --> Cap{"namespace別<br/>result_limit超過？"}
+    Cap -->|"超過分は間引く"| Filtered["最終的な検索結果"]
+    Cap -->|"上限未設定は無制限"| Filtered
+```
+
+### 4.3 出典引用率の確認
+
+回答ごとに表示される「出典引用率（extractionRate）」が低い場合、提示した参考情報が実際には根拠として使われていない＝ハルシネーションの可能性がある。個別DB検索や`level`フィルタ（basic/applied/advanced）と組み合わせて確認する。
+
+### 4.4 複数出典の貢献度確認
+
+出典が2件以上引用された回答では、参照した情報源の一覧の上に「引用の内訳（実際に引用された回数の比率）」バーが表示される（2026-08-27追加）。回答文中の`[n]`の出現回数で重み付けしており、「引用された/されていない」だけでなく、どの出典がどれだけ重く使われたかを確認できる。
+
+### 4.5 質問への画像添付（マルチモーダルクエリ）
+
+チャット入力欄の📎ボタンから画像（8MBまで）を添付できる（2026-08-27追加）。添付画像は検索・埋め込みには使わず、最終回答生成時にRAGコンテキストと一緒にGeminiへ渡すだけなので、「この画像に写っているノードは何ですか」のような質問に使う。
+
+## 5. ヘルスチェック・アラートの運用
+
+30分ごとのCron Triggerで、D1接続・直近1時間のKB同期エラー・トークン予算の枯渇間近を自動チェックし、設定済みのSlack/Gmailへ通知する。このほか、毎日UTC 4時のCron TriggerでJira/Backlog/Googleカレンダーの自動差分同期（[§2.5](#25-jira--backlog--googleカレンダー--googleマップ連携)）が走る。
+
+- **手動実行**：管理タブ「ヘルスチェックを実行」、または`POST /admin/health/check`
+- **通知先の疎通確認**：管理タブ「テスト通知を送信」、または`POST /admin/health/test-alert`（Slackは`SLACK_WEBHOOK_URL`かOAuth接続のどちらか一方があれば`ok`になる）
+- **セットアップ**：[README.mdのセットアップ手順](../../cloudflare-rag-poc/README.md#ヘルスチェックアラート通知のセットアップslack--gmail)を参照。GmailはGoogle Workspace限定のDomain-Wide Delegationではなく、個人アカウントのOAuthリフレッシュトークン方式を採用している。SlackはIncoming Webhook URLの手動発行に加えて、OAuthクリック接続（[§2.5](#25-jira--backlog--googleカレンダー--googleマップ連携)と同じ仕組み）にも対応する
+- **日次差分同期が動いているかの確認**：Jira/Backlog/カレンダーの同期履歴（`POST /admin/kb/history`、`source`列が`jira`/`backlog`/`google_calendar`）にUTC 4時台のエントリが日々増えているかで確認できる。増えていない場合はOAuth接続の有効期限切れ（[§2.6](#26-oauth接続の管理)）を疑う
+
+## 6. バックアップとロールバック
+
+### 6.1 設定バックアップ
+
+管理タブ「設定バックアップ」→「エクスポート」で、users/namespaces/kb_sources/token_budgets/key_namespace_grantsのJSONスナップショットをダウンロードできる。チャット履歴本文やベクトルデータは対象外（D1の自動バックアップに任せる方針）。
+
+### 6.2 KBロールバック
+
+```mermaid
+flowchart LR
+    History["同期履歴（管理タブ）で<br/>対象のopIdを確認"] --> Input["「KBロールバック」に<br/>opIdを入力"]
+    Input --> Confirm["確認ダイアログ"]
+    Confirm --> Exec["chunks_fts・Vectorize<br/>両方から削除"]
+```
+
+誤ったデータを同期してしまった場合、同期履歴（`POST /admin/kb/history`）に記録された`opId`を使ってロールバックできる（`POST /admin/kb/rollback`）。**埋め込み前の生データは保持していないため、取り消し後に再度使いたい場合は再同期が必要。**
+
+### 6.3 D1データを直接確認する
+
+管理タブのAPI経由では見えない生データ（テーブル中身そのもの）を確認したい場合、`wrangler d1 execute`でSQLを直接実行できる。`cloudflare-rag-poc/`ディレクトリで実行する。
+
+```bash
+# 本番（--remote、Cloudflare上の実データ）に対して実行
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT * FROM namespaces;"
+
+# ローカルの開発用DB（wrangler devが使うSQLiteファイル、本番とは別データ）に対して実行する場合は --remote を外す
+npx wrangler d1 execute rag-poc-db --command "SELECT * FROM namespaces;"
+```
+
+`--remote`の有無を間違えると「ローカルの空DBを見て『データが無い』と勘違いする」事故につながりやすいので、本番データを見たい時は必ず`--remote`を付けること。
+
+よく使う確認クエリ：
+
+| 確認したいこと | クエリ例 |
+|---|---|
+| namespace一覧と検索件数上限 | `SELECT namespace_id, scope, result_limit FROM namespaces;` |
+| 直近の同期履歴（エラーのみ） | `SELECT * FROM kb_log WHERE status='error' ORDER BY id DESC LIMIT 20;` |
+| あるnamespaceに登録済みのチャンク数 | `SELECT namespace, COUNT(*) FROM chunks_fts GROUP BY namespace;` |
+| APIキーに紐づくnamespace許可 | `SELECT * FROM key_namespace_grants WHERE user_id='<user_idの先頭数文字>...';` |
+| トークン予算の消費状況 | `SELECT user_id, budget_type, used_tokens, limit_tokens FROM token_budgets;` |
+| 監査ログ（誰がいつ何を検索したか） | `SELECT user_id, namespace_id, tokens_used, latency_ms FROM audit_log ORDER BY id DESC LIMIT 20;` |
+| namespaceごとのDriveフォルダ/Notion DB設定 | `SELECT * FROM kb_sources;` |
+| OAuth接続の状況（有効期限等） | `SELECT service, expires_at, connected_at FROM oauth_connections;` |
+| ドキュメント単位の一覧（重複検出の元データ） | `SELECT file, namespace FROM kb_documents WHERE namespace = '<namespace>';` |
+| 進行中の再帰クロールジョブ | `SELECT op_id, namespace_id, processed_count FROM crawl_jobs;` |
+
+JSON形式で結果が欲しい場合は`--json`オプションを付ける（スクリプトから加工したい場合に便利）。テーブル定義そのものを確認したい場合は`migrations/`配下の各SQLファイル、または[技術解説書§4データモデル](../design/cloudflare-rag-technical-report.md#4-データモデル)のER図を参照。
+
+Cloudflareダッシュボード（[dash.cloudflare.com](https://dash.cloudflare.com) → Workers & Pages → D1 → `rag-poc-db`）からもブラウザ上でSQLを実行・閲覧できる。CLIでのアドホックな確認にはwrangler、繰り返し見る・共有したい場合はダッシュボードが向いている。
+
+## 7. Houdiniチュートリアル生成をCloudflare経由に切り替える
+
+`houdini/python_panels/tutorial_agent.py`は、既定でGAS経由でClaude API・RAG検索を呼ぶ。Cloudflare経由に切り替える場合：
+
+1. Cloudflare側で`ANTHROPIC_API_KEY`シークレットを設定済みであることを確認する
+2. HoudiniのRAGチャットパネル → Settingsタブで以下を設定する：
+   - チュートリアル生成: Claude呼び出し先 → `cloudflare`
+   - チュートリアル生成: RAG検索先 → `cloudflare`（空欄のままなら従来の設定に追随）
+   - Cloudflare RAG WebApp URL → デプロイ済みのWorker URL
+   - Cloudflare RAG APIキー → 発行済みのAPIキー
+3. 設定を保存し、通常通りチュートリアル生成を実行する
+
+**既定値は変更していないため、これらの設定を触らなければ従来通りGAS経由で動作する。** 切り替えた場合、Claude呼び出しのトークン消費は`token_budgets`の`budget_type='claude'`で管理される。上限は未設定だと無制限になる点に注意（RAGのnamespace予算のような警告のみの仕組みとは異なり、`src/claude.ts`の`reserveBudget()`が超過時に実際にリクエストを拒否するサーバー側の強制）。設定・変更は管理タブの「APIキー管理」の「Claude予算（チュートリアル生成等）」列から行える（2026-09-23追加。入力欄を空にして「設定」を押すと無制限に戻る）。CLIからは`POST /admin/keys/set-capacity`（`limitTokens: null`で無制限に戻す）でも同じことができる。
+
+## 8. 公式MCP連携・チュートリアル評価の運用（2026-10追加）
+
+### 再クロールと中断からの再開（2026-10-14〜）
+
+- **変更の無いページは飛ばす**: 前回登録したときの本文のハッシュ（`crawl_page_hashes`）と一致するページは、埋め込み・登録をせずに「変更なし」とする。再クロールは、変わったページだけを処理する。短くなったページは、古い末尾のチャンクも消す。
+- **1ページの失敗で止まらない**: 取得は20秒、登録は60秒で打ち切り、そのページだけを「エラー」として次へ進む。1回のリクエストが25秒を超えそうなときは、残りを次のリクエストへ回す。
+- **自動の再試行と再開**: 画面は通信の失敗を最大3回まで自動で再試行する。それでも失敗したときは、登録済みの分を残したまま止まり、同じ操作をやり直すと**続きから**再開する。画面を閉じても、管理画面の「中断したクロール」から「続きから再開」または「破棄」できる（`POST /admin/kb/crawl-jobs`、`/admin/kb/crawl-jobs/discard`）。
+- 変更の有無に関わらず全ページを登録し直したいときは、先にそのnamespaceの該当ページを削除する（または`crawl_page_hashes`の行を消す）。
+
+### グラフの表示ノード（2026-10-14〜）
+
+- 表示するノードは最大500件。超える場合は、先頭から切るのではなく、**namespaceごとの文書数の比率に合わせて**各namespaceから抜き出す（文書のあるnamespaceは最低1件は残す）。抜き出しは安定した順（`chunk_id`順）なので、開くたびに同じ結果になる。
+- 凡例には「表示数 / 全体」を出す。`/graph` のレスポンスには `totalNodes` と、namespaceごとの `totals`（`total` / `shown`）が付く。
+
+### 8-0. ナレッジ登録タブの画面構成（2026-10-08〜）
+
+- 上部に「＋ ナレッジを追加」（3ステップのポップアップ：登録方法の選択 → コンテンツの登録 → 確認・実行）と「🔗 ＋ 連携するシステムを追加」（システム選択グリッド → 詳細）。
+- 「📖 登録済みナレッジ」：namespace切替・検索・ページ送り・個別削除。
+- 「🧩 連携中のシステム」：接続済みの連携を一覧し、行クリックで詳細を開く。
+
+### 8-1. 公式MCP連携（Notion・GitHub・Slack・Google・Canva・Figma・Vercel など。選定は [mcp-integration-guide.md](../design/mcp-integration-guide.md)）
+
+| やること | 手順 |
+|---|---|
+| 接続する | 管理画面 →「ナレッジ登録」→「🔗 ＋ 連携するシステムを追加」→ 目的のサービスのカードを選び「…で認証する（公式MCP）」。個人の権限のサービスは、上部の「自分用の連携」から接続する。各社の同意画面で許可すると管理画面へ戻る（管理者のみ） |
+| ツールを選ぶ | 詳細画面の「チャットで使うツール」で、使うものにチェックして「ツールの選択を保存」 |
+| チャットで使う | 「RAGチャットでこのサービスのツールを使う」をオン（既定はオフ）。チャット画面に「外部サービスも使う」が出る |
+| 書き込みを使う（2026-10-22） | **本人専用の接続**で、ツールの選択に**明示的にチェック**したものだけ（初期状態は読み取りのみ）。チャットでモデルが呼ぶと、**確認カード**（内容つき）が出て、「実行」を押すまで実行されない（1回だけ・5分で失効・本人のみ）。共有の接続では、書き込まない |
+| 再認証 | 状態が「要再認証」のとき「再認証する」。ツール選択・チャット設定は引き継がれる |
+| 解除 | 「連携を解除」。接続情報（トークン）をD1から削除する |
+| 監査の確認 | D1の`mcp_audit`（誰が・どのツールを・成否）。引数は保存しない。180日で自動削除 |
+
+```bash
+# 状態をD1から直接確認（トークンは出さない）
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT provider_id, status, chat_enabled, connected_at FROM mcp_connections"
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT provider_id, action, status, created_at FROM mcp_audit ORDER BY id DESC LIMIT 20"
+```
+
+詳細・設計は [mcp-client.md](../../cloudflare-rag-poc/docs/mcp-client.md)。
+
+### 8-2. チュートリアルの評価（管理者の閲覧）
+
+- Houdiniパネル（履歴タブ）で付けた👍👎・タグ・メモが、`POST /tutorial-feedback/submit`でD1の`tutorial_feedback`に入る（1ユーザー×1チュートリアルで1行）。
+- 管理画面 →「利用状況・コスト」→「Houdiniチュートリアルの評価」で、モデル・レベル・領域・タグ別の集計、一覧、CSVを見られる（adminのみ。非adminは403）。
+- 送信に失敗したときは、履歴タブの状態欄に出る。ローカルの`_feedback.json`は残るので、評価を付け直せば再送される。
+
+```bash
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT rating, COUNT(*) FROM tutorial_feedback GROUP BY rating"
+```
+
+### 8-3. マイグレーションの適用
+
+```bash
+cd cloudflare-rag-poc
+npm run db:migrate:remote   # 0017（評価）・0018（MCP）・…・0035（課題の記録）・0036（やり直し）
+npm run deploy
+```
+
+wranglerが`7403`（アカウントが無効）で失敗することがあるが、一時的なAPIエラーのことが多い。`wrangler whoami`でログインとスコープ（d1・workers）を確認し、再実行する。
+
+### 8-4. 実証実験の課題の記録（2026-10-28〜）
+
+参加者の「課題」タブ（Houdini）が使う API と、管理者が見る集計。流れは [図12](../images/12-pilot-flow.svg)・[図13](../images/13-task-states.svg)、表は [図14](../images/14-data-model.svg)。
+
+| API | 誰が | 内容 |
+|---|---|---|
+| `POST /pilot/plan` | 本人 | 次の課題（回・固定課題の題材・条件）と、これまでの記録（`history`） |
+| `POST /pilot/profile` | 本人 | 事前アンケート。参加者番号（登録順）と割り当て番号（1〜3）が決まる。再送しても番号は変わらない |
+| `POST /pilot/session/start` | 本人 | 課題を始める。始めて終えていなければ、その続きを返す（`resumed`） |
+| `POST /pilot/session/end` | 本人 | 終える。到達・自己申告・cook エラー・アンケートと、`surveySec`（振り返りに使った秒）・`pausedSec`（中断の秒）を受け取り、所要時間をサーバーが確定する |
+| `POST /pilot/session/reset` | 本人 | 計測中・終えた記録を**破棄**してやり直す。次の回を始めたあとの、前の回は 409 |
+| `POST /admin/pilot/tasks` | admin | 課題の集計（回・種類・条件ごとの中央値、対照との比較）と、1課題1行のデータ |
+
+- **所要時間** = 終了の時刻 − 開始の時刻 − 中断。終了の時刻は、送信の時刻から `surveySec` を引いたもの。時間はパネルが同じ時計で測った秒数で送る（PC とサーバーの時計のずれに左右されない）。
+- **質問回数**は、課題の時間内の `memory` の数を、サーバーが数える。「公式ドキュメントのみ」の回に質問があれば、集計の「混入」に出る。
+- **やり直し**は消さずに `discarded_at` を入れる。集計・次の課題の判定は、`discarded_at IS NULL` の行だけを見る。同じ（人・回・種類）の有効な行は 1つ（部分一意索引）。
+- D1 で直接確認する例（読み取りだけ）:
+
+```bash
+cd cloudflare-rag-poc
+# 参加者の数（管理者を除く）
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT COUNT(*) AS n FROM pilot_profile WHERE pid IS NOT NULL"
+# 回ごとの完了数と、破棄した記録の数
+npx wrangler d1 execute rag-poc-db --remote --command "SELECT round, kind, SUM(ended_at IS NOT NULL AND discarded_at IS NULL) AS done, SUM(discarded_at IS NOT NULL) AS discarded FROM pilot_sessions GROUP BY round, kind"
+```
+
+## 9. 障害対応の基本フロー
+
+```mermaid
+flowchart TD
+    Issue["問題発生"] --> Health["管理タブでヘルスチェックを手動実行"]
+    Health --> KbLog["同期関連なら<br/>同期履歴（kb_log）を確認"]
+    Health --> Usage["予算関連なら<br/>利用状況ダッシュボードを確認"]
+    KbLog --> Rollback{"誤同期？"}
+    Rollback -->|"はい"| DoRollback["KBロールバックを実行"]
+    Rollback -->|"いいえ"| Retry["batchSizeを下げて再同期"]
+    Usage --> Recharge["POST /admin/keys/charge で残高補充<br/>または上限を引き上げ"]
+```
+
+原因の切り分けに使う主な情報源：
+
+| 症状 | 確認先 |
+|---|---|
+| 検索結果がおかしい・引用率が低い | チャットUIの出典一覧、個別DB検索で切り分け |
+| 同期が失敗する | 管理タブ「同期履歴」の`status`/`detail`列 |
+| JSON解析エラー（`Unexpected token '<'`） | batchSizeを下げて再試行（[§2.2](#22-同期の実行)参照） |
+| 予算超過（429） | 利用状況ダッシュボード、`POST /admin/keys/charge`で補充 |
+| Slack/Gmail通知が来ない | `POST /admin/health/test-alert`で疎通確認 |
+
+---
+
+*関連ドキュメント: [cloudflare-rag-poc/README.md](../../cloudflare-rag-poc/README.md) / [docs/design/cloudflare-rag-technical-report.md](../design/cloudflare-rag-technical-report.md) / [docs/reports/gas-feature-parity.md](../reports/gas-feature-parity.md)*

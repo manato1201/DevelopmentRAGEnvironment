@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>他の Houdini × AI の道具との比較（2026-10-23）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">比較資料（Houdini × AI）</span>
+  <h1>他の Houdini × AI の道具との比較（2026-10-23）</h1>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/reports/comparison-houdini-mcp.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#0-読む前に調べ方と限界">0. 読む前に（調べ方と限界）</a></li><li><a href="#1-一言でいうと">1. 一言でいうと</a></li><li><a href="#2-つなぎ方の違い">2. つなぎ方の違い</a></li><li><a href="#3-比較表">3. 比較表</a></li><li><a href="#4-共通点類似点相違点">4. 共通点・類似点・相違点</a><ol><li><a href="#共通点同じことをしている">共通点（同じことをしている）</a></li><li><a href="#類似点似ているが同じではない">類似点（似ているが、同じではない）</a></li><li><a href="#相違点本システムにしかないあちらにしかない">相違点（本システムにしかない／あちらにしかない）</a></li></ol></li><li><a href="#5-取り入れられそうなもの今は実装していない">5. 取り入れられそうなもの（今は実装していない）</a></li><li><a href="#6-組み合わせ方の考え方">6. 組み合わせ方の考え方</a></li><li><a href="#7-確認できていないこと">7. 確認できていないこと</a></li><li><a href="#出典2026-10-23-に参照">出典（2026-10-23 に参照）</a></li></ol></details></nav>
+<main>
+
+<p><strong>目的:</strong> 公開されている近い道具と、このシステムの<strong>共通点・類似点・相違点</strong>を整理して、違いを明確にする。<br />
+<strong>比べたもの:</strong> <a href="https://github.com/healkeiser/fxhoudinimcp">fxhoudinimcp</a>（比較の起点）・<a href="https://github.com/capoomgit/houdini-mcp">capoomgit/houdini-mcp</a>・<a href="https://github.com/oculairmedia/houdini-mcp">oculairmedia/houdini-mcp</a>・<a href="https://github.com/orrzxz/Houdini21MCP">Houdini21MCP</a>・<a href="https://github.com/JosephOIbrahim/Synapse">Synapse</a>・<a href="https://github.com/dcc-mcp/dcc-mcp-core">dcc-mcp-core</a>。</p>
+<h2 id="0-読む前に調べ方と限界">0. 読む前に（調べ方と限界）</h2>
+<ul>
+<li><strong>調べ方:</strong> 2026-10-23 に、各リポジトリの公開ページ（README）と GitHub の検索 API を読んだ。星の数・更新日は、その時点の値。「Houdini MCP」で検索すると 71 件が見つかったが、そのうち、星の多い順に近い目的のものを選んだ。</li>
+<li><strong>私は、どの道具も、インストールも実行もしていない。</strong> 以下は、<strong>公開されている説明に書かれていること</strong>だけ。書かれていない項目は、「記載なし」とした（「無い」とは限らない）。</li>
+<li>各道具の数字（ツール数など）は、作者の説明どおりで、私は再現していない。</li>
+<li>「本システム」の記述は、このリポジトリのコードと文書で確認できる範囲。</li>
+</ul>
+<h2 id="1-一言でいうと">1. 一言でいうと</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>何をするものか</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>fxhoudinimcp など（MCP サーバー型）</strong></td>
+<td><strong>外の AI（Claude・Cursor など）が、Houdini を操作する</strong>ための橋。ノード・USD・シミュレーション・レンダリングなどを、AI から広く操作できるようにする</td>
+</tr>
+<tr>
+<td><strong>本システム</strong></td>
+<td><strong>Houdini の知識（ドキュメント）を検索して、チュートリアルと解説動画を作り、配る</strong>ための仕組み。Houdini の操作は、教材を作るために必要な範囲だけ（サンドボックスの中）</td>
+</tr>
+</tbody>
+</table></div>
+<p>つまり、<strong>同じ「Houdini × AI」でも、向きが違います。</strong> 前者は「AI に Houdini を触らせる」、本システムは「Houdini の知識を、教材にして届ける」。</p>
+<p><a href="../images/09-positioning.svg"><img alt="立ち位置の違い（知識の厚み × 操作できる範囲）" src="../images/09-positioning.svg" /></a></p>
+<p><em>図: 立ち位置の違い。位置は、公開された説明からの筆者の整理で、数値ではありません。</em></p>
+<h2 id="2-つなぎ方の違い">2. つなぎ方の違い</h2>
+<p><a href="../images/10-comparison-architecture.svg"><img alt="つなぎ方の違い" src="../images/10-comparison-architecture.svg" /></a></p>
+<p><em>図: 左は fxhoudinimcp の公開された説明による。右は本システム。</em></p>
+<ul>
+<li><strong>MCP サーバー型:</strong> AI クライアントが、別プロセスの MCP サーバーを起動し（stdio）、サーバーが、Houdini の中のプラグインへ、ローカルの HTTP でつなぐ。Houdini の操作は、<code>hdefereval</code> で、メインスレッドで実行される。</li>
+<li><strong>本システム:</strong> Houdini の<strong>中</strong>のパネル（PySide）が、HTTPS で Cloudflare の Worker に、質問・生成を頼む。AI の呼び出し（Claude・Gemini）と鍵は、Worker だけが持つ。Houdini の操作は、パネルの中のツール実行で、同じく <code>hdefereval</code> を使う。</li>
+</ul>
+<h2 id="3-比較表">3. 比較表</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>fxhoudinimcp</th>
+<th>capoomgit</th>
+<th>oculairmedia</th>
+<th>Houdini21MCP</th>
+<th>Synapse</th>
+<th>dcc-mcp-core</th>
+<th><strong>本システム</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>目的</td>
+<td>Houdini の包括的な MCP サーバー</td>
+<td>Houdini を Claude から操作</td>
+<td>Houdini を MCP で操作（hrpyc）</td>
+<td>Houdini 21 を Claude Code から操作＋ドキュメント検索</td>
+<td>Houdini 22 内の AI アシスタント</td>
+<td>多数の DCC・エンジンを束ねる制御基盤</td>
+<td><strong>知識から教材（手順書・動画）を作る</strong></td>
+</tr>
+<tr>
+<td>つなぎ方</td>
+<td>stdio の MCP サーバー → ローカル HTTP（8100）→ Houdini 内プラグイン</td>
+<td>Houdini 内プラグイン（TCP 9876）＋ブリッジ</td>
+<td>FastMCP → hrpyc（18811）</td>
+<td>Houdini 内の TCP サーバー（9876）＋ブリッジ</td>
+<td>Houdini 内のパネル＋ MCP ＋ WebSocket</td>
+<td>Rust/Python の基盤・ゲートウェイ・各 DCC のアダプター</td>
+<td>Houdini 内のパネル → HTTPS → Worker</td>
+</tr>
+<tr>
+<td>ツール数</td>
+<td><strong>215</strong>（資源 8・プロンプト 9）</td>
+<td>記載なし</td>
+<td><strong>43</strong></td>
+<td><strong>12</strong>（操作 10・文書 2）</td>
+<td><strong>139</strong></td>
+<td>47 種の DCC のアダプター</td>
+<td><strong>10</strong>（Houdini の操作 8＋完了の申告 2）</td>
+</tr>
+<tr>
+<td>対応する Houdini</td>
+<td>20.5 以上（20.5・21・22 で確認）</td>
+<td>記載なし（例は 19.5）</td>
+<td>記載なし（例は 20.5）</td>
+<td>21</td>
+<td>22.0.400 で確認</td>
+<td>記載なし（個別のアダプター次第）</td>
+<td>21・22（22 で実機確認）</td>
+</tr>
+<tr>
+<td>ドキュメント検索</td>
+<td>同梱マニュアルの全文検索（3 ツール）</td>
+<td>記載なし</td>
+<td>記載なし</td>
+<td><strong>BM25 の検索（11,238 ページ・オフライン）</strong></td>
+<td>同梱ヘルプ＋プロジェクトの記憶</td>
+<td>記載なし</td>
+<td><strong>Cloudflare の RAG（意味＋全文・版ごと・章ごと）</strong></td>
+</tr>
+<tr>
+<td>書き込みの確認</td>
+<td>記載なし（元に戻すは、ツール1回＝1手）</td>
+<td>記載なし</td>
+<td>記載なし</td>
+<td>記載なし</td>
+<td>プレビュー・読み取り専用モード・停止ボタン・ツールごとの確認（Claude Code）</td>
+<td>ポリシー・事後確認・監査</td>
+<td><strong>外部サービスへの書き込みは、毎回の確認。Houdini の操作は、サンドボックスの中だけ</strong></td>
+</tr>
+<tr>
+<td>認証・権限</td>
+<td><strong>なし</strong>（ローカル限定。任意コード実行ができる）</td>
+<td>記載なし</td>
+<td>なし（ローカル限定。ローカル以外は、トークンまたは信頼の設定）</td>
+<td>記載なし</td>
+<td>記載なし</td>
+<td>ポリシー・監査</td>
+<td><strong>APIキー必須</strong>（ロール・ナレッジの範囲・予算）</td>
+</tr>
+<tr>
+<td>任意のコード実行</td>
+<td><strong>あり</strong>（<code>execute_python</code>）</td>
+<td>あり（コード実行）</td>
+<td>あり（コード・HScript）</td>
+<td>あり（<code>execute_code</code>）</td>
+<td>パネルでは、ブロック</td>
+<td>記載なし</td>
+<td><strong>なし</strong></td>
+</tr>
+<tr>
+<td>動画・教材の生成</td>
+<td>なし</td>
+<td>なし</td>
+<td>なし</td>
+<td>なし</td>
+<td>なし</td>
+<td>なし</td>
+<td><strong>あり</strong>（手順書・台本・音声つき動画・ギャラリー）</td>
+</tr>
+<tr>
+<td>外部サービス連携</td>
+<td>なし</td>
+<td>家具・環境アセットの生成（任意）</td>
+<td>なし</td>
+<td>なし</td>
+<td>複数のモデル・World Labs の取り込み</td>
+<td>47 種の DCC</td>
+<td><strong>MCP クライアント</strong>（10 サービス）</td>
+</tr>
+<tr>
+<td>配布</td>
+<td>pip＋自動登録</td>
+<td>ファイルのコピー</td>
+<td>手動・Docker</td>
+<td>ファイルのコピー</td>
+<td>Windows のセットアップ</td>
+<td>pip・CLI</td>
+<td><strong>zip＋install.cmd・インストーラー</strong></td>
+</tr>
+<tr>
+<td>ライセンス</td>
+<td>MIT</td>
+<td>MIT</td>
+<td>README は MIT（GitHub の欄は未設定）</td>
+<td>MIT</td>
+<td>MIT</td>
+<td>MIT</td>
+<td>リポジトリに記載なし</td>
+</tr>
+<tr>
+<td>星（2026-10-23）</td>
+<td>361</td>
+<td>306</td>
+<td>81</td>
+<td>11</td>
+<td>12</td>
+<td>70</td>
+<td>—</td>
+</tr>
+<tr>
+<td>最終の更新（push）</td>
+<td>2026-10-20</td>
+<td>2026-06-11</td>
+<td>2026-09-28</td>
+<td>2026-02-04</td>
+<td>2026-10-20</td>
+<td>2026-10-22</td>
+<td>2026-10-22</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="4-共通点類似点相違点">4. 共通点・類似点・相違点</h2>
+<h3 id="共通点同じことをしている">共通点（同じことをしている）</h3>
+<ul>
+<li><strong>Houdini の Python（<code>hou</code>）を使って、ノードを作る・つなぐ・パラメータを変える</strong>。結果の確認（ノードの情報・ジオメトリの検査）もできる。</li>
+<li><strong>メインスレッドで実行する</strong>（<code>hdefereval</code>）。Houdini の画面と競合しないようにする。</li>
+<li><strong>ビューポートの画面を撮る</strong>（fxhoudinimcp・oculairmedia も、画面の取得を持つ）。</li>
+<li><strong>ドキュメントを検索して、AI に渡す</strong>（fxhoudinimcp は全文検索、Houdini21MCP は BM25、本システムは RAG）。</li>
+<li><strong>ローカルで動かす部分がある。</strong> どれも、Houdini の PC の中に、何かを置く。</li>
+</ul>
+<h3 id="類似点似ているが同じではない">類似点（似ているが、同じではない）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>観点</th>
+<th>似ている点</th>
+<th>違い</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ドキュメント検索</td>
+<td>Houdini21MCP は、<strong>Houdini 21 の公式ドキュメントを索引にして、検索</strong>する</td>
+<td>あちらは<strong>オフラインの BM25</strong>（標準ライブラリだけ）。本システムは<strong>クラウドの RAG</strong>（意味＋全文・出典の番号・作業場所の章・版ごと）。あちらは<strong>手元で完結</strong>、こちらは<strong>回答に出典と根拠の経路</strong>がつく</td>
+</tr>
+<tr>
+<td>Houdini 内のパネル</td>
+<td>Synapse も、<strong>Houdini の中のパネル</strong>で動く</td>
+<td>Synapse は<strong>汎用のアシスタント</strong>（Solaris の構築・ノードの説明など 139 ツール）。本システムは<strong>チュートリアル生成に特化</strong>（10 ツール）</td>
+</tr>
+<tr>
+<td>安全の考え方</td>
+<td>Synapse は、パネルで、削除・任意のコード・レンダリングなどを止める。本システムも、任意のコード実行を持たない</td>
+<td>Synapse は、プレビュー・停止・上限（25 往復・10 分・300 万トークン）を持つ。本システムは、<strong>サンドボックスと、キーごとの予算</strong>で止める</td>
+</tr>
+<tr>
+<td>多くのサービスを束ねる</td>
+<td>dcc-mcp-core は、多数の DCC を、1 つの基盤で束ねる</td>
+<td>あちらは<strong>制御の基盤</strong>。本システムの MCP は、<strong>外部の SaaS（Notion・GitHub など）を、チャットから使う</strong>ためのもの（DCC は束ねない）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="相違点本システムにしかないあちらにしかない">相違点（本システムにしかない／あちらにしかない）</h3>
+<p><strong>本システムにあって、あちらに（公開された説明では）見当たらないもの</strong><br />
+1. <strong>教材づくりの流れ全体</strong>: 授業の設計 → ノードの組み立て → 採点 → 手順書 → 台本 → 音声つきの動画 → ダッシュボード。<br />
+2. <strong>キーごとの権限と予算</strong>: ロール、使えるナレッジの範囲、Claude のトークン・音声の文字数の上限。複数人に配る前提。<br />
+3. <strong>回答に出典がつく</strong>: 出典の番号・引用した部分・更新日・根拠の経路。<br />
+4. <strong>配布の仕組み</strong>: zip＋install.cmd、インストーラー、管理画面。<br />
+5. <strong>外部サービスとの連携（MCP クライアント）と、書き込みの確認</strong>。</p>
+<p><strong>あちらにあって、本システムに無いもの</strong><br />
+1. <strong>Houdini を広く操作できること</strong>: シミュレーション・USD/Solaris・PDG・レンダリング・HDA など（fxhoudinimcp は 215 ツール、Synapse は 139）。<strong>本システムは、ノードの操作 8 つだけ</strong>。<br />
+2. <strong>外の AI クライアントから使えること</strong>: Claude Code・Cursor などから、そのまま Houdini を操作できる（MCP サーバー）。<strong>本システムは、Houdini のパネルからしか使えない</strong>。<br />
+3. <strong>ローカルで完結すること</strong>: ネットワークと鍵が要らない。本システムは、<strong>チュートリアル生成・動画の台本・音声が、Cloudflare の Worker と鍵を必要とする</strong>（検索だけなら、手元のブリッジ〔ChromaDB〕でも動く）。<br />
+4. <strong>セッション管理・複数の Houdini の切り替え・コンタクトシート</strong>（fxhoudinimcp）。<br />
+5. <strong>オフラインの検索</strong>（Houdini21MCP）。</p>
+<h2 id="5-取り入れられそうなもの今は実装していない">5. 取り入れられそうなもの（今は実装していない）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>出典</th>
+<th>内容</th>
+<th>本システムでの使いみち</th>
+<th>優先</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>fxhoudinimcp</td>
+<td><strong>まとめて組み立てる</strong>（<code>build_network</code>）。1 つずつ作ると約 800 ms（10 ノード）、まとめると約 66 ms と説明されている（作者の数字）</td>
+<td>エージェントの 1 反復あたりの時間を減らせるかもしれない。<strong>自前で測ってから</strong></td>
+<td>中</td>
+</tr>
+<tr>
+<td>fxhoudinimcp</td>
+<td><strong>ツール 1 回＝元に戻す 1 手</strong></td>
+<td>サンドボックスを使っているので、必要性は低い</td>
+<td>低</td>
+</tr>
+<tr>
+<td>Synapse</td>
+<td><strong>1 回の処理の上限</strong>（往復・時間・トークン）、<strong>停止ボタン</strong>、<strong>読み取り専用モード</strong></td>
+<td>本システムにも、反復の上限（80 回）・費用の上限はある。<strong>生成の途中で止めるボタンは、確認した範囲では見当たらない</strong>ので、足す価値がある</td>
+<td><strong>高</strong></td>
+</tr>
+<tr>
+<td>Synapse</td>
+<td><strong>プレビュー（計画だけ返す）</strong></td>
+<td>生成の前に、授業の設計だけを見せて、承認してもらう流れに使える</td>
+<td>中</td>
+</tr>
+<tr>
+<td>oculairmedia</td>
+<td><strong>返り値の大きさの上限・切り詰め</strong>、ノード種別の<strong>キャッシュ</strong></td>
+<td>長いログ・大きなジオメトリの検査結果を、AI に渡す量の制御</td>
+<td>中</td>
+</tr>
+<tr>
+<td>dcc-mcp-core</td>
+<td><strong>事後確認</strong>（書いて、読み戻して確かめる）、監査</td>
+<td>本システムの <code>cook_node</code> と <code>confirm_tutorial</code> が、近い役割</td>
+<td>低（すでにある）</td>
+</tr>
+<tr>
+<td>Houdini21MCP</td>
+<td><strong>オフラインの検索</strong></td>
+<td>Worker に届かないときの代替。<strong>クラウドの索引を手元に複製する</strong>ので、更新の管理が増える</td>
+<td>低</td>
+</tr>
+<tr>
+<td>（逆方向）</td>
+<td><strong>本システムの検索を、MCP サーバーとして公開する</strong></td>
+<td>fxhoudinimcp などを使っている人が、<strong>本システムの Houdini 知識（出典つき）を、そのツールから引ける</strong>。手元用の MCP サーバー（<code>scripts/rag_mcp_server.py</code>・検索と件数の 2 ツール）は、すでにある。Worker 側を、リモートの MCP サーバーにするのは未着手</td>
+<td><strong>高（組み合わせられる）</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="6-組み合わせ方の考え方">6. 組み合わせ方の考え方</h2>
+<ul>
+<li><strong>競合ではなく、補い合う関係</strong>です。fxhoudinimcp などは「操作」、本システムは「知識と教材」。</li>
+<li>「Houdini を広く操作したい」なら、fxhoudinimcp（または Synapse）。「Houdini の使い方を、出典つきで調べて、教材にしたい」なら、本システム。</li>
+<li>両方を使うなら、<strong>本システムの知識検索を、MCP サーバーとして公開</strong>するのが、いちばん自然な接点です（§5 の最後の行）。</li>
+</ul>
+<h2 id="7-確認できていないこと">7. 確認できていないこと</h2>
+<ul>
+<li>各道具の動作・品質は、<strong>実際に動かして確かめていない</strong>。</li>
+<li>本システムの動作のうち、<strong>Houdini の画面での操作</strong>（Parm ペインの撮影・進行バー・チャットの配置など）は、実機で確認できていないものがある（hython と単体テストでは確認済み）。</li>
+<li>「操作できる範囲」の位置づけ（図 9）は、ツール数と説明からの<strong>筆者の整理</strong>で、客観的な指標ではない。</li>
+<li>本システムのリポジトリに、<strong>ライセンスの記載がない</strong>。公開・配布の範囲を決めるときに、決める必要がある。</li>
+</ul>
+<h2 id="出典2026-10-23-に参照">出典（2026-10-23 に参照）</h2>
+<ul>
+<li>fxhoudinimcp: https://github.com/healkeiser/fxhoudinimcp</li>
+<li>capoomgit/houdini-mcp: https://github.com/capoomgit/houdini-mcp</li>
+<li>oculairmedia/houdini-mcp: https://github.com/oculairmedia/houdini-mcp</li>
+<li>Houdini21MCP: https://github.com/orrzxz/Houdini21MCP</li>
+<li>Synapse: https://github.com/JosephOIbrahim/Synapse</li>
+<li>dcc-mcp-core: https://github.com/dcc-mcp/dcc-mcp-core</li>
+<li>検索: GitHub の検索 API（<code>houdini mcp</code>、星の多い順）</li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

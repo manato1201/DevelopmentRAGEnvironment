@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>チュートリアル生成を「レッスン」にする（2026-10-20）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">レッスン設計</span>
+  <h1>チュートリアル生成を「レッスン」にする（2026-10-20）</h1>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/design/houdini-lesson-design.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-何が足りなかったか実データで確認">1. 何が足りなかったか（実データで確認）</a><ol><li><a href="#参考チャンネルに共通する型">参考チャンネルに共通する型</a></li></ol></li><li><a href="#2-どう直したか">2. どう直したか</a><ol><li><a href="#3段階の意味を変えた">3段階の意味を変えた</a></li><li><a href="#生成物の形新しい節">生成物の形（新しい節）</a></li><li><a href="#採点の10項目合計100点">採点の10項目（合計100点）</a></li></ol></li><li><a href="#3-動画は解説動画になっているか">3. 動画は「解説動画」になっているか</a></li><li><a href="#4-確認できたことできていないこと">4. 確認できたこと・できていないこと</a></li><li><a href="#5-使い方">5. 使い方</a></li></ol></details></nav>
+<main>
+
+<p>「3段階（basic/applied/advanced）で作っているが、実用にはほど遠い」という実感への対応。参考にしたのは、3つのチャンネル（Indyzone / houdini3d / Studio Satsuki）の<strong>公開情報（動画タイトル・説明欄・チャプター）</strong>です。動画の音声・映像は取得していません。</p>
+<h2 id="1-何が足りなかったか実データで確認">1. 何が足りなかったか（実データで確認）</h2>
+<p>既存の生成物3本（ブラックホール、APEXオートリグ、APEXリグポーズ）を、新しい採点（<code>tutorial_review.py</code>）にかけた結果です。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>生成物</th>
+<th>点数</th>
+<th>手順の中身</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>procedural-black-hole-particles</td>
+<td><strong>6 / 100</strong></td>
+<td>create_node 5、set_parameter 6、connect_nodes 3、cook_node 2</td>
+</tr>
+<tr>
+<td>apex-autorig-fbx-basic</td>
+<td><strong>6 / 100</strong></td>
+<td>create_node 3、set_parameter 1、cook_node 2</td>
+</tr>
+<tr>
+<td>apex-rigpose-setdrivenkey-base</td>
+<td><strong>6 / 100</strong></td>
+<td>create_node 4、set_parameter 1、cook_node 2</td>
+</tr>
+</tbody>
+</table></div>
+<p>3本とも、不足は同じでした。<strong>学ぶこと／考え方（用語とたとえ）／各段階の確認ポイント／パラメータ実験／仕上げ／次のレッスン／手順の「なぜ」</strong>がありません。節は「概要・手順・コード・ノード構成・ハマりポイント・応用・参考」だけで、中身は「ノードを組んだ記録」です。</p>
+<blockquote>
+<p>注意: 手順ごとのスクリーンショット一覧は、画面が変わる操作だけを記録します。そのため、「数値での確認（inspect_geometry）」と「実験の実行」の2項目は、この一覧から数えると少なく出ます（実際より低い可能性）。残りの項目は、本文だけで判定できるので確かです。</p>
+</blockquote>
+<h3 id="参考チャンネルに共通する型">参考チャンネルに共通する型</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>型</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>「〜とは？」を先に</td>
+<td>何で、何の役に立つかを説明してから作る</td>
+</tr>
+<tr>
+<td>考え方</td>
+<td>仕組み全体を、たとえで1つ</td>
+</tr>
+<tr>
+<td>少しずつ作る</td>
+<td>足すたびに「こう見えれば正しい」を確かめる</td>
+</tr>
+<tr>
+<td>動かして見せる</td>
+<td>パラメータを変えて、効果を見せる</td>
+</tr>
+<tr>
+<td>仕上げ</td>
+<td>見た目を整える</td>
+</tr>
+<tr>
+<td>つまずきと次回</td>
+<td>注意点、まとめ、次回予告</td>
+</tr>
+<tr>
+<td>シリーズ化</td>
+<td>概要 → 各回、と段階を踏む</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-どう直したか">2. どう直したか</h2>
+<p><a href="../images/02-tutorial-flow.svg"><img alt="チュートリアルと動画ができるまで" src="../images/02-tutorial-flow.svg" /></a></p>
+<p><em>図: チュートリアルと動画ができるまで。トピックを入れてから、ダッシュボードに載るまでの8段階。</em></p>
+<pre><code>トピック
+  └─ ① レッスン設計（lesson_design.py）  … ノードを組む前に、章立て・確認・実験を決める（Claude 1回）
+       └─ ② エージェントが組む             … 設計と「教え方のルール」をシステムプロンプトに入れる
+            └─ ③ finish_tutorial の品質ゲート … 抜けがあれば書き足させる（最初の2回だけ）
+                 └─ ④ 採点（tutorial_review.py）… 100点満点。指標に記録
+                      └─ ⑤ 動画の台本     … 考え方・確認・実験を、そのまま解説に使う
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>層</th>
+<th>ファイル</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>設計</td>
+<td><code>lesson_design.py</code></td>
+<td>目標・学ぶこと・用語とたとえ・章（なぜ／何を足す／何が見えれば正しいか）・実験・仕上げ・つまずき・次回。検証し、章が2つ未満なら不採用</td>
+</tr>
+<tr>
+<td>教え方のルール</td>
+<td>同上 <code>TEACHING_RULES</code></td>
+<td>作る順、章ごとの確認（cook + inspect_geometry）、実験は<strong>実際に値を変えて cook</strong>、確かめていないことは書かない</td>
+</tr>
+<tr>
+<td>品質ゲート</td>
+<td><code>houdini_tools.py</code> <code>_tool_finish_tutorial</code></td>
+<td>抜けた項目を名指しで返す。最初の2回だけ（予算の浪費・無限ループを避ける）</td>
+</tr>
+<tr>
+<td>採点</td>
+<td><code>tutorial_review.py</code></td>
+<td>10項目。実験は、本文に書いてあるだけでなく、<strong>実際に値を変えて再 cook した回数</strong>も数える</td>
+</tr>
+<tr>
+<td>動画</td>
+<td><code>video_script.py</code></td>
+<td>新しい節（学ぶこと／考え方／実験／仕上げ／次回）をスライドにし、「前→後」「ここで〇〇が見えれば正しい」と話すルールを追加</td>
+</tr>
+<tr>
+<td>見た目の確認</td>
+<td><code>houdini_tools.py</code> <code>_tool_confirm_tutorial</code></td>
+<td><code>confirm_tutorial</code> の note に「見えていません」「枠のみ」などと書きながら <code>looks_correct=true</code> にした場合は、最大2回まで差し戻す（2026-10-21。煙のシミュレーションで、枠だけの画面のまま確定した事例への対応）。仕様で見えないときは、理由を書いてもう一度確定すれば通る</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="3段階の意味を変えた">3段階の意味を変えた</h3>
+<p>名前（basic / applied / advanced）は、互換のためそのままです。意味を、<strong>難しさ</strong>から<strong>1つの学習の道すじ</strong>に変えました。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>名前</th>
+<th>レッスン</th>
+<th>目的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>basic</td>
+<td>1: 「〜とは？」と最小の作り方</td>
+<td>考え方をつかみ、3〜6ノードで最小構成を作れる</td>
+</tr>
+<tr>
+<td>applied</td>
+<td>2: 動かして理解する</td>
+<td>パラメータを動かして効果を体験し、見た目をコントロールする技を足す</td>
+</tr>
+<tr>
+<td>advanced</td>
+<td>3: 実務で使える形にする</td>
+<td>再利用（パラメータの整理・バリエーション）と、ゲームエンジンへ渡す注意点</td>
+</tr>
+</tbody>
+</table></div>
+<p>前のレッスンの要約は、設計にも渡します（説明済みのことは繰り返さず、一段深める）。</p>
+<h3 id="生成物の形新しい節">生成物の形（新しい節）</h3>
+<p><code>概要 → このレッスンで学ぶこと → 先に知っておく考え方 → 手順（各章の終わりに ✅ 確認ポイント）→ パラメータを動かして確かめよう → 仕上げ → コード・ノード構成 → ハマりポイント → 応用・発展のヒント → 次のレッスン → 参考</code></p>
+<p>動画のスライドは、この順に並びます。モデルが書かなかった項目は、設計で補います。<strong>補った実験には「設計段階の予想です」と明記</strong>します（確かめていないことを、確かめたように見せないため）。</p>
+<h3 id="採点の10項目合計100点">採点の10項目（合計100点）</h3>
+<p>学ぶこと 8 / 考え方 14 / 確認ポイント 16 / 実験を書いた 12 / <strong>実験を実行した 14</strong> / 数値で確認 8 / 仕上げ 8 / つまずき 6 / 次のレッスン 6 / 手順に「なぜ」 8。</p>
+<p>結果は、生成の自動指標（<code>&lt;名前&gt;_metrics.json</code>）の <code>lesson_plan</code>・<code>lesson_score</code>・<code>lesson_missing</code> に残ります。パネルの進行表示にも「レッスン品質チェック: 78/100（不足: …）」と出ます。</p>
+<h2 id="3-動画は解説動画になっているか">3. 動画は「解説動画」になっているか</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>時点</th>
+<th>判定</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10/18までの動画（ブラックホール 5分19秒・23スライド）</td>
+<td><strong>なっていない</strong></td>
+<td>本文の朗読。元の文章が6/100の「操作の記録」</td>
+</tr>
+<tr>
+<td>10/19の改善後（初心者向け台本・手順ごとの音声）</td>
+<td><strong>一歩手前</strong></td>
+<td>手順ごとに「何を・なぜ」を説明できる。ただし、材料が操作ログなので、考え方・確認・実験・仕上げが話せない。画面は、手順ごとの静止画1枚</td>
+</tr>
+<tr>
+<td>今回（レッスン設計つき）</td>
+<td><strong>改善見込み。実機で未確認</strong></td>
+<td>材料に、考え方・確認・実験が入る。画面は、実験の前後が手順の画像として並ぶ</td>
+</tr>
+</tbody>
+</table></div>
+<p>まだ解説動画として足りない点（今回は直していません）:</p>
+<ul>
+<li>画面が静止画中心。ビューポートの<strong>動画クリップ</strong>（<code>viewport_clip_frames</code>）を、実験の前後に使えば「動かして見せる」になる</li>
+<li>実験の「前→後」を、<strong>並べて</strong>見せる画面（左右比較）が無い</li>
+<li>シリーズ化（概要 → 各回）の動画側の対応が無い</li>
+</ul>
+<h2 id="4-確認できたことできていないこと">4. 確認できたこと・できていないこと</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>設計の検証・差し込み、採点、品質ゲート、Markdownの節の順序、動画台本の新しい節への対応</td>
+<td><strong>自動テストで確認</strong>（<code>houdini/tests/test_lesson_design.py</code>、28件）</td>
+</tr>
+<tr>
+<td>既存の生成物の採点</td>
+<td>確認（上の表）</td>
+</tr>
+<tr>
+<td>Claudeが書く設計・レッスンの質</td>
+<td><strong>未確認</strong>（Houdini実機とClaudeの呼び出しが必要。この環境では実行していません）</td>
+</tr>
+<tr>
+<td>品質ゲートで、モデルが実際に書き足すか</td>
+<td>未確認。足さない場合も、設計で補うので壊れません</td>
+</tr>
+<tr>
+<td>追加コスト</td>
+<td>設計のClaude呼び出し1回（入力は参考文書の抜粋まで）と、品質ゲートでの再提出が最大2回。実験と確認のツール呼び出しも増える。実機で<code>cost_usd</code>を比べてください</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="5-使い方">5. 使い方</h2>
+<p>Houdiniの<code>python_panels</code>へ、次の<strong>2つの新しいファイル</strong>もコピーしてください（<code>houdini_tools.py</code>が<code>tutorial_review.py</code>を読み込むため、コピー漏れがあると生成自体が始まりません）。</p>
+<p><code>lesson_design.py</code> / <code>tutorial_review.py</code> / <code>tutorial_agent.py</code> / <code>houdini_tools.py</code> / <code>video_script.py</code>（今まで通り <code>tutorial_view.py</code>・<code>video_factory_bridge.py</code>・<code>tutorial_feedback.py</code> も）</p>
+<p>生成したあと、進行表示の「レッスン品質チェック」の点数と不足項目、保存された <code>.md</code> の節を見てください。点数が70未満の傾向なら、<code>lesson_missing</code> の多い項目から、プロンプトを直します。</p>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>
