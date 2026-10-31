@@ -127,7 +127,7 @@ https://rag-poc.manato1201m.workers.dev/query?x=1
 1. ブラウザの開発者ツールを開き、管理画面で何かの操作をして、Networkタブでリクエスト1つを選ぶ。メソッド・URL・ステータス・レスポンスの本文を、それぞれ書き出す。
 2. [`src/http.ts`](../../cloudflare-rag-poc/src/http.ts) の `jsonResponse` が返すレスポンスの、ステータス・ヘッダ・本文を、言葉で説明する。
 3. `git log --oneline -10` を実行し、コミットメッセージの書き方の規則を、1行で説明する。
-4. 「APIキーを誤ってチャットに貼ってしまった」とき、§4の手順を、このプロジェクトの具体的な操作（管理画面のどのボタンか）に置き換えて書く。（[user-manual.md](../user-manual.md)を参照）
+4. 「APIキーを誤ってチャットに貼ってしまった」とき、§4の手順を、このプロジェクトの具体的な操作（管理画面のどのボタンか）に置き換えて書く。（[user-manual.md](../guides/user-manual.md)を参照）
 5. 「Workersの`1102`エラー」と「D1の上限超過」は、どちらも画面では「500」に見える。どうやって区別するか、考える。
 
 **ヒント:** 1は、Network → 対象を選ぶ → Headers／Response。2は、`content-type`ヘッダに注目。3は、`feat:` `fix:` `docs:` の有無。5は、エラーメッセージの文言（[06-maintenance-runbook.md](06-maintenance-runbook.md)の障害記録）。

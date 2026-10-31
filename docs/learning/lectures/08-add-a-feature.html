@@ -71,11 +71,11 @@
 </head>
 <body>
 <div class="wrap" id="page">
-<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a class="current" href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a class="current" href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a><a href="11-algorithm-basics.html">11</a><a href="12-search-algorithms.html">12</a><a href="13-control-algorithms.html">13</a><a href="14-graph-algorithms.html">14</a><a href="15-experiment-and-growth.html">15</a><a href="16-scripts.html">16</a></nav>
 <header class="hero">
   <span class="badge">講義</span>
   <h1>第8回 機能を足す通し演習（「やり直し」を例に、要件から本番まで）</h1>
-  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/08-add-a-feature.md）</div>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/learning/lectures/08-add-a-feature.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-題材">1. 題材</a></li><li><a href="#2-ステップ-1要件と設計の判断">2. ステップ 1：要件と、設計の判断</a></li><li><a href="#3-ステップ-2マイグレーション表の形">3. ステップ 2：マイグレーション（表の形）</a></li><li><a href="#4-ステップ-3純関数ルールをテストしやすく">4. ステップ 3：純関数（ルールを、テストしやすく）</a></li><li><a href="#5-ステップ-4ハンドラとルート">5. ステップ 4：ハンドラと、ルート</a></li><li><a href="#6-ステップ-5テストサーバー">6. ステップ 5：テスト（サーバー）</a></li><li><a href="#7-ステップ-6パネルhoudini">7. ステップ 6：パネル（Houdini）</a></li><li><a href="#8-ステップ-7通しの確認hython">8. ステップ 7：通しの確認（hython）</a></li><li><a href="#9-ステップ-8ドキュメントと図">9. ステップ 8：ドキュメントと、図</a></li><li><a href="#10-ステップ-9本番に出す図16">10. ステップ 9：本番に出す（図16）</a></li><li><a href="#11-演習">11. 演習</a></li><li><a href="#12-つまずきやすい点">12. つまずきやすい点</a></li><li><a href="#13-確認問題">13. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
 <main>
@@ -139,7 +139,7 @@
 </tbody>
 </table></div>
 <blockquote>
-<p>学び: 設計の判断は、<strong>表にして、理由を書く</strong>。あとで「なぜ、こうしたのか」に、答えられる。決めた内容は、設計書（<code>docs/pilot-analysis-design.md</code>）に書く。</p>
+<p>学び: 設計の判断は、<strong>表にして、理由を書く</strong>。あとで「なぜ、こうしたのか」に、答えられる。決めた内容は、設計書（<code>docs/pilot/pilot-analysis-design.md</code>）に書く。</p>
 </blockquote>
 <h2 id="3-ステップ-2マイグレーション表の形">3. ステップ 2：マイグレーション（表の形）</h2>
 <p><code>cloudflare-rag-poc/migrations/0036_pilot_redo.sql</code>:</p>
@@ -210,7 +210,7 @@ const pausedSec = Math.min(clampInt(body.pausedSec, 0, 0, 604800), endedAt - row
 </ul>
 <h2 id="9-ステップ-8ドキュメントと図">9. ステップ 8：ドキュメントと、図</h2>
 <ul>
-<li>設計書（<code>docs/pilot-analysis-design.md</code>）の「計測の扱い」。利用者向け（<code>user-manual.md</code> §9.5）。運営者向け（<code>operator-runbook.md</code> §6.1・<code>cloudflare-rag-operations-manual.md</code> §8-4）。</li>
+<li>設計書（<code>docs/pilot/pilot-analysis-design.md</code>）の「計測の扱い」。利用者向け（<code>user-manual.md</code> §9.5）。運営者向け（<code>operator-runbook.md</code> §6.1・<code>cloudflare-rag-operations-manual.md</code> §8-4）。</li>
 <li>図: 課題の状態（<a href="../../images/13-task-states.svg">図13</a>）。<code>scripts/build_diagrams_lecture.py</code> の <code>task_states()</code> を直して、<code>uv run python scripts/build_diagrams.py states</code>。</li>
 </ul>
 <h2 id="10-ステップ-9本番に出す図16">10. ステップ 9：本番に出す（<a href="../../images/16-change-flow.svg">図16</a>）</h2>

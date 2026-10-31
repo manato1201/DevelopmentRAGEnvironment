@@ -1,12 +1,12 @@
 # Cloudflare RAG 検証環境（POC）
 
-**位置づけ:** [docs/cloud-local-unification-plan.md](../docs/cloud-local-unification-plan.md) の統合方針を、実際に動かして検証・チューニングするための別環境。
+**位置づけ:** [docs/design/cloud-local-unification-plan.md](../docs/design/cloud-local-unification-plan.md) の統合方針を、実際に動かして検証・チューニングするための別環境。
 
 **このフォルダは本番の `scripts/gas_cloud_rag.js`（Cloud RAG）・`scripts/rag_service.py`（Local RAG）には一切影響しません。** 実証実験（9月〜）が終わるまで、この検証環境の結果に関わらず本番は現行構成のまま動き続けます。
 
 ## 実装済みの内容
 
-**2026-08-26時点で、[docs/gas-feature-parity.md](../docs/gas-feature-parity.md)で追跡している既存GAS（`scripts/gas_cloud_rag.js`）の機能はほぼ実装・実データ検証済み。** 詳しい設計・データフローは [docs/cloudflare-rag-technical-report.md](../docs/cloudflare-rag-technical-report.md)（HTML版: [.html](../docs/cloudflare-rag-technical-report.html)）を、日常運用の手順は [docs/cloudflare-rag-operations-manual.md](../docs/cloudflare-rag-operations-manual.md) を参照。
+**2026-08-26時点で、[docs/reports/gas-feature-parity.md](../docs/reports/gas-feature-parity.md)で追跡している既存GAS（`scripts/gas_cloud_rag.js`）の機能はほぼ実装・実データ検証済み。** 詳しい設計・データフローは [docs/design/cloudflare-rag-technical-report.md](../docs/design/cloudflare-rag-technical-report.md)（HTML版: [.html](../docs/design/cloudflare-rag-technical-report.html)）を、日常運用の手順は [docs/operations/cloudflare-rag-operations-manual.md](../docs/operations/cloudflare-rag-operations-manual.md) を参照。
 
 ### コア検索・回答生成
 - `POST /search` — **ハイブリッド検索**（Vectorizeのベクトル検索 ＋ D1 FTS5のBM25キーワード検索をRRFで統合）と**HyDE**（質問文の代わりに仮回答を生成してから埋め込む）
@@ -26,7 +26,7 @@
 - Webチャット画面（`GET /`）— チャット／グラフ（Three.jsによる3D知識グラフ）／履歴／管理の4タブ構成
 - **Claude Messages APIプロキシ**（`/claude/messages`、2026-08-26追加）— `houdini/python_panels/tutorial_agent.py`（Houdiniチュートリアル生成）がGAS経由で行っていたClaude呼び出しの移行先。RAG自体は引き続きGeminiのみ
 - チャット履歴（メモリ）保存・一覧・評価
-- **実証実験**（2026-10）— `POST /pilot/plan`・`/pilot/profile`・`/pilot/session/start`・`/end`・`/reset`（本人）、`POST /admin/pilot/summary`・`/admin/pilot/tasks`（管理者の集計）。表は `pilot_profile`・`pilot_sessions`（マイグレーション 0035・0036）。やり直しは `discarded_at` で残し、集計から外す。詳しくは [docs/pilot-analysis-design.md](../docs/pilot-analysis-design.md)・[docs/cloudflare-rag-operations-manual.md §8-4](../docs/cloudflare-rag-operations-manual.md)
+- **実証実験**（2026-10）— `POST /pilot/plan`・`/pilot/profile`・`/pilot/session/start`・`/end`・`/reset`（本人）、`POST /admin/pilot/summary`・`/admin/pilot/tasks`（管理者の集計）。表は `pilot_profile`・`pilot_sessions`（マイグレーション 0035・0036）。やり直しは `discarded_at` で残し、集計から外す。詳しくは [docs/pilot/pilot-analysis-design.md](../docs/pilot/pilot-analysis-design.md)・[docs/operations/cloudflare-rag-operations-manual.md §8-4](../docs/operations/cloudflare-rag-operations-manual.md)
 - **説明レベルと習熟度**（2026-10）— `POST /me/growth`・`/me/growth/reset`（`user_terms`）。質問で使った専門用語から、説明の段階（basic／applied／advanced）をおまかせで選ぶ
 - 図: [リクエストの一生](../docs/images/11-request-life.svg)・[データの置き場](../docs/images/14-data-model.svg)・[変更から本番まで](../docs/images/16-change-flow.svg)。保守・拡張の講義 → [docs/learning/lectures/README.md](../docs/learning/lectures/README.md)
 - D1（`migrations/`配下）: users / namespaces / token_budgets / audit_log / memory / kb_sources / kb_log / key_namespace_grants ＋ FTS5仮想テーブル`chunks_fts`
@@ -235,7 +235,7 @@ PowerShellでは`'...'`の中の`"`はエスケープ不要なはずが、`curl.
 Invoke-RestMethod -Uri http://localhost:8787/search -Method Post -Headers @{Authorization="Bearer my-test-key"} -ContentType "application/json" -Body (@{query="ポイントをランダムに配置する方法は？"; limit=3} | ConvertTo-Json)
 ```
 
-`/search` のレスポンスが `docs/cloud-local-unification-plan.md` §8.3の契約通り `{texts, sources, status}` の形で返ってくることを確認する。
+`/search` のレスポンスが `docs/design/cloud-local-unification-plan.md` §8.3の契約通り `{texts, sources, status}` の形で返ってくることを確認する。
 
 **推奨：日本語を含むリクエストはインラインで打たず、UTF-8ファイル経由で送る。** コマンドラインに直接日本語を埋め込むと、シェルの文字コード変換で化けることがある（下記トラブルシューティング参照）。JSONファイルを用意して`--data-binary @path\to\file.json`（`curl.exe`）または`Get-Content -Raw -Encoding UTF8`で読み込んで渡す方が安全。
 
@@ -742,11 +742,11 @@ with urllib.request.urlopen(req, timeout=30) as res:
 - [x] ~~個別DBに絞った検索（検索精度向上）~~ → `POST /query`に`namespaces`パラメータ追加、`POST /me/namespaces`で一般ユーザーも自分の許可namespace一覧を取得可能に、チャットUIにドロップダウン追加（2026-08-26）。実データで動作確認済み
 - [ ] 既存`houdini21DB`（Notion・約7,810ファイル相当）を実際に`/admin/sync/notion`で全件投入する（§6-3の再埋め込み移行の実行）
 - [ ] レイテンシ・コストの実測（設計書§8.4は見積もりのみ）
-- [ ] 他の未実装機能は `docs/gas-feature-parity.md` の一覧を参照
+- [ ] 他の未実装機能は `docs/reports/gas-feature-parity.md` の一覧を参照
 
 ## 関連ドキュメント
 
-- [docs/gas-feature-parity.md](../docs/gas-feature-parity.md) — GAS版との機能対応表（進捗管理）
-- [docs/cloudflare-rag-technical-report.md](../docs/cloudflare-rag-technical-report.md)（HTML版: [.html](../docs/cloudflare-rag-technical-report.html)）— アーキテクチャ・データモデル・設計判断の技術解説書
-- [docs/cloudflare-rag-operations-manual.md](../docs/cloudflare-rag-operations-manual.md) — セットアップ・日常運用の手順書
-- [docs/cloudflare-vs-firebase-comparison.md](../docs/cloudflare-vs-firebase-comparison.md) — Firebaseで実装した場合との違いの比較資料
+- [docs/reports/gas-feature-parity.md](../docs/reports/gas-feature-parity.md) — GAS版との機能対応表（進捗管理）
+- [docs/design/cloudflare-rag-technical-report.md](../docs/design/cloudflare-rag-technical-report.md)（HTML版: [.html](../docs/design/cloudflare-rag-technical-report.html)）— アーキテクチャ・データモデル・設計判断の技術解説書
+- [docs/operations/cloudflare-rag-operations-manual.md](../docs/operations/cloudflare-rag-operations-manual.md) — セットアップ・日常運用の手順書
+- [docs/reports/cloudflare-vs-firebase-comparison.md](../docs/reports/cloudflare-vs-firebase-comparison.md) — Firebaseで実装した場合との違いの比較資料

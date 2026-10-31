@@ -75,7 +75,7 @@
 <header class="hero">
   <span class="badge">講義</span>
   <h1>第13回 制御のアルゴリズム（認証・回数制限・予算・タイムアウト・ストリーム）</h1>
-  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/13-control-algorithms.md）</div>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/learning/lectures/13-control-algorithms.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像1回の質問が通る関門">1. 全体像：1回の質問が通る「関門」</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-認証キーは保存せずハッシュだけを比べる">2.1 認証：キーは保存せず、ハッシュだけを比べる</a></li><li><a href="#22-回数制限直近-60-秒を数える">2.2 回数制限：直近 60 秒を数える</a></li><li><a href="#23-同時リクエスト確認してから書くは破れるtoctou">2.3 同時リクエスト：確認してから書くは破れる（TOCTOU）</a></li><li><a href="#24-予算予約-実行-清算原子的な更新">2.4 予算：予約 → 実行 → 清算（原子的な更新）</a></li><li><a href="#25-読み取り練習予定リセットの遅れ修正済み">2.5 ★読み取り練習：予定リセットの「遅れ」（修正済み）</a></li><li><a href="#26-タイムアウトpromiserace-と-abortcontroller">2.6 タイムアウト：Promise.race と AbortController</a></li><li><a href="#27-ストリームsse切れ目で区切る">2.7 ストリーム（SSE）：切れ目で区切る</a></li><li><a href="#28-d1-への書き込みバッチと分けてはいけない組">2.8 D1 への書き込み：バッチと「分けてはいけない組」</a></li><li><a href="#29-冪等な更新upsert">2.9 冪等な更新：UPSERT</a></li></ol></li><li><a href="#3-このプロジェクトでは失敗したら何が戻るか">3. このプロジェクトでは：失敗したら何が戻るか</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
 <main>

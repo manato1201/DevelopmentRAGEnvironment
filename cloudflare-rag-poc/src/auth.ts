@@ -95,7 +95,7 @@ export function requireKnowledgeEditor(user: AuthedUser): void {
   }
 }
 
-// docs/cloud-local-unification-plan.md §6-1（物理分離）の実装上の要点：
+// docs/design/cloud-local-unification-plan.md §6-1（物理分離）の実装上の要点：
 // 「アクセス制御を通過しない限り、そもそも個人用Vectorizeインデックスに到達できない」
 // を関数の型レベルでも表現する — 呼び出し側は必ずこの関数の戻り値（許可済みnamespace一覧）
 // を経由してからVEC_PERSONALへ問い合わせること。

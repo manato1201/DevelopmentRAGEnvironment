@@ -71,11 +71,11 @@
 </head>
 <body>
 <div class="wrap" id="page">
-<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a class="current" href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a></nav>
+<nav class="series" aria-label="シリーズ"><a href="README.html">目次</a><a href="01-internet.html">01</a><a href="02-cloudflare.html">02</a><a href="03-database.html">03</a><a href="04-rag-and-ai.html">04</a><a href="05-worker-code.html">05</a><a class="current" href="06-houdini-panel.html">06</a><a href="07-web-ui.html">07</a><a href="08-add-a-feature.html">08</a><a href="09-test-deploy-operate.html">09</a><a href="10-troubleshooting.html">10</a><a href="11-algorithm-basics.html">11</a><a href="12-search-algorithms.html">12</a><a href="13-control-algorithms.html">13</a><a href="14-graph-algorithms.html">14</a><a href="15-experiment-and-growth.html">15</a><a href="16-scripts.html">16</a></nav>
 <header class="hero">
   <span class="badge">講義</span>
   <h1>第6回 Houdini パネルのコードを読む（Qt・スレッド・hou・配置とテスト）</h1>
-  <div class="meta">HTML生成: 2026-10-30（元: docs/learning/lectures/06-houdini-panel.md）</div>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/learning/lectures/06-houdini-panel.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-qtpyside6とは">2.1 Qt（PySide6）とは</a></li><li><a href="#22-スレッド通信は画面の裏で">2.2 スレッド：通信は、画面の裏で</a></li><li><a href="#23-タイマー">2.3 タイマー</a></li><li><a href="#24-houhoudini-を操作する">2.4 hou（Houdini を操作する）</a></li><li><a href="#25-画面に依存しない部品を別ファイルにする">2.5 画面に依存しない部品を、別ファイルにする</a></li></ol></li><li><a href="#3-配置と再起動最大の落とし穴">3. 配置と再起動（最大の落とし穴）</a></li><li><a href="#4-テスト">4. テスト</a><ol><li><a href="#41-単体テストhoudini-なし">4.1 単体テスト（Houdini なし）</a></li><li><a href="#42-通しの確認hython画面を作る">4.2 通しの確認（hython、画面を作る）</a></li></ol></li><li><a href="#5-このプロジェクトでは">5. このプロジェクトでは</a></li><li><a href="#6-演習">6. 演習</a></li><li><a href="#7-つまずきやすい点">7. つまずきやすい点</a></li><li><a href="#8-確認問題">8. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
 <main>

@@ -2,7 +2,7 @@ import type { AuthedUser, Env } from "./types";
 import { clampInt, jsonResponse } from "./http";
 import { requireAdmin } from "./auth";
 
-// 実証実験の課題の記録とアンケート（2026-10-28）。設計: docs/pilot-analysis-design.md
+// 実証実験の課題の記録とアンケート（2026-10-28）。設計: docs/pilot/pilot-analysis-design.md
 //
 //   ・参加者は、事前アンケートで登録する。登録順の匿名番号（pid）から、割り当て番号 slot（1〜3）が決まる。
 //   ・固定課題の題材は、回ごとに違う（Pyro・RBD・雲）。slot ごとに順序をずらす（ラテン方格）。

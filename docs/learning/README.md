@@ -20,7 +20,7 @@
 | Script | [05-scripts.md](05-scripts.md) | PowerShell/Bash/Pythonのスクリプト、`wrangler`、プロジェクトの`scripts/`の地図、安全な自動化 | 2〜3日 |
 | 保守 | [06-maintenance-runbook.md](06-maintenance-runbook.md) | 日次・週次・月次の点検、症状別の切り分け、実際に起きた障害の復旧記録 | 随時参照 |
 
-関連: 用語は[glossary.md](../glossary.md)・[terminology.md](../terminology.md)、構造は[architecture-layering-plan.md](../architecture-layering-plan.md)、使い方は[user-manual.md](../user-manual.md)、運用は[cloudflare-rag-operations-manual.md](../cloudflare-rag-operations-manual.md)。
+関連: 用語は[glossary.md](../reference/glossary.md)・[terminology.md](../reference/terminology.md)、構造は[architecture-layering-plan.md](../design/architecture-layering-plan.md)、使い方は[user-manual.md](../guides/user-manual.md)、運用は[cloudflare-rag-operations-manual.md](../operations/cloudflare-rag-operations-manual.md)。
 
 ### 講義シリーズとの対応
 
@@ -49,7 +49,7 @@
 |---|---|---|
 | **止まったときに、直せる**（運用のみ） | 01 → 06 → 05（wranglerの節） → 02（SQLの節） | 症状から原因を切り分け、D1の中身を確認し、復旧できる |
 | **機能を足せる**（保守開発） | 01 → 02 → 04 → 03（必要な章） → 05 | 新しいAPI・連携・画面を、レシピに沿って追加できる |
-| **設計を変えられる**（アーキテクト） | すべて ＋ [architecture-layering-plan.md](../architecture-layering-plan.md) | 層の分け方・契約・移行の順序を、自分で判断できる |
+| **設計を変えられる**（アーキテクト） | すべて ＋ [architecture-layering-plan.md](../design/architecture-layering-plan.md) | 層の分け方・契約・移行の順序を、自分で判断できる |
 | **Houdini側だけ触る** | 01 → 02（Python） → 03（Houdini・LLM） → 04（Houdiniツール追加） | チュートリアル生成のツールを足し、挙動を調整できる |
 
 ## 3. 学び方のルール

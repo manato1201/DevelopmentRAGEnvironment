@@ -78,7 +78,7 @@
 
 ### レシピC: 新しい連携（外部サービスとの同期）を足す
 
-今は、既存の連携（`backlogSync.ts`など）を**写して作る**。将来は共通の骨格になる予定（[architecture-layering-plan.md §4.2](../architecture-layering-plan.md#42-コネクタの契約プラグインの形)）。
+今は、既存の連携（`backlogSync.ts`など）を**写して作る**。将来は共通の骨格になる予定（[architecture-layering-plan.md §4.2](../design/architecture-layering-plan.md#42-コネクタの契約プラグインの形)）。
 
 1. 写す元を決める。**認証がAPIキー方式ならBacklog**、**OAuthならJira**が近い。
 2. 作るもの: `xxxOAuth.ts`（接続）、`xxxSync.ts`（同期・プレビュー・失敗分の再同期）。
@@ -112,7 +112,7 @@
 - HTMLは、`<div class="admin-subpanel" data-subtab="…">`の中にカード（`<div class="card">`）を足す。
 - 処理は、同じファイルのスクリプト部分に書く。サーバーとは、`api("/admin/xxx", {…})`で通信する（失敗の再試行・非JSON応答の判定を含む共通関数）。
 - **テンプレート文字列の制約:** 文字列中の`` ` ``と`${…}`は、そのまま書けない。バックスラッシュも、1つの`\`が消える（`\\`と書く）。**表示が壊れたら、まず、ここを疑う。**
-- 画面の部品・色・文言の規約は、[ui-rules.md](../ui-rules.md)。
+- 画面の部品・色・文言の規約は、[ui-rules.md](../design/ui-rules.md)。
 - 管理者専用のものは、`class="admin-only-section"`を付ける（非管理者には、表示されない）。ただし、**見えないだけで、サーバー側の権限確認は別に必要**（レシピA）。
 
 ## 3. テストと確認
@@ -185,7 +185,7 @@
 
 | # | 改善 | 理由 |
 |---|---|---|
-| 1 | **`chatUi.ts`を分解する**（[architecture-layering-plan.md §4.4](../architecture-layering-plan.md#44-chatuits-の分解)） | 6,000行超の1つの文字列は、人間が直すのも難しい。画面のテストも作れない |
+| 1 | **`chatUi.ts`を分解する**（[architecture-layering-plan.md §4.4](../design/architecture-layering-plan.md#44-chatuits-の分解)） | 6,000行超の1つの文字列は、人間が直すのも難しい。画面のテストも作れない |
 | 2 | **API仕様書（OpenAPI）を作る** | クライアント（Unity・Houdini）と、サーバーの食い違いを防ぐ |
 | 3 | **本番を触らずに試せる環境（ステージングのWorker）を作る** | D1の上限や、マイグレーションの失敗を、本番で踏まずに済む |
 | 4 | **テストを増やす**（認証・権限、検索、各連携の同期の、異常系） | いまのテストは、新しい機能（2026-10）に偏っている |

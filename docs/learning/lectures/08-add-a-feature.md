@@ -29,7 +29,7 @@
 | 時間は、どの時計で測るか | サーバーの時刻 / パネルの時計 | **パネルが、同じ時計で測った秒数**を送る。PC とサーバーの時計のずれに、左右されない |
 | 送信に失敗したら | 答えを捨てる / 残して再送 | **残して再送**。アンケートを、書き直させない |
 
-> 学び: 設計の判断は、**表にして、理由を書く**。あとで「なぜ、こうしたのか」に、答えられる。決めた内容は、設計書（`docs/pilot-analysis-design.md`）に書く。
+> 学び: 設計の判断は、**表にして、理由を書く**。あとで「なぜ、こうしたのか」に、答えられる。決めた内容は、設計書（`docs/pilot/pilot-analysis-design.md`）に書く。
 
 ## 3. ステップ 2：マイグレーション（表の形）
 
@@ -120,7 +120,7 @@ const pausedSec = Math.min(clampInt(body.pausedSec, 0, 0, 604800), endedAt - row
 
 ## 9. ステップ 8：ドキュメントと、図
 
-- 設計書（`docs/pilot-analysis-design.md`）の「計測の扱い」。利用者向け（`user-manual.md` §9.5）。運営者向け（`operator-runbook.md` §6.1・`cloudflare-rag-operations-manual.md` §8-4）。
+- 設計書（`docs/pilot/pilot-analysis-design.md`）の「計測の扱い」。利用者向け（`user-manual.md` §9.5）。運営者向け（`operator-runbook.md` §6.1・`cloudflare-rag-operations-manual.md` §8-4）。
 - 図: 課題の状態（[図13](../../images/13-task-states.svg)）。`scripts/build_diagrams_lecture.py` の `task_states()` を直して、`uv run python scripts/build_diagrams.py states`。
 
 ## 10. ステップ 9：本番に出す（[図16](../../images/16-change-flow.svg)）

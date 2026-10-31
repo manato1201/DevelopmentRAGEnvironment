@@ -5,7 +5,7 @@ tutorial_agent.py のエージェントループから呼ばれるツール群�
 Anthropic tool-use 形式のスキーマ（HOUDINI_TOOLS）と、それを実行する
 HoudiniToolExecutor を提供する。
 
-安全設計（docs/content-generation.md §2.6）:
+安全設計（docs/design/content-generation.md §2.6）:
   ・全ノード操作は /obj/ai_tutorial_<timestamp> サンドボックスサブネット内に限定
   ・サンドボックス外パスの指定は実行前に拒否し、監査ログに記録
   ・全ツール呼び出しを JSONL 監査ログ（logs/tutorial_agent/）に追記

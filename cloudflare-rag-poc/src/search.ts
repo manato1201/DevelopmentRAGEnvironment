@@ -11,7 +11,7 @@ import { startAuditLog, finalizeAuditLog } from "./auditLog";
 // RAG_RESERVE_ESTIMATEより小さい値で十分）。
 const SEARCH_RESERVE_ESTIMATE = 1000;
 
-// POST /search — 既存 rag_local_bridge.py の /search と同一契約（docs/cloud-local-unification-plan.md §8.3）。
+// POST /search — 既存 rag_local_bridge.py の /search と同一契約（docs/design/cloud-local-unification-plan.md §8.3）。
 // ハイブリッド検索（Vectorize + D1 FTS5のBM25をRRFで統合）＋HyDEクエリ変換を行う。
 export async function handleSearch(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   const body = (await req.json()) as SearchRequest;

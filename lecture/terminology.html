@@ -970,7 +970,7 @@
         <div class="term-header"><span class="term-name">LocalRAGエンジンのvendoring</span><span class="term-abbr">2026-06-30</span></div>
         <div class="term-body">
           <p>LocalRAGは以前、外部リポジトリ<code>mcp-rag-server</code>（karaage0703氏、MIT）を別途cloneして依存していたが、2026-06-30にその検索エンジンコードをこのリポジトリへ直接取り込み（vendoring）、外部依存を解消した。</p>
-          <p>取り込まれたのは<code>document_processor.py</code>・<code>embedding_generator.py</code>・<code>rag_service.py</code>・<code>mcp_server.py</code>・<code>rag_mcp_tools.py</code>・<code>rag_mcp_server.py</code>の6ファイル。MITライセンスのため改変・再配布・商用利用は自由（詳細は<code>docs/license-compliance.md</code>参照）。</p>
+          <p>取り込まれたのは<code>document_processor.py</code>・<code>embedding_generator.py</code>・<code>rag_service.py</code>・<code>mcp_server.py</code>・<code>rag_mcp_tools.py</code>・<code>rag_mcp_server.py</code>の6ファイル。MITライセンスのため改変・再配布・商用利用は自由（詳細は<code>docs/operations/license-compliance.md</code>参照）。</p>
         </div>
       </div>
 
@@ -1279,7 +1279,7 @@ return fused[:TOP_K]</pre>
 
       <div class="term-card">
         <div class="term-header"><span class="term-name">WSL2</span><span class="term-abbr">Windows Subsystem for Linux 2</span></div>
-        <div class="term-body"><p>2026-06-30 のmcp-rag-server独立化以降、<code>rag_local_bridge.py</code> は Windows ネイティブで動作し WSL2 は不要になった。WSL2 構成は移行前の歴史的な記録（<code>docs/local-rag.md</code> §9参照）。</p></div>
+        <div class="term-body"><p>2026-06-30 のmcp-rag-server独立化以降、<code>rag_local_bridge.py</code> は Windows ネイティブで動作し WSL2 は不要になった。WSL2 構成は移行前の歴史的な記録（<code>docs/design/local-rag.md</code> §9参照）。</p></div>
       </div>
 
       <div class="term-card">
