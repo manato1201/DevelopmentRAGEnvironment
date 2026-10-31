@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>外部サービス連携（公式MCP）の選定と、使い方</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">外部サービス連携（MCP）</span>
+  <h1>外部サービス連携（公式MCP）の選定と、使い方</h1>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/design/mcp-integration-guide.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-同期とmcpの違い">1. 「同期」と「MCP」の違い</a></li><li><a href="#2-接続の2種類と書き込みの安全装置">2. 接続の2種類と、書き込みの安全装置</a><ol><li><a href="#21-誰の権限で動くか">2.1 誰の権限で動くか</a></li><li><a href="#22-書き込みは3つの条件がそろったときだけ2026-10-22-追加">2.2 書き込みは、3つの条件がそろったときだけ（2026-10-22 追加）</a></li></ol></li><li><a href="#3-目的別の選定">3. 目的別の選定</a><ol><li><a href="#31-現行の10サービス2026-10-22-に整理">3.1 現行の10サービス（2026-10-22 に整理）</a></li><li><a href="#32-外したもの使わないため">3.2 外したもの（使わないため）</a></li><li><a href="#33-追加の候補今は入れていません">3.3 追加の候補（今は入れていません）</a></li></ol></li><li><a href="#4-確認できていないこと接続の画面で確かめてください">4. 確認できていないこと（接続の画面で確かめてください）</a></li><li><a href="#5-テストの進め方">5. テストの進め方</a><ol><li><a href="#51-順序安全で効果が見えやすい順">5.1 順序（安全で、効果が見えやすい順）</a></li><li><a href="#52-1サービスあたりの手順">5.2 1サービスあたりの手順</a></li><li><a href="#53-試す質問の例">5.3 試す質問の例</a></li><li><a href="#54-共通の合格基準">5.4 共通の合格基準</a></li></ol></li><li><a href="#6-評価シートコピーして使う">6. 評価シート（コピーして使う）</a></li><li><a href="#7-注意">7. 注意</a></li></ol></details></nav>
+<main>
+
+<p><strong>目的:</strong> チャットから、外部サービスを調べたり、（確認のうえ）操作したりできるようにする。<strong>何をつなぐか</strong>を、使う目的から決める。 ／ <strong>版:</strong> 2026-10-22（整理・書き込みの確認を追加）<br />
+<strong>注意:</strong> 「連携中のシステム」は、現時点で<strong>すべて未連携</strong>です。ここに書いたメリットは、<strong>接続して測るまでは、見込み</strong>です。「接続できる」と書いたものも、<strong>接続の画面で、実際に確かめるまで確定しません</strong>（§4）。</p>
+<h2 id="1-同期とmcpの違い">1. 「同期」と「MCP」の違い</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>同期（ナレッジへの取り込み）</th>
+<th>MCP（チャットからの直接参照・操作）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>仕組み</td>
+<td>外部サービスの内容を、前もって取り込み、検索できる形にする</td>
+<td>質問のたびに、チャットが外部サービスの<strong>ツール</strong>を呼ぶ</td>
+</tr>
+<tr>
+<td>鮮度</td>
+<td>同期した時点の内容（再同期が必要）</td>
+<td><strong>常に最新</strong></td>
+</tr>
+<tr>
+<td>速さ・費用</td>
+<td>検索だけなので、速く、安い</td>
+<td>ツールの呼び出しが挟まり、遅く、Gemini のトークンが増える（結果は1回6,000文字まで、最大4往復・6回）</td>
+</tr>
+<tr>
+<td>検索の質</td>
+<td>他の資料と<strong>一緒に</strong>検索でき、出典の番号がつく</td>
+<td>サービス側の検索の質次第</td>
+</tr>
+<tr>
+<td>権限</td>
+<td>取り込んだ内容は、そのnamespaceを見られる人が読める</td>
+<td><strong>接続した人の権限</strong>で動く（誰が使えるかは、§2）</td>
+</tr>
+<tr>
+<td>できること</td>
+<td>読むだけ</td>
+<td>読む＋（許可したものは）<strong>書く・作る・送る</strong></td>
+</tr>
+<tr>
+<td>向いていること</td>
+<td>よく聞かれる、あまり変わらない知識（手順書・仕様）</td>
+<td>最新の状況・個別の事柄（今日の課題、直近のメール、デプロイの状態）と、<strong>操作</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-接続の2種類と書き込みの安全装置">2. 接続の2種類と、書き込みの安全装置</h2>
+<p><a href="../images/04-mcp-flow.svg"><img alt="外部サービス（MCP）の使い方と、書き込みの確認" src="../images/04-mcp-flow.svg" /></a></p>
+<p><em>図: 外部サービス（MCP）の使い方と、書き込みの確認。読み取りはそのまま、書き込みは毎回「実行」を押したときだけ。</em></p>
+<h3 id="21-誰の権限で動くか">2.1 誰の権限で動くか</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>接続のしかた</th>
+<th>誰のチャットで使われるか</th>
+<th>読む</th>
+<th>書く</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>共有</strong>（管理 →「連携するシステムを追加」）</td>
+<td><strong>チャットで「外部サービスも使う」をオンにした、全員</strong></td>
+<td>できる</td>
+<td><strong>できない</strong>（誰の権限で書くのか分からなくなるため、常に読み取りのみ）</td>
+</tr>
+<tr>
+<td><strong>自分用</strong>（上部の「自分用の連携」）</td>
+<td><strong>本人だけ</strong></td>
+<td>できる</td>
+<td><strong>許可したツールだけ、毎回の確認つきで</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>共有で、個人の権限のサービス（Gmail・Slack・GitHub など）を接続しないでください。</strong> 接続した人の権限で、チャットを使う<strong>全員</strong>が読めてしまいます。共有に向くのは、認証が要らない公開ドキュメント（Cloudflare Docs）だけです。</p>
+<h3 id="22-書き込みは3つの条件がそろったときだけ2026-10-22-追加">2.2 書き込みは、3つの条件がそろったときだけ（2026-10-22 追加）</h3>
+<p>別プロジェクト（AxChatD）の「実行前の承認」の考え方を取り入れました。</p>
+<ol>
+<li><strong>本人専用の接続</strong>であること（共有の接続では書かない）。</li>
+<li>ツールの選択で、そのツールに<strong>明示的にチェック</strong>を入れたこと。<strong>初期状態は、読み取りのツールだけ</strong>です（書き込みのツールは、チェックなしで表示されます。保存の操作で、うっかり有効にならないようにしています）。</li>
+<li>実行の前に、<strong>毎回、確認画面で「実行」を押す</strong>こと。</li>
+</ol>
+<p>流れ:</p>
+<pre><code>質問「Vercel の最新のデプロイを、再デプロイして」
+  → モデルが書き込みツールを呼ぼうとする（この時点では、何も実行されない）
+  → 回答の下に、確認カード（ツール名と、引数の内容。「実行」「やめる」）
+  → 「実行」を押す → サーバーが、保存してある内容を、1回だけ実行する
+</code></pre>
+<ul>
+<li>確認は<strong>1回だけ有効・5分で失効・本人だけ</strong>が使えます。</li>
+<li>実行されるのは、<strong>サーバーに保存した内容</strong>です。画面から別の引数を送っても、使われません（見せた内容と、実行する内容が、必ず一致します）。</li>
+<li>実行したあとで、管理者がツールを無効にしていた・接続を共有に変えていた場合は、実行されません。</li>
+<li>1回の回答で出せる確認は、<strong>3件まで</strong>です。</li>
+<li>実行の記録は、監査ログ（<code>mcp_audit</code>）に残ります（<strong>引数の中身は、記録しません</strong>）。</li>
+<li>外部サービスの文章は、<strong>指示として扱いません</strong>（プロンプトインジェクション対策）。</li>
+</ul>
+<blockquote>
+<p><strong>おすすめの始め方:</strong> まず、読み取りだけで試します。書き込みは、<strong>取り消せる操作</strong>（ドラフトの作成、コメント）から、1つずつ許可してください。削除・送信・公開・デプロイのような、取り消せない操作は、最後に。</p>
+</blockquote>
+<h2 id="3-目的別の選定">3. 目的別の選定</h2>
+<p>「企画書作成・UI作成・曲作成・DCCツール・ゲームエンジン・バージョン管理・連絡ツール・配信サービス」を、<strong>どこで・何で</strong>つなげるかを整理しました。</p>
+<p><strong>大事な前提:</strong> このチャットは Cloudflare の Worker（インターネット上）で動きます。つなげられるのは、<strong>インターネットから届く、公式の MCP サーバー</strong>だけです。<strong>自分のPCの中で動く MCP</strong>（Blender・Unity・Houdini・Docker など）は、Worker からは<strong>届きません</strong>。それらは、手元の Claude（Claude Code / デスクトップ）で、直接つなぎます（すでに Blender は、デスクトップの Claude につながっています）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>分野</th>
+<th>このチャット（Worker）でつなぐ</th>
+<th>手元の Claude でつなぐ（ローカル）</th>
+<th>見送り・できないこと</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>企画書作成</strong></td>
+<td><strong>Notion</strong>・<strong>Google Drive</strong>（Docs）・<strong>Canva</strong>（スライド・企画書の書き出し）</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>UI作成</strong></td>
+<td><strong>Figma</strong>・<strong>Canva</strong></td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>曲作成</strong></td>
+<td>—</td>
+<td>—</td>
+<td>公式のリモート MCP が見つかりませんでした（曲データの閲覧サービスはあるが、<strong>作曲・生成</strong>ではない）。見つかったら追加できます</td>
+</tr>
+<tr>
+<td><strong>DCC ツール</strong></td>
+<td>—</td>
+<td><strong>Blender</strong>（接続済み）・Houdini（<code>hython</code>・パネル）</td>
+<td>ローカルのツールなので、Worker からは操作できません</td>
+</tr>
+<tr>
+<td><strong>ゲームエンジン</strong></td>
+<td>—</td>
+<td><strong>Unity</strong>（<code>uloop</code> のスキル）</td>
+<td>エンジン自体は、ローカル</td>
+</tr>
+<tr>
+<td><strong>バージョン管理</strong></td>
+<td><strong>GitHub</strong></td>
+<td><code>git</code>（Claude Code）</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>連絡ツール</strong></td>
+<td><strong>Slack</strong>・<strong>Gmail</strong>・<strong>Google カレンダー</strong></td>
+<td>—</td>
+<td>Discord は、公式のリモート MCP が見つかりませんでした</td>
+</tr>
+<tr>
+<td><strong>配信サービス</strong></td>
+<td><strong>Vercel</strong>（デプロイの確認・ログ）・<strong>Cloudflare Docs</strong></td>
+<td>wrangler（Claude Code）</td>
+<td>YouTube・Twitch の公式の MCP は、見つかりませんでした</td>
+</tr>
+<tr>
+<td><strong>コンテナ（Docker）</strong></td>
+<td>—</td>
+<td><strong>Docker の MCP Toolkit</strong>（ローカル）</td>
+<td><strong>公式のリモート MCP が存在しません</strong>（Docker は、自分のPCで動くため）。Worker からは操作できません</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="31-現行の10サービス2026-10-22-に整理">3.1 現行の10サービス（2026-10-22 に整理）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>サービス</th>
+<th>目的</th>
+<th>認証</th>
+<th>接続の準備</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Notion</strong></td>
+<td>企画書・メモ</td>
+<td>OAuth（自動登録）</td>
+<td>不要</td>
+<td>接続して確かめる</td>
+</tr>
+<tr>
+<td><strong>Google Drive</strong></td>
+<td>企画書（Docs）・資料</td>
+<td>Google OAuth（固定クライアント）</td>
+<td>Google Cloud の設定が必要（§5）</td>
+<td>〃（Google は Developer Preview）</td>
+</tr>
+<tr>
+<td><strong>Canva</strong></td>
+<td>企画書・スライド・UI</td>
+<td>OAuth（自動登録）</td>
+<td>不要</td>
+<td><strong>新規。要確認（§4）</strong></td>
+</tr>
+<tr>
+<td><strong>Figma</strong></td>
+<td>UI の設計情報</td>
+<td>OAuth（自動登録）</td>
+<td>不要</td>
+<td>要確認（§4）</td>
+</tr>
+<tr>
+<td><strong>GitHub</strong></td>
+<td>バージョン管理</td>
+<td>OAuth（固定クライアント）</td>
+<td>OAuth アプリを作り、Client ID/Secret を登録</td>
+<td>接続して確かめる</td>
+</tr>
+<tr>
+<td><strong>Slack</strong></td>
+<td>連絡</td>
+<td>OAuth（固定クライアント）</td>
+<td>Slack アプリ（MCP 有効）＋ Client ID/Secret</td>
+<td>〃</td>
+</tr>
+<tr>
+<td><strong>Gmail</strong></td>
+<td>連絡（メール）</td>
+<td>Google OAuth</td>
+<td>Google Cloud の設定が必要（§5）</td>
+<td>〃（Developer Preview。<strong>自分用のみ</strong>）</td>
+</tr>
+<tr>
+<td><strong>Google カレンダー</strong></td>
+<td>予定・空き時間</td>
+<td>Google OAuth</td>
+<td>〃</td>
+<td>〃</td>
+</tr>
+<tr>
+<td><strong>Vercel</strong></td>
+<td>配信・デプロイ</td>
+<td>OAuth（自動登録）</td>
+<td>不要</td>
+<td><strong>新規。要確認（§4）</strong></td>
+</tr>
+<tr>
+<td><strong>Cloudflare Docs</strong></td>
+<td>Workers・D1 などの公式資料</td>
+<td><strong>なし</strong>（公開）</td>
+<td>不要</td>
+<td>共有で使える</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="32-外したもの使わないため">3.2 外したもの（使わないため）</h3>
+<p><strong>Linear・Sentry・Atlassian（Jira / Confluence の MCP）・Microsoft Learn</strong> を外しました（選定した10サービスに絞る）。普段使っていないサービスを残すと、選択肢が増えて、見づらく、誤って接続するもとになるためです。<br />
+- Jira・Backlog の<strong>課題の同期</strong>は、MCP とは別の機能なので、<strong>そのまま残っています</strong>（「同期」の欄）。<br />
+- 必要になったら、<code>src/mcp/providers.ts</code> に、公式の URL を<strong>1件足すだけ</strong>で、戻せます。</p>
+<h3 id="33-追加の候補今は入れていません">3.3 追加の候補（今は入れていません）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>候補</th>
+<th>何ができるか</th>
+<th>入れていない理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Cloudflare</strong>（Observability・Builds・Bindings）</td>
+<td>Worker のログ・ビルドの確認</td>
+<td>ほしいときに足せます（自動登録に対応。<strong>書き込みの範囲が広い</strong>ので、読み取りの範囲から）</td>
+</tr>
+<tr>
+<td><strong>Riverside</strong></td>
+<td>動画・ポッドキャストの編集・公開</td>
+<td>配信の用途が決まってから</td>
+</tr>
+<tr>
+<td><strong>Adobe</strong></td>
+<td>Adobe の制作ツール</td>
+<td>利用の有無が不明</td>
+</tr>
+<tr>
+<td><strong>Supabase・Stripe・Hugging Face・Dropbox</strong></td>
+<td>それぞれのサービスの操作</td>
+<td>用途が無いため</td>
+</tr>
+<tr>
+<td>Render</td>
+<td>デプロイ</td>
+<td>自動登録に<strong>非対応</strong>（OAuth アプリが必要）。Vercel を使うなら不要</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="4-確認できていないこと接続の画面で確かめてください">4. 確認できていないこと（接続の画面で確かめてください）</h2>
+<ul>
+<li><strong>Vercel・Canva・Figma</strong> は、自動登録（DCR）の窓口が公開されています。ただし、<strong>どのアプリでも登録を受け付けるか</strong>（許可されたクライアントだけか）は、実際に接続するまで分かりません。接続でエラーになったら、メッセージを教えてください。</li>
+<li><strong>Google 系（Drive・カレンダー・Gmail）</strong>: 「<code>redirect_uri_mismatch</code>」と出たら、Google Cloud の OAuth クライアントに、次の URL を<strong>完全一致</strong>で追加します。<br />
+<code>https://rag-poc.manato1201m.workers.dev/admin/oauth/mcp/callback</code></li>
+<li>書き込みの確認の動作は、偽のサーバーでテストしました。<strong>実際のサービスでは、まだ試していません。</strong></li>
+</ul>
+<h2 id="5-テストの進め方">5. テストの進め方</h2>
+<h3 id="51-順序安全で効果が見えやすい順">5.1 順序（安全で、効果が見えやすい順）</h3>
+<ol>
+<li><strong>Cloudflare Docs</strong>（認証なし。すぐ効果が見える）</li>
+<li><strong>Notion</strong>（自分用で接続）→ <strong>GitHub</strong></li>
+<li><strong>Canva・Figma・Vercel</strong>（読み取りから）</li>
+<li><strong>Google Drive → カレンダー</strong>（Developer Preview）→ 最後に Gmail</li>
+<li><strong>Slack</strong></li>
+<li>書き込みの許可は、最後に、1つずつ</li>
+</ol>
+<h3 id="52-1サービスあたりの手順">5.2 1サービスあたりの手順</h3>
+<ol>
+<li>管理 →「ナレッジ登録」→「＋ 連携するシステムを追加」→ サービスを選んで<strong>接続</strong>。<br />
+   - <strong>Slack・Gmail・Drive・カレンダー・GitHub・Notion・Canva・Vercel など、個人の権限のものは、「自分用の連携」から</strong>接続します。</li>
+<li><strong>ツールの一覧を確認</strong>し、使うツールを選ぶ（<strong>書き込みは、チェックなしで表示</strong>されます）。</li>
+<li>「チャットで使う」をオン。</li>
+<li>チャットで、<strong>「外部サービスも使う」をオン</strong>にして、質問する（回答に、使ったサービスが出ます）。</li>
+<li>書き込みを許可したときは、<strong>確認カードの内容</strong>（引数）が、頼んだ内容と合っているかを見てから、「実行」を押す。</li>
+<li>評価シート（§6）に、結果を記録。</li>
+<li>使わないなら、<strong>切断</strong>。</li>
+</ol>
+<h3 id="53-試す質問の例">5.3 試す質問の例</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>サービス</th>
+<th>質問</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cloudflare Docs</td>
+<td>「D1 の無料プランの1日の読み取り上限は？」</td>
+</tr>
+<tr>
+<td>GitHub</td>
+<td>「<code>houdini/python_panels</code> で、動画生成の進捗を読んでいるのはどのファイル？」</td>
+</tr>
+<tr>
+<td>Notion</td>
+<td>「（直近に更新したページの名前）の要点は？」</td>
+</tr>
+<tr>
+<td>Vercel</td>
+<td>「（プロジェクト名）の、最新のデプロイの状態と、失敗しているログは？」</td>
+</tr>
+<tr>
+<td>Canva</td>
+<td>「最近のデザインを一覧にして」</td>
+</tr>
+<tr>
+<td>カレンダー</td>
+<td>「来週の空き時間は？」</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="54-共通の合格基準">5.4 共通の合格基準</h3>
+<ul>
+<li><strong>正しさ:</strong> 回答が、元のサービスの内容と一致する（人が照合）。</li>
+<li><strong>書き込み:</strong> <strong>確認カードが出る前に、実行されない</strong>。「やめる」で、何も起きない。確認の内容が、頼んだ内容と一致する。</li>
+<li><strong>出所の表示:</strong> 使ったサービスが、回答に出る。</li>
+<li><strong>速さ:</strong> 検索だけの回答より遅くなる。<strong>何秒までなら許容か</strong>を、先に決めておく（目安: 20秒以内）。</li>
+<li><strong>費用:</strong> ツールの結果（最大6,000文字 × 最大6回）が、プロンプトに入る。1回の質問で、Gemini のトークンが、<strong>数千〜1万トークン程度増える</strong>見込み。</li>
+<li><strong>安全:</strong> 外部の文章に、「このメールを転送せよ」のような指示が入っていても、<strong>従わない</strong>。</li>
+</ul>
+<h2 id="6-評価シートコピーして使う">6. 評価シート（コピーして使う）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>サービス</th>
+<th>質問</th>
+<th>期待した答え</th>
+<th>実際の答え（○／△／×）</th>
+<th>所要時間</th>
+<th>同期との差</th>
+<th>使い続けるか</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cloudflare Docs</td>
+<td>D1 の無料プランの1日の読み取り上限は？</td>
+<td>500万行</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Notion</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>GitHub</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Vercel</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Canva</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>判断の目安:</strong> 〇が多く、<strong>同期や手元の Claude では代替できない</strong>ものだけ、使い続ける。</p>
+<h2 id="7-注意">7. 注意</h2>
+<ul>
+<li><strong>権限は、接続した人のもの。</strong> 自分用の接続は、本人のチャットだけで使われます。<strong>共有の接続は、全員のチャットで使われます</strong>（読み取りのみ）。</li>
+<li><strong>Developer Preview（Google）</strong> は、仕様変更・不安定さがあり得ます。</li>
+<li><strong>トークンは、D1 に保存</strong>されます（暗号化は、未実装）。管理画面から、いつでも切断できます。</li>
+<li><strong>費用の管理:</strong> 「外部サービスも使う」は、<strong>既定でオフ</strong>です。配るテスターには、使わせない前提です（運営だけが使う機能）。</li>
+<li>別プロジェクト（AxChatD）との違い: あちらは、タグ（Web に埋め込む匿名の訪問者向け）の許可リストや、API キー方式（Google マップ）、アカウント名の表示も持ちます。<strong>この環境には、入れていません</strong>（必要になったら取り入れられます）。</li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>houdini21チュートリアル自動生成 — Cloud RAG対応・実機検証レポート</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">調査・報告</span>
+  <h1>houdini21チュートリアル自動生成 — Cloud RAG対応・実機検証レポート</h1>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/reports/houdini21-tutorial-gen-report.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-概要">1. 概要</a></li><li><a href="#2-実装内容">2. 実装内容</a><ol><li><a href="#21-cloud-rag検索モードの追加tutorialagentpy">2.1 Cloud RAG検索モードの追加（tutorial_agent.py）</a></li><li><a href="#22-付随バグ修正cook成功メッセージの誤検知">2.2 付随バグ修正：cook成功メッセージの誤検知</a></li></ol></li><li><a href="#3-検証1回目反復上限による打ち切り">3. 検証1回目：反復上限による打ち切り</a></li><li><a href="#4-原因分析と修正">4. 原因分析と修正</a></li><li><a href="#5-検証2回目生成成功">5. 検証2回目：生成成功</a></li><li><a href="#6-houdini実機での確認手順と結果">6. Houdini実機での確認手順と結果</a></li><li><a href="#7-わかったこと今後の改善事項">7. わかったこと・今後の改善事項</a><ol><li><a href="#71-今回確認できたこと">7.1 今回確認できたこと</a></li><li><a href="#72-今後の改善事項">7.2 今後の改善事項</a></li></ol></li><li><a href="#8-追加検証2026-0809cloudflareバックエンド移行動画生成連携">8. 追加検証（2026-08〜09、Cloudflareバックエンド移行・動画生成連携）</a><ol><li><a href="#81-cloudflareエッジブロックの誤診断回避">8.1 Cloudflareエッジブロックの誤診断回避</a></li><li><a href="#82-完了扱いの誤判定対策7章4への対応">8.2 「完了扱い」の誤判定対策（7章#4への対応）</a></li><li><a href="#83-動画生成連携の不具合qtwebengine関連2件">8.3 動画生成連携の不具合（QtWebEngine関連、2件）</a></li><li><a href="#84-cooknodeの偽陽性対策">8.4 cook_nodeの偽陽性対策</a></li><li><a href="#85-ネットワークエディタのスクリーンショット取得2026-09-26に原因を特定し作り直し">8.5 ネットワークエディタのスクリーンショット取得（2026-09-26に原因を特定し作り直し）</a></li><li><a href="#851-ビューポートが最初のノードのまま変わらなかった問題打ち切りの根本原因">8.5.1 ビューポートが最初のノードのまま変わらなかった問題（打ち切りの根本原因）</a></li><li><a href="#86-わかったこと8章のまとめ">8.6 わかったこと（8章のまとめ）</a></li></ol></li></ol></details></nav>
+<main>
+
+<p><strong>作成日:</strong> 2026-07-23（8章のみ2026-09-20追記）<br />
+<strong>対象機能:</strong> houdini21動的チュートリアル生成（<a href="../design/content-generation.md">docs/design/content-generation.md</a> §2）<br />
+<strong>位置づけ:</strong> 技術資料。実装したCloud RAG対応・チューニングと、Houdini実機での初回エンドツーエンド検証結果を記録する。8章はCloudflareバックエンド移行・動画生成連携以降に実機から報告された不具合と対応を追加記録したもの。</p>
+<hr />
+<hr />
+<h2 id="1-概要">1. 概要</h2>
+<p><a href="../images/02-tutorial-flow.svg"><img alt="チュートリアルと動画ができるまで" src="../images/02-tutorial-flow.svg" /></a></p>
+<p><em>図: チュートリアルと動画ができるまで。トピックを入れてから、ダッシュボードに載るまでの8段階。</em></p>
+<p>houdini21チュートリアル自動生成機能に <strong>Cloud RAG（GAS WebApp経由）モード</strong> を追加し、Houdini実機上で最初のエンドツーエンド検証を実施した。1回目の生成は反復上限に達して未完成のまま打ち切られたが、原因を特定してパラメータを調整した結果、2回目は完全なノードグラフ（地形生成 → 岩の散布 → 岩のコピー配置）を生成できた。生成結果はHoudini操作に不慣れなユーザー（初心者ロール）の視点で実際にネットワークエディタを操作し、視覚的に意図した通りの絵（地形上に散布された岩）が得られることを確認した。</p>
+<div class="mermaid">flowchart LR
+    A[要件] --&gt; B[Cloud RAG検索モード実装]
+    B --&gt; C[検証1回目]
+    C --&gt;|反復上限到達・未完成| D[原因分析]
+    D --&gt; E[MODEL / MAX_ITERATIONS 調整]
+    E --&gt; F[検証2回目]
+    F --&gt;|完了| G[Houdini実機で目視確認]
+    G --&gt;|Mergeノード追加で地形+岩を確認| H[検証完了]
+</div>
+<hr />
+<h2 id="2-実装内容">2. 実装内容</h2>
+<h3 id="21-cloud-rag検索モードの追加tutorialagentpy">2.1 Cloud RAG検索モードの追加（<a href="../../houdini/python_panels/tutorial_agent.py">tutorial_agent.py</a>）</h3>
+<p>これまでhoudini21チュートリアル生成のRAG検索は <code>rag_local_bridge.py</code> の <code>/search</code> エンドポイント（Local RAG）のみに対応していた。CloudRAG側に蓄積されたドキュメントが多いという運用実態に合わせ、<code>gas_cloud_rag.js</code> を検索元として使えるようにした。</p>
+<div class="mermaid">sequenceDiagram
+    participant UI as rag_chatbot.py&lt;br/&gt;（Tutorialタブ）
+    participant Agent as TutorialAgent
+    participant GAS as gas_cloud_rag.js&lt;br/&gt;（mode:'raw'）
+    participant Claude as Claude API&lt;br/&gt;（Tool Use）
+    participant Houdini as houdini_tools.py&lt;br/&gt;（サンドボックス）
+
+    UI-&gt;&gt;Agent: generate(topic, rag_mode=&quot;cloud&quot;)
+    Agent-&gt;&gt;GAS: POST { query, dbKey:&quot;houdini21&quot;, mode:&quot;raw&quot; }
+    GAS--&gt;&gt;Agent: sources[]（db, title, score, text）
+    Agent-&gt;&gt;Agent: db==&quot;houdini21&quot; 以外を除外&lt;br/&gt;（クライアント側ホワイトリスト強制）
+    Agent-&gt;&gt;Claude: RAGコンテキスト + tools定義
+    loop 反復（最大MAX_ITERATIONS回）
+        Claude-&gt;&gt;Houdini: tool_use（create_node/set_parameter/...）
+        Houdini--&gt;&gt;Claude: 実行結果（cookエラー検知含む）
+    end
+    Claude-&gt;&gt;Agent: finish_tutorial
+    Agent--&gt;&gt;UI: Markdownチュートリアル + NodeGraphAsset JSON
+</div>
+<ul>
+<li><code>rag_mode</code> を <code>"local"</code> / <code>"cloud"</code> で切り替え（既存のSettingsタブの <code>mode</code>/<code>gas_url</code>/<code>gas_api_key</code> を再利用、UI追加なし）</li>
+<li><code>mode:'raw'</code> はGAS側の最終回答生成（Gemini呼び出し）をスキップし、検索結果のみを返す軽量パス</li>
+<li>GAS側はAPIキーにhoudini21権限がないと <code>dbKey</code> を <code>"all"</code> にフォールバックしてしまうため、<strong>応答の <code>sources</code> を <code>db=="houdini21"</code> のものだけに絞り込む処理をクライアント側にも実装</strong>し、ホワイトリスト方針を二重に強制している</li>
+</ul>
+<h3 id="22-付随バグ修正cook成功メッセージの誤検知">2.2 付随バグ修正：cook成功メッセージの誤検知</h3>
+<p>「ハマりポイント」自動抽出のフィルタが <code>"エラー" in str(entry["result"])</code> という部分文字列判定だったため、cook成功時のメッセージ <code>"cook 成功: ...（エラー・警告なし）"</code> にも <code>"エラー"</code> という文字列が含まれることを検知し、成功ログが誤って「ハマりポイント」として混入していた。判定を <code>"[エラー]" in str(entry["result"])</code>（cook失敗行にのみ付与される接頭辞）に変更して修正した。</p>
+<hr />
+<h2 id="3-検証1回目反復上限による打ち切り">3. 検証1回目：反復上限による打ち切り</h2>
+<p><strong>リクエスト:</strong> 「岩を地形に散布するプロシージャルセットアップ」<br />
+<strong>設定:</strong> <code>MODEL = "claude-sonnet-4-6"</code> / <code>MAX_ITERATIONS = 25</code></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RAG検索</td>
+<td>Cloud RAGで houdini21 ドキュメント5件を取得</td>
+</tr>
+<tr>
+<td>生成結果</td>
+<td>反復上限（25回）に到達し打ち切り</td>
+</tr>
+<tr>
+<td>消費</td>
+<td>37イテレーション相当のツール呼び出し／$0.327</td>
+</tr>
+<tr>
+<td>完成度</td>
+<td>地形・岩の形状・散布ポイント・スケールランダム化までは完了。<strong>岩を散布ポイントにコピーする最終ステップ（Copy to Points）が未実行のまま終了</strong></td>
+</tr>
+</tbody>
+</table></div>
+<div class="mermaid">gantt
+    dateFormat X
+    axisFormat %s
+    title 検証1回目：反復予算の使われ方（イメージ）
+    section 検索フェーズ
+    list_available_node_types ×8回 : 0, 8
+    section 構築フェーズ
+    ノード作成・接続・パラメータ設定 : 8, 25
+    section 未達
+    Copy to Points（最終工程） : crit, 25, 27
+</div>
+<p>原因は明確で、序盤の <code>list_available_node_types</code> によるノードタイプ検索に反復予算の3割以上を使い、本題（岩のコピー配置）にたどり着く前に上限を消費した。</p>
+<hr />
+<h2 id="4-原因分析と修正">4. 原因分析と修正</h2>
+<p>2つの独立した改善レバーを適用した（<a href="../houdini/python_panels/tutorial_agent.py:41">tutorial_agent.py:41-42</a>）。</p>
+<pre><code class="language-diff">- MODEL = &quot;claude-sonnet-4-6&quot;   # 設計判断（§4.1）。変更はコストが変わるため要ユーザー確認
+- MAX_ITERATIONS = 25           # 反復上限（§2.6）
++ MODEL = &quot;claude-sonnet-5&quot;     # 設計判断（§4.1）。変更はコストが変わるため要ユーザー確認
++ MAX_ITERATIONS = 40           # 反復上限（§2.6）
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>変更</th>
+<th>狙い</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MAX_ITERATIONS</code>: 25 → 40</td>
+<td>単純に反復回数の余裕を増やす</td>
+</tr>
+<tr>
+<td><code>MODEL</code>: Sonnet 4.6 → Sonnet 5</td>
+<td>agentic・コーディング性能の向上により、同じタスクをより少ない反復で終える期待。加えて導入価格（$2/$10 per MTok、2026-08-31まで）がSonnet 4.6（$3/$15）より安く、性能向上とコスト減を両立</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>COST_LIMIT_USD = 0.50</code>（自動打ち切り上限）は今回変更していない。反復上限を増やした分、理論上はコスト上限が先に効く可能性があるため、今後の運用で頻発する場合は合わせて見直す。</p>
+<hr />
+<h2 id="5-検証2回目生成成功">5. 検証2回目：生成成功</h2>
+<p>同じリクエストで再実行した結果、反復上限に達することなく <code>finish_tutorial</code> まで到達した。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>検証1回目</th>
+<th>検証2回目</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MODEL</td>
+<td>claude-sonnet-4-6</td>
+<td>claude-sonnet-5</td>
+</tr>
+<tr>
+<td>MAX_ITERATIONS</td>
+<td>25</td>
+<td>40</td>
+</tr>
+<tr>
+<td>結果</td>
+<td>反復上限で打ち切り</td>
+<td><strong>完了</strong></td>
+</tr>
+<tr>
+<td>消費イテレーション</td>
+<td>37</td>
+<td>47</td>
+</tr>
+<tr>
+<td>コスト</td>
+<td>$0.327</td>
+<td>$0.445</td>
+</tr>
+<tr>
+<td>最終ステップ（Copy to Points）</td>
+<td>未実行</td>
+<td>実行済み</td>
+</tr>
+</tbody>
+</table></div>
+<p>生成されたノードグラフ（サンドボックス: <code>/obj/ai_tutorial_20260722_232252/geo1</code>）:</p>
+<div class="mermaid">flowchart TB
+    grid[terrain_grid&lt;br/&gt;Grid&lt;br/&gt;20×20, 50×50分割]
+    mountain[terrain_mountain&lt;br/&gt;Mountain::2.0&lt;br/&gt;height=3, elementsize=5]
+    scatter[scatter_points&lt;br/&gt;Scatter::2.0&lt;br/&gt;npts=200]
+    randomize[randomize_scale&lt;br/&gt;Attribute Randomize&lt;br/&gt;pscale 0.7〜1.5]
+
+    sphere[rock_base&lt;br/&gt;Sphere&lt;br/&gt;polymesh, rad=0.3]
+    rockmtn[rock_mountain&lt;br/&gt;Mountain::2.0&lt;br/&gt;height=0.08, elementsize=0.8]
+
+    copy[scatter_rocks&lt;br/&gt;Copy to Points::2.0]
+
+    grid --&gt; mountain --&gt; scatter --&gt; randomize
+    sphere --&gt; rockmtn
+    rockmtn --&gt;|input 0: テンプレート| copy
+    randomize --&gt;|input 1: 配置先ポイント| copy
+</div>
+<p>チュートリアル本文はRAG検索で取得したhoudini21ドキュメント5件のうち関連する項目を「参考」として自動引用し、「ハマりポイント」節には以下が自動生成された（要約）:</p>
+<ul>
+<li>Sphereのデフォルトタイプは変形できない形式なので <code>polymesh</code> に変更が必要</li>
+<li>Mountainの<code>height</code>はオブジェクトのスケールに依存する（地形とミニチュアの岩で値が2桁違う）</li>
+<li>Copy to Pointsの入力順序（0=テンプレート、1=配置先ポイント）を逆にすると意図しない結果になる</li>
+<li><code>pscale</code>属性の命名・class指定を忘れるとスケールランダム化が反映されない</li>
+</ul>
+<hr />
+<h2 id="6-houdini実機での確認手順と結果">6. Houdini実機での確認手順と結果</h2>
+<p>Houdini操作に不慣れなユーザーの視点で、生成結果を実際に確認する手順を実施した。この過程で判明した「初心者にとって非自明な操作」を記録する。</p>
+<div class="mermaid">flowchart LR
+    A[Network Editorを開く] --&gt; B[サンドボックスパスに移動]
+    B --&gt; C[geo1にダブルクリックで潜る]
+    C --&gt; D[scatter_rocksのDisplay flagをON]
+    D --&gt; E{見える絵は?}
+    E --&gt;|散布された岩のみ&lt;br/&gt;地形は非表示| F[Mergeノードで&lt;br/&gt;terrain_mountain + scatter_rocksを結合]
+    F --&gt; G[起伏のある地形+岩を確認]
+</div>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>ステップ</th>
+<th>判明したこと</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>サンドボックス直下を開く</td>
+<td>サンドボックスはSubnetworkで、<code>Sub-Network Input</code>×4個 + <code>geo1</code>のみが見える。実体は<code>geo1</code>の<strong>さらに1階層下</strong></td>
+</tr>
+<tr>
+<td>ノードのフラグ操作</td>
+<td>ノードにマウスを乗せると扇形の「フラグメニュー」が出現し、青い目アイコンがDisplay flag。初見でわかりにくい</td>
+</tr>
+<tr>
+<td>Copy to Pointsの出力の性質</td>
+<td><code>Copy to Points</code>は複製されたインスタンスのみを出力し、<strong>元の地形サーフェス自体は出力に含まれない</strong>。3Dビューの「地面」はHoudiniの基準グリッド（実体のないガイド線）であり、生成された地形メッシュではない</td>
+</tr>
+<tr>
+<td>Tabメニューでのノード検索</td>
+<td>ノード名の打ち間違い（<code>marge</code>→<code>merge</code>）で見つからず。Tabメニューは文字列完全一致寄りの絞り込みのため、スペルミスに弱い</td>
+</tr>
+<tr>
+<td>Mergeノード追加後</td>
+<td><code>terrain_mountain</code>（地形）+ <code>scatter_rocks</code>（岩）をMergeし、その表示フラグをONにすることで、起伏のある地形上に岩が散布された最終的な絵を確認</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>結論:</strong> 生成されたノードグラフ・パラメータは意図通りに動作しており、機能としては成功。ただし「地形と散布結果を同時に見せる」には現状ユーザー側での追加操作（Mergeノード）が必要で、チュートリアルとしての完成度に改善余地がある（詳細は次章）。</p>
+<hr />
+<h2 id="7-わかったこと今後の改善事項">7. わかったこと・今後の改善事項</h2>
+<h3 id="71-今回確認できたこと">7.1 今回確認できたこと</h3>
+<ul>
+<li>Cloud RAGモードでのhoudini21ドキュメント検索 → エージェントループ → ノードグラフ生成の一連の流れが実機で動作する</li>
+<li><code>MODEL</code>/<code>MAX_ITERATIONS</code>の調整で、同一タスクが「打ち切り」から「完了」に改善した</li>
+<li>生成されたノードグラフ・パラメータは技術的に正しく、意図した結果（起伏地形への岩の散布）が得られる</li>
+<li>生成されたチュートリアル本文の「ハマりポイント」節は、実際に手を動かした際に意味のある注意点（Sphereのtype、height値のスケール依存、入力順序、pscaleの命名規則）を言語化できている</li>
+</ul>
+<h3 id="72-今後の改善事項">7.2 今後の改善事項</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>反復予算の使われ方</td>
+<td>検証1回目は<code>list_available_node_types</code>の検索だけで反復予算の3割超を消費した。よく使うSopノードタイプ（scatter, mountain, copytopoints, attribrandomize等）をあらかじめキャッシュ／プロンプトに含めるなど、検索コストを減らす余地がある</td>
+</tr>
+<tr>
+<td>2</td>
+<td>視覚的完成度（Merge省略問題）</td>
+<td><code>Copy to Points</code>/<code>Scatter</code>パターンのチュートリアルでは、最終出力に元サーフェスが含まれず「何も表示されていないように見える」誤解を生みやすい。地形系タスクでは自動でMergeノードを追加し表示フラグを設定する、もしくはチュートリアル本文に「地面が見えないのは仕様」である旨を明記するルールをシステムプロンプトに追加すべき</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>COST_LIMIT_USD</code>の見直し</td>
+<td><code>MAX_ITERATIONS</code>を25→40に増やしたが<code>COST_LIMIT_USD=0.50</code>は未変更。反復回数を使い切る前にコスト上限で打ち切られるケースが今後出てくる可能性があり、要観察</td>
+</tr>
+<tr>
+<td>4</td>
+<td>打ち切り時の挙動</td>
+<td>反復上限・コスト上限に達した場合、現状は単純に打ち切って未完成のまま出力する。残り予算が少なくなった時点で残タスクを簡略化する、あるいは最低限「表示可能な状態」まで持っていく優先順位付けを検討する余地がある</td>
+</tr>
+<tr>
+<td>5</td>
+<td>初心者向けのUI操作説明不足</td>
+<td>生成されたチュートリアルはノード・パラメータの指示に終始しており、「Network Editorで潜る」「Display flagをクリックする」といったHoudini自体の基本操作は説明されない。今回のように操作に不慣れなユーザーが使う場合、Houdini操作の基礎知識を前提にできない。チュートリアル本文または別セクションに「Houdini操作の基礎」的なガイドを添付する案を<a href="../pilot/houdini21-learning-effect-study.md">docs/pilot/houdini21-learning-effect-study.md</a>の要件に反映する</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>rag_local_bridge.py</code>の<code>--no-auth</code>バグ</td>
+<td>別件で発見済みだが未修正: <code>--no-auth</code>モードで<code>/api/users</code>にアクセスすると<code>self.auth</code>が<code>None</code>のまま<code>list_users()</code>を呼び出し<code>AttributeError</code>になる</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Houdiniパネルの反映漏れ</td>
+<td><code>default.pypanel</code>は保存時にコードを埋め込む方式のため、<code>.py</code>ファイルを編集しただけではHoudini上のパネルに反映されない。Python Panel Editorへの再貼り付けが必要（既知の運用上の注意点として継続フォロー）</td>
+</tr>
+<tr>
+<td>8</td>
+<td>進捗の可視化</td>
+<td>現状は生成完了後にまとめて反復数・コストが表示される。反復中にリアルタイムでコスト消費率を表示できれば、ユーザーが「あとどれくらいで打ち切られそうか」を把握しやすくなる</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="8-追加検証2026-0809cloudflareバックエンド移行動画生成連携">8. 追加検証（2026-08〜09、Cloudflareバックエンド移行・動画生成連携）</h2>
+<p>2026-07-23の初回検証以降、(a) Claude呼び出し先をGASからCloudflare Workers（<code>cloudflare-rag-poc</code>）へ移行する選択肢を追加、(b) 生成したチュートリアルから動画を自動生成するLearningQt連携を追加、という2つの機能拡張を行った。以下はその過程で実機から報告された不具合と対応の記録で、7章の「今後の改善事項」のうち#4（打ち切り時の挙動）に直接対応する内容を含む。</p>
+<h3 id="81-cloudflareエッジブロックの誤診断回避">8.1 Cloudflareエッジブロックの誤診断回避</h3>
+<p><code>/claude/messages</code>呼び出しが「認証エラー: Cloudflare APIキーが無効です」として失敗する事象が報告された。<code>cloudflare-rag-poc/src/*.ts</code>に該当のエラー文字列（<code>error code</code>や<code>1010</code>）が一切存在しないこと、Cloudflare Observabilityダッシュボードに該当リクエストのイベントが1件も記録されていないことから、アプリケーション層（<code>auth.ts</code>）ではなくCloudflareエッジ（Bot Fight Mode等）でのブロックだと特定した。<strong>Worker本体に到達していない＝トークン予算は消費されていない</strong>ため、この特定パターン（401/403だが応答本文が自前のJSONではない）に限り、一般的なUser-Agentを付与したうえで自動リトライする対応を<code>tutorial_agent.py</code>の<code>_call_api_cloudflare</code>に追加した（誤って「APIキーが無効」と案内し続けることを防いだ）。</p>
+<div class="mermaid">flowchart LR
+    A[401/403エラー受信] --&gt; B{応答本文が&lt;br/&gt;JSONか}
+    B --&gt;|Yes| C[本当の認証エラー&lt;br/&gt;キー無効と案内]
+    B --&gt;|No| D[Cloudflareエッジブロックの疑い]
+    D --&gt; E[User-Agent付与+短時間リトライ]
+    E --&gt;|成功| F[続行・予算消費なし]
+    E --&gt;|再度失敗| G[エッジ由来である旨を案内]
+</div>
+<h3 id="82-完了扱いの誤判定対策7章4への対応">8.2 「完了扱い」の誤判定対策（7章#4への対応）</h3>
+<p>実機で、モデルが実際には未完了のまま<code>tool_use</code>無しで応答を終えてしまうケースが複数パターン確認された。7章#4で挙げていた「打ち切り時の挙動」の改善として、以下を<code>tutorial_agent.py</code>の<code>_run_loop</code>に実装した。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>段階</th>
+<th>状態</th>
+<th>対応</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>① 何も作らず終了</td>
+<td>ノードを1つも作成していない</td>
+<td><code>_EMPTY_HANDED_NUDGE_TEXT</code>で再開を促す（2回まで）</td>
+</tr>
+<tr>
+<td>② 下書き未確定のまま終了</td>
+<td><code>finish_tutorial</code>は呼んだが<code>confirm_tutorial</code>を呼んでいない</td>
+<td><code>_UNCONFIRMED_FINISH_NUDGE_TEXT</code>で確認・確定を促す（1回まで）</td>
+</tr>
+<tr>
+<td>③ 提出自体を忘れて終了</td>
+<td>ノードは作成済みだが<code>finish_tutorial</code>自体を未呼び出し</td>
+<td><code>_UNFINISHED_WORK_NUDGE_TEXT</code>で提出を促す（1回まで、後日のリファクタリング時に発見した抜け穴）</td>
+</tr>
+</tbody>
+</table></div>
+<p>加えて、反復・コスト上限が近づいた時点でまだ未完了なら「今の状態のまま仕上げてください」と一度だけ促す<strong>グレースフル終了</strong>（<code>_GRACE_NUDGE_TEXT</code>、残り3反復以内または累計コストが上限の85%を超えた時点）も実装済み。ハード打ち切りで未完成のまま終わる頻度を下げることを狙ったもので、詳細な設計判断は<a href="../design/content-generation.md">docs/design/content-generation.md</a> §2.6を参照。</p>
+<p>また、<code>confirm_tutorial</code>が一度も呼ばれずに打ち切られた場合のフォールバックとして、<code>finish_tutorial</code>の全呼び出し履歴（書き直しを含む）の中から本文量が最大の下書きを採用する<code>best_unconfirmed_draft()</code>（<code>houdini_tools.py</code>）も実装した。モデルが良い下書きを複数回書いた後、最後の呼び出しだけプレースホルダー的な内容（<code>title="テスト"</code>等）になり、そのまま確定されずに打ち切られると、それまでの内容が丸ごと汎用フォールバックに置き換わってしまう事例が実機で確認されたための対応。</p>
+<h3 id="83-動画生成連携の不具合qtwebengine関連2件">8.3 動画生成連携の不具合（QtWebEngine関連、2件）</h3>
+<p>チュートリアル保存後にLearningQt側の動画生成エンジンを起動する連携機能を追加した際、Houdini本体（自前のOpenGLビューポート）と埋め込みQtWebEngine（自前のGPUプロセスを持つChromium）の組み合わせに起因する不具合が2件見つかった。詳細は<a href="../design/content-generation.md">docs/design/content-generation.md</a> §2.8にまとめてあるため、ここでは概要のみ記す。</p>
+<ol>
+<li><strong>動画再生が0:00から進まない</strong>：GPUコンテキスト競合が原因と推定。OS標準プレイヤーで開く「外部プレイヤーで開く」ボタンを保険として追加</li>
+<li><strong>【致命的】動画生成直後にパネル全体が操作不能になる</strong>：<code>VideoLibraryPanel</code>が動画選択のたびに埋め込みQtWebEngineビューを自動アクティブ化しており、動画生成完了時に自動選択が発生することで、ユーザーが見ているタブに関わらず毎回トリガーされていた。埋め込みQtWebEngineを完全に撤去し、外部プレイヤー方式に統一して解消</li>
+</ol>
+<p>いずれも「実機でしか再現しない、DCCソフト特有のGUI統合上の不具合」であり、単体テストや静的解析では検出できなかった。実機ログとユーザーからのスクリーンショット報告が発見の起点になっている。</p>
+<h3 id="84-cooknodeの偽陽性対策">8.4 <code>cook_node</code>の偽陽性対策</h3>
+<p><code>node.cook(force=True)</code>が例外を送出した場合に<code>except Exception: pass</code>で握りつぶし、<code>node.errors()</code>が空であれば無条件に「cook成功」と報告していた実装を見直した。Houdiniのcook失敗は通常<code>node.errors()</code>にも反映されるが、稀に反映されないまま例外だけが飛ぶケースを想定し、その場合は合成のエラー行を結果に含めるよう修正した（詳細は<a href="../design/content-generation.md">docs/design/content-generation.md</a> §2.6）。これは実機での不具合報告ではなく、既存コードのリファクタリング・レビュー時に発見した潜在的なリスクへの予防的対応である。</p>
+<h3 id="85-ネットワークエディタのスクリーンショット取得2026-09-26に原因を特定し作り直し">8.5 ネットワークエディタのスクリーンショット取得（2026-09-26に原因を特定し作り直し）</h3>
+<p>動画の各スライドにHoudiniのネットワークエディタ（ノードグラフ）画面を載せたいが、実機では一度も撮れておらず、2026-09-26の実機ログ（33ステップ全てでネットワーク画像が0枚）を精査して、次の3つの原因が重なっていたと特定した。</p>
+<ol>
+<li><strong>古いコピーが動いていた</strong>: HoudiniはDocuments/houdini21.0/python_panels/に配置したコピーを読み込む（9/14配置）。リポジトリ側で9/14以降に入れた診断・修正（0x0ウィンドウの除外など）は一度も配置されておらず、ログの文言が古い版のものだった。配置は手動コピーで、リポジトリとHoudiniの内容が乖離しても気づけない</li>
+<li><strong>使うAPIを間違えていた</strong>: <code>hou.PaneTab.screenBounds()</code>は固定値しか返さないと結論づけていたが、公式ドキュメントにはペインの左上を画面座標で返す<code>hou.PaneTab.qtScreenGeometry()</code>（QRect）がある。ウィジェット階層の探索（<code>hou.qt.mainWindow()</code>、トップレベルウィンドウ列挙）は、この実行コンテキストではHoudini本体を返さない（0x0のウィンドウしか見つからない）ため、そもそも成立しなかった</li>
+<li><strong>撮影対象が違っていた</strong>: 常にサンドボックス直下を映していたが、システムプロンプトの指示で実際の作業はその中のgeoノードの内部で行われるため、仮に撮れてもgeoの箱が1つ映るだけだった</li>
+</ol>
+<p><strong>対応</strong>: <code>capture_network_editor()</code>を、(a) <code>qtScreenGeometry()</code>で得た画面上の矩形を<code>QScreen.grabWindow()</code>で直接切り出す（Houdiniがアクティブでない・自分のパネルが重なっている・ペインが小さい・結果がほぼ単色、のいずれかなら撮らない）、(b) それが成立しなければ、ノード構成をHoudini風のダーク配色で自前描画した図にフォールバックする、の2段構成に作り直した。撮影対象も「作業中のネットワーク（geoの内部）」にし、直近の操作の対象ノードを強調表示する。どちらの方法で撮れたかは<code>capture.log</code>に<code>network capture method: ...</code>として残る。ヘッドレスのテスト（偽の<code>hou</code>・offscreen Qt）で自前描画のフォールバックと各ガードは確認済みだが、(a)の実画面切り出しは実機でのみ検証できるため、実機での結果待ちである。</p>
+<h3 id="851-ビューポートが最初のノードのまま変わらなかった問題打ち切りの根本原因">8.5.1 ビューポートが最初のノードのまま変わらなかった問題（打ち切りの根本原因）</h3>
+<p>同じ実機ログで、ビューポート画像がステップ10以降まったく変化せず、<code>finish_tutorial</code>直後の自己確認画像も最初の球のままだった。原因は表示（display/render）フラグで、<code>createNode()</code>で作ったSOPは最初の1個にしか表示フラグが付かず、システムプロンプトが「ディスプレイフラグは不要」と案内していたのに、実際にはどこでも設定されていなかった。モデルは画像を見て「意図した見た目ではない」と正しく判断したが、直す手段（フラグ設定ツール）が無く、<code>set_parameter</code>で<code>display</code>を設定しようとして2回失敗したあと、<code>confirm_tutorial</code>を呼べないままテキストのみで終了し、救済回数（当時1回）を使い切って打ち切りになった。</p>
+<p><strong>対応</strong>: <code>connect_nodes</code>で末端（出力先の無いノード）になったノード、および<code>cook_node</code>したノードにシステムが自動で表示フラグを移す（<code>finish_tutorial</code>直前には最後の末端ノードへ戻す）。システムプロンプトと<code>confirm_tutorial</code>の説明も実際の挙動に合わせた。あわせて、確認忘れの救済を2回に増やして2回目を「今すぐconfirmだけ呼ぶ」という明示的な文言にし、打ち切り時のモデルの最後の発言を進捗表示と監査ログに残すようにした。</p>
+<h3 id="86-わかったこと8章のまとめ">8.6 わかったこと（8章のまとめ）</h3>
+<ul>
+<li>Cloudflare移行のような「バックエンド差し替え」は、アプリケーション層のエラーとインフラ層（エッジ）のエラーが同じHTTPステータスコードで表面化しうるため、切り分けのための実証的な手がかり（この場合はエラー文字列の有無とObservabilityダッシュボードの記録有無）を用意しておくことが重要だった</li>
+<li>「モデルが完了したと申告すること」と「実際に完了していること」は別であり、両者のギャップは1つの救済ロジックでは塞ぎきれない（今回3種類のパターンを段階的に発見・対応した）。エージェント設計では「モデルの自己申告を信用しない」前提での多層的なガードが必要</li>
+<li>Houdiniのような商用DCCソフトへのGUI統合（Qt埋め込みウィジェット、外部レンダラの埋め込み）は、公式ドキュメント通りに書いても実行コンテキスト依存で異なる挙動を示すことがあり、実機ログによる実証的な原因特定が不可欠（推測ベースの修正は2回にわたって外れた）</li>
+<li>ウィジェット階層を推測で探す回避策を何度も重ねても直らなかった不具合（8.5節）は、公式ドキュメントに載っている専用API（<code>qtScreenGeometry()</code>）を使っていなかったことが根本原因だった。実機で失敗が続いたときは、回避策を足す前に公式APIの一覧を確認し直す、という教訓を得た</li>
+<li>「システムプロンプトが約束していること」と「ツールが実際にやっていること」の食い違い（表示フラグは不要と案内しつつ、実際は誰も設定していなかった）は、モデルの挙動不良として現れる（8.5.1節）。エージェントの不振はプロンプトやモデルの問題と決めつける前に、環境側の約束が守られているかをログの画像や結果で確かめるべきだった</li>
+<li>実機の動作が変わらないときは、配置されているファイルが最新かをまず疑う（手動コピー配布の弱点。配置日時とリポジトリの差分の確認が最も安価な切り分けだった）</li>
+</ul>
+<hr />
+<p><em>関連ドキュメント: <a href="../design/content-generation.md">docs/design/content-generation.md</a> §2 / <a href="../pilot/houdini21-learning-effect-study.md">docs/pilot/houdini21-learning-effect-study.md</a></em></p>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default'});</script>
+</body>
+</html>
