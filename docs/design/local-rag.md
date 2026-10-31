@@ -557,8 +557,7 @@ Invoke-RestMethod http://localhost:8766/health
      Houdini のジオメトリノードについて教えて
    → AI の回答と Sources が表示されること
 
-8. Graph タブ → 「更新」ボタンをクリック
-   → ドキュメント間のノードグラフが表示されること
+8. （2026-10-31: Graph タブは Docs タブに置き換えた。Docs は Cloudflare モード専用なので、Local モードでは確認項目なし）
 ```
 
 > **API キーなしで起動した場合:** ブリッジは認証なしモードで動きますが、`/query` は `401 Unauthorized` を返します。
@@ -583,9 +582,9 @@ Invoke-RestMethod http://localhost:8766/health
       内容をすべて貼り付ける
    d. 上部「Entry Point」フィールドに「onCreateInterface」と入力
    e. 「Apply」で保存
-   f. (グラフタブを使う場合) graph_view.py も同様に登録するか、
-      C:\Users\YOUR_USERNAME\.houdini\python_panels\ にコピーする:
-        Copy-Item houdini\python_panels\graph_view.py `
+   f. (Docs タブを使う場合) docs_view.py・doc_tools.py も同様に
+      C:\Users\YOUR_USERNAME\.houdini\python_panels\ にコピーする（deploy_panels.py なら自動）:
+        Copy-Item houdini\python_panels\docs_view.py `
           "$env:USERPROFILE\.houdini\python_panels\"
 
 4. パネルを表示: メニュー: Windows > Python Panel > rag_chatbot（登録したパネル名）
@@ -605,7 +604,7 @@ Invoke-RestMethod http://localhost:8766/health
      Houdini の SOP ノードでポイントを移動する方法を教えて
    → 回答が表示されること
 
-9. Graph タブ → 「グラフ更新」ボタン → ノードグラフが描画されること
+9. （旧 Graph タブの確認は廃止。Docs タブは Cloudflare モードで、検索と本文の表示を確認する）
 ```
 
 > **Bridge Directory の役割:** Local モードでパネルを開いたとき `BridgeStartWorker` が `uv run python scripts\rag_local_bridge.py` をサブプロセスで自動起動しようとします。このディレクトリが空だと「local_bridge_dir が設定されていません」エラーになります。すでに別のターミナルでブリッジを手動起動している場合は空欄のままでも動作します（ヘルスチェックが通れば自動起動はスキップされるため）。

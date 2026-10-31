@@ -45,6 +45,7 @@ import {
 import { handleAddFaq } from "./faqAdd";
 import { handleCreateNamespace, handleListNamespaces, handleDeleteNamespace, handleSetNamespaceLimit, handleSetNamespaceBudget, handleNamespaceUsage } from "./namespaceAdmin";
 import { handleGraph } from "./graph";
+import { handleDocsList, handleDocsGet } from "./docRead";
 import { handleUsageStats, handleRatingStats, handleClaudeCostStats, handleGeminiCostStats, handleAuditLogList } from "./usageStats";
 import { handleImportUrl, handleCrawlUrl, handleListCrawlJobs, handleDiscardCrawlJob } from "./urlImport";
 import { handleListDocuments, handleDeleteDocument, handleFindDuplicateDocuments } from "./kbDocuments";
@@ -218,6 +219,10 @@ export default {
           return await handleMemoryImport(req, env, user);
         case "/graph":
           return await handleGraph(req, env, user);
+        case "/docs/list":
+          return await handleDocsList(req, env, user);
+        case "/docs/get":
+          return await handleDocsGet(req, env, user);
         case "/admin/sync/notion":
           return await handleSyncNotion(req, env, user);
         case "/admin/sync/drive":

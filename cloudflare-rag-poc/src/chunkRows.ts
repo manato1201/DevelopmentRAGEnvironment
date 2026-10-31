@@ -107,13 +107,14 @@ export async function listChunkIds(
 }
 
 // 1ドキュメントのチャンクの本文を、chunk_idつきで読む（FTS本体はrowid参照）。
+// 並びは登録順（fts_rowid順。登録は先頭のチャンクから順に挿入するので、文書の先頭から末尾の順になる）。
 export async function readDocumentChunks(
   env: Env,
   namespace: string,
   file: string,
 ): Promise<Array<{ chunk_id: string; body: string }>> {
   const res = await env.DB.prepare(
-    "SELECT r.chunk_id AS chunk_id, f.body AS body FROM chunk_rows r JOIN chunks_fts f ON f.rowid = r.fts_rowid WHERE r.namespace = ? AND r.file = ?",
+    "SELECT r.chunk_id AS chunk_id, f.body AS body FROM chunk_rows r JOIN chunks_fts f ON f.rowid = r.fts_rowid WHERE r.namespace = ? AND r.file = ? ORDER BY r.fts_rowid",
   )
     .bind(namespace, file)
     .all<{ chunk_id: string; body: string }>();

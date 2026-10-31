@@ -42,12 +42,12 @@ except NameError:
     except Exception:
         pass
 
-# graph_view.py がインポートできない場合はフォールバック UI を表示する
+# docs_view.py（Docs タブ）がインポートできない場合はフォールバック UI を表示する
 try:
-    from graph_view import RAGGraphWidget as _RAGGraphWidget
-    _GRAPH_AVAILABLE = True
+    from docs_view import DocsWidget as _DocsWidget
+    _DOCS_AVAILABLE = True
 except ImportError:
-    _GRAPH_AVAILABLE = False
+    _DOCS_AVAILABLE = False
 
 # tutorial_view.py（チュートリアル生成タブ）も同様にフォールバック対応
 try:
@@ -373,7 +373,7 @@ class _ConnectionLamp(QWidget):
 # QTabWidgetは内部でQStackedWidgetを使っているが、これは「現在表示中のタブ」
 # だけでなく非表示の全タブページを含めたsizeHint/minimumSizeHintの最大値を
 # 自身の値として報告する（タブ切り替え時にレイアウトが揺れないようにするため）。
-# つまりGraph/Tutorial/Historyタブが内部に持つノードグラフビューアなどが
+# つまりDocs/Tutorial/Historyタブが内部に持つ閲覧ウィジェットやノードグラフビューアなどが
 # （それ自体は正当な理由で）大きめのminimumSizeを持っていた場合、たとえ
 # ユーザーが「はじめに」タブしか開いていなくても、QTabWidget全体の最小サイズが
 # それに引きずられて大きくなり、Houdiniのペイン分割がそのサイズより小さく
@@ -403,7 +403,7 @@ class _FixedHintTab(QWidget):
 class RAGChatbotPanel(QWidget):
     """
     Houdini Python Panel のルートウィジェット。
-    Chat / Graph / Settings の3タブ構成。
+    Chat / Docs / Settings などのタブ構成。
 
     状態:
       _cfg           : 設定辞書（常に最新値を保持）
@@ -457,7 +457,7 @@ class RAGChatbotPanel(QWidget):
         # 対策。各タブの役割・最初にやること・つまずきやすい点をまとめた説明を置く。
         #
         # 各タブは_wrap_tab()で包んでから追加する（_FixedHintTabのコメント参照）:
-        # Graph/Tutorial/Historyタブの中身が持つ正当な最小サイズ要求が、たとえ
+        # Docs/Tutorial/Historyタブの中身が持つ正当な最小サイズ要求が、たとえ
         # 別のタブを表示中でもQTabWidget全体の最小サイズに伝播し、ペインを
         # 縮められなくする不具合の対策。
         # Settings / Tutorial は自前のスクロール手段を持たない素のフォーム
@@ -473,7 +473,7 @@ class RAGChatbotPanel(QWidget):
         self._video_tab_wrapper = self._wrap_tab(video_tab)
         tabs.addTab(self._wrap_tab(self._build_help_tab()),     "はじめに")
         tabs.addTab(self._wrap_tab(self._build_chat_tab()),     "Chat")
-        tabs.addTab(self._wrap_tab(self._build_graph_tab()),    "Graph")
+        tabs.addTab(self._wrap_tab(self._build_docs_tab()),     "Docs")
         tabs.addTab(self._tutorial_tab_wrapper,                 "Tutorial")
         tabs.addTab(self._wrap_tab(self._build_history_tab()),  "History")
         tabs.addTab(self._video_tab_wrapper,                    "動画")
@@ -576,8 +576,9 @@ class RAGChatbotPanel(QWidget):
 <ul>
 <li><b>Chat</b> — ナレッジベースに質問して回答を得る通常のチャット。<code>/tutorial ＜トピック＞</code>
 と入力すると Tutorial タブに切り替わりその場で生成を開始できます。</li>
-<li><b>Graph</b> — ナレッジベース内のドキュメント同士の関係を可視化するグラフビュー。
-「更新」を押すとノード（ドキュメント）とエッジ（類似度）を取得して描画します。</li>
+<li><b>Docs</b> — ナレッジベースに入っているドキュメントを探して読むタブ。「意味で検索」は関連度の高い順、
+「名前で絞る」は名前の部分一致で並べます。クリックすると本文が開き、長いときは「続きを読む」で追加できます。
+チュートリアルの「参考」に出る名前（出典）の中身も、ここで確かめられます。Cloudflare モードで使えます。</li>
 <li><b>Tutorial</b> — トピックを入力してチュートリアルを自動生成するタブ。生成結果は
 プレビュー表示されるだけで、「保存」を押すまでファイルには書き込まれません。</li>
 <li><b>History</b> — 保存済みチュートリアルの一覧と、実際に組み立てられたノード
@@ -711,26 +712,21 @@ class RAGChatbotPanel(QWidget):
         if self.layout() is not None:
             self.layout().activate()
 
-    def _build_graph_tab(self) -> QWidget:
+    def _build_docs_tab(self) -> QWidget:
         """
-        Graph タブ:
-          graph_view.py が利用可能なら RAGGraphWidget を表示。
+        Docs タブ（旧 Graph タブの置き換え。2026-10-31）:
+          docs_view.py が利用可能なら DocsWidget（ナレッジのドキュメントを探して読む）を表示。
           インポートできない場合はエラーメッセージを表示するフォールバック UI を返す。
         """
-        if _GRAPH_AVAILABLE:
-            self._graph_widget = _RAGGraphWidget(
-                port=self._cfg.get("local_port", 8766),
-                rag_mode=self._cfg.get("mode", "local"),
-                cf_url=self._cfg.get("cf_url", ""),
-                cf_api_key=self._cfg.get("cf_api_key", ""),
-            )
-            return self._graph_widget
-        # フォールバック: graph_view.py が見つからない場合
+        if _DOCS_AVAILABLE:
+            self._docs_widget = _DocsWidget(self._cfg)
+            return self._docs_widget
+        # フォールバック: docs_view.py が見つからない場合
         w = QWidget()
         layout = QVBoxLayout(w)
         label = QLabel(
-            "graph_view.py が見つかりません。\n"
-            "houdini/python_panels/ に graph_view.py を配置してください。"
+            "docs_view.py が見つかりません。\n"
+            "houdini/python_panels/ に docs_view.py を配置してください。"
         )
         label.setAlignment(Qt.AlignCenter)
         layout.addWidget(label)
@@ -824,7 +820,7 @@ class RAGChatbotPanel(QWidget):
         で包めば、割り当てが足りない場合はスクロールバーで対処され、圧縮による
         重なりは起きない。
         Chat（自前のメッセージスクロール領域＋常に見える位置固定の入力欄を持つ
-        ため外側に更にスクロールを足すと入力欄が隠れる）、Graph/History（マウス
+        ため外側に更にスクロールを足すと入力欄が隠れる）、History（マウス
         ホイールでズーム操作するキャンバス系ウィジェットのため、外側スクロールが
         ホイールイベントを奪ってしまう）、はじめに（QTextEditが既に内部スクロール
         を持つため二重スクロールになる）は、scrollable=Falseのままにすること。
@@ -1123,21 +1119,18 @@ class RAGChatbotPanel(QWidget):
                 return True
         return super().eventFilter(obj, event)
 
-    def _sync_graph_connection(self) -> None:
-        """Graph タブに、いまの接続設定（モード・URL・キー）を渡す。タブは起動時の設定のままだと、保存・切り替えが反映されない。"""
-        widget = getattr(self, "_graph_widget", None)
+    def _sync_docs_connection(self) -> None:
+        """Docs タブに、いまの接続設定（モード・URL・キー）を渡す。タブは起動時の設定のままだと、保存・切り替えが反映されない。"""
+        widget = getattr(self, "_docs_widget", None)
         if widget is not None:
-            widget.set_connection(
-                self._cfg.get("local_port", 8766), self._cfg.get("mode", "local"),
-                self._cfg.get("cf_url", ""), self._cfg.get("cf_api_key", ""),
-            )
+            widget.set_connection(self._cfg)
 
     def _on_mode_changed(self, mode: str) -> None:
         """モード切り替え時に設定を保存してクライアントを再生成する。"""
         self._cfg["mode"] = mode
         _save_config(self._cfg)
         self._client = RAGClient(self._cfg)
-        self._sync_graph_connection()
+        self._sync_docs_connection()
         if mode == "local":
             self._ensure_bridge()
         # 画面添付（VLM入力）はCloudflare専用。Localに切り替えたら
@@ -1335,7 +1328,7 @@ class RAGChatbotPanel(QWidget):
             pass  # 不正なポート値は無視して既存値を維持
         _save_config(self._cfg)
         self._client = RAGClient(self._cfg)
-        self._sync_graph_connection()
+        self._sync_docs_connection()
         # バックエンド変更をブリッジに通知
         if self._cfg["mode"] == "local":
             threading.Thread(target=self._push_backend, daemon=True).start()

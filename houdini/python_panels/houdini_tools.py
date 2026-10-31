@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import tutorial_review
+from doc_tools import DOC_TOOL_NAMES, DocToolError
 
 
 # ─── Anthropic tool-use スキーマ ─────────────────────────────────────────────────
@@ -242,6 +243,10 @@ HOUDINI_TOOLS: list[dict] = [
                     "type": "string",
                     "description": "調べるノードのサンドボックス相対パス（SOP / COP / LOP）",
                 },
+                "frame": {
+                    "type": "number",
+                    "description": "N フレーム目の状態を調べる（シミュレーション・アニメーション用。省略時は今のフレーム。調べたあと元のフレームへ戻る）",
+                },
             },
             "required": ["node"],
         },
@@ -258,6 +263,122 @@ HOUDINI_TOOLS: list[dict] = [
                 },
             },
             "required": ["node"],
+        },
+    },
+    {
+        "name": "get_parm_schema",
+        "description": (
+            "ノードのパラメータの「仕様」を返す: 名前・画面に出る表示名・型・置かれている場所（Parm パネルのどのタブ/フォルダか）・"
+            "既定値・現在値・範囲・メニューの選択肢。初めて set_parameter するノードは、先にこれで名前と選択肢を確かめる"
+            "（名前の当て推量や、メニューの番号の取り違えを防ぐ）。手順書には「Parm パネルの〇〇タブの『表示名』」と書ける。"
+            "パラメータが多いノードは filter（名前・表示名の一部）で絞る。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "対象ノードのサンドボックス相対パス"},
+                "filter": {"type": "string", "description": "名前・表示名に含まれる文字列で絞り込み（例: 'seed'、'密度'）"},
+                "limit": {"type": "integer", "description": "返す件数（1〜100、省略時40）"},
+            },
+            "required": ["node"],
+        },
+    },
+    {
+        "name": "try_parameter",
+        "description": (
+            "パラメータ実験を1回で行う: 値を2〜5個並べて渡すと、1つずつ設定 → cook → 結果の数値（SOP は点数・プリミティブ数・"
+            "サイズ）を表にして返し、最後に元の値へ戻す。finish_tutorial の experiments に書く「値を変えると何がどう変わるか」は、"
+            "これで得た数値だけを書く。式・キーフレームが付いたパラメータ、ランプ、シミュレーション系は対象外（set_parameter と cook_node で1回ずつ）。"
+            "結果を見たいノードが別にある場合（例: 変えるのは scatter、見るのは最終の merge）は observe に指定する。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "値を変えるノードのサンドボックス相対パス"},
+                "parm": {"type": "string", "description": "パラメータ名（タプルは成分をまとめて。値は空白区切り）"},
+                "values": {
+                    "type": "array",
+                    "description": "試す値（2〜5個）。数値でも文字列でもよい。例: [10, 100, 1000]",
+                    "items": {},
+                },
+                "observe": {"type": "string", "description": "結果を見るノード（省略時は node 自身）"},
+            },
+            "required": ["node", "parm", "values"],
+        },
+    },
+    {
+        "name": "validate_network",
+        "description": (
+            "サンドボックス全体を一度に点検する: cook のエラー・警告があるノード、末端が複数あるネットワーク"
+            "（表示されるのは1つだけ。つなぎ忘れ・Merge の入れ忘れ）。finish_tutorial を呼ぶ前に必ず1回呼び、"
+            "問題があれば直してから finish_tutorial に進む。"
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "view_viewport",
+        "description": (
+            "今のビューポートを撮影して、画像で見せる（組み立ての途中で、見た目を自分の目で確かめる）。"
+            "各章の終わりに、狙いどおりの見た目か（形・向き・大きさ・つながり）を確かめるのに使う。数値は inspect_geometry、"
+            "見た目はこれ。node を指定すると、そのノードの結果を映す（SOP）。シミュレーション・アニメーションは frame で"
+            "N フレーム目を映す（撮影後に元のフレームへ戻る）。画像はトークンを使うので、1回の生成で8回まで。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "映すノードのサンドボックス相対パス（SOP。省略時は今の表示のまま）"},
+                "frame": {"type": "number", "description": "映すフレーム（省略時は今のフレーム）"},
+            },
+        },
+    },
+    {
+        "name": "promote_parameter",
+        "description": (
+            "子ノードのパラメータを、親のコンテナ（geo・subnet など）の Parm パネルへ「昇格」して、1か所で調整できるようにする。"
+            "親に同じ型のパラメータ（現在の値を引き継ぐ）を作り、元のパラメータは親を参照する式（ch(\"…\")）にする。"
+            "レッスン3（再利用の形）で、調整したい値をまとめるのに使う。タプル（size など）は成分ごとでなく全体を昇格する。"
+            "ランプ・フォルダ・ボタンは対象外。to は node の祖先（省略時は直接の親）。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "元のパラメータを持つノード（サンドボックス相対パス）"},
+                "parm": {"type": "string", "description": "昇格するパラメータ名（タプルは全体）"},
+                "to": {"type": "string", "description": "昇格先のコンテナ（node の祖先。省略時は直接の親）"},
+                "name": {"type": "string", "description": "昇格先でのパラメータ名（省略時は元と同じ。重複するときは指定する）"},
+                "label": {"type": "string", "description": "昇格先での表示名（省略時は元と同じ）"},
+            },
+            "required": ["node", "parm"],
+        },
+    },
+    {
+        "name": "layout_network",
+        "description": (
+            "ノードを見やすく整列する（ネットワークエディタの Layout）。サンドボックスの中だけが対象。"
+            "finish_tutorial の前に1回呼ぶと、ネットワークの図・動画が読みやすくなる。node を省略するとサンドボックス全体。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "整列するコンテナ（省略時はサンドボックス全体）"},
+                "recursive": {"type": "boolean", "description": "中のコンテナも整列するか（省略時 true）"},
+            },
+        },
+    },
+    {
+        "name": "press_button",
+        "description": (
+            "ノードのボタン（キャッシュの書き出し「Save to Disk」など）を押す。押せるのは execute / generate / bake / build だけ。"
+            "ディスクに書くので、ノードのファイル指定が、システムプロンプトに示された保存先フォルダの下にあるときだけ押せる"
+            "（先に set_parameter で保存先を設定する）。1回の生成で10回まで。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "ボタンを持つノード（サンドボックス相対パス）"},
+                "parm": {"type": "string", "description": "ボタンのパラメータ名（例: execute）"},
+            },
+            "required": ["node", "parm"],
         },
     },
     {
@@ -469,6 +590,9 @@ class HoudiniToolExecutor:
         # tutorial_agent.py 側がこれを読み、その1回だけ tool_result に画像として添付する。
         self.last_screenshot_b64: str | None = None
         self.step_log: list[dict] = []        # Markdown 組み立て用の全呼び出し履歴
+        # search_docs / get_doc の呼び先（doc_tools.DocClient）。tutorial_agent が生成の開始時に差し込む。
+        # None のときは、この2つのツールは「使えない」と返す。
+        self.doc_client = None
         # 各ステップ実行直後に撮ったビューポート/ネットワークエディタの
         # スクリーンショット一覧（動画生成側で手順ごとの画面を見せるため）。
         # {"step": int, "tool": str, "viewport": str|None, "network": str|None}
@@ -487,6 +611,8 @@ class HoudiniToolExecutor:
         # このサンドボックス専用のサブフォルダを作る（ログと同じ方針で、
         # 作成に失敗しても生成自体は止めない）。
         self._screenshot_dir: Path | None = None
+        # press_button が書き出してよい唯一のフォルダ（画像の保存先の隣）。画像の保存先が無い環境では None（press_button は使えない）
+        self._cache_dir = (Path(screenshot_dir).parent / "cache" / self._sandbox_name) if screenshot_dir is not None else None
         if screenshot_dir is not None:
             try:
                 resolved = Path(screenshot_dir) / self._sandbox_name
@@ -582,7 +708,10 @@ class HoudiniToolExecutor:
         SandboxViolation は監査ログに violation として記録する。
         """
         handler = getattr(self, f"_tool_{tool_name}", None)
-        if handler is None:
+        if tool_name in DOC_TOOL_NAMES:
+            # ネットワーク呼び出しなので、Houdiniのメインスレッドには載せない（画面が固まる）。hou も触らない。
+            result, is_error = self._run_doc_tool(tool_name, tool_input)
+        elif handler is None:
             result, is_error = f"未知のツールです: {tool_name}", True
         else:
             try:
@@ -609,6 +738,20 @@ class HoudiniToolExecutor:
             self._capture_finish_screenshot()
 
         return result, is_error
+
+    def _run_doc_tool(self, tool_name: str, args: dict) -> tuple[str, bool]:
+        """search_docs / get_doc。失敗はエラー文にして返す（モデルは手元の知識と他のツールで続けられる）。"""
+        client = self.doc_client
+        if client is None:
+            return "ドキュメント検索は、この環境では使えません。list_available_node_types / get_node_info で続けてください", True
+        try:
+            if tool_name == "search_docs":
+                return client.search(args.get("query", ""), args.get("limit")), False
+            return client.get(args.get("file", ""), args.get("offset")), False
+        except DocToolError as exc:
+            return f"エラー: {exc}", True
+        except Exception as exc:  # noqa: BLE001 -- 想定外の形の応答でも、生成は止めない
+            return f"エラー: ドキュメントの取得に失敗しました（{str(exc)[:120]}）", True
 
     def log_event(self, record: dict) -> None:
         """呼び出し側（tutorial_agent.py）が生成の経過を監査ログ（JSONL）へ残すための公開口。"""
@@ -1116,6 +1259,26 @@ class HoudiniToolExecutor:
         raise ValueError(f"{label}名 '{wanted}' が見つかりません。{node.name()} の{label}: {listing}")
 
     def _tool_inspect_geometry(self, args: dict) -> str:
+        """frame が指定されたら、そのフレームの状態を調べて、元のフレームへ戻す。"""
+        frame = args.get("frame")
+        if frame is None:
+            return self._inspect_geometry_now(args)
+        try:
+            frame_value = float(frame)
+        except (TypeError, ValueError):
+            return f"frame は数値で指定してください（受領: {frame}）"
+        if not (-1000 <= frame_value <= 100000):
+            return f"frame が範囲外です（受領: {frame}）"
+        hou = self._hou
+        original = hou.frame()
+        try:
+            hou.setFrame(frame_value)
+            text = self._inspect_geometry_now(args)
+        finally:
+            hou.setFrame(original)
+        return f"（フレーム {frame_value:g} の状態。調べたあと元のフレームへ戻しました）\n" + text
+
+    def _inspect_geometry_now(self, args: dict) -> str:
         """cook後の「中身」を数値で返す（2026-10-05追加）。cookの成功だけでは、点が0個・一定値の画像・
         属性の付け忘れなどに気づけなかった。SOP / COP(Copernicus) / LOP に対応。"""
         node = self._resolve(args["node"])
@@ -1560,6 +1723,466 @@ class HoudiniToolExecutor:
 
         parm_names = ", ".join(p.name() for p in node.parms()[:60])
         lines.append(f"利用可能なパラメータ名（先頭60件）: {parm_names}")
+        return "\n".join(lines)
+
+    # ── get_parm_schema / try_parameter / validate_network（2026-10-31） ─────────────
+
+    _SCHEMA_DEFAULT_LIMIT = 40
+    _SCHEMA_MAX_LIMIT = 100
+    _SCHEMA_SKIPPED_TYPES = frozenset({"Label", "Separator", "Button"})
+    _TRY_MIN_VALUES = 2
+    _TRY_MAX_VALUES = 5
+
+    @staticmethod
+    def _template_type_name(template) -> str:
+        """parmTemplate().type() の名前（"Float" / "Folder" など）。取れなければ空。"""
+        try:
+            kind = template.type()
+            return str(kind.name()) if hasattr(kind, "name") else str(kind).split(".")[-1]
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _walk_parm_templates(self, templates, folders: tuple, rows: list) -> None:
+        """フォルダ（Parm パネルのタブ・折りたたみ）をたどり、(置き場所, テンプレート) を平らに集める。"""
+        for template in templates:
+            type_name = self._template_type_name(template)
+            if type_name in ("Folder", "FolderSet"):
+                label = ""
+                if type_name == "Folder":
+                    try:
+                        label = (template.label() or "").strip()
+                    except Exception:  # noqa: BLE001
+                        label = ""
+                inner = folders + ((label,) if label else ())
+                try:
+                    self._walk_parm_templates(template.parmTemplates(), inner, rows)
+                except Exception:  # noqa: BLE001
+                    pass
+                continue
+            if type_name in self._SCHEMA_SKIPPED_TYPES:
+                continue
+            try:
+                if template.isHidden():
+                    continue
+            except Exception:  # noqa: BLE001
+                pass
+            rows.append((folders, template))
+
+    @staticmethod
+    def _fmt_value(value) -> str:
+        if isinstance(value, float):
+            return f"{value:.6g}"
+        if isinstance(value, (tuple, list)):
+            if len(value) == 1:  # hou の defaultValue() は、1成分でもタプルで返る
+                return HoudiniToolExecutor._fmt_value(value[0])
+            return "(" + ", ".join(HoudiniToolExecutor._fmt_value(v) for v in value) + ")"
+        text = str(value)
+        return text if len(text) <= 60 else text[:57] + "..."
+
+    def _format_parm_schema(self, node, folders: tuple, template) -> str:
+        type_name = self._template_type_name(template)
+        kind = {"Float": "float", "Int": "int", "String": "string", "Toggle": "toggle", "Menu": "menu",
+                "Ramp": "ramp", "Data": "data"}.get(type_name, type_name.lower() or "?")
+        try:
+            components = int(template.numComponents())
+        except Exception:  # noqa: BLE001
+            components = 1
+        if components > 1:
+            kind += str(components)
+        name = template.name()
+        try:
+            label = template.label() or name
+        except Exception:  # noqa: BLE001
+            label = name
+        parts = [f"{name}  『{label}』 {kind}"]
+        if folders:
+            parts.append("場所: " + " > ".join(folders))
+        try:
+            parts.append("既定 " + self._fmt_value(template.defaultValue()))
+        except Exception:  # noqa: BLE001
+            pass
+        if type_name in ("Float", "Int"):
+            try:
+                parts.append(f"範囲 {self._fmt_value(template.minValue())}〜{self._fmt_value(template.maxValue())}")
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            items, labels = list(template.menuItems()), list(template.menuLabels())
+            if items and len(items) <= 30:
+                shown = ", ".join(f"{i}={lab}" if lab and lab != str(i) else f"{i}" for i, lab in zip(items, labels or items))
+                parts.append("選択肢 " + shown)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if type_name == "Ramp":
+                parts.append("設定は set_parameter の ramp 引数")
+            else:
+                tup = node.parmTuple(name)
+                members = list(tup) if tup is not None else ([node.parm(name)] if node.parm(name) is not None else [])
+                if members:
+                    values = [self._safe_eval(p) for p in members]
+                    parts.append("現在 " + (values[0] if len(values) == 1 else "(" + ", ".join(values) + ")"))
+        except Exception:  # noqa: BLE001
+            pass
+        return "  " + " / ".join(parts)
+
+    def _tool_get_parm_schema(self, args: dict) -> str:
+        node = self._resolve(args["node"])
+        keyword = (args.get("filter") or "").strip().lower()
+        try:
+            limit = max(1, min(self._SCHEMA_MAX_LIMIT, int(args.get("limit") or self._SCHEMA_DEFAULT_LIMIT)))
+        except (TypeError, ValueError):
+            limit = self._SCHEMA_DEFAULT_LIMIT
+        rows: list = []
+        self._walk_parm_templates(node.parmTemplateGroup().entries(), (), rows)
+        total = len(rows)
+        if keyword:
+            def hit(template) -> bool:
+                try:
+                    return keyword in template.name().lower() or keyword in (template.label() or "").lower()
+                except Exception:  # noqa: BLE001
+                    return False
+            rows = [r for r in rows if hit(r[1])]
+        head = f"ノード: {self._rel(node)}（タイプ: {node.type().name()}）"
+        if not rows:
+            if keyword:
+                return head + f"\n'{args.get('filter')}' に一致するパラメータがありません（全 {total} 件）"
+            return head + "\nパラメータがありません"
+        scope = f"（'{args.get('filter')}' に一致 {len(rows)} 件 / 全 {total} 件）" if keyword else f"（全 {total} 件）"
+        lines = [head, f"パラメータの仕様{scope}:"]
+        lines += [self._format_parm_schema(node, folders, template) for folders, template in rows[:limit]]
+        if len(rows) > limit:
+            lines.append(f"（他 {len(rows) - limit} 件省略。filter で絞り込んでください）")
+        return "\n".join(lines)
+
+    def _observe_summary(self, node) -> str:
+        """try_parameter の1行ぶんの観測: cook して、エラー、または SOP の点数・プリミティブ数・サイズ。"""
+        cook_error = ""
+        try:
+            node.cook(force=True)
+        except Exception as exc:  # noqa: BLE001
+            cook_error = repr(exc)
+        errors = list(node.errors())
+        if errors or cook_error:
+            return "エラー: " + " / ".join(errors or [cook_error])[:160]
+        if node.type().category().name() != "Sop":
+            return "cook 成功（エラーなし）"
+        geo = node.geometry()
+        if geo is None:
+            return "ジオメトリなし"
+        text = f"点 {geo.intrinsicValue('pointcount')} / プリミティブ {geo.intrinsicValue('primitivecount')}"
+        try:
+            size = geo.boundingBox().sizevec()
+            text += f" / サイズ ({size[0]:.4g}, {size[1]:.4g}, {size[2]:.4g})"
+        except Exception:  # noqa: BLE001
+            pass
+        return text
+
+    def _raw_value(self, parm):
+        """元へ戻すための値。文字列は、展開前の値（$HIP/… のまま）。展開後の値で戻すと、パスの書き方が変わってしまう。"""
+        try:
+            if parm.parmTemplate().dataType() == self._hou.parmData.String:
+                return parm.unexpandedString()
+        except Exception:  # noqa: BLE001 -- 取れなければ評価値
+            pass
+        return parm.eval()
+
+    def _tool_try_parameter(self, args: dict) -> str:
+        node = self._resolve(args["node"])
+        parm_name = args["parm"]
+        values = args.get("values")
+        if not isinstance(values, list) or not (self._TRY_MIN_VALUES <= len(values) <= self._TRY_MAX_VALUES):
+            return f"values は {self._TRY_MIN_VALUES}〜{self._TRY_MAX_VALUES} 個の配列で渡してください（例: [10, 100, 1000]）"
+        observe = self._resolve(args["observe"]) if args.get("observe") else node
+        for target in (node, observe):
+            hint = self._simulation_type_hint(target)
+            if hint:
+                return (
+                    f"{self._rel(target)} はシミュレーション系（{hint}）で、値ごとの cook が重いため try_parameter は使えません。"
+                    "set_parameter で値を変え、cook_node で確かめる実験を1回だけ行ってください"
+                )
+        parm = node.parm(parm_name)
+        tuple_parm = None if parm is not None else node.parmTuple(parm_name)
+        if parm is None and tuple_parm is None:
+            available = ", ".join(p.name() for p in node.parms()[:40])
+            return f"パラメータ '{parm_name}' が見つかりません。利用可能なパラメータ（先頭40件）: {available}"
+        targets = list(tuple_parm) if tuple_parm is not None else [parm]
+        if parm is not None and self._is_ramp_parm(parm):
+            return f"'{parm_name}' はランプです。try_parameter では扱えません（set_parameter の ramp 引数で設定してください）"
+        if any(p.keyframes() for p in targets):
+            return f"'{parm_name}' には式かキーフレームが付いているため、元の値に戻せません。try_parameter は使えません"
+
+        original = tuple(self._raw_value(p) for p in targets) if tuple_parm is not None else self._raw_value(parm)
+        lines = []
+        try:
+            for value in values:
+                if tuple_parm is not None:
+                    parts = str(value).split()
+                    if len(parts) != len(tuple_parm):
+                        lines.append(
+                            f"  値={value} → エラー: {parm_name} は {len(tuple_parm)} 成分です。"
+                            f"空白区切りで {len(tuple_parm)} 個渡してください"
+                        )
+                        continue
+                    tuple_parm.set(tuple(float(c) for c in parts))
+                else:
+                    parm.set(self._coerce_scalar(parm, value))
+                lines.append(f"  値={value} → {self._observe_summary(observe)}")
+        finally:
+            # どの途中の失敗でも、必ず元の値へ戻す（実験で本体の組み立てを壊さない）
+            try:
+                if tuple_parm is not None:
+                    tuple_parm.set(original)
+                else:
+                    parm.set(original)
+                observe.cook(force=True)
+            except Exception:  # noqa: BLE001
+                pass
+        header = (
+            f"try_parameter: {self._rel(node)}.{parm_name}（結果を見たノード: {self._rel(observe)} / "
+            f"元の値 {self._fmt_value(original)}。実験のあと元の値へ戻しました）"
+        )
+        return "\n".join([header] + lines)
+
+    def _tool_validate_network(self, args: dict) -> str:
+        root = self._hou.node(self.sandbox_path)
+        children = list(root.allSubChildren())
+        if not children:
+            return "検証NG: サンドボックスにノードがありません"
+        issues: list[str] = []
+        for node in children:
+            category = node.type().category().name()
+            if category in ("Sop", "Cop") and self._simulation_type_hint(node) is None:
+                try:
+                    node.cook(force=False)
+                except Exception:  # noqa: BLE001 -- 失敗は errors() に出る
+                    pass
+            for message in node.errors():
+                issues.append(f"[エラー] {self._rel(node)}: {message}")
+            for message in node.warnings():
+                issues.append(f"[警告] {self._rel(node)}: {message}")
+        parents: dict[str, list] = {}
+        for node in children:
+            parent = node.parent()
+            if parent is None or node.type().category().name() != "Sop":
+                continue
+            # SOPソルバーなど、DOPの中のSOPネットワークは、入力の置き場が末端に見えるので対象外
+            if parent.type().category().name() in ("Object", "Sop"):
+                parents.setdefault(parent.path(), []).append(node)
+        for parent_path, nodes in sorted(parents.items()):
+            ends = [n for n in nodes if not n.outputs()]
+            if len(ends) >= 2:
+                names = ", ".join(self._rel(n) for n in ends)
+                where = parent_path[len(self.sandbox_path) + 1:] or parent_path
+                issues.append(
+                    f"[つなぎ] {where} の中で末端が{len(ends)}個あります（{names}）。"
+                    "表示されるのは1つだけです。Merge で1本にまとめるか、不要なノードは delete_node で消してください"
+                )
+        if issues:
+            return f"検証NG: {len(issues)} 件\n" + "\n".join(f"  {line}" for line in issues[:30])
+        return f"検証OK: ノード {len(children)} 個、エラー・警告なし、末端は各ネットワークで1つです"
+
+    # ── view_viewport / promote_parameter / layout_network / press_button（2026-10-31） ──
+
+    _VIEW_MAX_CALLS = 8
+    _VIEW_WIDTH = 960
+    _VIEW_HEIGHT = 540
+    _PRESS_ALLOWED = frozenset({"execute", "generate", "bake", "build"})
+    _PRESS_MAX_CALLS = 10
+    _CACHE_MAX_BYTES = 500 * 1024 * 1024
+    _PROMOTE_REFUSED_TYPES = frozenset({"Ramp", "Folder", "FolderSet", "Button", "Label", "Separator", "Data"})
+    _cache_dir: Path | None = None  # press_button が書いてよい唯一のフォルダ（__init__ で決める。無ければ press_button は使えない）
+
+    @property
+    def cache_dir(self) -> Path | None:
+        """press_button で書き出してよいフォルダ（システムプロンプトでモデルに伝える）。無ければ None。"""
+        return self._cache_dir
+
+    def _tool_view_viewport(self, args: dict) -> str:
+        self.last_screenshot_b64 = None
+        if self._screenshot_dir is None:
+            return "ビューポートを撮影できません（この環境には画像の保存先がありません）。inspect_geometry の数値で確かめてください"
+        used = sum(1 for e in self.step_log if e.get("tool") == "view_viewport")
+        if used >= self._VIEW_MAX_CALLS:
+            return f"view_viewport は1回の生成で{self._VIEW_MAX_CALLS}回までです。以降は inspect_geometry の数値で確かめてください"
+        try:
+            import screen_capture
+        except ImportError:
+            return "ビューポートを撮影できません（撮影モジュールが読み込めません）"
+        hou = self._hou
+        node = self._resolve(args["node"]) if args.get("node") else None
+        if node is not None:
+            self._show_in_viewport(node)
+        original_frame = None
+        frame = args.get("frame")
+        try:
+            if frame is not None:
+                original_frame = hou.frame()
+                hou.setFrame(float(frame))
+            path = self._screenshot_dir / "view_check.png"
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            ok = screen_capture.capture_viewport(
+                path, self._VIEW_WIDTH, self._VIEW_HEIGHT,
+                log_path=self._screenshot_dir / "capture.log", frame_path=self.sandbox_path,
+            )
+        finally:
+            if original_frame is not None:
+                hou.setFrame(original_frame)
+        if not ok:
+            return "ビューポートの撮影に失敗しました（ビューポートのペインが無い環境かもしれません）。inspect_geometry の数値で確かめてください"
+        try:
+            self.last_screenshot_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+        except OSError:
+            return "撮影した画像を読み込めませんでした。inspect_geometry の数値で確かめてください"
+        where = f"ノード {self._rel(node)}" if node is not None else "今の表示"
+        when = f"フレーム {float(frame):g}" if frame is not None else "今のフレーム"
+        return f"ビューポートを撮影しました（{where} / {when}）。続く画像で、狙いどおりの見た目かを確かめてください"
+
+    def _tool_promote_parameter(self, args: dict) -> str:
+        hou = self._hou
+        node = self._resolve(args["node"])
+        parm_name = args["parm"]
+        dest = self._resolve(args["to"]) if args.get("to") else node.parent()
+        if dest is None or not node.path().startswith(dest.path() + "/"):
+            return f"昇格先は node の祖先（親・その上のコンテナ）にしてください（node: {self._rel(node)}）"
+        parm = node.parm(parm_name)
+        source = node.parmTuple(parm_name)
+        if source is None and parm is not None:
+            source = parm.tuple()
+        if source is None:
+            available = ", ".join(p.name() for p in node.parms()[:40])
+            return f"パラメータ '{parm_name}' が見つかりません。利用可能なパラメータ（先頭40件）: {available}"
+        members = list(source)
+        template = source.parmTemplate()
+        type_name = self._template_type_name(template)
+        if type_name in self._PROMOTE_REFUSED_TYPES:
+            return f"'{source.name()}' は {type_name} 型で、昇格できません（数値・文字列・トグル・メニューが対象です）"
+        if any(p.keyframes() for p in members):
+            return f"'{source.name()}' には式かキーフレームが付いているため、昇格できません（先に固定値にしてください）"
+        new_name = (args.get("name") or source.name()).strip()
+        if dest.parmTuple(new_name) is not None:
+            return f"{self._rel(dest)} には '{new_name}' が既にあります。name で別の名前を指定してください"
+
+        values = tuple(self._raw_value(p) for p in members)
+        new_template = template.clone()
+        new_template.setName(new_name)
+        label = (args.get("label") or "").strip()
+        if label:
+            new_template.setLabel(label)
+        group = dest.parmTemplateGroup()
+        group.append(new_template)
+        dest.setParmTemplateGroup(group)
+        promoted = dest.parmTuple(new_name)
+        promoted.set(values)  # 今の値を引き継ぐ（式に置き換える前に）
+
+        rel = node.relativePathTo(dest)
+        fn = "chs" if type_name == "String" else "ch"
+        for member, target in zip(members, list(promoted)):
+            member.setExpression(f'{fn}("{rel}/{target.name()}")', hou.exprLanguage.Hscript)
+        shown_label = new_template.label() or new_name
+        return (
+            f"昇格しました: {self._rel(node)}.{source.name()} → {self._rel(dest)}.{new_name}"
+            f"（{self._rel(dest)} の Parm パネルの『{shown_label}』。値 {self._fmt_value(values)} を引き継ぎ、"
+            f"元は {fn}(\"{rel}/…\") で参照）"
+        )
+
+    def _tool_layout_network(self, args: dict) -> str:
+        target = self._resolve(args["node"]) if args.get("node") else self._hou.node(self.sandbox_path)
+        containers = [target]
+        if args.get("recursive", True):
+            containers += [n for n in target.allSubChildren() if n.children()]
+        laid_out = []
+        for container in containers:
+            if not container.children():
+                continue
+            container.layoutChildren()
+            laid_out.append(self._rel(container) if container.path() != self.sandbox_path else "（サンドボックス）")
+        if not laid_out:
+            return "整列するノードがありません"
+        return f"整列しました: {len(laid_out)} か所（{', '.join(laid_out[:8])}{' ほか' if len(laid_out) > 8 else ''}）"
+
+    @staticmethod
+    def _inside_dir(root: Path, value: str) -> bool:
+        """value（ファイルのパス）が root の下にあるか。.. や別名を解決して比べる。"""
+        import os
+
+        try:
+            base = os.path.normcase(str(root.resolve()))
+            target = os.path.normcase(str(Path(value).resolve()))
+        except (OSError, ValueError):
+            return False
+        return target == base or target.startswith(base + os.sep)
+
+    @staticmethod
+    def _dir_stats(root: Path) -> tuple[int, int]:
+        """(ファイル数, 合計バイト数)。"""
+        count = size = 0
+        if root.is_dir():
+            for path in root.rglob("*"):
+                if path.is_file():
+                    count += 1
+                    try:
+                        size += path.stat().st_size
+                    except OSError:
+                        pass
+        return count, size
+
+    def _tool_press_button(self, args: dict) -> str:
+        node = self._resolve(args["node"])
+        name = args["parm"]
+        buttons = [p for p in node.parms() if self._template_type_name(p.parmTemplate()) == "Button"]
+        button_names = [p.name() for p in buttons]
+        if name not in button_names:
+            listing = ", ".join(button_names[:20]) or "（なし）"
+            return f"'{name}' はボタンではありません。{self._rel(node)} のボタン: {listing}"
+        if name not in self._PRESS_ALLOWED:
+            return (
+                f"'{name}' は押せません。押せるボタンは {' / '.join(sorted(self._PRESS_ALLOWED))} だけです"
+                f"（{self._rel(node)} のボタン: {', '.join(button_names[:20])}）"
+            )
+        cache = self._cache_dir
+        if cache is None:
+            return "press_button は、この環境では使えません（書き出し先のフォルダがありません）"
+        used = sum(1 for e in self.step_log if e.get("tool") == "press_button")
+        if used >= self._PRESS_MAX_CALLS:
+            return f"press_button は1回の生成で{self._PRESS_MAX_CALLS}回までです"
+
+        outside = []
+        for parm in node.parms():
+            template = parm.parmTemplate()
+            if self._template_type_name(template) != "String":
+                continue
+            try:
+                is_file = template.stringType() == self._hou.stringParmType.FileReference
+            except Exception:  # noqa: BLE001
+                is_file = False
+            value = str(parm.eval()).strip() if is_file else ""
+            if value and not self._inside_dir(cache, value):
+                outside.append(f"{parm.name()} = {value}")
+        if outside:
+            return (
+                f"書き出し先が許可されたフォルダの外です。{self._rel(node)} のファイル指定を、"
+                f"{cache.as_posix()}/ の下（例: {cache.as_posix()}/name.$F4.bgeo.sc）に変えてから押してください: "
+                + " / ".join(outside)
+            )
+
+        cache.mkdir(parents=True, exist_ok=True)
+        files_before, bytes_before = self._dir_stats(cache)
+        self._append_audit({"event": "press_button", "node": node.path(), "parm": name, "cache_dir": str(cache)})
+        next(p for p in buttons if p.name() == name).pressButton()
+        files_after, bytes_after = self._dir_stats(cache)
+        lines = [
+            f"ボタンを押しました: {self._rel(node)}.{name}"
+            f"（書き出し先 {cache.as_posix()}/ に、ファイルが {files_after - files_before} 個増え、"
+            f"{(bytes_after - bytes_before) / 1024:.0f} KB 書き込まれました）"
+        ]
+        lines += [f"  [エラー] {e}" for e in node.errors()]
+        lines += [f"  [警告] {w}" for w in node.warnings()]
+        if bytes_after > self._CACHE_MAX_BYTES:
+            lines.append(f"  ※ 書き出し先の合計が {self._CACHE_MAX_BYTES // (1024 * 1024)} MB を超えました。範囲やフレーム数を減らしてください")
         return "\n".join(lines)
 
     def _tool_delete_node(self, args: dict) -> str:

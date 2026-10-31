@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>チュートリアル生成の質を上げるための分析と改善（2026-10-31）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">チュートリアル生成の質の分析</span>
+  <h1>チュートリアル生成の質を上げるための分析と改善（2026-10-31）</h1>
+  <div class="meta">HTML生成: 2026-10-31（元: docs/reports/tutorial-quality-analysis-2026-10-31.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-出典sourceの上限は上げても効果が薄い">1. 出典（source）の上限は、上げても効果が薄い</a></li><li><a href="#2-比較対象との違いはツール数よりも資料を引ける時機">2. 比較対象との違いは、ツール数よりも「資料を引ける時機」</a></li><li><a href="#3-習熟の過程の問題hls-の資料との対応">3. 習熟の過程の問題（HLS の資料との対応）</a></li><li><a href="#4-実装したこと">4. 実装したこと</a></li><li><a href="#5-効果の測り方これから">5. 効果の測り方（これから）</a></li><li><a href="#6-確認できていないこと">6. 確認できていないこと</a></li><li><a href="#7-実装後のレビューで直した点2026-10-31">7. 実装後のレビューで直した点（2026-10-31）</a></li><li><a href="#8-追加した操作の安全面pressbutton-を中心に">8. 追加した操作の安全面（press_button を中心に）</a></li><li><a href="#9-次の候補今回は実装していない">9. 次の候補（今回は実装していない）</a></li></ol></details></nav>
+<main>
+
+<p><strong>目的:</strong> 「チュートリアルとしての質」を上げるために、(1) 参照している資料（出典）が使われているか、(2) 比較対象の道具との違い、(3) 習熟の過程で何が問題か、を調べ、生成エージェントを直す。<br />
+<strong>読む前に:</strong> 数字は、手元の生成ログ（<code>localRAG/tutorials/*_metrics.json</code> の 12 件）と、公開された説明からのもの。<strong>件数が少ない</strong>ので、傾向として読む。比較対象の道具は、実際に動かしていない（<a href="comparison-houdini-mcp.html">比較資料</a>と同じ）。</p>
+<h2 id="1-出典sourceの上限は上げても効果が薄い">1. 出典（source）の上限は、上げても効果が薄い</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>見たこと</th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>現在の上限</td>
+<td>チュートリアル生成は <strong>6 件</strong>（<code>RAG_LIMIT</code>）。5 件はチャットの既定値</td>
+</tr>
+<tr>
+<td>引用率</td>
+<td>10 件の平均が <strong>15%</strong>。6 件中 0 件引用が <strong>6 回</strong>。最大でも 50%</td>
+</tr>
+<tr>
+<td>取れていた資料</td>
+<td>「H22 VFX | 破壊 FX &amp; Pyro FX | SideFX」のような<strong>紹介・概要のページ</strong>と、「Dynamics examples」など。ノードごとのパラメータ解説ではない</td>
+</tr>
+<tr>
+<td>検索の回数</td>
+<td><strong>生成の最初に 1 回だけ</strong>。クエリは、トピックの文そのまま。結果はシステムプロンプトに固定され、<strong>組み立ての途中では引き直せなかった</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>判断:</strong> 問題は件数ではなく、<strong>「いつ・何で引くか」</strong>。上限を増やすと、概要ページが増えるだけになりやすい。→ 生成の途中で引けるツールを足した（§4）。上限（6）は、効果を測ってから決める。</p>
+<p>注意: 引用率は、モデルの自己申告（<code>finish_tutorial</code> の <code>sources_used</code>）。0% は「使われていない」とは限らない。</p>
+<h2 id="2-比較対象との違いはツール数よりも資料を引ける時機">2. 比較対象との違いは、ツール数よりも「資料を引ける時機」</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>資料の引き方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>fxhoudinimcp</td>
+<td>同梱マニュアルの全文検索（3 ツール）。AI が必要なときに呼ぶ</td>
+</tr>
+<tr>
+<td>Houdini21MCP</td>
+<td><code>search_docs</code>（BM25）と <code>get_doc</code>（1 ページ全文）。AI が必要なときに呼ぶ</td>
+</tr>
+<tr>
+<td>本システム（以前）</td>
+<td>最初に 1 回の検索だけ。途中で引く手段なし</td>
+</tr>
+</tbody>
+</table></div>
+<p>比較した道具は、チュートリアルを作らないため、<strong>生成物の質を直接は比べられない</strong>。「ツール数の差が、質の差になる」は仮説で、§5 の方法で測る。</p>
+<h2 id="3-習熟の過程の問題hls-の資料との対応">3. 習熟の過程の問題（HLS の資料との対応）</h2>
+<p>Inside The Mind の解説（Houdini Learning System、HLS）が挙げる 5 つの問題に、現状を当てはめた。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>HLS が挙げる問題</th>
+<th>現状</th>
+<th>対応</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>① 受け身で真似するだけ</td>
+<td>手順書・動画を「読む」形</td>
+<td>次の段階で、パネルで要件を判定（未実装）</td>
+</tr>
+<tr>
+<td>② 試行錯誤の欠如</td>
+<td><code>experiments</code> は AI が試した結果を書くだけ</td>
+<td><code>try_parameter</code> で、<strong>数値つきの実験</strong>を書かせる。学習者が試す流れは未実装</td>
+</tr>
+<tr>
+<td>③ パラメータの場所探し</td>
+<td>パラメータ画面の撮影はある</td>
+<td><code>get_parm_schema</code> で、<strong>Parm パネルのタブと表示名</strong>を手順書に書かせる</td>
+</tr>
+<tr>
+<td>④ 理解の自己検証がない</td>
+<td>各章の確認ポイント（数値・見た目）</td>
+<td><strong>クイズは採用しない</strong>（下記）</td>
+</tr>
+<tr>
+<td>⑤ 自力で作り直す練習がない</td>
+<td><code>next_steps</code> の文章だけ</td>
+<td>結果の条件だけを書く作り直し課題（未実装）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>クイズを採用しない理由:</strong> AI が作る問題は、答えの正しさを保証しにくい。読み物の形では、答え合わせにも意味がない。HLS のクイズは、Houdini の中で判定できるから成り立っている。代わりに、<strong>実際のグラフから機械的に作れる確認</strong>（数値の確認ポイント、結果の条件）を使う。</p>
+<h2 id="4-実装したこと">4. 実装したこと</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>内容</th>
+<th>場所</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ドキュメントの読み出し（一覧・全文）。LLM を使わず、トークン予算を消費しない</td>
+<td>Worker <code>POST /docs/list</code>・<code>/docs/get</code>（<code>src/docRead.ts</code>）</td>
+</tr>
+<tr>
+<td>生成の途中でドキュメントを引くツール <code>search_docs</code>・<code>get_doc</code>。引いたページは出典に続き番号で登録</td>
+<td><code>houdini/python_panels/doc_tools.py</code></td>
+</tr>
+<tr>
+<td>パラメータの仕様 <code>get_parm_schema</code>（表示名・置き場所・型・既定・範囲・選択肢・現在値）</td>
+<td><code>houdini_tools.py</code></td>
+</tr>
+<tr>
+<td>値を並べて試して元に戻す <code>try_parameter</code>（点数・サイズなどの表）</td>
+<td><code>houdini_tools.py</code></td>
+</tr>
+<tr>
+<td>全体点検 <code>validate_network</code>（エラー・警告・末端が複数）</td>
+<td><code>houdini_tools.py</code></td>
+</tr>
+<tr>
+<td>途中でビューポートを撮影して見る <code>view_viewport</code>（960x540・8回まで・<code>frame</code> 指定可）、<code>inspect_geometry</code> の <code>frame</code>（N フレーム目の数値）</td>
+<td><code>houdini_tools.py</code>、<code>tutorial_agent.py</code>（画像を tool_result に添える）</td>
+</tr>
+<tr>
+<td><code>promote_parameter</code>（子→親の Parm パネルへ昇格。現在の値を引き継ぎ、元は参照式）、<code>layout_network</code>（整列）</td>
+<td><code>houdini_tools.py</code></td>
+</tr>
+<tr>
+<td><code>press_button</code>（キャッシュ書き出し）。押せるボタンは 4 種、ファイル指定が保存先フォルダの下のときだけ、10 回まで</td>
+<td><code>houdini_tools.py</code>、保存先は <code>tutorial_agent.py</code> がプロンプトで伝える</td>
+</tr>
+<tr>
+<td>Graph タブを <strong>Docs タブ</strong>（ドキュメントを探して読む）に置き換え。<code>graph_view.py</code> は削除</td>
+<td><code>docs_view.py</code>、<code>rag_chatbot.py</code></td>
+</tr>
+<tr>
+<td>効果を測る指標（<code>doc_tools</code>・<code>doc_searches</code>・<code>doc_reads</code>・<code>rag_initial_extraction_rate</code> など）と、集計スクリプト</td>
+<td><code>tutorial_agent.py</code>、<code>scripts/compare_tutorial_metrics.py</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>安全の面: 検索先は、最初の検索と同じナレッジに固定（モデルは選べない）。ネットワーク呼び出しは Houdini のメインスレッドで実行しない。1 回の生成で 30 回まで。<code>try_parameter</code> は、どの途中の失敗でも元の値に戻す。式・キーフレーム・ランプ・シミュレーション系は拒否する。</p>
+<h2 id="5-効果の測り方これから">5. 効果の測り方（これから）</h2>
+<p>出発点（実装前、12 件）: 完了率 0.83／反復 52.6／cook の失敗 0.42／差し戻し 0.33／費用 $0.289／引用率 0.15。</p>
+<pre><code class="language-bash"># 「ツールなし」で生成するとき（環境変数で外す。指標の doc_tools=false に記録される）
+$env:RAG_TUTORIAL_DOC_TOOLS = &quot;0&quot;
+# 「ツールあり」は、環境変数を消して（既定）生成する
+uv run python scripts/compare_tutorial_metrics.py          # doc_tools の有無で比べる
+uv run python scripts/compare_tutorial_metrics.py --by domain
+</code></pre>
+<p>同じ題材を、<strong>ありとなしで、それぞれ 3 回以上</strong>生成して比べる。見る指標: 完了率・cook の失敗・差し戻し・設計点（<code>lesson_score</code>）・引用率（<code>rag_initial_extraction_rate</code> は従来と同じ土俵）・費用。<strong>費用は増える可能性が高い</strong>（検索の往復と、ページ全文が会話に残るため）。質の向上と費用の増加を並べて判断する。</p>
+<h2 id="6-確認できていないこと">6. 確認できていないこと</h2>
+<ul>
+<li>実機の Houdini での、3 つの新ツールと Docs タブの動作。テストは、偽の <code>hou</code> と偽の Worker の応答、Qt のオフライン描画で行った。</li>
+<li>本番の Worker への反映（<code>/docs/list</code>・<code>/docs/get</code> は、デプロイするまで使えない。デプロイは別途の許可が要る）。デプロイ前は、Docs タブとドキュメント検索ツールは「404」のエラー文を返し、生成は止まらない。</li>
+<li><code>fts_rowid</code> 順でチャンクを並べ直す前提（登録は先頭から順に挿入する）。本番のドキュメントで、先頭から末尾の順に読めるかは、デプロイ後に確かめる。</li>
+<li>質の向上そのもの（§5 の比較はこれから）。</li>
+</ul>
+<h2 id="7-実装後のレビューで直した点2026-10-31">7. 実装後のレビューで直した点（2026-10-31）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>見つけたこと</th>
+<th>直したこと</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Docs タブを閉じたときに、通信中のスレッドが先に壊れて Houdini が落ちる恐れ</td>
+<td>実行中の仕事をモジュールで持ち、閉じたあとに届いた結果は無視する</td>
+</tr>
+<tr>
+<td><code>doc_tools</code> と <code>rag_client</code> に、同じ通信処理が2つあった</td>
+<td><code>rag_client.post_json</code> / <code>error_message</code> に一本化</td>
+</tr>
+<tr>
+<td>ナレッジの選び方などの純粋関数が、Qt を要する <code>docs_view.py</code> にあり、通常のテストでは飛ばされていた</td>
+<td><code>doc_tools.py</code> に移し、Qt なしで毎回テストする</td>
+</tr>
+<tr>
+<td><code>get_parm_schema</code> の既定値が「(1000)」と出る（実物の <code>defaultValue()</code> は1成分でもタプル）</td>
+<td>1成分は値だけを出す。テストの偽物も実物と同じ形にした</td>
+</tr>
+<tr>
+<td><code>try_parameter</code> が文字列パラメータを、展開後の値で戻す（<code>$HIP/…</code> がパスに変わる）</td>
+<td>展開前の値（<code>unexpandedString</code>）を覚えて戻す</td>
+</tr>
+<tr>
+<td><code>validate_network</code> が、SOP ソルバーの中（DOP の中の SOP）を「末端が複数」と誤検出し得る</td>
+<td>対象を、ふつうの SOP ネットワーク（geo・sopnet・SOP の subnet）に限る</td>
+</tr>
+<tr>
+<td><code>get_parm_schema</code> の連打が、「調べてばかり」の催促の対象外</td>
+<td>対象に追加</td>
+</tr>
+<tr>
+<td>教え方のルール（<code>lesson_design</code>）が、実験は <code>set_parameter</code> + <code>cook_node</code> と書いたままで、システムプロンプトと食い違う</td>
+<td><code>try_parameter</code> 優先に統一</td>
+</tr>
+<tr>
+<td><code>/docs/list</code> の絞り込み語に長さの上限がない</td>
+<td>200 文字で切る</td>
+</tr>
+</tbody>
+</table></div>
+<p>残っている懸念: <code>/docs/list</code>・<code>/docs/get</code> には、回数の制限がない（<code>/search</code> の制限は、監査ログの件数で数えており、この2つは記録しないため）。キーを持つ人だけが呼べ、1回の読み取りは小さいが、D1 の読み取り量の上限を意識する場合は、制限の追加を検討する。</p>
+<h2 id="8-追加した操作の安全面pressbutton-を中心に">8. 追加した操作の安全面（<code>press_button</code> を中心に）</h2>
+<p>ディスクに書く <code>press_button</code> は、次の制限をすべて満たすときだけ動く。<br />
+- ノードがサンドボックスの中にある。<br />
+- ボタンが <code>execute</code>・<code>generate</code>・<code>bake</code>・<code>build</code> のどれか（それ以外は押せない。ボタンの一覧を返す）。<br />
+- ノードの<strong>ファイル指定のパラメータ</strong>（<code>FileReference</code> 型）が、すべて保存先フォルダ（<code>logs/tutorial_agent/cache/&lt;サンドボックス名&gt;/</code>）の下にある。<code>..</code> や、似た名前のフォルダ（<code>…_evil</code>）は外と判定する。空のものは未設定として扱う。<br />
+- 1 回の生成で 10 回まで。押す前に監査ログへ記録する。書き出しの合計が 500 MB を超えたら警告する。</p>
+<p>限界: ファイル指定が <code>FileReference</code> 型でない独自のパラメータ（スクリプトで書き出すノードなど）は検査できない。押せるボタンが 4 種に限られること、保存先が既定でサンドボックス専用であることで抑えている。実機での挙動（<code>filecache</code> のボタン名、書き出しの所要時間）は未確認。</p>
+<h2 id="9-次の候補今回は実装していない">9. 次の候補（今回は実装していない）</h2>
+<ol>
+<li>学習者のパネルでの要件判定（グラフから「ノードがある／つながっている／値が合っている」の条件を作り、学習者の Houdini で判定する。HLS の中核）。</li>
+<li>作り直し課題と段階ヒントの生成（結果の条件だけを書く）。</li>
+<li>実証実験の計測に、「どの章で止まったか」を足す。</li>
+<li>Houdini の操作（上の候補は §4 で実装済み）。次の候補: HDA 化（<code>create_hda</code>。レッスン3の再利用の延長）、ジオメトリの値の抜き出し（属性の先頭 N 個。VEX の確認用）、ノードのコメント・色（読み物としての図の見やすさ）。<br />
+   - 入れない: 任意コードの実行（<code>execute_python</code>）。サンドボックス方針に反する。</li>
+</ol>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

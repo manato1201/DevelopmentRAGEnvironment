@@ -84,7 +84,7 @@ uv run python scripts\rag_local_bridge.py
 
 ### Houdini から使いたい
 
-1. `houdini/python_panels/rag_chatbot.py` と `graph_view.py` を Houdini の Python Panels フォルダにコピー
+1. `houdini/python_panels/rag_chatbot.py` と `docs_view.py` を Houdini の Python Panels フォルダにコピー（推奨は `deploy_panels.py`）
 2. Houdini の **Python Panel** メニューから RAG Chatbot を追加
 
 ### Houdiniでチュートリアルを自動生成したい
@@ -134,9 +134,10 @@ DevelopmentRAGEnvironment/
 │
 ├── houdini/                            # Houdini プロジェクトファイル
 │   └── python_panels/
-│       ├── rag_chatbot.py              # PySide6 製チャットパネル（Chat / Graph / Tutorial / History / 動画 / Settings タブ）
-│       ├── graph_view.py              # QGraphicsView によるグラフビュー
-│       ├── houdini_tools.py            # ★ houラッパー9ツール（create_node〜confirm_tutorial。サンドボックス強制・監査ログ・NodeGraphAssetエクスポート）
+│       ├── rag_chatbot.py              # PySide6 製チャットパネル（Chat / Docs / Tutorial / History / 動画 / Settings タブ）
+│       ├── docs_view.py               # Docs タブ（ナレッジのドキュメントを探して読む。旧 Graph タブの置き換え）
+│       ├── doc_tools.py               # 生成の途中でドキュメントを引くツール（search_docs / get_doc）
+│       ├── houdini_tools.py            # ★ houラッパー17ツール（create_node〜confirm_tutorial。get_parm_schema・try_parameter・validate_network・view_viewport・promote_parameter・layout_network・press_button を含む。サンドボックス強制・監査ログ・NodeGraphAssetエクスポート）
 │       ├── tutorial_agent.py           # ★ チュートリアル生成オーケストレーター（RAG検索→エージェントループ、完了判定の多段階救済ロジック）
 │       ├── tutorial_view.py            # ★ Tutorial/History/動画タブ UI（Markdownプレビュー・保存確認・動画生成連携）
 │       ├── tutorial_graph_simplify.py  # ★ 大規模ノードグラフの簡易表示（直列チェーンの折り畳み）

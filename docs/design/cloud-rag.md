@@ -1099,6 +1099,8 @@ GASエディタで「Drive API」をAdvanced Google Serviceとして追加する
 
 ### 8.19 Houdini GraphタブのCloud RAG対応（`action:'graph'`）
 
+> **2026-10-31 追記:** Houdini の Graph タブ（`graph_view.py`）は、Docs タブ（`docs_view.py`。ナレッジのドキュメントを探して読む）に置き換えて削除した。以下の Houdini の Graph タブに関する記述は、当時の経緯。Unity の Graph タブと、Worker の `/graph` は残っている。
+
 Houdiniの`RAGChatBot`パネルの「Graph」タブ（`houdini/python_panels/graph_view.py`の`RAGGraphWidget`）は、ナレッジベースのドキュメント同士の類似度グラフ（ノード=ドキュメント、エッジ=類似度）を可視化する。従来は`GraphFetchWorker`が`http://localhost:{port}/graph`（`rag_local_bridge.py`の`/graph`）を決め打ちで呼んでいたため、`mode:"cloud"`（GAS経由）で使っている場合はGraphタブが機能しなかった。
 
 グラフデータの生成自体（`buildGraphData_()`）は既にGAS側にも存在していたが、`getGraphDataWithKey(apiKey)`という`google.script.run`専用関数（ブラウザの管理画面からしか呼べない）としてしか公開されておらず、Houdiniのような外部HTTPクライアントからは呼び出せなかった。

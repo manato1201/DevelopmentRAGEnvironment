@@ -224,7 +224,7 @@ CMake/vcpkgのフルビルドを非開発者に要求するのは明らかに不
 | `tutorial_view.py` | 1709 | チュートリアル生成・履歴・動画タブUI | `import token_usage`・`tutorial_agent`・`screen_capture`・`video_factory_bridge` |
 | `tutorial_agent.py` | 1266 | 生成オーケストレーター（RAG検索→エージェントループ、多段階完了判定救済ロジック） | `from houdini_tools import HOUDINI_TOOLS, HoudiniToolExecutor`（裸のimport、sys.path依存） |
 | `houdini_tools.py` | 931 | チュートリアル生成用ツール定義・実行 | なし（`hou`以外は標準ライブラリのみ） |
-| `graph_view.py` | 725 | グラフタブUI | なし |
+| `graph_view.py`（2026-10-31 に削除。`docs_view.py` に置き換え） | 725 | グラフタブUI | なし |
 | `screen_capture.py` | 486 | ビューポート/ネットワークエディタのスクリーンショット（動画生成素材） | `import hou`（Houdini専用） |
 | `token_usage.py` | 347 | トークン残高ゲージUI・生成コスト事前見積もり | なし（PySide6/標準ライブラリのみ） |
 | `tutorial_graph_simplify.py` | 288 | 大規模ノードグラフの簡易表示（直列チェーンの折り畳み） | なし |

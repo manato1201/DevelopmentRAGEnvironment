@@ -75,6 +75,14 @@ sequenceDiagram
 | `cook_node` | 評価。時間依存のノードは複数フレーム評価し、短いクリップも撮る |
 | `inspect_geometry` | 点の数・範囲・属性・画像の値などを数値で確かめる（SOP / COP / LOP） |
 | `list_available_node_types` / `get_node_info` | タイプ名・入力名・パラメータの確認 |
+| `get_parm_schema` | パラメータの仕様（表示名・置き場所・型・既定・範囲・選択肢）。名前の当て推量を防ぎ、手順書に Parm パネルの場所を書けるようにする |
+| `try_parameter` | 値を並べて試し、結果を数値の表で返し、元へ戻す（実験欄の数値の出どころ） |
+| `validate_network` | 全体の点検（エラー・警告・つなぎ忘れ）。`finish_tutorial` の前に1回 |
+| `view_viewport` | 途中でビューポートを撮影して見る（見た目の確認。1回の生成で8回まで） |
+| `promote_parameter` | 子のパラメータを親の Parm パネルへまとめる（レッスン3）。元は親を参照する式になる |
+| `layout_network` | ノードの整列（図・動画を読みやすくする） |
+| `press_button` | キャッシュ書き出しなどのボタン。保存先フォルダの下に限る・押せるボタンは4種だけ |
+| `search_docs` / `get_doc` | 生成の途中でドキュメントを引く（抜粋／ページ全文）。Cloudflare 接続時のみ |
 | `finish_tutorial` | 下書きの提出。**品質ゲート**（§3）を通る |
 | `confirm_tutorial` | ビューポート画像を見て確定。**矛盾ゲート**（§3）を通る |
 

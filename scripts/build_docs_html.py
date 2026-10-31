@@ -74,6 +74,7 @@ DEFAULT_TARGETS: list[tuple[Path, str]] = [
     (DOCS / "design" / "architecture-layering-plan.md", "設計案"),
     (DOCS / "reports" / "cloudflare-vs-firebase-comparison.md", "比較資料"),
     (DOCS / "reports" / "comparison-houdini-mcp.md", "比較資料（Houdini × AI）"),
+    (DOCS / "reports" / "tutorial-quality-analysis-2026-10-31.md", "チュートリアル生成の質の分析"),
     (DOCS / "operations" / "security-audit-2026-10-22.md", "セキュリティ点検"),
     (DOCS / "pilot" / "pilot-test-proposal.md", "実証実験の提案書"),
     (DOCS / "design" / "project-overview.md", "プロジェクト概要"),

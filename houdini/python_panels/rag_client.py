@@ -8,6 +8,7 @@ Houdini の外（単体テスト）でも読み込める。
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 
 # Cloudflare は urllib 既定の User-Agent を bot として拒否する（error 1010）ため、明示する。
@@ -28,6 +29,25 @@ def post_json(url: str, body: dict, timeout: int = 60, api_key: str = "") -> dic
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
+
+
+def error_message(exc: BaseException) -> str:
+    """通信の例外を、画面に出せる短い文にする。Worker が返した {"error": …} があれば、それを使う。"""
+    if isinstance(exc, urllib.error.HTTPError):
+        try:
+            body = json.loads(exc.read().decode("utf-8", errors="replace"))
+            if isinstance(body, dict) and body.get("error"):
+                message = str(body["error"])
+                suggestions = body.get("suggestions")
+                if suggestions:
+                    message += "（近い名前: " + " / ".join(str(x) for x in suggestions) + "）"
+                return message[:300]
+        except Exception:  # noqa: BLE001 -- 本文が読めなければ、ステータスだけ
+            pass
+        return f"HTTP {exc.code}"
+    if isinstance(exc, urllib.error.URLError):
+        return f"接続できません: {exc.reason}"
+    return str(exc)[:300] or exc.__class__.__name__
 
 
 def get_json(url: str, timeout: int = 5) -> dict:
@@ -143,6 +163,30 @@ class RAGClient:
         if self.cfg["mode"] != "cloudflare" or not base:
             return {}
         return post_json(f"{base}/me/namespaces", {}, timeout=10, api_key=self.cfg.get("cf_api_key", ""))
+
+    # ── ドキュメントの閲覧（Docs タブ。Cloudflare モードのみ。Worker の /docs/list・/docs/get・/search） ──
+
+    def _docs(self, path: str, body: dict, timeout: int = 30) -> dict:
+        base = _cf_base(self.cfg)
+        if self.cfg["mode"] != "cloudflare" or not base:
+            raise RuntimeError("Docs は、Cloudflare モードで、Worker の URL と APIキーを設定すると使えます")
+        return post_json(f"{base}{path}", body, timeout=timeout, api_key=self.cfg.get("cf_api_key", ""))
+
+    def docs_namespaces(self) -> list[str]:
+        """読めるナレッジ（namespace）の一覧。"""
+        return [str(n) for n in (self._docs("/me/namespaces", {}, timeout=10).get("namespaces") or [])]
+
+    def docs_list(self, namespace: str, query: str = "", limit: int = 50, offset: int = 0) -> dict:
+        """ドキュメント名の一覧（名前の部分一致）。{"files": [...], "total": 件数}。"""
+        return self._docs("/docs/list", {"namespace": namespace, "query": query, "limit": limit, "offset": offset})
+
+    def docs_search(self, namespace: str, query: str, limit: int = 8) -> dict:
+        """意味＋全文の検索（/search）。1つのナレッジに絞る。応答は {"texts": [...], "sources": [...]}。"""
+        return self._docs("/search", {"query": query, "limit": limit, "namespaces": [namespace]}, timeout=60)
+
+    def docs_get(self, namespace: str, file: str, offset: int = 0, max_chars: int = 20000) -> dict:
+        """1ドキュメントの本文（長いときは offset から max_chars 文字）。{"text", "totalChars", "nextOffset"}。"""
+        return self._docs("/docs/get", {"namespace": namespace, "file": file, "offset": offset, "maxChars": max_chars})
 
     def growth(self) -> dict:
         """自分の習熟度（Cloudflare モードのみ）。/me/growth の応答。失敗は例外。"""

@@ -80,7 +80,7 @@ Houdiniチャットパネル（rag_chatbot.py）に「チュートリアル生�
 
 | ファイル | 役割 |
 |---|---|
-| `houdini/python_panels/houdini_tools.py` | `hou`モジュールのラッパー。`create_node`・`set_parameter`・`connect_nodes`・`cook_node`（エラー検知）・`delete_node`・`list_available_node_types`・`get_node_info`・`finish_tutorial`をAnthropic tool-use形式のスキーマで定義 |
+| `houdini/python_panels/houdini_tools.py` | `hou`モジュールのラッパー。`create_node`・`set_parameter`・`connect_nodes`・`cook_node`（エラー検知）・`delete_node`・`list_available_node_types`・`get_node_info`・`inspect_geometry`・`get_parm_schema`・`try_parameter`・`validate_network`・`view_viewport`・`promote_parameter`・`layout_network`・`press_button`・`finish_tutorial`・`confirm_tutorial`をAnthropic tool-use形式のスキーマで定義。`search_docs`・`get_doc` は `doc_tools.py` で定義し、メインスレッドの外で実行する |
 | `houdini/python_panels/tutorial_agent.py` | RAG検索→エージェントループ→Markdown保存のオーケストレーター |
 | `rag_chatbot.py`への追加 | 「チュートリアル生成」モード／`/tutorial`コマンド。進行状況（どのツールを呼んでいるか）をリアルタイム表示 |
 | ノードグラフJSONエクスポーター | 完成したノード構成を NodeGraphAsset 互換のJSONへ変換 |
@@ -98,8 +98,19 @@ Houdiniチャットパネル（rag_chatbot.py）に「チュートリアル生�
 | `list_available_node_types` | 正確なノードタイプ名を検索（Claudeの記憶違い防止。例: `mountain` vs `mountain::2.0`） |
 | `get_node_info` | 既存ノードの状態確認 |
 | `delete_node` | クリーンアップ用 |
+| `get_parm_schema` | パラメータの仕様（名前・表示名・置き場所＝Parm パネルのタブ・型・既定・範囲・選択肢・現在値）。初めて設定するノードの前に引く。手順書に「Parm パネルの〇〇タブの『表示名』」と書ける（2026-10-31） |
+| `try_parameter` | 値を2〜5個並べて、1つずつ設定→cook→点数・サイズなどを表にして返し、元の値へ戻す。`experiments` に書く数値の出どころ。式・ランプ・シミュレーション系は対象外（2026-10-31） |
+| `validate_network` | サンドボックス全体の点検（エラー・警告・末端が複数のネットワーク）。`finish_tutorial` の前に1回呼ぶ（2026-10-31） |
+| `view_viewport` | 組み立ての途中でビューポートを撮影し、画像で見せる（960x540。1回の生成で8回まで）。`node` で映すノード、`frame` で N フレーム目（撮影後に戻す）（2026-10-31） |
+| `inspect_geometry` の `frame` | N フレーム目の状態を数値で確かめる（シミュレーション・アニメーション用。調べたあと元のフレームへ戻す）（2026-10-31） |
+| `promote_parameter` | 子ノードのパラメータを親のコンテナの Parm パネルへ昇格する（現在の値を引き継ぎ、元は `ch("…")` の参照式になる）。レッスン3（再利用）用。ランプ・フォルダ・ボタン・式付きは対象外（2026-10-31） |
+| `layout_network` | サンドボックスの中のノードを整列する（`finish_tutorial` の前に1回。図・動画が読みやすくなる）（2026-10-31） |
+| `press_button` | キャッシュ書き出しなどのボタンを押す。**押せるのは `execute`・`generate`・`bake`・`build` だけ**。ノードのファイル指定が、保存先フォルダ（`logs/tutorial_agent/cache/<サンドボックス名>/`）の下にあるときだけ。`..` や似た名前のフォルダは外と判定。1回の生成で10回まで、監査ログに記録（2026-10-31） |
+| `search_docs` / `get_doc` | 生成の**途中で**ドキュメントを引く。`/search` の抜粋と、`/docs/get` のページ全文。最初の検索（1回・トピック文のみ）の続き番号で出典に登録され、`sources_used` で引用できる。Cloudflare 接続時のみ（環境変数 `RAG_TUTORIAL_DOC_TOOLS=0` で外せる。比較用）（2026-10-31） |
 | `finish_tutorial` | 完了案の下書きを提出（即確定はしない。`sources_used`でRAG参考ソース番号も報告。`next_steps`で応用・発展アイデアを3〜5個報告 — 手順の要約に終始せず「自分のプロジェクトでどう使えるか」の手がかりを持たせるための追加、実機で生成物が「概要と手順しかなくロードマップとして弱い」と指摘されたための対応） |
 | `confirm_tutorial` | `finish_tutorial`直後に送られるビューポート画像を確認したうえで、`looks_correct=true`なら完了確定・`false`なら`finish_tutorial`からやり直し |
+
+**途中でドキュメントを引く（2026-10-31）：** 以前は、トピック文だけで最初に1回検索（6件）し、結果をシステムプロンプトに固定していた。実際の生成ログ10件では引用率の平均が15%（0%が6回）で、取れていたのは概要ページが中心だった。ノードを組む段階で必要な「このノードのパラメータの意味・選択肢」をその場で引けなかったため、`search_docs` / `get_doc`（`doc_tools.py`）を足した。検索先は最初の検索と同じナレッジに固定し（モデルは選べない）、ネットワーク呼び出しなので Houdini のメインスレッドでは実行しない。1回の生成で30回まで。効果は `scripts/compare_tutorial_metrics.py` で、`doc_tools` の有無を比べて測る（`<名前>_metrics.json` に `doc_tools`・`doc_searches`・`doc_reads`・`rag_initial_extraction_rate` などを記録）。
 
 `list_available_node_types`を入れている理由：Houdiniのノードタイプ名はバージョン依存の正確な文字列が必要で、Claudeが記憶だけで呼ぶと失敗しやすい。houdini21のRAGドキュメントと組み合わせて精度を上げる。実機検証で反復予算の30%超をこのツールの呼び出しが消費していたことが分かったため（[検証レポート](../reports/houdini21-tutorial-gen-report.md)）、システムプロンプトに頻出ノードタイプ一覧を埋め込み（プロンプトキャッシュされるため追加コストはほぼ無い）、既知のタイプ名については毎回の確認を不要にしている（`tutorial_agent.py`の`_COMMON_NODE_TYPES_BLOCK`）。
 

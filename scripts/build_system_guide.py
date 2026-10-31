@@ -41,12 +41,12 @@ def diagram_architecture() -> str:
     s.group(20, 310, 380, 560, "Houdini（利用者のPC）", "ui")
     s.box(40, 350, 340, 110, "", "", "ui")
     s.text(210, 376, "Houdini Python パネル（PySide6）", 14, 700)
-    for i, name in enumerate(["はじめに", "Chat", "Graph", "Tutorial"]):
+    for i, name in enumerate(["はじめに", "Chat", "Docs", "Tutorial"]):
         s.chip(54 + i * 80, 392, 72, 24, name)
     for i, name in enumerate(["History", "動画", "Settings"]):
         s.chip(54 + i * 80, 424, 72, 24, name)
     s.box(40, 480, 340, 56, "tutorial_agent.py", "Claudeのツールループ（最大80回・$5上限）", "core", size=13)
-    s.box(40, 556, 340, 56, "houdini_tools.py", "HoudiniToolExecutor：サンドボックス・10ツール", "core", size=13)
+    s.box(40, 556, 340, 56, "houdini_tools.py", "HoudiniToolExecutor：サンドボックス・19ツール", "core", size=13)
     s.box(40, 632, 340, 56, "tutorial_feedback.py", "指標・評価・教訓・成功例（Qt/hou非依存）", "safe", size=13)
     s.box(40, 708, 340, 66, "localRAG/tutorials/", ".md .json _metrics.json _feedback.json\n＋ tutorial_lessons.json", "store", size=13)
     s.box(40, 794, 340, 56, "RAGReel（C++/Qt）", "解説動画の生成（VP9）", "ui", size=13)
@@ -422,7 +422,7 @@ def body() -> str:
         "<li>反復上限<strong>80回</strong>、コスト上限<strong>$5</strong>（クライアント側のフェイルセーフ。実際の上限はWorkerのClaude予算が強制）。拒否（stop_reason=refusal）は分類つきで打ち切ります。</li></ul>")
 
     add('<h2 id="tools">エージェントのツール<small>TOOLS</small></h2>')
-    add("<p>モデルが呼べるのは次の10個だけです。ノードの操作はすべてサンドボックス（<code>/obj/ai_tutorial_&lt;時刻&gt;</code>のsubnet）の中に限られ、サンドボックス外のパスは実行前に拒否・監査ログに記録されます。</p>")
+    add("<p>モデルが呼べるのは次の19個だけです（2026-10-31に10個から増えました）。ノードの操作はすべてサンドボックス（<code>/obj/ai_tutorial_&lt;時刻&gt;</code>のsubnet）の中に限られ、サンドボックス外のパスは実行前に拒否・監査ログに記録されます。</p>")
     add(table(["ツール", "役割", "2026-10の変更"], [
         ["<code>create_node</code>", "ノードを作る（parentで階層を指定）", "—"],
         ["<code>set_parameter</code>", "パラメータを設定", "<code>expression</code>（Hscript式）・<code>keyframes</code>・<code>ramp</code>を追加。ランプに<code>value</code>を渡すと拒否して案内（以前は1点に潰れた）。不正な式は<code>node.errors()</code>から報告"],
@@ -430,8 +430,16 @@ def body() -> str:
         ["<code>cook_node</code>", "評価してエラーを取得", "時間依存ノードは10フレーム評価。<strong>TOP</strong>は作業項目の生成まで（実行はしない）"],
         ["<code>list_available_node_types</code>", "ノードタイプを検索", "<code>Cop</code>（Copernicus）・<code>Lop</code>・<code>Chop</code>を追加。<code>Cop2</code>は旧COP"],
         ["<code>get_node_info</code>", "状態・パラメータ・接続を取得", "入力名（番号と名前）と出力名を表示"],
-        ["<code>inspect_geometry</code>", "<strong>中身を数値で確認</strong>", "<strong>新規</strong>。SOP：点/プリム数・範囲・属性・グループ・GSplat判定。COP：解像度・値の範囲・一定値の検出。LOP：プリム一覧"],
+        ["<code>inspect_geometry</code>", "<strong>中身を数値で確認</strong>", "<strong>新規</strong>（<code>frame</code>でNフレーム目も：2026-10-31）。SOP：点/プリム数・範囲・属性・グループ・GSplat判定。COP：解像度・値の範囲・一定値の検出。LOP：プリム一覧"],
         ["<code>delete_node</code>", "不要なノードを削除", "—"],
+        ["<code>get_parm_schema</code>", "パラメータの仕様（表示名・置き場所・型・既定・範囲・選択肢）", "<strong>新規</strong>（2026-10-31）。名前の当て推量を防ぎ、手順書にParmパネルの場所を書ける"],
+        ["<code>try_parameter</code>", "値を並べて試し、結果を数値の表で返して元へ戻す", "<strong>新規</strong>。実験欄の数値の出どころ。式・ランプ・シミュレーション系は対象外"],
+        ["<code>validate_network</code>", "全体の点検（エラー・警告・つなぎ忘れ）", "<strong>新規</strong>。finish_tutorialの前に1回"],
+        ["<code>view_viewport</code>", "途中でビューポートを撮影して見る", "<strong>新規</strong>。画像が返る（960x540・1回の生成で8回まで）。<code>frame</code>でNフレーム目"],
+        ["<code>promote_parameter</code>", "子のパラメータを親のParmパネルへまとめる", "<strong>新規</strong>。現在の値を引き継ぎ、元は<code>ch(\"…\")</code>の参照式に。レッスン3用"],
+        ["<code>layout_network</code>", "ノードを整列する", "<strong>新規</strong>。図・動画が読みやすくなる"],
+        ["<code>press_button</code>", "キャッシュ書き出しなどのボタンを押す", "<strong>新規</strong>。押せるのは4種のボタンだけ・ファイル指定が保存先フォルダの下のときだけ・10回まで"],
+        ["<code>search_docs</code>／<code>get_doc</code>", "生成の途中でドキュメントを引く（抜粋／ページ全文）", "<strong>新規</strong>。Cloudflare接続時のみ。引いたページは出典に続き番号で登録"],
         ["<code>finish_tutorial</code>", "手順・概要などを提出", "—"],
         ["<code>confirm_tutorial</code>", "自己確認画像を見て確定", "—"],
     ]))
@@ -549,7 +557,7 @@ def body() -> str:
 
     add('<h2 id="files">コードの置き場所<small>FILES</small></h2>')
     add(table(["領域", "ファイル"], [
-        ["エージェント", "<code>houdini/python_panels/tutorial_agent.py</code>（ループ・プロンプト・モデル）・<code>houdini_tools.py</code>（10ツール・サンドボックス）"],
+        ["エージェント", "<code>houdini/python_panels/tutorial_agent.py</code>（ループ・プロンプト・モデル）・<code>houdini_tools.py</code>（17ツール・サンドボックス）・<code>doc_tools.py</code>（ドキュメント検索）"],
         ["評価と学習", "<code>houdini/python_panels/tutorial_feedback.py</code>（指標・評価・集計・教訓・成功例・送信）"],
         ["画面", "<code>houdini/python_panels/tutorial_view.py</code>（生成・履歴・動画。評価UI・教訓ダイアログ・条件欄）"],
         ["配置", "<code>houdini/deploy_panels.py</code>（<code>Documents/houdini22.0/python_panels</code>へコピー。自動バックアップ）"],

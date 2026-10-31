@@ -169,7 +169,7 @@ interface Connector {
 | 共通（どの用途でも使う） | 固有（チュートリアル生成のためのもの） |
 |---|---|
 | `rag_chatbot.py`（チャット・設定のパネル） | `tutorial_agent.py`（生成のオーケストレーター） |
-| `graph_view.py`（グラフ表示） | `houdini_tools.py`（`hou` を操作するツール群） |
+| `docs_view.py`（Docs タブ。旧 `graph_view.py`） | `houdini_tools.py`（`hou` を操作するツール群） |
 | `token_usage.py`（残高の表示） | `tutorial_view.py`（Tutorial/Historyタブ） |
 | 設定の読み書き（`~/.houdini/…json`） | `screen_capture.py`、`tutorial_graph_simplify.py` |
 | | `video_factory_bridge.py`（動画生成の起動） |

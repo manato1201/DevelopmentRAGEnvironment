@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import re
 import time
 import unicodedata
@@ -38,6 +39,7 @@ from typing import Callable
 
 import lesson_design
 import tutorial_review
+from doc_tools import DOC_TOOLS, DOC_TOOLS_SECTION, DocClient
 from houdini_tools import HOUDINI_TOOLS, HoudiniToolExecutor
 
 # ─── 定数 ────────────────────────────────────────────────────────────────────────
@@ -63,6 +65,12 @@ GRACE_COST_FRACTION = 0.85    # 累積コストがCOST_LIMIT_USDのこの割合�
 MAX_TOKENS_PER_TURN = 16000
 RAG_NAMESPACES = ["houdini21"]  # 生成機能が参照してよい namespace のホワイトリスト（§5）
 RAG_LIMIT = 6
+# 生成の途中でドキュメントを引くツール（search_docs / get_doc）を渡すか。既定は渡す。
+# 同じ題材を「あり／なし」で比べるときは、環境変数 RAG_TUTORIAL_DOC_TOOLS=0 で外す（指標の doc_tools に記録される）。
+def doc_tools_default() -> bool:
+    return os.environ.get("RAG_TUTORIAL_DOC_TOOLS", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
 # 2026-10-04追加: 検索対象のナレッジ（Houdiniのバージョン別namespace）を決める。
 # 以前は上の定数（houdini21固定）を使っており、設定画面の「チャットで検索するナレッジ」欄（チャット用）を
 # houdini22にしても、チュートリアル生成は常にhoudini21を検索していた（Cloudflareには
@@ -180,12 +188,14 @@ _COMMON_NODE_TYPES_BLOCK = """- 基本形状: box, sphere, grid, tube, torus
 # 「よく使うノードタイプ」に無いタイプ名(例: 電子パーティクル等のPOP系)を探し続けて
 # 何も作らずに反復を消費してしまう問題（実機で確認済み）への対策。
 _SEARCH_LOOP_NUDGE_TEXT = (
-    "[システム通知] list_available_node_types の呼び出しが続いています。"
+    "[システム通知] list_available_node_types / search_docs / get_doc / get_parm_schema の呼び出しが続いています。"
     "これ以上調べずに、今分かっている中で最も可能性が高いタイプ名で create_node を"
     "試してください。タイプ名が間違っていても cook_node のエラーメッセージから"
     "自己修正できます。検索だけで作業を終わらせないでください。"
 )
-_SEARCH_LOOP_NUDGE_THRESHOLD = 3  # 連続してこの回数以上検索したら促す
+_SEARCH_LOOP_NUDGE_THRESHOLD = 3  # 連続してこの回数以上検索したら促す（list_available_node_types だけの連続）
+_DOC_LOOP_NUDGE_THRESHOLD = 5     # search_docs / get_doc を含む連続（検索→全文→全文、は普通の流れなので多めに許す）
+_LOOKUP_TOOLS = frozenset({"list_available_node_types", "search_docs", "get_doc", "get_parm_schema"})
 
 # ツールを一度も呼ばずに（＝ノードを1つも作らずに）テキストのみで終了しようとした
 # 場合に差し込むテキスト。何も作られていないのに「完了」と誤認されるのを防ぐ。
@@ -299,6 +309,11 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初
 - cook_node が成功しても中身が正しいとは限りません。cook_node の後に inspect_geometry で、点が0個でないか・範囲がおかしくないか・必要な属性が付いているか・画像が一定値でないかを数値で確かめてください（SOP / COP / LOP）。
 - ランプ（グラデーション・カーブ）のパラメータは value ではなく set_parameter の ramp（pos と value の配列）で設定します（value だと点が1個に潰れます）。
 - connect_nodes の入力は、VOPなど意味が名前で決まるノードでは input_name / output_name で指定します（番号の取り違えは cook が通ってしまい気づけません）。入力名は get_node_info で分かります。
+- 初めて set_parameter するノード（特に、メニューや多くのパラメータを持つもの）は、先に get_parm_schema で、パラメータ名・表示名・置かれている場所・選択肢を確かめます（名前の当て推量をしない）。手順書には、Parm パネルの場所と表示名を書いてください（例: 「Distribution タブの『Force Total Count』」）。
+- パラメータ実験（効果が分かりやすい2〜3個）は try_parameter を使います。値を2〜5個並べると、結果が数値で返り、元の値に戻ります。finish_tutorial の experiments には、その数値だけを書きます。
+- 各章の終わりに、数値は inspect_geometry、見た目は view_viewport（画像が返る。1回の生成で8回まで）で確かめます。シミュレーション・アニメーションは、inspect_geometry / view_viewport の frame で「N フレーム目」を確かめます。
+- レッスン3（実務で使える形）では、調整したい値を promote_parameter で親のコンテナの Parm パネルへまとめます（元は親を参照する式になる）。
+- finish_tutorial を呼ぶ前に、layout_network でノードを整列し、validate_network を1回呼び、エラー・警告・末端の複数（つなぎ忘れ）が無いことを確かめます。
 
 ## よく使うノードタイプ（このリストにあれば list_available_node_types は不要）
 {common_node_types}
@@ -314,6 +329,14 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、初
 {rag_context}"""
 
 
+
+# press_button（キャッシュの書き出し）の保存先。ディスクに書くので、この下に限る（executor.cache_dir）。
+_CACHE_SECTION = """
+## ディスクへの書き出し（press_button）
+キャッシュの書き出し（filecache などの「Save to Disk」）が必要なときだけ、press_button で execute ボタンを押せます。
+保存先は `{cache_dir}/` の下に限ります。先に set_parameter で、ノードのファイル指定をこの下（例: `{cache_dir}/name.$F4.bgeo.sc`）に変えてください。それ以外の場所に書くノードでは、押せません。
+書き出しは時間がかかるので、フレーム範囲は短く（数フレーム〜数十フレーム）します。
+"""
 
 _GSPLAT_SECTION = """
 ## ガウシアンスプラット（GSplat）について
@@ -526,6 +549,13 @@ def load_reference_images(paths: list[str], max_images: int = MAX_REFERENCE_IMAG
     return blocks, names
 
 
+def _cited_rate(sources: list[dict], completed: bool) -> float:
+    """sources のうち引用された割合。打ち切り（sources_used が尋ねられていない）や空は -1（未計測）。"""
+    if not completed or not sources:
+        return -1
+    return round(sum(1 for s in sources if s.get("cited")) / len(sources), 4)
+
+
 # ─── 結果オブジェクト ─────────────────────────────────────────────────────────────
 
 class TutorialResult:
@@ -583,6 +613,12 @@ class TutorialResult:
         self.rag_sources_cited: list[int] = []
         # 引用率（cited済みsource数 / 全source数）。sourcesが空ならNone。
         self.rag_extraction_rate: float | None = None
+        # 生成の途中でドキュメントを引くツール（search_docs / get_doc）の利用状況（2026-10-31）。
+        # sources の先頭 rag_initial_count 件が「最初の検索」、それ以降が途中で引いたページ。
+        self.doc_tools_enabled: bool = False
+        self.rag_initial_count: int = 0
+        self.doc_searches: int = 0
+        self.doc_reads: int = 0
         # generate()の壁時計経過秒数（2026-09-20追加）。トピック入力時の「過去の生成の
         # 平均コスト・所要時間」見積もり表示（token_usage.py）用。RAG検索・サンドボックス
         # 作成・エージェントループ・Markdown組み立てまで全体を計測する（ユーザーが実際に
@@ -628,6 +664,7 @@ class TutorialAgent:
         target_model: str = "",
         progress_cb: Callable[[str], None] | None = None,
         executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
+        doc_tools: bool | None = None,
     ) -> None:
         self._port = bridge_port
         self._project_dir = project_dir
@@ -650,6 +687,9 @@ class TutorialAgent:
         self._model = model if model in _MODEL_PRICES else DEFAULT_MODEL
         self._progress = progress_cb or (lambda _: None)
         self._executor_factory = executor_factory or HoudiniToolExecutor
+        # None = 既定（環境変数 RAG_TUTORIAL_DOC_TOOLS で切り替え。既定は有効）
+        self._doc_tools_wanted = doc_tools_default() if doc_tools is None else bool(doc_tools)
+        self._doc_client: DocClient | None = None
         self.executor: HoudiniToolExecutor | None = None  # 生成後もサンドボックス削除用に保持
 
     # ── 公開 API ────────────────────────────────────────────────────────────────
@@ -737,6 +777,16 @@ class TutorialAgent:
         self.executor = self._executor_factory(log_dir=log_dir, screenshot_dir=screenshot_dir)
         result.sandbox_path = self.executor.sandbox_path
         self._progress(f"サンドボックス作成: {result.sandbox_path}")
+        # 生成の途中でドキュメントを引くツール。検索先は最初の検索と同じナレッジに固定する。
+        self._doc_client = None
+        if self._doc_tools_wanted:
+            self._doc_client = DocClient(
+                self._cf_url, self._cf_api_key, f"shared:{self._rag_name}", result.sources,
+                context_hint=context_hint_for(topic, self._requirements, self._target_model),
+            )
+            self.executor.doc_client = self._doc_client
+        result.doc_tools_enabled = self._doc_client is not None
+        result.rag_initial_count = len(result.sources)
 
         # ③ エージェントループ
         if prior_level_summary:
@@ -760,6 +810,9 @@ class TutorialAgent:
             self._run_loop(system_blocks, tools, messages, result)
         finally:
             result.iterations = self._count_iterations()
+            if self._doc_client is not None:
+                result.doc_searches = self._doc_client.searches
+                result.doc_reads = self._doc_client.reads
 
         # ④ 成果物組み立て（打ち切りでも途中経過を提示する）
         result.graph = self.executor.export_node_graph()
@@ -1008,6 +1061,8 @@ class TutorialAgent:
             domain_sections=build_target_model_section(self._target_model)
             + build_domain_sections(topic, self._requirements, self._target_model)
             + build_houdini22_section(self._rag_name)
+            + (DOC_TOOLS_SECTION if self._doc_client is not None else "")
+            + self._cache_section()
             + self._feedback_sections(topic),
         )
         system_blocks = [{
@@ -1017,6 +1072,8 @@ class TutorialAgent:
         }]
 
         tools = [dict(t) for t in HOUDINI_TOOLS]
+        if self._doc_client is not None:
+            tools += [dict(t) for t in DOC_TOOLS]
         tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
 
         if self._reference_blocks:
@@ -1036,6 +1093,13 @@ class TutorialAgent:
             content = self._task_text(topic)
         messages = [{"role": "user", "content": content}]
         return system_blocks, tools, messages
+
+    def _cache_section(self) -> str:
+        """press_button の保存先の案内。executor が保存先を持つとき（実際のフォルダのパスのとき）だけ。"""
+        cache = getattr(self.executor, "cache_dir", None)
+        if not isinstance(cache, Path):
+            return ""
+        return _CACHE_SECTION.format(cache_dir=cache.as_posix())
 
     def _task_text(self, topic: str) -> str:
         """最初のユーザーメッセージ本文（トピック＋必須条件＋対象モデル）。"""
@@ -1200,7 +1264,7 @@ class TutorialAgent:
                 # あれば、その回のtool_resultにテキストと一緒に画像として添付する。Claude自身が
                 # 画像を見て見た目を確認したうえでconfirm_tutorialを呼ぶ（houdini_tools.py参照）。
                 screenshot_b64 = getattr(self.executor, "last_screenshot_b64", None)
-                if name == "finish_tutorial" and screenshot_b64:
+                if name in ("finish_tutorial", "view_viewport") and screenshot_b64:
                     tool_content: object = [
                         {"type": "text", "text": output},
                         {"type": "image", "source": {
@@ -1223,17 +1287,21 @@ class TutorialAgent:
             # 検索連打が起きたら再度促せるようにする。
             content_blocks = list(tool_results)
             consecutive_lookups = 0
+            only_node_type_lookups = True
             for entry in reversed(self.executor.step_log):
-                if entry["tool"] == "list_available_node_types":
+                if entry["tool"] in _LOOKUP_TOOLS:
                     consecutive_lookups += 1
+                    if entry["tool"] != "list_available_node_types":
+                        only_node_type_lookups = False
                 else:
                     break
+            nudge_threshold = _SEARCH_LOOP_NUDGE_THRESHOLD if only_node_type_lookups else _DOC_LOOP_NUDGE_THRESHOLD
             if consecutive_lookups == 0:
                 search_nudge_active = False
-            elif not search_nudge_active and consecutive_lookups >= _SEARCH_LOOP_NUDGE_THRESHOLD:
+            elif not search_nudge_active and consecutive_lookups >= nudge_threshold:
                 content_blocks.append({"type": "text", "text": _SEARCH_LOOP_NUDGE_TEXT})
                 search_nudge_active = True
-                self._progress("ノードタイプ検索が続いているため、作成を促しました")
+                self._progress("検索が続いているため、作成を促しました")
 
             # 打ち切り時のグレースフル終了: 残り反復数またはコストが少なくなった時点で、
             # まだ確定していなければ「今の状態で仕上げてください」と一度だけ促す。
@@ -1446,6 +1514,15 @@ class TutorialAgent:
             "cache_read_tokens": result.cache_read_tokens,
             "elapsed_seconds": round(result.elapsed_seconds, 1),
             "rag_extraction_rate": result.rag_extraction_rate if result.rag_extraction_rate is not None else -1,
+            # 途中でドキュメントを引くツールの効果を測る指標（2026-10-31）。rag_extraction_rate は、途中で引いた
+            # ページも含む全体の引用率。rag_initial_extraction_rate は、最初の検索結果だけの引用率（従来と比べられる）。
+            "doc_tools": result.doc_tools_enabled,
+            "doc_searches": result.doc_searches,
+            "doc_reads": result.doc_reads,
+            "rag_initial_sources": result.rag_initial_count,
+            "rag_fetched_sources": max(0, len(result.sources) - result.rag_initial_count),
+            "rag_initial_extraction_rate": _cited_rate(result.sources[: result.rag_initial_count], result.completed),
+            "rag_fetched_cited": sum(1 for s in result.sources[result.rag_initial_count:] if s.get("cited")),
             "reference_images": result.reference_image_count,
             "has_requirements": bool(self._requirements),
             "has_target_model": bool(self._target_model),

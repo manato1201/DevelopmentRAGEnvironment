@@ -169,6 +169,38 @@
 <td>タイプ名・入力名・パラメータの確認</td>
 </tr>
 <tr>
+<td><code>get_parm_schema</code></td>
+<td>パラメータの仕様（表示名・置き場所・型・既定・範囲・選択肢）。名前の当て推量を防ぎ、手順書に Parm パネルの場所を書けるようにする</td>
+</tr>
+<tr>
+<td><code>try_parameter</code></td>
+<td>値を並べて試し、結果を数値の表で返し、元へ戻す（実験欄の数値の出どころ）</td>
+</tr>
+<tr>
+<td><code>validate_network</code></td>
+<td>全体の点検（エラー・警告・つなぎ忘れ）。<code>finish_tutorial</code> の前に1回</td>
+</tr>
+<tr>
+<td><code>view_viewport</code></td>
+<td>途中でビューポートを撮影して見る（見た目の確認。1回の生成で8回まで）</td>
+</tr>
+<tr>
+<td><code>promote_parameter</code></td>
+<td>子のパラメータを親の Parm パネルへまとめる（レッスン3）。元は親を参照する式になる</td>
+</tr>
+<tr>
+<td><code>layout_network</code></td>
+<td>ノードの整列（図・動画を読みやすくする）</td>
+</tr>
+<tr>
+<td><code>press_button</code></td>
+<td>キャッシュ書き出しなどのボタン。保存先フォルダの下に限る・押せるボタンは4種だけ</td>
+</tr>
+<tr>
+<td><code>search_docs</code> / <code>get_doc</code></td>
+<td>生成の途中でドキュメントを引く（抜粋／ページ全文）。Cloudflare 接続時のみ</td>
+</tr>
+<tr>
 <td><code>finish_tutorial</code></td>
 <td>下書きの提出。<strong>品質ゲート</strong>（§3）を通る</td>
 </tr>

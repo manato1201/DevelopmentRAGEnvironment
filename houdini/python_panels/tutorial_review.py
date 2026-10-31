@@ -89,6 +89,8 @@ def count_verified_experiments(step_log: list[dict]) -> int:
             changed_since_cook = False
         elif tool == "set_parameter" and cooked_ok and not failed:
             changed_since_cook = True
+        elif tool == "try_parameter" and not failed and "→ エラー" not in str(entry.get("result", "")):
+            done += 1  # 値を変えて cook し、結果を数値で比べ、元へ戻すところまでを1回で行う
     return done
 
 

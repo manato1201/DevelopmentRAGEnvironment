@@ -92,6 +92,7 @@
 | [gas-feature-parity.md](reports/gas-feature-parity.md) | GAS 版から Cloudflare への移行の記録（GAS 版は廃止済み） |
 | [cloudflare-vs-firebase-comparison.md](reports/cloudflare-vs-firebase-comparison.md) | Cloudflare と Firebase で作った場合の違い |
 | [comparison-houdini-mcp.md](reports/comparison-houdini-mcp.md) | 他の Houdini × AI の道具との比較 |
+| [tutorial-quality-analysis-2026-10-31.md](reports/tutorial-quality-analysis-2026-10-31.md) | チュートリアル生成の質を上げるための分析（出典の使われ方・比較・習熟の問題）と、追加したツール・Docs タブ |
 | [new-project-ideas-borrowed-tech-2026-10.md](reports/new-project-ideas-borrowed-tech-2026-10.md) | 新規プロジェクト案と「他アプリから借りる技術」の調査 |
 | [other-project-rag-integration-plan.md](reports/other-project-rag-integration-plan.md) | 別プロジェクトへの RAG 環境の統合計画 |
 | [other-project-knowledge-features-backport.md](reports/other-project-knowledge-features-backport.md) | 別プロジェクトのナレッジ登録機能の逆輸入ガイド |

@@ -157,7 +157,7 @@ def houdini_panel() -> Diagram:
     d.node("ppanel", 130, 300, "pilot_panel.py", "「課題」タブ・アンケート", glyph="Pil", kind="ui")
     d.node("tview", 130, 440, "tutorial_view.py", "Tutorial タブ・評価・履歴", glyph="Tut", kind="ui")
     d.node("report", 130, 580, "report_dialog.py", "評価の集計の画面", glyph="Rep", kind="ui")
-    d.node("gview", 130, 720, "graph_view.py", "グラフ・panel_widgets.py", glyph="Gra", kind="ui")
+    d.node("gview", 130, 720, "docs_view.py", "Docs タブ・panel_widgets.py", glyph="Doc", kind="ui")
 
     d.group(510, 90, 450, 450, "画面に依存しない部品", "単体テストできる（unittest 186件）", "safe")
     d.node("pinfo", 580, 160, "panel_info.py", "文面・エラーの言い換え", glyph="Inf", kind="safe", sub2="出典の集計")

@@ -161,7 +161,7 @@
 <td><strong>12</strong>（操作 10・文書 2）</td>
 <td><strong>139</strong></td>
 <td>47 種の DCC のアダプター</td>
-<td><strong>10</strong>（Houdini の操作 8＋完了の申告 2）</td>
+<td><strong>19</strong>（Houdini の操作 15＋文書 2＋完了の申告 2。2026-10-31 に 10 から増やした）</td>
 </tr>
 <tr>
 <td>対応する Houdini</td>
@@ -324,7 +324,7 @@
 4. <strong>配布の仕組み</strong>: zip＋install.cmd、インストーラー、管理画面。<br />
 5. <strong>外部サービスとの連携（MCP クライアント）と、書き込みの確認</strong>。</p>
 <p><strong>あちらにあって、本システムに無いもの</strong><br />
-1. <strong>Houdini を広く操作できること</strong>: シミュレーション・USD/Solaris・PDG・レンダリング・HDA など（fxhoudinimcp は 215 ツール、Synapse は 139）。<strong>本システムは、ノードの操作 8 つだけ</strong>。<br />
+1. <strong>Houdini を広く操作できること</strong>: シミュレーション・USD/Solaris・PDG・レンダリング・HDA など（fxhoudinimcp は 215 ツール、Synapse は 139）。<strong>本システムは、ノードの操作 15 個だけ</strong>（2026-10-31 に、<code>get_parm_schema</code>・<code>try_parameter</code>・<code>validate_network</code>・<code>view_viewport</code>・<code>promote_parameter</code>・<code>layout_network</code>・<code>press_button</code> を足した）。<br />
 2. <strong>外の AI クライアントから使えること</strong>: Claude Code・Cursor などから、そのまま Houdini を操作できる（MCP サーバー）。<strong>本システムは、Houdini のパネルからしか使えない</strong>。<br />
 3. <strong>ローカルで完結すること</strong>: ネットワークと鍵が要らない。本システムは、<strong>チュートリアル生成・動画の台本・音声が、Cloudflare の Worker と鍵を必要とする</strong>（検索だけなら、手元のブリッジ〔ChromaDB〕でも動く）。<br />
 4. <strong>セッション管理・複数の Houdini の切り替え・コンタクトシート</strong>（fxhoudinimcp）。<br />
