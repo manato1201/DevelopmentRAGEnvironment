@@ -1,5 +1,5 @@
 """
-video_script.py — チュートリアル動画の「初心者向け台本」を作る（2026-10-19）
+video_script.py — チュートリアル動画の「解説の台本」を作る（2026-10-19。2026-11-01にレベル別にした）
 
 これまでの動画は、手順のスライドにツールの実行結果文（「emit のパラメータを設定: Run Over を 0、
 VEXpression を int n = 30000; float rin = ...」）を出し、ナレーションはチュートリアル本文の朗読だった。
@@ -45,39 +45,144 @@ CompleteFn = Callable[[str, str], "tuple[str, dict]"]
 
 # ── 台本のルール（Claudeへの指示） ─────────────────────────────────────────
 
-SYSTEM_PROMPT = """あなたは、Houdini（フーディニ）の入門講師です。Houdiniを初めて触る人に向けた、解説動画の台本を書きます。
+LEVELS = ("basic", "applied", "advanced")
 
-【視聴者】ゲーム開発や3DCGに少し触れたことはあるが、Houdiniは初めて。Houdiniの専門用語は知らない。
-【目的】画面に映る操作を「読み上げる」のではなく「説明」する。何をしているか、なぜそうするのか、画面のどこを見ればよいかを、やさしい言葉で伝える。
+# 2026-11-01: 台本は常に「Houdiniを初めて触る人向け」だった。チュートリアル本文はレベル（basic / applied / advanced）で
+# 説明の深さを変えているのに、動画で初心者向けに言い直されて、3本の密度が同じになっていた。
+# 台本もレベルに合わせて書き分ける（視聴者・用語の扱い・順序・コードの扱い・長さ）。
+_ROLE: dict[str, str] = {
+    "basic": (
+        "あなたは、Houdini（フーディニ）の講師です。Houdiniの基本操作は分かる人に向けた、解説動画の台本を書きます。\n\n"
+        "【視聴者】ノードを置く・つなぐ・パラメータを変える、といった基本操作は知っている。基本の言葉（ノード、パラメータ、ジオメトリ、ビューポート）は説明しなくてよい。"
+        "このトピックの仕組みは、まだ知らない。\n"
+        "【目的】画面に映る操作を「読み上げる」のではなく「説明」する。何をしているか、なぜそうするのか、パラメータを変えると何がどう変わるのかを、具体的に伝える。"
+    ),
+    "applied": (
+        "あなたは、Houdini（フーディニ）の講師です。仕事でHoudiniを使う人に向けた、解説動画の台本を書きます。\n\n"
+        "【視聴者】基本操作はもちろん、ノードの構成を自分で組める。専門用語（アトリビュート、パックド、ベックスなど）は、説明しなくても分かる。"
+        "知りたいのは、「なぜその構成にするのか」「代わりの方法は何で、どう選ぶのか」。\n"
+        "【目的】操作の説明は短く済ませ、設計の理由、代わりの方法との違い、再利用や書き出しのときの注意を伝える。"
+    ),
+    "advanced": (
+        "あなたは、Houdini（フーディニ）の講師です。複数の案件でHoudiniを使ってきた人に向けた、解説動画の台本を書きます。\n\n"
+        "【視聴者】手法そのものの説明は要らない。知りたいのは、判断の根拠、トレードオフ、規模を上げたときの挙動、壊れる条件、パイプラインへの載せ方。\n"
+        "【目的】比べた結果と測った数値をもとに、「どれを選ぶか」と「なぜか」を伝える。手順は、ノード名と設定値を簡潔に言うだけにする。"
+    ),
+}
+
+_ORDER: dict[str, str] = {
+    "basic": "次の順で書く。①②③は必ず入れる。\n   ①いま何をするか　②なぜそうするのか　③パラメータを変えたときや、画面で何がどう変わるか　④つまずきやすい点（あれば）",
+    "applied": "次の順で書く。①②は必ず入れる。\n   ①いま何をするか（短く）　②なぜその構成にするのか　③代わりの方法と、選ぶ基準（手順に関係するとき）　④ハマりどころ（あれば）",
+    "advanced": "次の順で書く。①②は必ず入れる。\n   ①操作（ノード名と設定値だけ。短く）　②なぜそうするのか。比べた結果や測った数値が入力にあれば、その数値　③壊れる条件と、気づく方法（あれば）",
+}
+_TERMS: dict[str, str] = {
+    "basic": "新しく出てくる専門用語（アトリビュート、パックド、ランプなど）は、初めて出たときに一言で説明する。例:「パックドは、たくさんの面を1つの塊として扱う形式です」。基本の言葉は説明しない。2回目以降は説明しない。",
+    "applied": "専門用語（アトリビュート、パックド、ベックス、エイチディーエーなど）は、説明せずにそのまま使う。このレッスンで初めて出る特殊な言葉だけ、半文で添える。",
+    "advanced": "用語の説明はしない。専門用語は、そのまま使う。",
+}
+_CODE: dict[str, str] = {
+    "basic": "コード（VEXなど）は、1行ずつ読まない。「何をするコードか」を、先に説明する。変数名・記号・数式は読み上げない。",
+    "applied": "コード（VEXなど）は、1行ずつ読まない。「何をするコードか → ハマりどころ → 代わりの方法」の順で話す。変数名・記号・数式は読み上げない。",
+    "advanced": "コード（VEXなど）は、1行ずつ読まない。「意図 → ハマりどころ → 代わりの方法」の順で話す。変数名・記号・数式は読み上げない。",
+}
+_STYLE: dict[str, str] = {
+    "basic": "話し言葉の「です・ます」調で、1文は40文字くらいまで。日常で使わない難しい漢語は避ける。",
+    "applied": "話し言葉の「です・ます」調で、1文は45文字くらいまで。",
+    "advanced": "話し言葉の「です・ます」調で、1文は50文字くらいまで。専門用語は使ってよいが、1文に詰め込まない。",
+}
+_SECTIONS_RULE: dict[str, str] = {
+    "basic": "「その他の節」（つまずきやすい点、応用のヒントなど）は、読むための文章で書かれている。そのまま読まず、基本操作を知っている人が知っておくとよい要点を1〜3つ選び、話し言葉に言い直す（2〜4文）。コード・関数名・記号は読み上げない。",
+    "applied": "「その他の節」（つまずきやすい点、応用のヒントなど）は、読むための文章で書かれている。そのまま読まず、実務で効く要点を2〜3つ選び、判断の理由を添えて話し言葉に言い直す（3〜5文）。コード・関数名・記号は読み上げない。",
+    "advanced": "「その他の節」（つまずきやすい点、応用のヒントなど）は、読むための文章で書かれている。そのまま読まず、判断の根拠・壊れる条件・気づく方法を中心に2〜4つ選び、話し言葉に言い直す（3〜6文）。コード・関数名・記号は読み上げない。",
+}
+_INTRO: dict[str, str] = {
+    "basic": "この動画で何を作り、どの仕組みを理解するか、何が身につくかを話す（3〜5文）",
+    "applied": "この動画で、何を実務で使える形にするか、どんな判断をするかを話す（3〜5文）",
+    "advanced": "この動画で、何を比べ、何を測り、何を判断できるようになるかを話す（3〜5文）",
+}
+_STEP_SENTENCES: dict[str, str] = {"basic": "3〜5文", "applied": "3〜6文", "advanced": "4〜7文"}
+_OUTRO: dict[str, str] = {
+    "basic": "まとめと、次にやってみるとよいこと（2〜3文）",
+    "applied": "まとめと、現場で気をつける点（2〜3文）",
+    "advanced": "判断の要点のまとめと、次に検証するとよいこと（2〜4文）",
+}
+_AUDIENCE: dict[str, str] = {
+    "basic": "基本操作を知っている人向け",
+    "applied": "実務でHoudiniを使う人向け",
+    "advanced": "経験者向け",
+}
+
+_PROMPT_TEMPLATE = """@@ROLE@@
 
 【手順ごとのナレーションの書き方】
-1. 次の順で書く。①と②は必ず入れる。
-   ①いま何をするか　②なぜそうするのか（それは何のためのものか）　③画面で見る場所・変わるところ　④つまずきやすい点（あれば）
-2. 初めて出てくる用語は、その場で一言で説明する。例:「アトリビュートラングルは、短いプログラムを書いて、点の値をまとめて計算するノードです」。2回目以降は説明しない。
-3. コード（VEXなど）は、1行ずつ読まない。「何をするコードか」を、日常のたとえで説明する。変数名・記号・数式は読み上げない。
+1. @@ORDER@@
+2. @@TERMS@@
+3. @@CODE@@
 4. 数字には意味を添える。ただし、与えられた情報から言えることだけにする。
-5. 話し言葉の「です・ます」調で、1文は40文字くらいまで。むずかしい漢語は避ける。
-6. ナレーションには、英字（アルファベット）を使わない。ノード名・用語はカタカナで書く（例: アトリビュートラングル、スキャッター、ジオメトリ）。数字は算用数字でよい。
+5. @@STYLE@@
+6. ナレーションには、英字（アルファベット）を使わない。ノード名・用語はカタカナで書く（例: アトリビュート、スキャッター、ジオメトリ）。数字は算用数字でよい。
 7. 画面に出す短い文（points）は、1行30文字くらいまで。ノード名やパラメータ名は、英字のままでよい。コードは入れない。
 8. 与えられた手順・値・ノード名にないことは、書かない。分からないことは、書かない。
 9. 「それでは始めましょう」のような決まり文句を、手順ごとに繰り返さない。
-10. 「その他の節」（つまずきやすい点、応用のヒントなど）は、専門家向けに書かれている。そのまま読まず、初心者が知っておくとよい要点を1〜3つ選び、やさしい言葉で言い直す（2〜4文）。コード・関数名・記号は読み上げない。
-11. 本文に「先に知っておく考え方」があるときは、手順の説明でその用語・たとえを使い、考え方と画面の操作を結びつける（「さっきのたとえで言うと、ここが〇〇にあたります」）。
+10. @@SECTIONS@@
+11. 本文に「先に知っておく考え方」があるときは、手順の説明でその用語・たとえ・設計判断を使い、考え方と画面の操作を結びつける（「さっきの考え方で言うと、ここが〇〇にあたります」）。
 12. 本文の手順に「✅ 確認ポイント」があるときは、その手順（または直前の手順）のナレーションで、「ここで〇〇が見えれば正しいです。見えないときは、△△を確認してください」と、視聴者が自分で確かめられるように伝える。
 13. 「パラメータを動かして確かめよう」の節は、「前→後」で話す（「〇〇を△△から□□に変えると、…が変わります」）。数字そのものより、「何がどう変わるか」を伝える。本文にない結果は作らない。
 
 【出力】JSONだけを出力する（前後に説明やコードブロックを付けない）。形式:
 {
-  "intro": {"narration": "この動画で何を作るか、完成するとどう見えるか、何が身につくかを、はじめての人に向けて話す（3〜5文）", "points": ["作るもの（短く）", "身につくこと（短く）"]},
+  "intro": {"narration": "@@INTRO@@", "points": ["作るもの（短く）", "身につくこと（短く）"]},
   "steps": [
     {"step": 手順の番号（入力と同じ数字）, "heading": "手順の見出し（20文字まで。例: スキャッターで点を散らす）",
-     "narration": "解説（2〜5文）", "points": ["画面に出す短い文（任意、最大2行）"]}
+     "narration": "解説（@@STEP@@）", "points": ["画面に出す短い文（任意、最大2行）"]}
   ],
   "structure": {"narration": "作ったノード全体の流れを、上から下へ順に説明（2〜3文）", "points": []},
-  "sections": [{"match": "その他の節の見出し（入力と同じ文字）", "heading": "見出し（20文字まで。例: つまずきやすいところ）", "narration": "初心者向けの言い直し（2〜4文）", "points": ["要点（短く）"]}],
-  "outro": {"narration": "まとめと、次にやってみるとよいこと（2〜3文）", "points": ["次にやってみること（短く）"]}
+  "sections": [{"match": "その他の節の見出し（入力と同じ文字）", "heading": "見出し（20文字まで。例: つまずきやすいところ）", "narration": "@@AUDIENCE@@の言い直し", "points": ["要点（短く）"]}],
+  "outro": {"narration": "@@OUTRO@@", "points": ["次にやってみること（短く）"]}
 }
 stepsには、入力のすべての手順を、同じ順番で入れること。sectionsには、入力のすべての「その他の節」を入れること（無ければ空の配列）。"""
+
+
+def system_prompt(level: str = "") -> str:
+    """台本を書かせる指示。level（basic / applied / advanced）で、視聴者・用語の扱い・順序・長さが変わる。未知・空は basic。"""
+    key = level if level in LEVELS else "basic"
+    return (
+        _PROMPT_TEMPLATE.replace("@@ROLE@@", _ROLE[key])
+        .replace("@@ORDER@@", _ORDER[key])
+        .replace("@@TERMS@@", _TERMS[key])
+        .replace("@@CODE@@", _CODE[key])
+        .replace("@@STYLE@@", _STYLE[key])
+        .replace("@@SECTIONS@@", _SECTIONS_RULE[key])
+        .replace("@@INTRO@@", _INTRO[key])
+        .replace("@@STEP@@", _STEP_SENTENCES[key])
+        .replace("@@AUDIENCE@@", _AUDIENCE[key])
+        .replace("@@OUTRO@@", _OUTRO[key])
+    )
+
+
+SYSTEM_PROMPT = system_prompt("basic")  # 互換用（レベルを指定しない呼び出し）
+
+# レベルごとの長さの上限（文字）。上のレベルほど、判断の理由や比較に文字数を使うので長くなる。
+# レベル不明（""）は、これまでの上限のまま。
+_LIMITS: dict[str, dict[str, int]] = {
+    "": {"step": STEP_NARRATION_MAX, "section": 360, "intro": INTRO_NARRATION_MAX, "structure": STRUCTURE_NARRATION_MAX, "outro": OUTRO_NARRATION_MAX},
+    "basic": {"step": 340, "section": 380, "intro": 520, "structure": 380, "outro": 380},
+    "applied": {"step": 420, "section": 460, "intro": 560, "structure": 440, "outro": 420},
+    "advanced": {"step": 520, "section": 560, "intro": 600, "structure": 520, "outro": 480},
+}
+
+
+def limits_for(level: str) -> dict[str, int]:
+    return _LIMITS.get(level, _LIMITS[""])
+
+
+def level_from_md(md_text: str) -> str:
+    """チュートリアル(.md)のフロントマターの difficulty（= 生成したレベル）。無い・未知は空文字。"""
+    m = re.match(r"^---\n(.*?)\n---\n", md_text.replace("\r\n", "\n"), re.S)
+    if not m:
+        return ""
+    d = re.search(r"^difficulty:\s*(\w+)\s*$", m.group(1), re.M)
+    return d.group(1) if d and d.group(1) in LEVELS else ""
 
 
 def usable_steps(step_screenshots: list[dict]) -> list[dict]:
@@ -120,6 +225,8 @@ READINGS: dict[str, str] = {
     "Transform": "トランスフォーム", "Sphere": "スフィア", "Box": "ボックス", "Grid": "グリッド",
     "Detail": "ディテール", "Points": "ポイント", "Primitives": "プリミティブ", "Parameters": "パラメータ",
     "cook": "クック", "SOP": "ソップ", "DOP": "ドップ", "VOP": "ヴォップ", "HDA": "エイチディーエー",
+    "PDG": "ピーディージー", "USD": "ユーエスディー", "LOP": "ロップ", "COP": "コップ", "Packed": "パックド",
+    "Attribute": "アトリビュート", "Multiparm": "マルチパーム",
 }
 
 
@@ -206,9 +313,10 @@ def _short(text: str) -> str:
     return text[:POINT_MAX_CHARS] if len(text) <= POINT_MAX_CHARS else text[: POINT_MAX_CHARS - 1] + "…"
 
 
-def _template_step(entry: dict, seen: set[str] | None = None) -> dict:
+def _template_step(entry: dict, seen: set[str] | None = None, compact: bool = False) -> dict:
     """1手順ぶんの定型の解説。操作文（entry['result']）の最初の行だけを使い、コードは使わない。
-    seen: これまでの手順で説明済みの話題。2回目以降は、同じ説明を繰り返さず、短く言う。"""
+    seen: これまでの手順で説明済みの話題。2回目以降は、同じ説明を繰り返さず、短く言う。
+    compact: レベルが分かっているとき（基本操作を知っている人向け）は、ノードの基本の説明・Tabキー・つなぎ方の一般論を省く。"""
     seen = seen if seen is not None else set()
     tool = str(entry.get("tool") or "")
     result = str(entry.get("result") or "").strip()
@@ -227,10 +335,10 @@ def _template_step(entry: dict, seen: set[str] | None = None) -> dict:
                 narration = f"もう1つ、{desc}ノードを作ります。名前は{name}にします。"
             else:
                 narration = f"{desc}ノードを作って、名前を{name}にします。"
-                help_text = _NODE_HELP.get(ntype.lower(), "")
+                help_text = "" if compact else _NODE_HELP.get(ntype.lower(), "")
                 if help_text:
                     narration += help_text + "。"
-            if "tab" not in seen:
+            if not compact and "tab" not in seen:
                 narration += "ノードは、Tabキーを押して、名前の一部を打つと見つかります。"
                 seen.add("tab")
             seen.add(key)
@@ -242,7 +350,7 @@ def _template_step(entry: dict, seen: set[str] | None = None) -> dict:
         seen.add("node:geo")
         return {
             "heading": "作業場所を作る",
-            "narration": "作業場所になるジオメトリノードを作ります。" + _NODE_HELP["geo"] + "。",
+            "narration": "作業場所になるジオメトリノードを作ります。" + ("このあとの処理は、この中に並べます。" if compact else _NODE_HELP["geo"] + "。"),
             "points": points,
         }
     if tool == "connect_nodes":
@@ -253,7 +361,7 @@ def _template_step(entry: dict, seen: set[str] | None = None) -> dict:
             points = [_short(f"{src} → {dst}" + (f"（{nth}入力）" if nth else ""))]
         if nth:
             what = f"{src}の出力を、{dst}の{nth}入力につなぎます。入力が2つ以上あるノードは、つなぐ場所で意味が変わります。"
-        if "connect" in seen:
+        if "connect" in seen or compact:
             return {"heading": "ノードをつなぐ", "narration": what, "points": points}
         seen.add("connect")
         return {
@@ -285,7 +393,7 @@ def _template_step(entry: dict, seen: set[str] | None = None) -> dict:
                 if len(parts) > 1 and len(set(parts)) == 1:  # 「0.8 0.8 0.8」のような、同じ値の並び
                     value = f"すべて{parts[0]}"
                 detail = f"{pm.group(1)}の「{one.group(1)}」を{value}にします。".replace("をすべて", "を、すべて")
-        if "param" in seen:
+        if "param" in seen or compact:
             return {"heading": "パラメータを設定する", "narration": (detail or "もう1つ、設定を変えます。"), "points": points}
         seen.add("param")
         return {
@@ -295,8 +403,8 @@ def _template_step(entry: dict, seen: set[str] | None = None) -> dict:
             "points": points,
         }
     if tool == "cook_node":
-        if "cook" in seen:
-            return {"heading": "結果を確認する", "narration": "もう一度、クックして、結果を確認します。", "points": ["エラーが出ないか確認する"]}
+        if "cook" in seen or compact:
+            return {"heading": "結果を確認する", "narration": "クックして、エラーが出ないことと、形が狙いどおりかを確認します。", "points": ["エラーが出ないか確認する"]}
         seen.add("cook")
         return {
             "heading": "結果を確認する",
@@ -364,14 +472,17 @@ def _template_section(heading: str) -> dict:
     }
 
 
-def _template_intro(title: str, summary: str) -> dict:
+def _template_intro(title: str, summary: str, compact: bool = False) -> dict:
     first = ""
     if summary:
         sentence = summary.replace("\n", " ").split("。", 1)[0].strip()
         if sentence and not looks_like_code(sentence) and len(sentence) <= 120:
             first = to_katakana(sentence) + "。"
     narration = f"この動画では、「{to_katakana(title)}」を作ります。" if title else "この動画では、チュートリアルの手順を追っていきます。"
-    narration += first + "操作を1つずつ、何をしているのかを説明しながら進めるので、はじめての方も、画面を見ながらついてきてください。"
+    if compact:
+        narration += first + "操作を1つずつ、何をしているのかと、その理由を説明しながら進めます。"
+    else:
+        narration += first + "操作を1つずつ、何をしているのかを説明しながら進めるので、はじめての方も、画面を見ながらついてきてください。"
     return {"narration": narration, "points": ([title[:POINT_MAX_CHARS]] if title else [])}
 
 
@@ -424,7 +535,10 @@ def extra_sections(md_text: str) -> list[tuple[str, str]]:
     return out
 
 
-def build_user_prompt(title: str, excerpt: str, steps: list[dict], sections: list[tuple[str, str]] | None = None) -> str:
+def build_user_prompt(
+    title: str, excerpt: str, steps: list[dict], sections: list[tuple[str, str]] | None = None, level: str = ""
+) -> str:
+    audience = _AUDIENCE.get(level, _AUDIENCE["basic"])
     lines = []
     for s in steps:
         result = str(s.get("result") or "").strip()
@@ -436,14 +550,14 @@ def build_user_prompt(title: str, excerpt: str, steps: list[dict], sections: lis
         lines.append(json.dumps(item, ensure_ascii=False))
     section_block = ""
     if sections:
-        section_block = "【その他の節（初心者向けに言い直すこと。matchには見出しをそのまま入れる）】\n" + "\n\n".join(
+        section_block = f"【その他の節（{audience}に言い直すこと。matchには見出しをそのまま入れる）】\n" + "\n\n".join(
             f"## {h}\n{b[:900]}" for h, b in sections
         ) + "\n\n"
     return (
         f"【チュートリアルのタイトル】{title}\n\n"
-        f"【チュートリアル本文（作った人の下書き。専門家向けの書き方なので、初心者向けに言い直すこと）】\n{excerpt}\n\n"
+        f"【チュートリアル本文（作った人の下書き。読むための文章なので、{audience}の話し言葉の台本に言い直すこと）】\n{excerpt}\n\n"
         f"【動画に出る手順（この順番。stepの数字をそのまま使うこと）】\n" + "\n".join(lines) + "\n\n"
-        + section_block + "上のルールに従って、初心者向けの台本をJSONで出力してください。"
+        + section_block + f"上のルールに従って、{audience}の台本をJSONで出力してください。"
     )
 
 
@@ -460,13 +574,16 @@ def parse_model_json(text: str) -> dict | None:
 
 
 def assemble_script(
-    model: dict | None, steps: list[dict], title: str, summary: str, sections: list[tuple[str, str]] | None = None
+    model: dict | None, steps: list[dict], title: str, summary: str, sections: list[tuple[str, str]] | None = None,
+    level: str = "",
 ) -> tuple[dict, str, list[str]]:
     """モデルの出力を検証して台本にする。不合格の部分は定型の解説で補う。
     戻り値: (台本, source, 注意書き)。source は claude / claude+template / template。"""
     notes: list[str] = []
     model = model or {}
     from_model = 0
+    lim = limits_for(level)
+    compact = level in LEVELS
 
     out_steps: list[dict] = []
     seen: set[str] = set()  # 定型の解説で、説明済みの話題（同じ説明の繰り返しを避ける）
@@ -477,19 +594,19 @@ def assemble_script(
     for entry in steps:
         n = entry.get("step")
         item = by_step.get(n)
-        narration = clean_narration(item.get("narration"), STEP_NARRATION_MAX, STEP_NARRATION_MIN) if item else None
+        narration = clean_narration(item.get("narration"), lim["step"], STEP_NARRATION_MIN) if item else None
         if narration:
             from_model += 1
             out_steps.append({
                 "step": n,
-                "heading": clean_heading(item.get("heading")) or _template_step(entry, set())["heading"],
+                "heading": clean_heading(item.get("heading")) or _template_step(entry, set(), compact)["heading"],
                 "narration": narration,
-                "points": clean_points(item.get("points")) or _template_step(entry, set())["points"],
+                "points": clean_points(item.get("points")) or _template_step(entry, set(), compact)["points"],
             })
         else:
             if item:
                 notes.append(f"手順{n}: 解説が基準を満たさなかったため、定型の解説にしました")
-            t = _template_step(entry, seen)
+            t = _template_step(entry, seen, compact)
             out_steps.append({"step": n, **t})
 
     def section(key: str, max_chars: int, fallback: dict | None) -> dict | None:
@@ -501,9 +618,9 @@ def assemble_script(
             notes.append(f"{key}: 基準を満たさなかったため、定型の文にしました")
         return fallback
 
-    intro = section("intro", INTRO_NARRATION_MAX, _template_intro(title, summary))
-    structure = section("structure", STRUCTURE_NARRATION_MAX, None)
-    outro = section("outro", OUTRO_NARRATION_MAX, _template_outro())
+    intro = section("intro", lim["intro"], _template_intro(title, summary, compact))
+    structure = section("structure", lim["structure"], None)
+    outro = section("outro", lim["outro"], _template_outro())
 
     if not model:
         source = "template"
@@ -514,6 +631,8 @@ def assemble_script(
     else:
         source = "claude+template"
     script: dict = {"version": SCRIPT_VERSION, "source": source, "title": title, "intro": intro, "steps": out_steps, "outro": outro}
+    if level in LEVELS:
+        script["level"] = level  # どのレベル向けの台本か（動画エンジンは読まない。確認・集計用）
     if structure:
         script["structure"] = structure
 
@@ -525,7 +644,7 @@ def assemble_script(
     out_sections: list[dict] = []
     for heading, _body in sections or []:
         item = by_match.get(heading)
-        narration = clean_narration(item.get("narration"), SECTION_NARRATION_MAX, STEP_NARRATION_MIN) if item else None
+        narration = clean_narration(item.get("narration"), lim["section"], STEP_NARRATION_MIN) if item else None
         if narration:
             out_sections.append({
                 "match": heading,
@@ -545,7 +664,7 @@ def assemble_script(
 # ── 入口 ─────────────────────────────────────────────────────────────────
 
 def build_script(
-    md_text: str, step_screenshots: list[dict], complete: CompleteFn | None, images: dict | None = None
+    md_text: str, step_screenshots: list[dict], complete: CompleteFn | None, images: dict | None = None, level: str = ""
 ) -> tuple[dict | None, str, dict]:
     """台本を作る。戻り値: (台本 or None, 状態の説明, usage)。例外は投げない。
     images（任意）: 動画の説明スライドに使う画像のパス。{"node_diagram": "<ノードの関係図のPNG>"}。
@@ -555,6 +674,7 @@ def build_script(
         return None, "台本: 動画に出る手順が無いため、台本は作りませんでした", {}
     title, summary, excerpt = tutorial_excerpt(md_text)
     sections = extra_sections(md_text)
+    level = level if level in LEVELS else level_from_md(md_text)  # 引数が無ければ、.md の difficulty から
     model: dict | None = None
     usage: dict = {}
     detail = ""
@@ -563,7 +683,7 @@ def build_script(
     else:
         for attempt in (1, 2):
             try:
-                text, usage = complete(SYSTEM_PROMPT, build_user_prompt(title, excerpt, steps, sections))
+                text, usage = complete(system_prompt(level), build_user_prompt(title, excerpt, steps, sections, level))
                 model = parse_model_json(text)
                 if model:
                     break
@@ -571,7 +691,7 @@ def build_script(
             except Exception as exc:  # noqa: BLE001 -- best-effort
                 detail = f"Claudeの呼び出しに失敗したため（{str(exc)[:60]}）"
                 break
-    script, source, notes = assemble_script(model, steps, title, summary, sections)
+    script, source, notes = assemble_script(model, steps, title, summary, sections, level)
     clean_images = {k: str(v) for k, v in (images or {}).items() if v}
     if clean_images:
         script["images"] = clean_images
@@ -589,12 +709,12 @@ def save_script(path: Path, script: dict) -> None:
 
 
 def prepare_script_file(
-    md_path: Path, step_screenshots: list[dict], complete: CompleteFn | None, images: dict | None = None
+    md_path: Path, step_screenshots: list[dict], complete: CompleteFn | None, images: dict | None = None, level: str = ""
 ) -> tuple[Path | None, str]:
     """保存済みの .md から台本を作り、`<slug>_video_script.json` に書く。戻り値: (パス or None, 状態)。"""
     try:
         md_text = md_path.read_text(encoding="utf-8")
-        script, message, usage = build_script(md_text, step_screenshots, complete, images)
+        script, message, usage = build_script(md_text, step_screenshots, complete, images, level)
         if script is None:
             return None, message
         if usage:

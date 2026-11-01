@@ -235,7 +235,7 @@ class FeedbackResendWorker(QThread):
 
 
 class VideoScriptWorker(QThread):
-    """動画用の「初心者向け台本」を作る（Claude呼び出しは数十秒かかるので、UIを止めないよう別スレッド）。
+    """動画用の「解説の台本」（チュートリアルのレベルに合わせた説明の深さ）を作る（Claude呼び出しは数十秒かかるので、UIを止めないよう別スレッド）。
     台本が作れなくても、動画は従来どおり作れる（その場合 script_path は空）。"""
     done = Signal(str, str)  # (台本ファイルのパス or "", 状態の説明)
 
@@ -577,10 +577,10 @@ class TutorialGeneratePanel(QWidget):
         self._level_combo = QComboBox()
         self._level_combo.addItems(["basic", "applied", "advanced"])
         self._level_combo.setToolTip(
-            "basic: 初心者向け最小構成 / applied: basicにパラメータ調整・分岐を追加\n"
-            "advanced: appliedにVEX/式等の実務パターンを追加\n"
-            "説明の言葉の難しさと深さも、段階に合わせて変わります（basic=用語を説明しながら、"
-            "applied=仕組みと理由まで、advanced=専門用語のまま設計判断まで）"
+            "basic（レッスン1）: 基本操作は分かる人向け。パラメータを動かして仕組みを理解する\n"
+            "applied（レッスン2）: 実務で使える形（再利用・バリエーション・書き出し）。設計の理由まで説明\n"
+            "advanced（レッスン3）: 設計の判断。別構成との比較・規模・壊れる条件を、数値で示す\n"
+            "説明の言葉の難しさと深さ、解説動画のナレーションも、段階に合わせて変わります"
         )
         level_row.addWidget(self._level_combo)
         self._chain_checkbox = QCheckBox("3段階連続生成（basic→applied→advanced、自動保存）")
@@ -1062,7 +1062,7 @@ class TutorialGeneratePanel(QWidget):
         steps = list(getattr(result, "step_screenshots", None) or [])
         if not steps:
             return self._start_video_process(result, md_path, json_path, None)
-        self._video_progress.setText("動画生成: 初心者向けの台本を作っています（数十秒かかります）…")
+        self._video_progress.setText("動画生成: 解説の台本を作っています（数十秒かかります）…")
         self._set_video_bar(0, "台本づくり")
         self._script_elapsed = 0.0
         self._script_timer.start()

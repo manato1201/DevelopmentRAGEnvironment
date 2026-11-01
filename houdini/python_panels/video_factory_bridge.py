@@ -120,7 +120,7 @@ def launch_video_generation(
     except OSError as exc:
         return f"動画生成の起動に失敗しました: {exc}", None
 
-    script_note = "初心者向け台本つき / " if has_script else ""
+    script_note = "台本つき / " if has_script else ""
     shot_count = sum(1 for s in step_screenshots if s.get("viewport") or s.get("network"))
     if shot_count:
         status = (

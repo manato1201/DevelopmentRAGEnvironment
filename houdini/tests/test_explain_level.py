@@ -22,18 +22,23 @@ class TutorialExplanationStyleTest(unittest.TestCase):
         self.assertEqual(set(ld.EXPLANATION_STYLE), {"basic", "applied", "advanced"})
         styles = [ld.explanation_style(level) for level in ("basic", "applied", "advanced")]
         self.assertEqual(len(set(styles)), 3, "the three levels are explained differently")
-        self.assertIn("初めて触る人", styles[0])
-        self.assertIn("仕組み", styles[1])
-        self.assertIn("設計判断", styles[2])
+        self.assertIn("基本操作", styles[0])
+        self.assertIn("仕組み", styles[0])
+        self.assertIn("設計判断", styles[1])
+        self.assertIn("トレードオフ", styles[2])
         self.assertEqual(ld.explanation_style("unknown"), styles[0], "unknown level falls back to basic")
 
     def test_explanation_gets_harder_as_levels_rise(self):
         basic, applied, advanced = (ld.EXPLANATION_STYLE[k] for k in ("basic", "applied", "advanced"))
-        # basic: 用語を説明しながら・コードは出さない / applied: 基本用語は説明しない / advanced: 専門用語のまま・基本は省く
-        self.assertIn("コード（VEX・式）は出しません", basic)
-        self.assertIn("基本用語は、説明せずに使って", applied)
-        self.assertIn("専門用語", advanced)
-        self.assertIn("説明せず", advanced)
+        # 2026-11-01: 一段引き上げ。basic: 基本用語は説明しない・新しい専門用語だけ一言 / applied: 専門用語のまま・設計判断 /
+        # advanced: 手法の説明を省き、比較・数値・壊れる条件
+        self.assertIn("基本用語は、説明せずに使って", basic)
+        self.assertIn("初出で1文だけ", basic)
+        self.assertIn("専門用語", applied)
+        self.assertIn("代わりの方法", applied)
+        self.assertIn("前のレッスンの内容は繰り返しません", applied)
+        self.assertIn("数値つき", advanced)
+        self.assertIn("壊れる条件", advanced)
         self.assertIn("前のレッスンの内容は繰り返しません", advanced)
 
     def test_style_is_part_of_the_plan_prompt_and_the_agent_instruction(self):
