@@ -49,6 +49,13 @@ try:
 except ImportError:
     _DOCS_AVAILABLE = False
 
+# guide_view.py（Guide タブ: 手順ごとの案内）も同様
+try:
+    from guide_view import GuideWidget as _GuideWidget
+    _GUIDE_AVAILABLE = True
+except ImportError:
+    _GUIDE_AVAILABLE = False
+
 # tutorial_view.py（チュートリアル生成タブ）も同様にフォールバック対応
 try:
     from tutorial_view import TutorialGeneratePanel as _TutorialGeneratePanel
@@ -474,6 +481,7 @@ class RAGChatbotPanel(QWidget):
         tabs.addTab(self._wrap_tab(self._build_help_tab()),     "はじめに")
         tabs.addTab(self._wrap_tab(self._build_chat_tab()),     "Chat")
         tabs.addTab(self._wrap_tab(self._build_docs_tab()),     "Docs")
+        tabs.addTab(self._wrap_tab(self._build_guide_tab()),    "Guide")
         tabs.addTab(self._tutorial_tab_wrapper,                 "Tutorial")
         tabs.addTab(self._wrap_tab(self._build_history_tab()),  "History")
         tabs.addTab(self._video_tab_wrapper,                    "動画")
@@ -727,6 +735,24 @@ class RAGChatbotPanel(QWidget):
         label = QLabel(
             "docs_view.py が見つかりません。\n"
             "houdini/python_panels/ に docs_view.py を配置してください。"
+        )
+        label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(label)
+        return w
+
+    def _build_guide_tab(self) -> QWidget:
+        """
+        Guide タブ（2026-11-03）: 保存したチュートリアルを手順ごとに案内する。見るタブ・操作するノード・
+        変えるパラメータ・ショートカットを示し、Houdini の画面のタブとノードを前面に出す（画面の部品は消さない）。
+        """
+        if _GUIDE_AVAILABLE:
+            self._guide_widget = _GuideWidget(lambda: self._cfg)
+            return self._guide_widget
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        label = QLabel(
+            "guide_view.py が見つかりません。\n"
+            "houdini/python_panels/ に guide_view.py と guide_mode.py を配置してください。"
         )
         label.setAlignment(Qt.AlignCenter)
         layout.addWidget(label)

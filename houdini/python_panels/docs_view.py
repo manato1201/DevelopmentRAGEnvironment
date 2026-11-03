@@ -73,6 +73,8 @@ class DocsWidget(QWidget):
         self._doc_file = ""
         self._doc_text = ""
         self._doc_next: int | None = None
+        self._open_top_hit = False  # 「選択中のノードを調べる」から検索したとき、先頭の結果を自動で開く
+        self._node_info: dict | None = None
         self._build_ui()
 
     # ── 公開 ─────────────────────────────────────────────────────────────────
@@ -121,10 +123,19 @@ class DocsWidget(QWidget):
         self._list_btn = QPushButton("名前で絞る")
         self._list_btn.setToolTip("ドキュメント名に、この語を含むものを並べます。空のまま押すと、全部を名前順に出します")
         self._list_btn.clicked.connect(self._on_list)
+        self._node_btn = QPushButton("選択中のノードを調べる")
+        self._node_btn.setToolTip("Houdini のネットワークエディタで選んでいるノードの説明を、ナレッジから探して開きます")
+        self._node_btn.clicked.connect(self._on_selected_node)
+        self._help_btn = QPushButton("公式ヘルプ")
+        self._help_btn.setToolTip("Houdini 自身のヘルプ（そのノードのマニュアルのページ）を開きます")
+        self._help_btn.setVisible(False)
+        self._help_btn.clicked.connect(self._on_open_help)
         bar.addWidget(self._ns)
         bar.addWidget(self._query, stretch=1)
         bar.addWidget(self._search_btn)
         bar.addWidget(self._list_btn)
+        bar.addWidget(self._node_btn)
+        bar.addWidget(self._help_btn)
         root.addLayout(bar)
 
         self._status = QLabel("ナレッジのドキュメントを探して読めます。検索語を入れて「意味で検索」を押してください")
@@ -194,7 +205,7 @@ class DocsWidget(QWidget):
         job.start()
 
     def _set_busy(self, busy: bool) -> None:
-        for button in (self._search_btn, self._list_btn, self._more_btn, self._next_btn):
+        for button in (self._search_btn, self._list_btn, self._node_btn, self._more_btn, self._next_btn):
             button.setEnabled(not busy)
 
     def _namespace(self) -> str:
@@ -253,6 +264,41 @@ class DocsWidget(QWidget):
         self._status.setText(
             f"「{query}」: {len(hits)} 件。クリックで本文を開きます" if hits else f"「{query}」に一致するドキュメントはありませんでした"
         )
+        if self._open_top_hit and hits:
+            self._open_top_hit = False
+            self._open(hits[0][0])
+        else:
+            self._open_top_hit = False
+
+    def _on_selected_node(self) -> None:
+        """Houdini で選んでいるノードの説明を探す（先頭の結果を自動で開く）。"""
+        try:
+            import hou  # type: ignore[import-not-found]
+        except ImportError:
+            self._status.setText("Houdini の中でだけ使えます")
+            return
+        import guide_mode
+
+        info = guide_mode.selected_node_info(hou)
+        if info is None:
+            self._status.setText("ネットワークエディタで、調べたいノードを1つ選んでから押してください")
+            return
+        self._node_info = info
+        self._help_btn.setVisible(True)
+        self._query.setText(guide_mode.doc_query(info))
+        self._open_top_hit = True
+        self._on_search()
+
+    def _on_open_help(self) -> None:
+        if not self._node_info:
+            return
+        try:
+            import hou  # type: ignore[import-not-found]
+            import guide_mode
+        except ImportError:
+            return
+        _ok, message = guide_mode.open_node_help(hou, self._node_info)
+        self._status.setText(message)
 
     def _on_list(self) -> None:
         namespace = self._namespace()

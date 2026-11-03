@@ -75,7 +75,7 @@ def launch_video_generation(
 
     try:
         screenshots_path.write_text(
-            json.dumps(step_screenshots, ensure_ascii=False, indent=2),
+            json.dumps([{k: v for k, v in s.items() if k != "guide"} for s in step_screenshots], ensure_ascii=False, indent=2),  # guide は案内モード用（動画エンジンには渡さない）
             encoding="utf-8",
         )
     except OSError as exc:

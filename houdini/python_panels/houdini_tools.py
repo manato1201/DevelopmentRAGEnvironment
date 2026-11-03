@@ -889,6 +889,42 @@ class HoudiniToolExecutor:
     def _leaf(path: str | None) -> str:
         return (path or "").rstrip("/").rsplit("/", 1)[-1]
 
+    def _step_guide(self, tool_name: str, tool_input: dict, focus_path: str | None, changes: list[dict] | None) -> dict:
+        """
+        案内モード（guide_mode.py）用の、手順の構造データ。操作するノード（名前・タイプ・表示名）、
+        つなぐ元と先、変えるパラメータ（名前・表示名・前後の値・Parm パネルでの場所）。
+        取れなければ空の dict（案内は、操作文からの読み取りに切り替わる）。
+        """
+        try:
+            guide: dict = {}
+            if tool_name == "connect_nodes":
+                guide["from"] = self._leaf(tool_input.get("from_node"))
+                guide["to"] = self._leaf(tool_input.get("to_node"))
+            node = self._hou.node(focus_path) if focus_path else None
+            if node is not None:
+                node_type = node.type()
+                guide.update({
+                    "node": node.name(), "node_path": self._rel(node),
+                    "node_type": node_type.name(), "node_label": node_type.description(),
+                })
+            elif tool_name == "delete_node":
+                guide["node"] = self._leaf(tool_input.get("node"))
+            if changes and node is not None:
+                rows: list = []
+                self._walk_parm_templates(node.parmTemplateGroup().entries(), (), rows)
+                where = {template.name(): " > ".join(folders) for folders, template in rows}
+                guide["parms"] = [
+                    {
+                        "name": c["name"], "label": c["label"], "old": str(c.get("old") or "")[:40],
+                        "new": "（コード。手順書を見る）" if c.get("code") else str(c["new"])[:60],
+                        "where": where.get(c["name"], ""),
+                    }
+                    for c in changes
+                ]
+            return guide
+        except Exception:  # noqa: BLE001 -- 案内データが取れなくても、生成は止めない
+            return {}
+
     def _step_instruction(self, tool_name: str, tool_input: dict, tool_result: str, focus_path: str | None,
                           changes: list[dict] | None) -> str:
         """
@@ -1052,6 +1088,7 @@ class HoudiniToolExecutor:
                 "network_kind": network_kind,
                 "viewport_clip_frames": [str(p) for p in clip_frames],
                 "viewport_clip_fps": clip_fps,
+                "guide": self._step_guide(tool_name, tool_input, focus_path, changes),
             }
             if replace_last:
                 self.step_screenshots[-1] = entry

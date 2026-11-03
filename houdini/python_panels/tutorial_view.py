@@ -1045,6 +1045,18 @@ class TutorialGeneratePanel(QWidget):
                 tutorial_feedback.write_metrics(md_path, metrics)
             except Exception:  # noqa: BLE001
                 pass
+        # 案内モード（Guide タブ）用の手順データ。手順書の前提条件・TIPS・課題も添える（失敗しても保存は成功扱い）。
+        try:
+            import guide_mode
+
+            guide = guide_mode.build_guide(
+                getattr(result, "step_screenshots", None) or [], result.title, result.level,
+                guide_mode.sections_from_markdown(result.markdown),
+            )
+            if guide["steps"]:
+                guide_mode.write_guide(guide_mode.guide_path_for(md_path), guide)
+        except Exception:  # noqa: BLE001
+            pass
         return md_path, json_path
 
     def _launch_video_for_result(self, result, md_path: Path, json_path: Path) -> str:
