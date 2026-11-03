@@ -323,7 +323,7 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、チ
 1. リクエストと参考ドキュメントからチュートリアルの構成を決める（3〜8ノード程度の到達可能なスコープに収める）
 2. ノードを作成・接続・パラメータ設定する
 3. cook_node でエラー確認 → 自己修正
-4. エラーゼロを確認し、パラメータ実験と仕上げ（上の「教え方のルール」）を終えたら finish_tutorial を呼ぶ。steps には実際に行った操作を、理由と各章の「✅ 確認ポイント」つきで、そのレベルの読者が再現できる粒度で書き、pitfalls には生成中に遭遇したエラーと対処を書く。learn / concepts / experiments / polish / next_lesson も書く。next_steps には「このパラメータを変えたら/このノードを足したら何が変わるか」を具体的に3〜5個挙げ、読んだ人が自分のプロジェクトに応用するための手がかりにする（手順の要約の繰り返しにしないこと）。sources_used には実際に参考にした「参考ドキュメント」の番号（下記の[1][2]...）を記入する（使っていなければ空配列）
+4. エラーゼロを確認し、パラメータ実験と仕上げ（上の「教え方のルール」）を終えたら finish_tutorial を呼ぶ。steps には実際に行った操作を、理由と各章の「✅ 確認ポイント」つきで、そのレベルの読者が再現できる粒度で書き、pitfalls には生成中に遭遇したエラーと対処を書く。learn / concepts / experiments / polish / next_lesson に加え、prerequisites / use_cases / roadmap / tips / challenge も書く（上の「教え方のルール」）。next_steps には「このパラメータを変えたら/このノードを足したら何が変わるか」を具体的に3〜5個挙げ、読んだ人が自分のプロジェクトに応用するための手がかりにする（手順の要約の繰り返しにしないこと）。sources_used には実際に参考にした「参考ドキュメント」の番号（下記の[1][2]...）を記入する（使っていなければ空配列）
 5. finish_tutorial の直後に現在のビューポート画像が送られます。**その画像を確認し、意図した見た目になっているか自己検証してから、必ず confirm_tutorial を呼んでください。** 見た目に問題があれば looks_correct=false にして修正し、finish_tutorial からやり直してください
 
 ## 参考ドキュメント（{kb_label} ナレッジベース。番号は sources_used で引用する際に使う）
@@ -1652,9 +1652,13 @@ class TutorialAgent:
                 return ""
             return f"## {tutorial_review.LESSON_FIELDS[key][0]}\n\n{body}\n\n"
 
-        lesson_before = lesson_block("learn") + lesson_block("concepts")
-        lesson_after = lesson_block("experiments") + lesson_block("polish")
-        lesson_next = lesson_block("next_lesson")
+        # 読む前の準備（前提・場面・段取り）→ 学ぶこと・考え方 → 手順 → 実験・仕上げ・TIPS → … → 自分でやってみよう・次のレッスン
+        lesson_before = (
+            lesson_block("prerequisites") + lesson_block("use_cases") + lesson_block("roadmap")
+            + lesson_block("learn") + lesson_block("concepts")
+        )
+        lesson_after = lesson_block("experiments") + lesson_block("polish") + lesson_block("tips")
+        lesson_next = lesson_block("challenge") + lesson_block("next_lesson")
         return f"""---
 title: {result.title}
 namespace: tutorials

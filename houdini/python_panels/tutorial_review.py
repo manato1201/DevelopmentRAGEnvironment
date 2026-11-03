@@ -19,6 +19,19 @@ import re
 
 # finish_tutorial の「レッスン用の項目」。キー → (日本語の名前, 書き方の指示)
 LESSON_FIELDS: dict[str, tuple[str, str]] = {
+    "prerequisites": (
+        "前提条件",
+        "対象の読者・前提知識・Houdiniのバージョン・用意するもの（素材・モデル）。"
+        "「知っている人は〇から読む」「分からなければ先に△△を見る」も書く（Markdown箇条書き）",
+    ),
+    "use_cases": (
+        "どんな場面で使うか",
+        "この技法が役立つ具体的な場面を2〜3個（ゲーム・映像など）。「〇〇のとき、これを使う」の形で",
+    ),
+    "roadmap": (
+        "作る前に: 使うノードと、できること",
+        "使うノードを使う順に並べ、各ノードで何ができるかを1行ずつ（Markdown番号付き）。全体の段取りが分かる形に",
+    ),
     "learn": ("このレッスンで学ぶこと", "身につくことを2〜4個の箇条書きで"),
     "concepts": (
         "先に知っておく考え方",
@@ -31,6 +44,14 @@ LESSON_FIELDS: dict[str, tuple[str, str]] = {
         "「ノード.パラメータ: 値A → 値B で、〇〇がこう変わる」の形で。終わったら値を元に戻すこと",
     ),
     "polish": ("仕上げ", "見た目を整える1〜2個の操作（色・密度・大きさ・向きなど）と、その効果"),
+    "tips": (
+        "TIPS",
+        "作業が楽になるコツ・確かめ方・うまくいかないときの切り分け方を3〜5個（Markdown箇条書き）。確かめたことだけ書く",
+    ),
+    "challenge": (
+        "自分でやってみよう",
+        "手本を見ずに自分で作る課題。やり方ではなく「結果の条件」だけを書く（例: 「点が500個以上あり、〇〇属性がある」）。余裕がある人向けの応用も1つ",
+    ),
     "next_lesson": ("次のレッスン", "このレッスンの次に学ぶとよいこと（1〜2個）と、そのために今回の内容がどう役立つか"),
 }
 
@@ -40,16 +61,22 @@ MIN_EXPERIMENTS = 2
 
 # 各項目の配点（合計100）
 _WEIGHTS: dict[str, int] = {
-    "learn": 8,
-    "concepts": 14,
-    "checkpoints": 16,
-    "experiments_written": 12,
-    "experiments_done": 14,
+    "learn": 6,
+    "concepts": 10,
+    "checkpoints": 12,
+    "experiments_written": 10,
+    "experiments_done": 10,
     "verified_numerically": 8,
-    "polish": 8,
+    "polish": 6,
     "pitfalls": 6,
     "next_lesson": 6,
-    "steps_explain_why": 8,
+    "steps_explain_why": 6,
+    # 2026-11-03: 初心者レビューで足りないと言われた「読む前の準備」と「読んだあとの手がかり」
+    "prerequisites": 4,
+    "use_cases": 4,
+    "roadmap": 4,
+    "tips": 4,
+    "challenge": 4,
 }
 
 _WHY_RE = re.compile(r"ため|ので|理由|なぜ|から(?:です|だ|。)|役割|目的")
@@ -117,6 +144,11 @@ def review_finish(finish: dict, step_log: list[dict] | None = None) -> dict:
     put("polish", len(_text(finish.get("polish"))) >= 12, "仕上げ")
     put("pitfalls", len(_text(finish.get("pitfalls"))) >= 12, "つまずきやすい点")
     put("next_lesson", len(_text(finish.get("next_lesson"))) >= 12, "次のレッスン")
+    put("prerequisites", len(_text(finish.get("prerequisites"))) >= 12, "前提条件")
+    put("use_cases", len(_text(finish.get("use_cases"))) >= 12, "どんな場面で使うか")
+    put("roadmap", len(_text(finish.get("roadmap"))) >= 12, "作る前に（使うノードとできること）")
+    put("tips", len(_text(finish.get("tips"))) >= 12, "TIPS")
+    put("challenge", len(_text(finish.get("challenge"))) >= 12, "自分でやってみよう")
 
     step_lines = [ln for ln in steps.splitlines() if _STEP_LINE_RE.match(ln)]
     if step_lines:

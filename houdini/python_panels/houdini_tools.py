@@ -426,6 +426,29 @@ HOUDINI_TOOLS: list[dict] = [
                         "追加するノードタイプなど具体的な手がかりを含めること。"
                     ),
                 },
+                "prerequisites": {
+                    "type": "string",
+                    "description": (
+                        "前提条件（Markdown箇条書き）。対象の読者、前提知識、Houdiniのバージョン、用意するもの。"
+                        "「知っている人は〇から読む」「分からなければ先に△△を見る」も書く"
+                    ),
+                },
+                "use_cases": {
+                    "type": "string",
+                    "description": "どんな場面で使うか（Markdown箇条書き 2〜3個）。「〇〇のとき、これを使う」の形で、具体的な場面を",
+                },
+                "roadmap": {
+                    "type": "string",
+                    "description": "作る前に: 使うノードを使う順に並べ、各ノードで何ができるかを1行ずつ（Markdown番号付き）",
+                },
+                "tips": {
+                    "type": "string",
+                    "description": "TIPS（Markdown箇条書き 3〜5個）。作業が楽になるコツ、確かめ方、うまくいかないときの切り分け方。確かめたことだけ",
+                },
+                "challenge": {
+                    "type": "string",
+                    "description": "自分でやってみよう。手本を見ずに作る課題で、やり方ではなく「結果の条件」だけを書く。余裕がある人向けの応用も1つ",
+                },
                 "learn": {
                     "type": "string",
                     "description": "このレッスンで身につくこと（Markdown箇条書き 2〜4個）",
@@ -433,8 +456,8 @@ HOUDINI_TOOLS: list[dict] = [
                 "concepts": {
                     "type": "string",
                     "description": (
-                        "先に知っておく考え方（Markdown）。初めて出る用語を一言で説明し、仕組み全体を日常の"
-                        "たとえで1つ説明する。初心者が手順を読む前に読む部分"
+                        "先に知っておく考え方（Markdown）。このレッスンで初めて出る用語を一言で説明し、仕組み全体を"
+                        "たとえ（レッスン1）か設計判断（レッスン2・3）で説明する。手順を読む前に読む部分"
                     ),
                 },
                 "experiments": {
@@ -2233,7 +2256,8 @@ class HoudiniToolExecutor:
 
         def content_length(draft: dict) -> int:
             fields = ("title", "overview", "steps", "pitfalls", "next_steps",
-                      "learn", "concepts", "experiments", "polish", "next_lesson")
+                      "learn", "concepts", "experiments", "polish", "next_lesson",
+                      "prerequisites", "use_cases", "roadmap", "tips", "challenge")
             return sum(len(str(draft.get(f, ""))) for f in fields)
 
         # 文字数が同点の場合はインデックスが大きい（＝より新しい）方を優先する。

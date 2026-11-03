@@ -24,6 +24,7 @@ MAX_CONCEPTS = 4
 MAX_CHAPTERS = 6
 MAX_EXPERIMENTS = 3
 MAX_DECISIONS = 3
+MAX_ROADMAP = 8
 MAX_FIELD_CHARS = 200
 
 # basic → applied → advanced は、1つの学習の道すじ（レッスン1→2→3）。
@@ -115,6 +116,8 @@ _PLAN_TEMPLATE = """あなたは、Houdini（フーディニ）の解説動画�
 - 確認は、画面の見た目か、cook_node / inspect_geometry で分かる数値（点の数、範囲、属性の有無）で書く。
 - 実験（experiments）は2〜3個。「どのノードのどのパラメータを、どの値からどの値に変えると、何がどう変わるか」を具体的に。
 - @@DECISIONS@@
+- 読む前の準備を設計に入れる。前提（prerequisites）は、読者が持っているべき知識と用意するもの。場面（use_cases）は、読む人が「自分の仕事のここで使える」と分かる具体例。段取り（roadmap）は、使うノードを使う順に並べ、各ノードで何ができるか。
+- 読んだあとの手がかりも入れる。TIPS（tips）は、確かめ方（Geometry Spreadsheetで属性を見る等）や、うまくいかないときに効いている要素を1つずつ切って原因を探す方法。挑戦（challenge）は、結果の条件だけを書く。
 - ノード名・パラメータ名は、確かでないものは書かない（作りながら確認する）。曖昧なら「〇〇を担当するノード」のように役割で書く。
 - 与えられた「参考ドキュメント」にある内容を優先し、ないことを断定しない。
 
@@ -125,6 +128,11 @@ _PLAN_TEMPLATE = """あなたは、Houdini（フーディニ）の解説動画�
   "concepts": [{"term": "用語", "plain": "一言の説明"}],
   "mental_model": "仕組み全体の見取り図（2〜3文。レッスン1は日常のたとえ、レッスン2・3は設計の要点）",
   "decisions": [{"choice": "選ぶ構成", "alternative": "代わりの方法", "criterion": "選ぶ基準（できれば数値で確かめられる形）"}],
+  "prerequisites": ["前提条件（2〜4個）: この水準の読者が知っているべきこと、Houdiniのバージョン、用意するもの。最後に「知っている人は〇章から」「分からなければ先に△△」"],
+  "use_cases": ["どんな場面で使うか（2〜3個）: 「〇〇のとき、これを使う」の形で、ゲーム・映像などの具体的な場面"],
+  "roadmap": [{"node": "使うノード（役割で書いてもよい）", "does": "このノードで何ができるか（1行）"}],
+  "tips": ["TIPS（3〜5個）: 作業が楽になるコツ、確かめ方、うまくいかないときの切り分け方"],
+  "challenge": "自分でやってみよう: 手本を見ずに作る課題。やり方ではなく「結果の条件」だけを書く（1〜2文）",
   "chapters": [{"title": "章の名前", "why": "なぜこの章が必要か", "build": "足すノード・操作", "checkpoint": "ここで何が見えれば正しいか", "check_with": "viewport または cook_node または inspect_geometry"}],
   "experiments": [{"target": "ノード.パラメータ（役割で書いてもよい）", "change": "値A → 値B", "effect": "何がどう変わるか"}],
   "polish": "仕上げの操作と効果（1〜2文）",
@@ -275,6 +283,10 @@ def validate_plan(raw: dict | None) -> dict | None:
                 "alternative": _s(item.get("alternative")),
                 "criterion": _s(item.get("criterion")),
             })
+    roadmap = []
+    for item in (raw.get("roadmap") or [])[:MAX_ROADMAP]:
+        if isinstance(item, dict) and _s(item.get("node"), 60) and _s(item.get("does")):
+            roadmap.append({"node": _s(item.get("node"), 60), "does": _s(item.get("does"))})
     return {
         "version": PLAN_VERSION,
         "goal": _s(raw.get("goal")),
@@ -282,6 +294,11 @@ def validate_plan(raw: dict | None) -> dict | None:
         "concepts": concepts,
         "mental_model": _s(raw.get("mental_model"), 400),
         "decisions": decisions,
+        "prerequisites": _str_list(raw.get("prerequisites"), 160, 4),
+        "use_cases": _str_list(raw.get("use_cases"), 140, 3),
+        "roadmap": roadmap,
+        "tips": _str_list(raw.get("tips"), 160, 5),
+        "challenge": _s(raw.get("challenge"), 300),
         "chapters": chapters,
         "experiments": experiments,
         "polish": _s(raw.get("polish")),
@@ -304,7 +321,9 @@ TEACHING_RULES = """
 - 手順の各行には、操作だけでなく「なぜそうするか」を書く（例: 「Scatter で点を散らす。後で岩を置く位置になるため」）。新しい専門用語は初めて出たときに一言で説明する（基本用語は、水準に応じて説明しない）。
 - 組み終えて cook が通ったら、効果が分かりやすいパラメータを2〜3個選び、try_parameter で値を並べて試す（結果が数値の表で返り、元の値に戻る）。式・ランプ・シミュレーション系など try_parameter が使えないものは、set_parameter で値を変えて cook_node（画面が変わる）→ 結果の違いを観察 → 元の値に戻して再 cook、を実際に行うこと。finish_tutorial の experiments には、実際にやって確かめた結果だけを書く。シミュレーション系など重いノードでは、実験を1個に減らしてよい。
 - 仕上げとして、見た目を整える1〜2個の操作（色・密度・大きさ・向き）を行い、polish に書く。
-- finish_tutorial では、learn（学ぶこと）/ concepts（用語の説明と、仕組み全体のたとえ）/ experiments / polish / next_lesson も必ず書く。steps と pitfalls は「読者が再現でき、つまずきを避けられる」粒度で。
+- finish_tutorial では、learn（学ぶこと）/ concepts（用語の説明と、仕組み全体のたとえ）/ experiments / polish / next_lesson も必ず書く。
+- 読む前に分かるように、prerequisites（前提条件: 対象の読者・前提知識・Houdiniのバージョン・用意するもの。「知っている人は〇から読む」「分からなければ先に△△」も）、use_cases（どんな場面で使うか: 「〇〇のとき、これを使う」を2〜3個）、roadmap（作る前に: 使うノードを使う順に並べ、各ノードで何ができるかを1行ずつ）も必ず書く。
+- 読んだあとに自分でできるように、tips（TIPS: 作業が楽になるコツ・確かめ方・うまくいかないときの切り分け方を3〜5個。確かめたことだけ）と、challenge（自分でやってみよう: 手本を見ずに作る課題。やり方ではなく「結果の条件」だけ。例: 「点が500個以上あり、〇〇属性がある」）も必ず書く。steps と pitfalls は「読者が再現でき、つまずきを避けられる」粒度で。
 - コード（VEXなど）は、1行ずつ解説しない。「何をするコードか」を先に説明し（レッスン1は日常のたとえで）、そのあと値の意味や落とし穴を説明する。
 - finish_tutorial の直後の画像で、作ったものが見えない・枠だけ・空に見える場合は、confirm_tutorial を looks_correct=false にして、見える形に直す（動画の最初の画面になる）。note に「見えていない」と書きながら looks_correct=true にしない。ボリューム（煙・炎）は、ビューポートで枠だけに見えることがあるので、メッシュ化・ポイント化・可視化のノードで見せる。
 - 確かめていないことは書かない。分からないことは「この環境では確かめていません」と書く。
@@ -325,11 +344,21 @@ def plan_section(plan: dict | None, level: str) -> str:
             lines.append(f"- 用語「{c['term']}」: {c['plain']}")
         if plan["mental_model"]:
             lines.append(f"- 仕組みのたとえ: {plan['mental_model']}")
+        for text in plan.get("prerequisites", []):
+            lines.append(f"- 前提条件: {text}")
+        for text in plan.get("use_cases", []):
+            lines.append(f"- 使う場面: {text}")
+        for r in plan.get("roadmap", []):
+            lines.append(f"- 段取り（使うノード）: {r['node']} … {r['does']}")
         for d in plan.get("decisions", []):
             lines.append(f"- 設計判断: {d['choice']}（代わりの方法: {d['alternative'] or '—'} / 選ぶ基準: {d['criterion'] or '—'}）")
         for i, ch in enumerate(plan["chapters"], start=1):
             tail = f" → 確認: {ch['checkpoint']}（{ch['check_with']}）" if ch["checkpoint"] else ""
             lines.append(f"- 章{i}「{ch['title']}」: {ch['build']}（理由: {ch['why']}）{tail}")
+        for text in plan.get("tips", []):
+            lines.append(f"- TIPS: {text}")
+        if plan.get("challenge"):
+            lines.append(f"- 自分でやってみよう: {plan['challenge']}")
         for e in plan["experiments"]:
             lines.append(f"- 実験の候補: {e['target']} を {e['change']} → {e['effect']}")
         if plan["polish"]:
@@ -365,6 +394,16 @@ def fallback_fields(plan: dict | None) -> dict[str, str]:
         out["polish"] = plan["polish"]
     if plan["next_lesson"]:
         out["next_lesson"] = plan["next_lesson"]
+    if plan.get("prerequisites"):
+        out["prerequisites"] = "\n".join(f"- {t}" for t in plan["prerequisites"])
+    if plan.get("use_cases"):
+        out["use_cases"] = "\n".join(f"- {t}" for t in plan["use_cases"])
+    if plan.get("roadmap"):
+        out["roadmap"] = "\n".join(f"{i}. **{r['node']}**: {r['does']}" for i, r in enumerate(plan["roadmap"], start=1))
+    if plan.get("tips"):
+        out["tips"] = "\n".join(f"- {t}" for t in plan["tips"])
+    if plan.get("challenge"):
+        out["challenge"] = plan["challenge"]
     return out
 
 

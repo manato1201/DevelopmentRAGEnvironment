@@ -43,6 +43,11 @@ FULL_FINISH = {
     "experiments": "- scatter.npts: 100 → 500 で点が増える\n- scatter.seed: 1 → 2 で並びが変わる",
     "polish": "岩の大きさをランダムにして自然に見せる",
     "next_lesson": "岩の種類を増やす方法を学ぶと、今回の配置が活きます",
+    "prerequisites": "- ノードを置いてつなげる人向け\n- Houdini 22 を使う\n- 知っている人は『手順』から読んでよい",
+    "use_cases": "- ゲームの地面に岩を散らすとき\n- 映像の背景に石ころを並べるとき",
+    "roadmap": "1. Grid: 岩を置く地面を作る\n2. Scatter: 岩を置く位置の点を散らす\n3. Copy to Points: 点の位置に岩をコピーする",
+    "tips": "- 点の数は Geometry Spreadsheet で確かめる\n- うまくいかないときは、効いている要素を1つずつ切って原因を探す",
+    "challenge": "手本を見ずに、点が300個以上あり、岩の大きさがばらついた地面を作ってみよう",
 }
 
 LOG = [

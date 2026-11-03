@@ -128,6 +128,9 @@ _PROMPT_TEMPLATE = """@@ROLE@@
 11. 本文に「先に知っておく考え方」があるときは、手順の説明でその用語・たとえ・設計判断を使い、考え方と画面の操作を結びつける（「さっきの考え方で言うと、ここが〇〇にあたります」）。
 12. 本文の手順に「✅ 確認ポイント」があるときは、その手順（または直前の手順）のナレーションで、「ここで〇〇が見えれば正しいです。見えないときは、△△を確認してください」と、視聴者が自分で確かめられるように伝える。
 13. 「パラメータを動かして確かめよう」の節は、「前→後」で話す（「〇〇を△△から□□に変えると、…が変わります」）。数字そのものより、「何がどう変わるか」を伝える。本文にない結果は作らない。
+14. 本文に「前提条件」「どんな場面で使うか」「作る前に」の節があるときは、手順に入る前の案内として話す。前提条件は「この動画は〇〇ができる人向けです。分からないときは、先に△△を見てください。知っている人は、〇番の手順から見てください」、場面は「たとえば〇〇のときに使います」、作る前には「使うノードは、順に〇〇（何ができるか）、△△（何ができるか）です」の形で。本文にあることだけを話す。
+15. 本文に「TIPS」の節があるときは、コツを1つずつ短く「こうすると楽です」の形で話す。「自分でやってみよう」の節は、結果の条件を読み、「手本を見ずに作ってみてください。できたかどうかは、〇〇で確かめられます」と促す。
+16. 手順を、目的や確認ポイント（✅）の切り替わりで2〜5個の章に分ける（chapters）。章の最初の手順の前に、場面が変わることが分かるつなぎの1文（bridge）を書く: 「ここまでで〇〇ができました。次は△△をします」。
 
 【出力】JSONだけを出力する（前後に説明やコードブロックを付けない）。形式:
 {
@@ -136,6 +139,7 @@ _PROMPT_TEMPLATE = """@@ROLE@@
     {"step": 手順の番号（入力と同じ数字）, "heading": "手順の見出し（20文字まで。例: スキャッターで点を散らす）",
      "narration": "解説（@@STEP@@）", "points": ["画面に出す短い文（任意、最大2行）"]}
   ],
+  "chapters": [{"from_step": 章の最初の手順の番号, "title": "章の名前（20文字まで）", "bridge": "章のつなぎの1文（30〜80字。前の章で何ができて、次に何をするか）"}],
   "structure": {"narration": "作ったノード全体の流れを、上から下へ順に説明（2〜3文）", "points": []},
   "sections": [{"match": "その他の節の見出し（入力と同じ文字）", "heading": "見出し（20文字まで。例: つまずきやすいところ）", "narration": "@@AUDIENCE@@の言い直し", "points": ["要点（短く）"]}],
   "outro": {"narration": "@@OUTRO@@", "points": ["次にやってみること（短く）"]}
@@ -426,6 +430,37 @@ SECTION_NARRATION_MAX = 360
 
 def _template_section(heading: str) -> dict:
     """その他の節の定型の言い直し。中身を読まず、その節の役目だけを伝える（専門家向けの本文を読み上げない）。"""
+    if "前提" in heading:
+        return {
+            "heading": "始める前に",
+            "narration": "始める前に、前提条件を確認します。どんなことを知っていると進めやすいか、何を用意しておくとよいかを、先に見ておきましょう。"
+                         "すでに知っている内容があれば、飛ばして進んでも構いません。",
+            "points": ["前提を確認する", "知っていることは飛ばしてよい"],
+        }
+    if "場面" in heading:
+        return {
+            "heading": "どんな場面で使うか",
+            "narration": "この技法が、実際の制作のどんな場面で役に立つのかを確認します。使いどころが分かると、あとの手順の意味がつかみやすくなります。",
+            "points": ["使う場面をイメージする"],
+        }
+    if "作る前" in heading or "段取り" in heading:
+        return {
+            "heading": "使うノードと段取り",
+            "narration": "作り始める前に、使うノードと、その順番を確認します。それぞれのノードで何ができるのかを知っておくと、手順の流れが追いやすくなります。",
+            "points": ["使うノードと順番を確認する"],
+        }
+    if "TIPS" in heading.upper():
+        return {
+            "heading": "TIPS",
+            "narration": "ここでは、作業が楽になるコツを紹介します。確かめ方や、うまくいかないときの切り分け方も、覚えておくと便利です。",
+            "points": ["コツを覚えておく"],
+        }
+    if "自分で" in heading or "挑戦" in heading:
+        return {
+            "heading": "自分でやってみよう",
+            "narration": "最後に、手本を見ずに、自分で作ってみましょう。やり方は自由です。結果の条件を満たせたかどうかで、確かめてみてください。",
+            "points": ["手本を見ずに作ってみる", "条件を満たせたか確かめる"],
+        }
     if any(k in heading for k in ("ハマ", "つまず", "注意", "エラー")):
         return {
             "heading": "つまずきやすいところ",
@@ -573,6 +608,36 @@ def parse_model_json(text: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def apply_chapters(model: dict, out_steps: list[dict]) -> list[dict]:
+    """モデルの chapters を検証して、手順に章の印とつなぎの文を付ける。戻り値: 台本に書く章の一覧（2つ未満なら付けず、空）。
+    つなぎの文（bridge）は、章の最初の手順のナレーションの頭に足す（1つ目の章は導入があるので足さない）。
+    動画エンジンが対応すれば、step["chapter_start"] で場面転換の画面を出せる（対応していなくても、つなぎの文は声で伝わる）。"""
+    order = [e["step"] for e in out_steps]
+    chosen: list[dict] = []
+    for item in model.get("chapters") or []:
+        if not isinstance(item, dict):
+            continue
+        n = item.get("from_step")
+        title = clean_heading(item.get("title"))
+        if not isinstance(n, int) or n not in order or not title or any(c["from_step"] == n for c in chosen):
+            continue
+        chosen.append({"from_step": n, "title": title, "bridge": clean_narration(item.get("bridge"), 160, 10) or ""})
+    chosen.sort(key=lambda c: order.index(c["from_step"]))
+    if len(chosen) < 2:
+        return []
+    starts = {c["from_step"]: c for c in chosen}
+    current = None
+    for entry in out_steps:
+        if entry["step"] in starts:
+            current = starts[entry["step"]]
+            entry["chapter_start"] = True
+            if current["bridge"] and entry["step"] != order[0]:
+                entry["narration"] = current["bridge"] + entry["narration"]
+        if current is not None:
+            entry["chapter"] = current["title"]
+    return [{"from_step": c["from_step"], "title": c["title"]} for c in chosen]
+
+
 def assemble_script(
     model: dict | None, steps: list[dict], title: str, summary: str, sections: list[tuple[str, str]] | None = None,
     level: str = "",
@@ -630,7 +695,10 @@ def assemble_script(
         source = "template"
     else:
         source = "claude+template"
+    chapters = apply_chapters(model, out_steps)
     script: dict = {"version": SCRIPT_VERSION, "source": source, "title": title, "intro": intro, "steps": out_steps, "outro": outro}
+    if chapters:
+        script["chapters"] = chapters
     if level in LEVELS:
         script["level"] = level  # どのレベル向けの台本か（動画エンジンは読まない。確認・集計用）
     if structure:
