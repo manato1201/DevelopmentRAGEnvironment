@@ -251,7 +251,7 @@ Cloudflareダッシュボード（[dash.cloudflare.com](https://dash.cloudflare.
 ### 8-0. ナレッジ登録タブの画面構成（2026-10-08〜）
 
 - 上部に「＋ ナレッジを追加」（3ステップのポップアップ：登録方法の選択 → コンテンツの登録 → 確認・実行）と「🔗 ＋ 連携するシステムを追加」（システム選択グリッド → 詳細）。
-- 「📖 登録済みナレッジ」：namespace切替・検索・ページ送り・個別削除。
+- 「📖 登録済みナレッジ」：namespace切替・検索・種類／言語の絞り込み・ページ送り・個別削除・複数選択の削除・全削除（「削除」と入力して確認。10件ずつ `POST /admin/kb/delete-documents`）。言語は `POST /admin/kb/list-documents` が各資料のチャンク1個の先頭から推定して返す（`language`）。
 - 「🧩 連携中のシステム」：接続済みの連携を一覧し、行クリックで詳細を開く。
 
 ### 8-1. 公式MCP連携（Notion・GitHub・Slack・Google・Canva・Figma・Vercel など。選定は [mcp-integration-guide.md](../design/mcp-integration-guide.md)）

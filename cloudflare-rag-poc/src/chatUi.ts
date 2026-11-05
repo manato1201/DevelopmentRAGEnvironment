@@ -534,6 +534,27 @@ export function chatUiHtml(): string {
   :root[data-theme="light"] .ascii-wallpaper { opacity: .2; }
   @media (prefers-color-scheme: light) { :root:not([data-theme]) .ascii-wallpaper { opacity: .2; } }
   @media (max-width: 720px) { .ascii-wallpaper { display: none; } }
+  /* Z20（2026-11-06）: 画面いっぱいの壁紙（波・星空・雨・渦・魚群・砂丘・格子）。薄く、操作は通す。 */
+  .ascii-wallpaper.ascii-wallpaper-full { right: auto; bottom: auto; left: 0; top: 0; width: 100vw; height: 100vh; overflow: hidden; font-size: 14px; line-height: 1.15; opacity: .12; }
+  :root[data-theme="light"] .ascii-wallpaper.ascii-wallpaper-full { opacity: .16; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme]) .ascii-wallpaper.ascii-wallpaper-full { opacity: .16; } }
+  /* 曇りガラス（Z20）: 見出し・タブ・本文の面を、背景色を6割まぜた半透明にして、背後の壁紙をぼかす。文字は壁紙の上に直接のらない。
+     非対応のブラウザでは何も起きない（ふだんの見た目のまま）。 */
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) and (background: color-mix(in srgb, red 50%, transparent)) {
+    html.glass header, html.glass nav.tabs, html.glass .tabpanel {
+      background: color-mix(in srgb, var(--bg) 62%, transparent);
+      -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    }
+    /* ぼかすと文字の細かい模様が溶けて淡い靄になるので、曇りガラスのときだけ、壁紙を少し濃くする（本文は、背景色が6割以上かかるので読める） */
+    html.glass .ascii-wallpaper.ascii-wallpaper-full { opacity: .3; }
+  }
+  /* ナレッジ一覧の一括操作・絞り込み（T13） */
+  .kb-filters { margin-bottom: .5rem; }
+  .kb-filters label { display: flex; align-items: center; gap: .3rem; font-size: .8rem; color: var(--muted); }
+  .kb-bulk { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .6rem; }
+  .kb-bulk .hint, .kb-filters .hint { margin: 0; }
+  .admin-table th.kb-check, .admin-table td.kb-check { width: 2rem; text-align: center; }
+  #kbListTable td:not(.kb-name) { white-space: nowrap; }
   .shortcut-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
   .shortcut-table td { padding: .35rem .5rem; border-bottom: 1px solid var(--border); }
   .shortcut-table td:first-child { white-space: nowrap; }
@@ -657,7 +678,18 @@ export function chatUiHtml(): string {
     <span id="myBudget" class="hint" title="自分のAPIキーのトークン予算残量"></span>
     <button type="button" id="myConnBtn" class="hidden" title="自分専用の連携（Gmail・Drive・カレンダー・Jira・Backlog・公式MCP）。他の人からは見えません">自分用の連携</button>
     <button type="button" id="themeToggle" title="テーマ切替（自動 / ライト / ダーク）">テーマ: 自動</button>
-    <button type="button" id="wallpaperToggle" title="背景に、文字で描いた生き物を薄く出す（既定はなし。動きを減らす設定のときは静止）">背景: なし</button>
+    <select id="wallpaperSelect" aria-label="背景の壁紙" title="背景に、文字で描いた絵を薄く出す（既定はなし。動きを減らす設定のときは静止。狭い画面では出ない）">
+      <option value="off" selected>背景: なし</option>
+      <option value="critter">背景: クラゲ（右下）</option>
+      <option value="wave">背景: 波</option>
+      <option value="stars">背景: 星空</option>
+      <option value="rain">背景: 雨</option>
+      <option value="swirl">背景: 渦</option>
+      <option value="school">背景: 魚群</option>
+      <option value="dunes">背景: 砂丘</option>
+      <option value="grid">背景: 格子</option>
+    </select>
+    <button type="button" id="glassToggle" title="見出し・タブ・本文の面を半透明にして、背後の壁紙をぼかす（既定はなし）">曇りガラス: なし</button>
   </div>
   <nav class="tabs">
     <button data-tab="chat" class="active">チャット</button>
@@ -863,7 +895,20 @@ export function chatUiHtml(): string {
           </select>
           <button class="btn" id="kbListRefresh">更新</button>
         </div>
-        <div class="table-scroll"><table class="admin-table" id="kbListTable" data-sort-managed="1"><thead><tr><th data-sort-key="name">ナレッジ名</th><th data-sort-key="kind">種類</th><th data-sort-key="updated">更新日時</th><th>操作</th></tr></thead><tbody></tbody></table></div>
+        <div class="card-head kb-filters" id="kbListFilters">
+          <label>種類 <select id="kbListKind" aria-label="種類で絞り込む"><option value="">すべて</option></select></label>
+          <label>言語 <select id="kbListLang" aria-label="言語で絞り込む">
+            <option value="">すべて</option><option value="日本語">日本語</option><option value="英語など">英語など</option><option value="不明">不明</option><option value="未判定">未判定</option>
+          </select></label>
+          <button class="btn" id="kbListReset" disabled>条件をリセット</button>
+          <span id="kbListFilterNote" class="hint"></span>
+        </div>
+        <div class="kb-bulk" id="kbListBulk">
+          <button class="btn danger" id="kbListDeleteSelected" disabled>選んだ0件を削除</button>
+          <button class="btn danger" id="kbListDeleteAll" disabled>このnamespaceの全0件を削除</button>
+          <span id="kbListBulkNote" class="hint"></span>
+        </div>
+        <div class="table-scroll"><table class="admin-table" id="kbListTable" data-sort-managed="1"><thead><tr><th class="kb-check"><input type="checkbox" id="kbListCheckAll" aria-label="このページをすべて選ぶ"></th><th data-sort-key="name">ナレッジ名</th><th data-sort-key="kind">種類</th><th>言語</th><th data-sort-key="updated">更新日時</th><th>操作</th></tr></thead><tbody></tbody></table></div>
         <div class="pager">
           <span id="kbListCount"></span>
           <span class="pages"><button class="btn" id="kbListPrev">‹</button><span id="kbListPageNo">1 / 1</span><button class="btn" id="kbListNext">›</button></span>
@@ -2517,7 +2562,10 @@ export function chatUiHtml(): string {
     const foot = document.createElement("div");
     foot.className = "answer-foot";
     const staleCount = (sources || []).filter((s) => { const f = freshness(s.ingestedAt); return f && f.stale; }).length;
-    foot.textContent = "出典 " + (sources ? sources.length : 0) + "件・AIが生成した回答です" + (staleCount > 0 ? "・うち" + staleCount + "件は" + STALE_DAYS + "日以上前の情報です" : "")
+    // 出典のうち、いちばん新しく取り込んだ日（設計書の「最終同期」。取り込み日時が無い出典だけなら出さない）
+    const ingestedTimes = (sources || []).map((s) => s.ingestedAt).filter((t) => t);
+    const latestIngest = ingestedTimes.length > 0 ? freshness(Math.max.apply(null, ingestedTimes)) : null;
+    foot.textContent = "出典 " + (sources ? sources.length : 0) + "件" + (latestIngest ? "・最終の取り込み " + latestIngest.date : "") + "・AIが生成した回答です" + (staleCount > 0? "・うち" + staleCount + "件は" + STALE_DAYS + "日以上前の情報です" : "")
       + (sources && sources.length > 0 ? "・回答は上の出典から作られています。出典の利用条件は、各出典で確認してください" : "・出典が見つからなかったため、登録した資料に基づく回答ではありません");
     wrap.appendChild(foot);
 
@@ -2859,29 +2907,93 @@ ${ASCII_ART_JS}
     return pre;
   }
 
-  // Z20: 背景の生き物の選択（なし / クラゲ）。既定はなし。選択はlocalStorageに保存する（不可環境では握りつぶす）。
+  // Z20: 背景の壁紙の選択（なし / クラゲ（右下）/ 画面いっぱいの7種）と、曇りガラス。既定はどちらもなし。
+  // 選択はlocalStorageに保存する（不可環境では握りつぶす）。動きを減らす設定のときは静止画1枚。画面の外・非表示のタブでは描かない。
   (function initWallpaper() {
-    const btn = document.getElementById("wallpaperToggle");
-    if (!btn) return;
-    const LABELS = { off: "なし", critter: "クラゲ" };
+    const select = document.getElementById("wallpaperSelect");
+    const glassBtn = document.getElementById("glassToggle");
+    if (!select) return;
+    const FULL_KINDS = WALLPAPER_KINDS;
+    const FONT_PX = 14;
     let el = null;
+    let stop = function () {};
+    function removeCurrent() {
+      stop();
+      stop = function () {};
+      if (el) { el.remove(); el = null; } // 取り除くと、クラゲの描画のタイマーも止まる
+    }
+    function fullWallpaper(kind) {
+      const pre = document.createElement("pre");
+      pre.className = "ascii-wallpaper ascii-wallpaper-full";
+      pre.setAttribute("aria-hidden", "true");
+      const calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const started = Date.now();
+      let cols = 80;
+      let rows = 24;
+      function measure() {
+        cols = Math.max(20, Math.min(170, Math.floor(window.innerWidth / (FONT_PX * 0.62))));
+        rows = Math.max(8, Math.min(60, Math.floor(window.innerHeight / (FONT_PX * 1.15))));
+      }
+      function draw() {
+        const t = calm ? 0 : (Date.now() - started) / 1000;
+        pre.textContent = wallpaperFrame(kind, cols, rows, t, ART_RAMPS.classic);
+      }
+      measure();
+      draw();
+      let timer = null;
+      let resizeTimer = null;
+      if (!calm) {
+        timer = setInterval(() => { if (!document.hidden) draw(); }, 160);
+      }
+      const onResize = () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => { measure(); draw(); }, 200);
+      };
+      window.addEventListener("resize", onResize);
+      stop = function () {
+        if (timer) clearInterval(timer);
+        clearTimeout(resizeTimer);
+        window.removeEventListener("resize", onResize);
+      };
+      return pre;
+    }
     function apply(mode) {
-      if (el) { el.remove(); el = null; } // 取り除くと、描画のタイマーも止まる
+      removeCurrent();
       if (mode === "critter") {
         el = asciiCritter();
         el.classList.add("ascii-wallpaper");
         document.body.appendChild(el);
+      } else if (FULL_KINDS.indexOf(mode) >= 0) {
+        el = fullWallpaper(mode);
+        document.body.appendChild(el);
       }
-      btn.textContent = "背景: " + LABELS[mode];
+      select.value = mode;
     }
     let saved = "off";
-    try { saved = localStorage.getItem("ragPocWallpaper") === "critter" ? "critter" : "off"; } catch { /* 不可環境はなし */ }
+    try {
+      const raw = localStorage.getItem("ragPocWallpaper") || "off";
+      if (raw === "critter" || FULL_KINDS.indexOf(raw) >= 0) saved = raw;
+    } catch { /* 不可環境はなし */ }
     apply(saved);
-    btn.addEventListener("click", () => {
-      const next = el ? "off" : "critter";
+    select.addEventListener("change", () => {
+      const next = select.value;
       apply(next);
       try { localStorage.setItem("ragPocWallpaper", next); } catch { /* noop */ }
     });
+    if (glassBtn) {
+      function setGlass(on) {
+        document.documentElement.classList.toggle("glass", on);
+        glassBtn.textContent = "曇りガラス: " + (on ? "あり" : "なし");
+      }
+      let glassSaved = false;
+      try { glassSaved = localStorage.getItem("ragPocGlass") === "on"; } catch { /* 不可環境はなし */ }
+      setGlass(glassSaved);
+      glassBtn.addEventListener("click", () => {
+        const next = !document.documentElement.classList.contains("glass");
+        setGlass(next);
+        try { localStorage.setItem("ragPocGlass", next ? "on" : "off"); } catch { /* noop */ }
+      });
+    }
   })();
 
   // T12: 出典の種別と言語（推定）。種別は、取り込み元の記録が回答に付いていないので、URLかどうかだけで分ける。
@@ -7044,7 +7156,8 @@ ${ASCII_ART_JS}
     } catch { /* 保存できない環境では、既定のまま */ }
     return { key: "name", dir: 1 };
   }
-  const kbList = { items: [], page: 1, size: 20, query: "", ns: "", ready: false, sort: loadKbSort() };
+  const kbList = { items: [], page: 1, size: 20, query: "", ns: "", ready: false, sort: loadKbSort(), kind: "", lang: "", selected: new Set(), busy: false };
+  const KB_BULK_BATCH = 10; // サーバーの MAX_BULK_DELETE（src/kbDocuments.ts）と同じ。1回の呼び出しで消す件数
   function sortKbItems(items, sort) {
     return sortItems(items, KB_SORT_SPECS[sort.key](), sort.dir);
   }
@@ -7095,46 +7208,157 @@ ${ASCII_ART_JS}
       const data = await api("/admin/kb/list-documents", { namespace: kbList.ns });
       kbList.items = data.documents || (data.files || []).map((file) => ({ file, source: null, updatedAt: null }));
       kbList.page = 1;
+      kbList.selected.clear();
+      kbRefreshKindOptions();
       renderKbList("");
     } catch (e) {
       kbList.items = [];
+      kbList.selected.clear();
+      kbRefreshKindOptions();
       renderKbList("取得に失敗しました: " + e.message);
     }
   }
 
+  // ---- 絞り込み（T13）: 種類・言語・名前。検索語は名前の部分一致。 ----
+  function kbFiltersActive() { return !!(kbList.query.trim() || kbList.kind || kbList.lang); }
+  function kbItemLang(item) { return item.language || "未判定"; }
+  function kbFiltered() {
+    const query = kbList.query.trim().toLowerCase();
+    return sortKbItems(kbList.items.filter((item) =>
+      (!query || item.file.toLowerCase().indexOf(query) >= 0)
+      && (!kbList.kind || kbKind(item) === kbList.kind)
+      && (!kbList.lang || kbItemLang(item) === kbList.lang)), kbList.sort);
+  }
+  function kbRefreshKindOptions() {
+    const select = $("kbListKind");
+    if (!select) return;
+    const kinds = Array.from(new Set(kbList.items.map(kbKind))).sort();
+    if (kbList.kind && kinds.indexOf(kbList.kind) < 0) kbList.kind = "";
+    select.textContent = "";
+    const all = mk("option", "", "すべて");
+    all.value = "";
+    select.appendChild(all);
+    kinds.forEach((kind) => { const option = mk("option", "", kind); option.value = kind; select.appendChild(option); });
+    select.value = kbList.kind;
+  }
+  function kbResetFilters() {
+    kbList.query = ""; kbList.kind = ""; kbList.lang = ""; kbList.page = 1;
+    $("kbListSearch").value = "";
+    $("kbListKind").value = "";
+    $("kbListLang").value = "";
+    renderKbList("");
+  }
+
+  // ---- 一括削除・全削除 ----
+  function updateKbBulkUi(filteredTotal) {
+    const selectedBtn = $("kbListDeleteSelected");
+    if (!selectedBtn) return;
+    const active = kbFiltersActive();
+    selectedBtn.textContent = "選んだ" + kbList.selected.size + "件を削除";
+    selectedBtn.disabled = kbList.busy || kbList.selected.size === 0;
+    const allBtn = $("kbListDeleteAll");
+    allBtn.textContent = (active ? "絞り込み結果の全" : "このnamespaceの全") + filteredTotal + "件を削除";
+    allBtn.disabled = kbList.busy || filteredTotal === 0;
+    $("kbListReset").disabled = !active || kbList.busy;
+    $("kbListFilterNote").textContent = active ? kbList.items.length + "件中 " + filteredTotal + "件を表示" : "";
+  }
+  async function bulkDeleteKb(files) {
+    const ns = kbList.ns;
+    const note = $("kbListBulkNote");
+    kbList.busy = true;
+    updateKbBulkUi(kbFiltered().length);
+    let deleted = 0;
+    let notFound = 0;
+    const failed = [];
+    let processed = 0;
+    try {
+      for (let i = 0; i < files.length; i += KB_BULK_BATCH) {
+        const group = files.slice(i, i + KB_BULK_BATCH);
+        note.textContent = "削除中… " + processed + " / " + files.length + "件";
+        let data;
+        try {
+          data = await api("/admin/kb/delete-documents", { namespace: ns, files: group });
+        } catch (e) {
+          // 通信や権限の失敗は、続けても同じ失敗になるので、ここで止める
+          group.forEach((file) => failed.push({ file, error: e.message }));
+          break;
+        }
+        processed += group.length;
+        const gone = new Set();
+        data.results.forEach((r) => {
+          if (r.status === "deleted") { deleted++; gone.add(r.file); }
+          else if (r.status === "not_found") { notFound++; gone.add(r.file); }
+          else failed.push(r);
+        });
+        kbList.items = kbList.items.filter((item) => !gone.has(item.file));
+        gone.forEach((file) => kbList.selected.delete(file));
+      }
+    } finally {
+      kbList.busy = false;
+    }
+    const untouched = files.length - processed - failed.filter((f) => !f.status).length;
+    note.textContent = "";
+    kbRefreshKindOptions();
+    renderKbList("");
+    loadKbOverview();
+    const parts = [deleted + "件を削除しました"];
+    if (notFound) parts.push("既に無かったもの" + notFound + "件");
+    if (failed.length) parts.push("削除できなかったもの" + failed.length + "件（" + failed[0].file + ": " + (failed[0].error || "不明なエラー") + "）");
+    if (untouched > 0) parts.push("処理していないもの" + untouched + "件");
+    showToast(parts.join("・"), failed.length || untouched > 0 ? "error" : "success");
+  }
+
   function renderKbList(message) {
     const tbody = $("kbListTable").querySelector("tbody");
-    tbody.innerHTML = "";
-    const query = kbList.query.trim().toLowerCase();
-    const filtered = sortKbItems(kbList.items.filter((item) => !query || item.file.toLowerCase().indexOf(query) >= 0), kbList.sort);
+    tbody.textContent = "";
+    const filtered = kbFiltered();
     const pages = Math.max(1, Math.ceil(filtered.length / kbList.size));
     kbList.page = Math.min(kbList.page, pages);
     const start = (kbList.page - 1) * kbList.size;
     const slice = filtered.slice(start, start + kbList.size);
     if (slice.length === 0) {
       const tr = document.createElement("tr");
-      const td = mk("td", "", message || (query ? "該当するナレッジがありません" : "登録済みのナレッジはありません"));
-      td.colSpan = 4;
+      const text = message || (kbFiltersActive() ? "条件に合うナレッジがありません。「条件をリセット」で全件に戻せます" : "登録済みのナレッジはありません");
+      const td = mk("td", "", text);
+      td.colSpan = 6;
       tr.appendChild(td);
       tbody.appendChild(tr);
     }
+    const pageBoxes = [];
     slice.forEach((item) => {
       const tr = document.createElement("tr");
+      const checkCell = mk("td", "kb-check");
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.setAttribute("aria-label", item.file + " を選ぶ");
+      box.checked = kbList.selected.has(item.file);
+      box.addEventListener("change", () => {
+        if (box.checked) kbList.selected.add(item.file); else kbList.selected.delete(item.file);
+        syncKbCheckAll(pageBoxes);
+        updateKbBulkUi(filtered.length);
+      });
+      pageBoxes.push([item.file, box]);
+      checkCell.appendChild(box);
+      tr.appendChild(checkCell);
       const name = mk("td", "kb-name");
       name.appendChild(iconSpan("kb-doc-icon", "file"));
       name.appendChild(document.createTextNode(item.file));
       name.title = item.file;
       tr.appendChild(name);
       tr.appendChild(mk("td", "", kbKind(item)));
+      tr.appendChild(mk("td", "", kbItemLang(item)));
       tr.appendChild(mk("td", "", item.updatedAt ? new Date(item.updatedAt * 1000).toLocaleString() : "-"));
       const actions = mk("td");
       const del = modalButton("削除", "danger", async () => {
+        if (kbList.busy) return;
         if (!confirm(item.file + " を削除しますか？（元に戻せません）")) return;
         del.disabled = true;
         try {
           const result = await api("/admin/kb/delete-document", { namespace: kbList.ns, file: item.file });
           showToast(item.file + " を削除しました（" + result.deletedChunks + "チャンク）", "success");
           kbList.items = kbList.items.filter((x) => x.file !== item.file);
+          kbList.selected.delete(item.file);
+          kbRefreshKindOptions();
           renderKbList("");
           loadKbOverview();
         } catch (e) {
@@ -7146,15 +7370,53 @@ ${ASCII_ART_JS}
       tr.appendChild(actions);
       tbody.appendChild(tr);
     });
+    const checkAll = $("kbListCheckAll");
+    checkAll.onchange = () => {
+      pageBoxes.forEach((pair) => {
+        pair[1].checked = checkAll.checked;
+        if (checkAll.checked) kbList.selected.add(pair[0]); else kbList.selected.delete(pair[0]);
+      });
+      updateKbBulkUi(filtered.length);
+    };
+    syncKbCheckAll(pageBoxes);
+    updateKbBulkUi(filtered.length);
     const from = filtered.length === 0 ? 0 : start + 1;
     $("kbListCount").textContent = from + "–" + (start + slice.length) + " / " + filtered.length + " 件";
     $("kbListPageNo").textContent = kbList.page + " / " + pages;
     $("kbListPrev").disabled = kbList.page <= 1;
     $("kbListNext").disabled = kbList.page >= pages;
   }
+  // 見出しのチェック: このページが全部選ばれていれば入り、一部なら中間（indeterminate）
+  function syncKbCheckAll(pageBoxes) {
+    const checkAll = $("kbListCheckAll");
+    const on = pageBoxes.filter((pair) => pair[1].checked).length;
+    checkAll.checked = pageBoxes.length > 0 && on === pageBoxes.length;
+    checkAll.indeterminate = on > 0 && on < pageBoxes.length;
+    checkAll.disabled = pageBoxes.length === 0;
+  }
 
   if ($("kbListNs")) {
-    $("kbListNs").addEventListener("change", () => { kbList.ns = $("kbListNs").value; localStorage.setItem(KB_NS_STORAGE, kbList.ns); loadKbList(); });
+    $("kbListNs").addEventListener("change", () => { kbList.ns = $("kbListNs").value; localStorage.setItem(KB_NS_STORAGE, kbList.ns); kbList.kind = ""; kbList.lang = ""; $("kbListLang").value = ""; loadKbList(); });
+    $("kbListKind").addEventListener("change", () => { kbList.kind = $("kbListKind").value; kbList.page = 1; renderKbList(""); });
+    $("kbListLang").addEventListener("change", () => { kbList.lang = $("kbListLang").value; kbList.page = 1; renderKbList(""); });
+    $("kbListReset").addEventListener("click", kbResetFilters);
+    $("kbListDeleteSelected").addEventListener("click", () => {
+      if (kbList.busy) return;
+      const files = Array.from(kbList.selected);
+      if (files.length === 0) return;
+      const sample = files.slice(0, 3).join("、") + (files.length > 3 ? " ほか" : "");
+      if (!confirm("「" + kbList.ns + "」から " + files.length + "件（" + sample + "）を削除します。元に戻せません。よろしいですか？")) return;
+      bulkDeleteKb(files);
+    });
+    $("kbListDeleteAll").addEventListener("click", () => {
+      if (kbList.busy) return;
+      const files = kbFiltered().map((item) => item.file);
+      if (files.length === 0) return;
+      const scope = kbFiltersActive() ? "絞り込み結果の" : "すべての";
+      const answer = prompt("「" + kbList.ns + "」の" + scope + files.length + "件を削除します。元に戻せません。続けるには「削除」と入力してください", "");
+      if (answer !== "削除") { showToast("削除をやめました。何も消していません", "success"); return; }
+      bulkDeleteKb(files);
+    });
     $("kbListSearch").addEventListener("input", () => { kbList.query = $("kbListSearch").value; kbList.page = 1; renderKbList(""); });
     $("kbListSize").addEventListener("change", () => { kbList.size = Number($("kbListSize").value) || 20; kbList.page = 1; renderKbList(""); });
     $("kbListPrev").addEventListener("click", () => { kbList.page -= 1; renderKbList(""); });

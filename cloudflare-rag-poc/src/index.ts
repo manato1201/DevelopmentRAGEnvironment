@@ -48,7 +48,7 @@ import { handleGraph } from "./graph";
 import { handleDocsList, handleDocsGet } from "./docRead";
 import { handleUsageStats, handleRatingStats, handleClaudeCostStats, handleGeminiCostStats, handleAuditLogList } from "./usageStats";
 import { handleImportUrl, handleCrawlUrl, handleListCrawlJobs, handleDiscardCrawlJob } from "./urlImport";
-import { handleListDocuments, handleDeleteDocument, handleFindDuplicateDocuments } from "./kbDocuments";
+import { handleListDocuments, handleDeleteDocument, handleDeleteDocuments, handleFindDuplicateDocuments } from "./kbDocuments";
 import { handleImportQaCsv } from "./qaImport";
 import { handleKbRollback } from "./kbRollback";
 import { handleImportYoutube, handleUploadDoc } from "./mediaImport";
@@ -402,6 +402,8 @@ export default {
           return await handleListDocuments(req, env, user);
         case "/admin/kb/delete-document":
           return await handleDeleteDocument(req, env, user);
+        case "/admin/kb/delete-documents":
+          return await handleDeleteDocuments(req, env, user);
         case "/admin/kb/find-duplicates":
           return await handleFindDuplicateDocuments(req, env, user);
         case "/admin/kb/import-qa-csv":

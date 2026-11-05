@@ -98,12 +98,14 @@ assert.match(html, /\.ascii-critter \{[^}]*color: var\(--accent\)/);
 assert.match(html, /\.ascii-critter \.ascii-glow \{ color: var\(--highlight\); \}/);
 
 // Z20: 背景の生き物は、選んだ人だけ（既定はなし）。操作を邪魔せず、狭い画面では出さない。動きを減らす設定は asciiCritter が尊重する
-assert.match(html, /id="wallpaperToggle"[^>]*>背景: なし</, "off by default");
+assert.match(html, /<option value="off" selected>背景: なし<\/option>/, "off by default");
+assert.match(html, /id="glassToggle"[^>]*>曇りガラス: なし</, "the frosted glass is off by default");
 assert.match(code, /function initWallpaper\(/);
 assert.match(code, /el = asciiCritter\(\);\s*el\.classList\.add\("ascii-wallpaper"\)/, "reuses the same creature (and its reduced-motion handling)");
 assert.match(html, /\.ascii-wallpaper \{[^}]*z-index: -1;[^}]*pointer-events: none;/, "behind the content, never takes clicks");
 assert.match(html, /@media \(max-width: 720px\) \{ \.ascii-wallpaper \{ display: none; \} \}/, "hidden on narrow screens");
 assert.match(code, /if \(el\) \{ el\.remove\(\); el = null; \}/, "switching off removes it, which also stops its timer");
+assert.match(code, /stop\(\);\s*stop = function \(\) \{\};/, "switching wallpapers stops the previous timer and the resize listener");
 
 // paintCritter: 濃いマス（X と @）だけを span にする。文字は欠けない
 const paintStart = code.indexOf("function paintCritter(");
@@ -118,3 +120,65 @@ assert.equal(fakePre.children.map((n) => n.text ?? n.textContent).join(""), "ot 
 assert.deepEqual(fakePre.children.filter((n) => n.tag === "span").map((n) => n.textContent), ["X@"], "only the dense cells glow");
 assert.ok(fakePre.children.filter((n) => n.tag === "span").every((n) => n.className === "ascii-glow"));
 console.log("ascii_art tests passed");
+
+
+// ---- Z20（2026-11-06）: 画面いっぱいの壁紙7種 + 右下のクラゲ = 8種。どれも時刻と座標だけで決まる純関数
+{
+  const sb = {};
+  vm.createContext(sb);
+  vm.runInContext(ASCII_ART_JS + "\nthis.api = { WALLPAPER_KINDS, WALLPAPER_LABELS, wallpaperBrightness, wallpaperFrame, ART_RAMPS };", sb);
+  const { WALLPAPER_KINDS, WALLPAPER_LABELS, wallpaperBrightness, wallpaperFrame, ART_RAMPS: RAMPS } = sb.api;
+  assert.equal(WALLPAPER_KINDS.length, 7);
+  assert.equal(Object.keys(WALLPAPER_LABELS).length, 8, "7 full-screen wallpapers + the jellyfish in the corner");
+  const W = 60, H = 20;
+  const seen = new Set();
+  for (const kind of WALLPAPER_KINDS) {
+    const frame = wallpaperFrame(kind, W, H, 3.7, RAMPS.classic);
+    assert.equal(frame, wallpaperFrame(kind, W, H, 3.7, RAMPS.classic), kind + ": same input, same picture");
+    assert.equal(frame.split(NL).length, H, kind + ": rows");
+    assert.ok(frame.replace(/\s/g, "").length > 0, kind + ": something is drawn");
+    for (const row of frame.split(NL)) assert.ok(row.length <= W, kind + ": row width");
+    for (const ch of new Set(frame.replace(/\n/g, ""))) assert.ok(RAMPS.classic.includes(ch), kind + ": only ramp characters " + JSON.stringify(ch));
+    let max = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const v = wallpaperBrightness(kind, x, y, W, H, 1.3);
+      assert.ok(v >= 0 && v <= 1 && !Number.isNaN(v), kind + ": brightness in range");
+      if (v > max) max = v;
+    }
+    assert.ok(max > 0.5, kind + ": has bright cells");
+    seen.add(frame);
+  }
+  assert.equal(seen.size, WALLPAPER_KINDS.length, "every wallpaper looks different");
+  // 動く壁紙は、時刻で絵が変わる（格子と砂丘も、ゆっくり変わる）
+  for (const kind of WALLPAPER_KINDS) {
+    assert.notEqual(wallpaperFrame(kind, W, H, 0, RAMPS.classic), wallpaperFrame(kind, W, H, 9, RAMPS.classic), kind + ": moves with time");
+  }
+  assert.equal(wallpaperFrame("nonsense", 10, 4, 1, RAMPS.classic).replace(/\s/g, ""), "", "an unknown kind draws nothing");
+  // 大きな画面（170x60）でも、1コマは速い（7秒に1000コマ以下の負荷で動かすための目安）
+  const begin = Date.now();
+  for (const kind of WALLPAPER_KINDS) wallpaperFrame(kind, 170, 60, 2, RAMPS.classic);
+  assert.ok(Date.now() - begin < 1000, "7 full-size frames in under a second");
+}
+
+// ---- Z20: 画面側。壁紙は薄く・操作を通さず・狭い画面では出さない。曇りガラスは背景色を8割まぜる（文字は壁紙の上に直接のらない）
+{
+  const options = [...html.matchAll(/<option value="([a-z]+)"[^>]*>背景: /g)].map((m) => m[1]);
+  assert.deepEqual(options, ["off", "critter", "wave", "stars", "rain", "swirl", "school", "dunes", "grid"]);
+  const full = html.match(/\.ascii-wallpaper\.ascii-wallpaper-full \{([^}]*)\}/);
+  assert.ok(full, "full-screen wallpaper rule");
+  const opacity = Number(full[1].match(/opacity: ([.\d]+)/)[1]);
+  assert.ok(opacity <= 0.2, "faint enough for body text to stay readable (dark): " + opacity);
+  assert.match(html, /:root\[data-theme="light"\] \.ascii-wallpaper\.ascii-wallpaper-full \{[^}]*opacity: \.16;/);
+  const glass = html.match(/html\.glass header, html\.glass nav\.tabs, html\.glass \.tabpanel \{([^}]*)\}/);
+  assert.ok(glass, "glass rule");
+  const mix = Number(glass[1].match(/var\(--bg\) (\d+)%/)[1]);
+  assert.ok(mix >= 60, "the surface keeps at least 60% of the background colour: " + mix);
+  const glassWall = html.match(/html\.glass \.ascii-wallpaper\.ascii-wallpaper-full \{ opacity: ([.\d]+); \}/);
+  assert.ok(glassWall && Number(glassWall[1]) <= 0.35, "with the glass on, the wallpaper stays under 35% opacity: " + (glassWall && glassWall[1]));
+  assert.match(html, /@supports \(\(backdrop-filter: blur\(1px\)\)[^{]*color-mix/, "only where the browser supports it");
+  assert.match(code, /localStorage\.setItem\("ragPocGlass"/);
+  assert.match(code, /full\.indexOf\(raw\)|FULL_KINDS\.indexOf\(raw\) >= 0/, "an unknown saved value falls back to off");
+  assert.match(code, /if \(!document\.hidden\) draw\(\)/, "no drawing in a hidden tab");
+  assert.match(code, /const calm = window\.matchMedia[^;]*prefers-reduced-motion: reduce/, "reduced motion: one still frame");
+  assert.match(code, /if \(!calm\) \{\s*timer = setInterval/, "no timer when motion is reduced");
+}

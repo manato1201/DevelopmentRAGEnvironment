@@ -101,5 +101,5 @@ assert.match(code, /new MutationObserver\(enableAllTableSorts\)/);
 assert.match(code, /ragPocThreadSort/);
 assert.match(code, /ragPocPinnedSort/);
 // 一覧の並べ替えは、ページ分けより前（全件を並べてから、1ページ分を切り出す）
-assert.match(code, /const filtered = sortKbItems\(/);
+assert.match(code, /return sortKbItems\(kbList\.items\.filter\(/, "the filtered list is sorted");
 console.log("list_sort tests passed");

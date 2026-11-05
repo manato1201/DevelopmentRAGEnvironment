@@ -2,6 +2,15 @@ import type { AuthedUser, ChunkMetadata, Env } from "./types";
 import { ForbiddenError, requireKnowledgeEditor } from "./auth";
 import { jsonResponse } from "./http";
 import { deleteDocumentChunkStatements, listChunkIds, runStatementGroups } from "./chunkRows";
+import { guessLanguage, type DocumentLanguage } from "./kbLanguage";
+
+// 一覧の言語の推定（T13）。1回の一覧で見る件数の上限と、D1のバッチ1回あたりの文の数。
+// 1ドキュメントにつき、チャンク1個（rowid指定）の先頭だけを読むので、読む行数は件数の2倍ほど。
+const LANGUAGE_SAMPLE_MAX = 300;
+const LANGUAGE_BATCH = 50;
+// 一括削除の1回の呼び出しで消す件数の上限。1件ごとにVectorizeとD1を何度も呼ぶので、Workerの呼び出し数に収まる範囲に抑え、
+// 画面側が何回かに分けて呼ぶ。
+export const MAX_BULK_DELETE = 10;
 
 const DELETE_CHUNK = 20; // getByIds()の1回あたり上限（20件）に合わせた保守的な値。deleteByIds()の実際の上限は未確認のため同じ値を流用する
 
@@ -47,6 +56,29 @@ export async function deleteDocumentChunks(env: Env, namespace: string, file: st
   return ids.length;
 }
 
+// ドキュメントごとの言語（推定）を、各ドキュメントのチャンク1個の先頭300文字から出す。失敗しても一覧は返す（空のMap）。
+async function detectLanguages(env: Env, namespace: string, files: string[]): Promise<Map<string, DocumentLanguage>> {
+  const out = new Map<string, DocumentLanguage>();
+  try {
+    for (const group of chunk(files, LANGUAGE_BATCH)) {
+      const results = await env.DB.batch(
+        group.map((file) =>
+          env.DB.prepare(
+            "SELECT substr(body, 1, 300) AS body FROM chunks_fts WHERE rowid = (SELECT fts_rowid FROM chunk_rows WHERE namespace = ? AND file = ? ORDER BY fts_rowid LIMIT 1)",
+          ).bind(namespace, file),
+        ),
+      );
+      results.forEach((r, i) => {
+        const row = ((r.results ?? []) as Array<{ body?: string | null }>)[0];
+        out.set(group[i], guessLanguage(row?.body ?? ""));
+      });
+    }
+  } catch {
+    return new Map();
+  }
+  return out;
+}
+
 // POST /admin/kb/list-documents — namespace内の登録済みドキュメント（file名）一覧を返す。
 // chunks_fts本体（UNINDEXED列への検索で実質フルスキャンになる。migrations/0002、chunkRows.ts参照）では
 // なくkb_documents（migrations/0008、namespaceにインデックス済み。1ドキュメント1行）を
@@ -73,9 +105,11 @@ export async function handleListDocuments(req: Request, env: Env, user: AuthedUs
     .all<{ file: string; source: string; updated_at: number }>();
   const logByFile = new Map((logRes.results ?? []).map((r) => [r.file, r]));
   const files = (res.results ?? []).map((r) => r.file);
+  // 言語（推定。T13の絞り込み用）。多すぎるときは先頭の LANGUAGE_SAMPLE_MAX 件だけ（残りはnull＝未判定）。
+  const languages = await detectLanguages(env, namespace, files.slice(0, LANGUAGE_SAMPLE_MAX));
   const documents = files.map((file) => {
     const log = logByFile.get(file);
-    return { file, source: log?.source ?? null, updatedAt: log?.updated_at ?? null };
+    return { file, source: log?.source ?? null, updatedAt: log?.updated_at ?? null, language: languages.get(file) ?? null };
   });
   return jsonResponse(200, { status: "ok", files, documents });
 }
@@ -96,6 +130,39 @@ export async function handleDeleteDocument(req: Request, env: Env, user: AuthedU
     return jsonResponse(404, { error: `namespace(${namespace})にfile(${file})という登録済みドキュメントが見つかりません` });
   }
   return jsonResponse(200, { status: "ok", deletedChunks });
+}
+
+// POST /admin/kb/delete-documents — namespace内の複数ドキュメントをまとめて削除する（一括削除・全削除の1回ぶん）。
+// 1件の失敗で残りを止めない。結果は件ごとに返す（deleted / not_found / error）。
+// 件数の上限は MAX_BULK_DELETE。それ以上を消すときは、画面が何回かに分けて呼ぶ（全削除も同じ）。
+// body: { namespace, files: string[] }
+export async function handleDeleteDocuments(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = (await req.json()) as { namespace?: string; files?: unknown };
+  const namespace = (body.namespace || "").trim();
+  if (namespace) authorizeDocumentAccess(user, namespace);
+  if (!namespace) return jsonResponse(400, { error: "namespace は必須です" });
+  if (!Array.isArray(body.files)) return jsonResponse(400, { error: "files は配列で指定してください" });
+  const files = [...new Set(body.files.filter((f): f is string => typeof f === "string").map((f) => f.trim()).filter(Boolean))];
+  if (files.length === 0) return jsonResponse(400, { error: "files に1件以上のfile名を指定してください" });
+  if (files.length > MAX_BULK_DELETE) {
+    return jsonResponse(400, { error: `1回に削除できるのは${MAX_BULK_DELETE}件までです（受領: ${files.length}件）` });
+  }
+
+  const results: Array<{ file: string; status: "deleted" | "not_found" | "error"; deletedChunks: number; error?: string }> = [];
+  for (const file of files) {
+    try {
+      const deletedChunks = await deleteDocumentChunks(env, namespace, file);
+      results.push({ file, status: deletedChunks > 0 ? "deleted" : "not_found", deletedChunks });
+    } catch (e) {
+      results.push({ file, status: "error", deletedChunks: 0, error: e instanceof Error ? e.message.slice(0, 200) : "削除に失敗しました" });
+    }
+  }
+  return jsonResponse(200, {
+    status: "ok",
+    results,
+    deleted: results.filter((r) => r.status === "deleted").length,
+    deletedChunks: results.reduce((sum, r) => sum + r.deletedChunks, 0),
+  });
 }
 
 // POST /admin/kb/find-duplicates — namespace内で内容が重複しているドキュメント（file）の
