@@ -186,6 +186,13 @@ _MIN_ASPECT, _MAX_ASPECT = 0.6, 2.4
 #       小さすぎるときだけ拡大し、極端に大きいときだけ縮小する（fit_pane_size）。
 VIEWPORT_WIDTH, VIEWPORT_HEIGHT = 1920, 1080
 CLIP_WIDTH, CLIP_HEIGHT = 960, 540
+# 2026-11-06: 動く様子の長いクリップ（約10秒）。動画エンジンは、クリップを自分の fps で頭から再生し、終わったら最後のコマで止める
+# （RAGReel の main_cloudrag.cpp）。16コマ・12fps（約1.3秒）だと、解説の12秒のうち、10秒ほどが止まった絵になっていた。
+# 枚数は、シミュレーションを頭から回す時間とディスクの量に直結するので、控えめに（120コマ。640x360）。
+LONG_CLIP_FRAMES = 120
+LONG_CLIP_FPS_MIN, LONG_CLIP_FPS_MAX = 6, 12
+LONG_CLIP_TARGET_SECONDS = 10.0
+LONG_CLIP_WIDTH, LONG_CLIP_HEIGHT = 640, 360
 LOGICAL_WIDTH, LOGICAL_HEIGHT = 1280, 720
 RENDER_SCALE = 2
 PANE_MIN_WIDTH, PANE_MAX_WIDTH = 1280, 3840
@@ -213,7 +220,10 @@ def _displayed_bounds(container_path: str | None, log_path: Path | None):
     union = None
     for child in container.children():
         try:
-            if child.type().category() != hou.objNodeTypeCategory() or not child.isDisplayFlagSet():
+            # LOP ネットワーク（solaris）などは isDisplayFlagSet を持たない。ジオメトリの箱ではないので、飛ばす（エラーにしない）
+            if child.type().category() != hou.objNodeTypeCategory() or not hasattr(child, "isDisplayFlagSet"):
+                continue
+            if not child.isDisplayFlagSet():
                 continue
             display = child.displayNode()
             geometry = display.geometry() if display is not None else None
@@ -318,10 +328,105 @@ def capture_viewport(
         exists = output_path.exists()
         if not exists:
             _log(f"flipbook() returned without raising but no file at {output_path}", log_path)
+        else:
+            flatten_alpha(output_path, log_path)
         return exists
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
         _log(f"viewport capture failed: {exc!r}", log_path)
         return False
+
+
+# flipbook() の PNG は、背景が透明（アルファつき）。RGB は透明部分で 0 や 255 の無意味な値になっており、アルファを無視して
+# 読むと、空が真っ黒・床が真っ白の画像になる（2026-11-06の動画で確認）。撮った直後に、不透明な暗いグレーの上に重ねて保存し直す。
+VIEWPORT_BACKGROUND_RGB = (58, 58, 62)
+
+
+def flatten_alpha(path: Path, log_path: Path | None = None, background: tuple[int, int, int] = VIEWPORT_BACKGROUND_RGB) -> bool:
+    """アルファつきの画像を、背景色の上に重ねた不透明な画像として上書きする。アルファが無い・失敗したときは何もしない。戻り値: 書き換えたか。"""
+    try:
+        from PySide6.QtGui import QColor, QImage, QPainter
+
+        image = QImage(str(path))
+        if image.isNull() or not image.hasAlphaChannel():
+            return False
+        flat = QImage(image.width(), image.height(), QImage.Format_RGB32)
+        flat.fill(QColor(*background))
+        painter = QPainter(flat)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        painter.drawImage(0, 0, image)
+        painter.end()
+        return bool(flat.save(str(path), "PNG"))
+    except Exception as exc:  # noqa: BLE001 -- 撮影は止めない
+        _log(f"flatten_alpha failed: {exc!r}", log_path)
+        return False
+
+
+def plan_clip(start: float, end: float, max_frames: int = LONG_CLIP_FRAMES) -> dict:
+    """再生範囲 [start, end] を、max_frames 枚以内に収める撮影計画（純粋な関数）。
+    範囲が長いときは、フレームを間引く（frame_step）。再生 fps は、約10秒になるよう、6〜12の範囲で決める。
+    戻り値: {"start", "end", "step", "frames", "fps", "seconds"}。"""
+    first = int(round(start))
+    total = max(1, int(round(end)) - first + 1)
+    step = max(1, -(-total // max(1, max_frames)))  # 切り上げ
+    frames = -(-total // step)
+    fps = int(min(LONG_CLIP_FPS_MAX, max(LONG_CLIP_FPS_MIN, round(frames / LONG_CLIP_TARGET_SECONDS))))
+    return {"start": first, "end": first + (frames - 1) * step, "step": step, "frames": frames, "fps": fps, "seconds": round(frames / fps, 1)}
+
+
+def playback_range() -> tuple[float, float]:
+    """タイムラインの再生範囲（開始, 終了）。読めなければ、現在のフレームだけ。"""
+    try:
+        rng = hou.playbar.playbackRange()
+        return float(rng[0]), float(rng[1])
+    except Exception:  # noqa: BLE001
+        frame = float(hou.frame())
+        return frame, frame
+
+
+def _displayed_signature(container_path: str | None, log_path: Path | None) -> tuple | None:
+    """表示中のジオメトリの「署名」（境界ボックスと、点の数）。フレームが違うと変わるかを比べるための値。求められなければ None。"""
+    box = _displayed_bounds(container_path, log_path)
+    if box is None:
+        return None
+    count = 0
+    try:
+        container = hou.node(container_path)
+        for child in container.children():
+            if child.type().category() == hou.objNodeTypeCategory() and hasattr(child, "isDisplayFlagSet") and child.isDisplayFlagSet():
+                display = child.displayNode()
+                geometry = display.geometry() if display is not None else None
+                if geometry is not None:
+                    count += int(geometry.intrinsicValue("pointcount"))
+    except Exception:  # noqa: BLE001 -- 点の数が読めなくても、境界ボックスで比べる
+        count = -1
+    lo, hi = box.minvec(), box.maxvec()
+    return (tuple(round(float(v), 3) for v in (lo[0], lo[1], lo[2], hi[0], hi[1], hi[2])), count)
+
+
+def scene_is_animated(container_path: str | None, start: float, end: float, log_path: Path | None = None) -> bool | None:
+    """再生範囲の頭・中・終わりで、表示中のジオメトリが変わるか。True=動く / False=動かない / None=判定できない。
+    動かない（静的な形状）なら、クリップにしても止まった絵なので、静止画のままにする（撮影の時間も節約できる）。
+    調べたあと、フレームは元に戻す。"""
+    if end <= start:
+        return False
+    original = hou.frame()
+    try:
+        signatures = []
+        for frame in (start, (start + end) / 2.0, end):
+            hou.setFrame(frame)
+            signature = _displayed_signature(container_path, log_path)
+            if signature is None:
+                return None
+            signatures.append(signature)
+        return len(set(signatures)) > 1
+    except Exception as exc:  # noqa: BLE001
+        _log(f"scene_is_animated failed: {exc!r}", log_path)
+        return None
+    finally:
+        try:
+            hou.setFrame(original)
+        except Exception:  # noqa: BLE001 -- 戻せなくても、判定の結果は返す
+            pass
 
 
 def capture_viewport_clip(
@@ -333,6 +438,8 @@ def capture_viewport_clip(
     height: int = CLIP_HEIGHT,
     log_path: Path | None = None,
     frame_path: str | None = None,
+    start_frame: float | None = None,
+    frame_step: int = 1,
 ) -> tuple[list[Path], int]:
     """
     現在フレームから frame_count 枚分、ビューポートを連番PNGとして撮影する
@@ -357,12 +464,18 @@ def capture_viewport_clip(
         width, height = _output_size(clip_viewport, width, height, log_path)
 
         original_frame = hou.frame()
-        start_frame = original_frame
-        end_frame = start_frame + frame_count - 1
+        first_frame = original_frame if start_frame is None else start_frame
+        step = max(1, int(frame_step))
+        end_frame = first_frame + (frame_count - 1) * step
         output_template = str(output_dir / f"{base_name}.$F4.png")
         try:
             settings = scene_viewer.flipbookSettings().stash()
-            settings.frameRange((start_frame, end_frame))
+            settings.frameRange((first_frame, end_frame))
+            if step > 1:
+                if hasattr(settings, "frameIncrement"):
+                    settings.frameIncrement(step)
+                else:  # 古いビルド: 間引けないので、同じ枚数を連続フレームで撮る
+                    settings.frameRange((first_frame, first_frame + frame_count - 1))
             settings.output(output_template)
             settings.outputToMPlay(False)
             settings.resolution((width, height))
@@ -374,6 +487,8 @@ def capture_viewport_clip(
         if not frames:
             _log(f"clip flipbook() produced no frames in {output_dir}", log_path)
             return [], 0
+        for frame_file in frames:
+            flatten_alpha(frame_file, log_path)
         return frames, fps
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
         _log(f"viewport clip capture failed: {exc!r}", log_path)

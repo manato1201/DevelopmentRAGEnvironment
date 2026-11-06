@@ -9,7 +9,7 @@ guide_mode.py — 案内モード: 手順ごとに「見るタブ・操作する
   ・案内タブ（guide_view.py）が読み込み、手順を1つずつ示す。
   ・Houdini を触る部分（hou）は引数で受け取る。画面の無い環境でも、データの組み立てと検索はテストできる。
 
-ショートカットは、SideFX の公式ドキュメント（Network editor shortcuts / Network navigation）で確かめたものだけを載せる。
+ショートカットは、SideFX の公式ドキュメントで確かめたものだけを載せる（guide_shortcuts.py）。
 確かめていないもの（例: レイアウトの L）は載せない。
 """
 
@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+
+import guide_shortcuts
 
 GUIDE_VERSION = 1
 GUIDE_SUFFIX = "_guide.json"
@@ -44,20 +46,7 @@ _PANE_TYPE_NAMES: dict[str, tuple[str, ...]] = {
     "spreadsheet": ("DetailsViewer",),
 }
 
-# 出典: https://www.sidefx.com/docs/houdini/network/shortcuts.html / https://www.sidefx.com/docs/houdini/network/navigate.html
-# （ここに無いキーは、公式で確かめられなかったもの。足すときは出典を確かめてから）
-TOOL_SHORTCUTS: dict[str, list[tuple[str, str]]] = {
-    "create_node": [("Tab", "ネットワークエディタの上で押すと、ノードの検索メニューが開く。名前を打って Enter")],
-    "connect_nodes": [
-        ("ドラッグ", "上のノードの出力（下の丸）から、下のノードの入力（上の丸）へ線を引く"),
-        ("Y を押しながらドラッグ", "横切った線を切る（つなぎ間違えたとき）"),
-    ],
-}
-NETWORK_SHORTCUTS: list[tuple[str, str]] = [
-    ("G", "選んでいるノードを、画面いっぱいに映す"),
-    ("H", "ネットワーク全体を映す"),
-]
-UNDO_SHORTCUT: tuple[str, str] = ("Ctrl+Z", "直前の操作を取り消す")
+# ショートカットの表は guide_shortcuts.py（出典つき。公式ドキュメントで確かめたものだけ）。
 
 
 # ── 案内データの組み立て ─────────────────────────────────────────────────────
@@ -65,6 +54,7 @@ UNDO_SHORTCUT: tuple[str, str] = ("Ctrl+Z", "直前の操作を取り消す")
 _CREATE_RE = re.compile(r"「(.+?)」ノード（([^）]+)）を作り、名前を (\S+) にする")
 _CREATE_TOP_RE = re.compile(r"Object レベルに「(.+?)」ノードを作り、名前を (\S+) にする")
 _CONNECT_RE = re.compile(r"^(\S+) の出力を、(\S+) の")
+_CONNECT_GROUP_RE = re.compile(r"^(\d+)本のノードをつなぐ: (.+)$")  # 連続した接続を1手順にまとめた操作文
 _PARAM_NODE_RE = re.compile(r"^(\S+) の(?:パラメータを設定|「)")
 _PARAM_ONE_RE = re.compile(r"(.+?) を (.+?)(?:、|$)")
 _COOK_RE = re.compile(r"^(\S+) を評価")
@@ -82,6 +72,15 @@ def _parse_instruction(tool: str, text: str) -> dict:
         if m:
             return {"node": m.group(2), "node_label": m.group(1), "node_type": "geo"}
     elif tool == "connect_nodes":
+        grouped = _CONNECT_GROUP_RE.match(first)
+        if grouped:
+            pairs = []
+            for chunk in grouped.group(2).split("、"):
+                parts = [p.strip() for p in chunk.split("→")]
+                if len(parts) == 2 and parts[0] and parts[1] and not parts[1].startswith("ほか"):
+                    pairs.append({"from": parts[0], "to": parts[1].split(" ")[0]})
+            if pairs:
+                return {"node": pairs[-1]["to"], "from": pairs[0]["from"], "to": pairs[-1]["to"], "connections": pairs}
         m = _CONNECT_RE.search(first)
         if m:
             return {"node": m.group(2), "from": m.group(1), "to": m.group(2)}
@@ -113,6 +112,9 @@ def _hint(tool: str, g: dict) -> str:
         label = g.get("node_label") or g.get("node_type") or "ノード"
         return f"ネットワークエディタで Tab を押し、「{label}」と入力して Enter。名前は {node} にします" if node else f"Tab を押して「{label}」を作ります"
     if tool == "connect_nodes":
+        pairs = [c for c in (g.get("connections") or []) if isinstance(c, dict)]
+        if len(pairs) > 1:
+            return f"{len(pairs)}本つなぎます: " + "、".join(f"{c.get('from')} → {c.get('to')}" for c in pairs[:6]) + (" ほか" if len(pairs) > 6 else "")
         return f"{g.get('from') or '上のノード'} の出力から、{g.get('to') or node} の入力へ線を引きます"
     if tool == "set_parameter":
         lines = []
@@ -140,11 +142,9 @@ def build_guide(step_screenshots: list[dict], title: str = "", level: str = "", 
             continue
         recorded = s.get("guide")
         g: dict = recorded if isinstance(recorded, dict) and recorded else _parse_instruction(tool, str(s.get("result") or ""))
-        shortcuts = list(TOOL_SHORTCUTS.get(tool, []))
-        if tab == "network":
-            shortcuts += NETWORK_SHORTCUTS
-        if tool in ("create_node", "connect_nodes", "delete_node", "set_parameter"):
-            shortcuts.append(UNDO_SHORTCUT)
+        # コードを入れるパラメータの手順には、外部エディタのキーも足す
+        has_code = any(isinstance(pm, dict) and str(pm.get("new") or "").startswith("（コード") for pm in (g.get("parms") or []))
+        shortcuts = guide_shortcuts.for_step(tool, code=has_code)
         steps.append({
             "step": s.get("step") if isinstance(s.get("step"), int) else i,
             "tool": tool,
@@ -156,9 +156,10 @@ def build_guide(step_screenshots: list[dict], title: str = "", level: str = "", 
             "parms": [p for p in (g.get("parms") or []) if isinstance(p, dict)][:12],
             "from": str(g.get("from") or ""),
             "to": str(g.get("to") or ""),
+            "connections": [c for c in (g.get("connections") or []) if isinstance(c, dict)][:12],
             "tab": tab,
             "tab_label": TAB_LABELS[tab],
-            "shortcuts": [{"keys": k, "what": w} for k, w in shortcuts],
+            "shortcuts": shortcuts,
             "hint": _hint(tool, g),
         })
     guide = {"version": GUIDE_VERSION, "title": title, "level": level, "steps": steps}
@@ -351,6 +352,13 @@ def apply_step(hou, step: dict) -> list[str]:
     wanted: list[tuple[str, str]] = []
     if tool == "connect_nodes":
         wanted = [(step.get("from") or "", ""), (step.get("to") or step.get("node") or "", "")]
+        for pair in step.get("connections") or []:
+            wanted += [(pair.get("from") or "", ""), (pair.get("to") or "", "")]
+        unique: list[tuple[str, str]] = []
+        for pair_item in wanted:  # 同じノードは1回だけ
+            if pair_item[0] not in [u[0] for u in unique]:
+                unique.append(pair_item)
+        wanted = unique
     elif step.get("node"):
         wanted = [(step["node"], step.get("node_type") or "")]
     wanted = [(n, t) for n, t in wanted if n]

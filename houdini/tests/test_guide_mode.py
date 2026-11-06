@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python_panels"))
 
 import guide_mode as gm  # noqa: E402
+import guide_shortcuts as gs  # noqa: E402
 
 
 # ── 偽の Houdini ───────────────────────────────────────────────────────────
@@ -137,17 +138,18 @@ class BuildGuideTest(unittest.TestCase):
         self.assertIn("場所: Distribution", param["hint"])
         connect = steps[2]
         self.assertIn("grid1 の出力から、scatter1 の入力へ", connect["hint"])
-        self.assertIn("Y を押しながらドラッグ", [s["keys"] for s in connect["shortcuts"]])
+        self.assertIn("Y を押しながら線をまたいでドラッグ", [s["keys"] for s in connect["shortcuts"]])
         self.assertEqual(guide["level"], "basic")
 
-    def test_shortcuts_are_only_the_confirmed_ones(self):
-        allowed = {"Tab", "ドラッグ", "Y を押しながらドラッグ", "G", "H", "Ctrl+Z"}
+    def test_every_step_shortcut_comes_from_the_confirmed_table(self):
+        table = {(r["keys"], r["what"], r["group"]) for r in gs.SHORTCUTS}
         for step in gm.build_guide(STEPS)["steps"]:
-            for s in step["shortcuts"]:
-                self.assertIn(s["keys"], allowed)
-        self.assertNotIn("L", [k for k, _ in gm.NETWORK_SHORTCUTS], "the layout key could not be confirmed in the docs")
-        # 画面を見るだけの手順（cook）に、ネットワークの操作キーを出さない
-        self.assertEqual(gm.build_guide(STEPS)["steps"][4]["shortcuts"], [])
+            self.assertGreaterEqual(len(step["shortcuts"]), 6, step["tool"])
+            for item in step["shortcuts"]:
+                self.assertIn((item["keys"], item["what"], item["group"]), table)
+        # 画面を見る手順（cook）には、ビューポート・タイムラインのキーを出す
+        cook = gm.build_guide(STEPS)["steps"][4]["shortcuts"]
+        self.assertEqual({"ビューポート", "タイムライン", "ペイン（タブ）の切り替え"}, {c["group"] for c in cook})
 
     def test_old_records_without_guide_are_read_from_the_instruction(self):
         old = [{k: v for k, v in s.items() if k != "guide"} for s in STEPS]
@@ -352,7 +354,7 @@ class GuideViewTest(unittest.TestCase):
     def test_step_html_shows_node_parms_tab_and_shortcuts(self):
         guide = gm.build_guide(STEPS, "t")
         text = self.gv.render_step_html(guide, 3)
-        for word in ("scatter1", "Force Total Count", "1000", "500", "場所: Distribution", "パラメータ", "Ctrl+Z"):
+        for word in ("scatter1", "Force Total Count", "1000", "500", "場所: Distribution", "パラメータ", "Ctrl + Z", "ラダー"):
             self.assertIn(word, text)
         self.assertEqual(self.gv.render_step_html({"steps": []}, 0), "")
         self.assertIn("&lt;", self.gv.render_step_html({"steps": [{"instruction": "<b>x</b>", "tab_label": "t"}]}, 0), "text is escaped")
@@ -362,6 +364,148 @@ class GuideViewTest(unittest.TestCase):
         self.assertIn("TIPS", text)
         self.assertIn("自分でやってみよう", text)
         self.assertNotIn("前提条件", text)
+
+
+class ShortcutTableTest(unittest.TestCase):
+    """ショートカットの表（guide_shortcuts.py）。公式ドキュメントで確かめたものだけ、出典つきで。"""
+
+    def test_every_row_has_a_group_a_source_and_text(self):
+        for row in gs.SHORTCUTS:
+            self.assertIn(row["group"], gs.GROUPS, row["id"])
+            self.assertIn(row["source"], gs.SOURCES, row["id"])
+            self.assertTrue(row["keys"].strip() and row["what"].strip(), row["id"])
+        ids = [r["id"] for r in gs.SHORTCUTS]
+        self.assertEqual(len(ids), len(set(ids)), "ids are unique")
+        for name, (title, url) in gs.SOURCES.items():
+            self.assertTrue(url.startswith("https://www.sidefx.com/docs/houdini/"), name)
+
+    def test_there_are_many_more_than_before(self):
+        self.assertGreaterEqual(len(gs.SHORTCUTS), 70)
+        for group in gs.GROUPS:
+            self.assertTrue([r for r in gs.SHORTCUTS if r["group"] == group], group)
+
+    def test_keys_that_could_not_be_confirmed_are_not_listed(self):
+        keys = [r["keys"] for r in gs.SHORTCUTS]
+        self.assertNotIn("L", keys, "layout key: not in the docs")
+        for unconfirmed in ("Ctrl + C", "Ctrl + V", "Ctrl + X", "Ctrl + Shift + Z", "F2"):
+            self.assertNotIn(unconfirmed, keys, unconfirmed)
+        # Delete は、公式に書かれているのは「付箋・ネットワークボックス」だけ。ノードの削除のキーとしては載せない
+        for row in gs.SHORTCUTS:
+            if "Delete" in row["keys"]:
+                self.assertEqual(row["group"], gs.GROUP_ORGANIZE, row["id"])
+                self.assertEqual(row["source"], "organize", row["id"])
+                self.assertTrue("ボックス" in row["what"] or "付箋" in row["what"], row["id"])
+
+    def test_each_tool_has_a_list_and_only_known_ids(self):
+        for tool, ids in gs.TOOL_IDS.items():
+            self.assertGreaterEqual(len(ids), 6, tool)
+            self.assertEqual(len(ids), len(set(ids)), tool)
+            for i in ids:
+                self.assertIn(i, gs.BY_ID, (tool, i))
+        self.assertEqual(set(gs.TOOL_IDS), set(gm.TOOL_TAB), "every guided tool has shortcuts")
+        for i in gs.CODE_PARM_IDS:
+            self.assertIn(i, gs.BY_ID)
+
+    def test_for_step(self):
+        create = gs.for_step("create_node")
+        self.assertEqual(create[0]["keys"], "Tab")
+        self.assertEqual(gs.for_step("nothing"), [])
+        plain = [r["keys"] for r in gs.for_step("set_parameter")]
+        code = [r["keys"] for r in gs.for_step("set_parameter", code=True)]
+        self.assertNotIn("欄をクリックして Alt + E", plain)
+        self.assertIn("欄をクリックして Alt + E", code, "code parameters also get the external editor key")
+        self.assertEqual(len(code), len(plain) + 1)
+
+    def test_code_parameter_steps_get_the_editor_key(self):
+        steps = [{"step": 1, "tool": "set_parameter", "result": "w のパラメータを設定: VEXpression を x",
+                  "guide": {"node": "w", "parms": [{"name": "snippet", "label": "VEXpression", "old": "", "new": "（コード。手順書を見る）", "where": ""}]}}]
+        keys = [s["keys"] for s in gm.build_guide(steps)["steps"][0]["shortcuts"]]
+        self.assertIn("欄をクリックして Alt + E", keys)
+
+    def test_organizing_shortcuts_are_there(self):
+        """ネットワークボックス・付箋・整列など、ネットワークを整理するキー。"""
+        organize = {r["id"]: r for r in gs.SHORTCUTS if r["group"] == gs.GROUP_ORGANIZE}
+        self.assertGreaterEqual(len(organize), 15)
+        expected = {
+            "net_box": "Shift + O", "net_note": "Shift + P", "org_minimize": "Shift + J", "org_restore": "Shift + K",
+            "org_shrink": "Shift + M", "net_align": "Shift + A を押しながらドラッグ", "org_distribute": "Alt + A を押しながらドラッグ",
+            "org_color": "C", "org_shape": "Z", "org_delete_all": "Shift + Delete",
+        }
+        for rid, keys in expected.items():
+            self.assertEqual(organize[rid]["keys"], keys, rid)
+        steps = gm.build_guide(STEPS)["steps"]
+        connect = next(s for s in steps if s["tool"] == "connect_nodes")
+        self.assertIn(gs.GROUP_ORGANIZE, {c["group"] for c in connect["shortcuts"]}, "tidy-up keys appear after wiring")
+        self.assertIn("Shift + O", [c["keys"] for c in connect["shortcuts"]])
+        self.assertEqual([g for g, _ in gs.cheatsheet("ボックス")][:2], [gs.GROUP_ORGANIZE], "the box can be found by searching")
+
+    def test_cheatsheet_groups_and_filters(self):
+        everything = gs.cheatsheet()
+        self.assertEqual([g for g, _ in everything], list(gs.GROUPS))
+        self.assertEqual(sum(len(rows) for _g, rows in everything), len(gs.SHORTCUTS))
+        found = gs.cheatsheet("space")
+        self.assertTrue(found and all("space" in (r["keys"] + r["what"] + r["group"]).lower() for _g, rows in found for r in rows))
+        self.assertEqual([g for g, _ in gs.cheatsheet("タイムライン")], ["タイムライン"], "the group name is searched too")
+        self.assertEqual(gs.cheatsheet("ZZZ存在しない"), [])
+        self.assertEqual(gs.cheatsheet("ctrl+z")[0][1][0]["id"], "undo", "spaces and case are ignored")
+
+
+class CheatSheetViewTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import guide_view
+        except Exception as exc:  # noqa: BLE001
+            raise unittest.SkipTest(f"guide_view をimportできません: {exc}") from exc
+        cls.gv = guide_view
+
+    def test_step_html_has_group_headings(self):
+        text = self.gv.render_step_html(gm.build_guide(STEPS)["steps"] and gm.build_guide(STEPS), 2)
+        for word in ("ネットワークエディタ", "ペイン（タブ）の切り替え", "共通", "Y を押しながら線をまたいでドラッグ"):
+            self.assertIn(word, text)
+
+    def test_old_guides_without_groups_still_render(self):
+        guide = {"steps": [{"instruction": "x", "tab_label": "t", "shortcuts": [{"keys": "Tab", "what": "メニュー"}]}]}
+        text = self.gv.render_step_html(guide, 0)
+        self.assertIn("<code>Tab</code>", text)
+
+    def test_the_cheat_sheet_button_swaps_the_lower_pane_and_filters(self):
+        import os
+        import tempfile
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as d:
+            gm.write_guide(Path(d) / "t_guide.json", gm.build_guide(STEPS, "t", "basic", {"tips": "G で寄る"}))
+            widget = self.gv.GuideWidget(lambda: {"local_bridge_dir": ""})
+            widget._tutorials_dir = lambda: Path(d)
+            widget.refresh()
+            self.assertIn("G で寄る", widget._extra_view.toPlainText(), "the tutorial's own sections first")
+            widget._sheet_btn.setChecked(True)
+            self.assertFalse(widget._sheet_filter.isHidden())
+            self.assertIn("ショートカット一覧", widget._extra_view.toPlainText())
+            self.assertNotIn("G で寄る", widget._extra_view.toPlainText())
+            widget._sheet_filter.setText("タイムライン")
+            text = widget._extra_view.toPlainText()
+            self.assertIn("順方向", text)
+            self.assertNotIn("ネットワークエディタ", text.split("出典")[0])
+            widget._sheet_btn.setChecked(False)
+            self.assertTrue(widget._sheet_filter.isHidden())
+            self.assertEqual(widget._sheet_filter.text(), "")
+            self.assertIn("G で寄る", widget._extra_view.toPlainText(), "back to the tutorial's sections")
+
+    def test_cheatsheet_html(self):
+        text = self.gv.render_cheatsheet_html()
+        self.assertIn(f"{len(gs.SHORTCUTS)}個", text)
+        for word in ("Hotkey quick reference", "Network editor shortcuts", "https://www.sidefx.com/docs/houdini/start/hotkeys.html", "ホットキーを変えている場合"):
+            self.assertIn(word, text)
+        filtered = self.gv.render_cheatsheet_html("タイムライン")
+        self.assertIn("再生", filtered)
+        self.assertNotIn("ネットワークエディタ", filtered.split("出典")[0])
+        self.assertIn("合うショートカットはありません", self.gv.render_cheatsheet_html("ZZZ存在しない"))
+        self.assertIn("&lt;", self.gv.render_cheatsheet_html("<script>") or "&lt;", "the query is escaped")
 
 
 if __name__ == "__main__":

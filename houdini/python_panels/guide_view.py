@@ -16,12 +16,14 @@ from pathlib import Path
 from typing import Callable
 
 import guide_mode
+import guide_shortcuts
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSplitter,
     QTextBrowser,
@@ -63,9 +65,34 @@ def render_step_html(guide: dict, index: int) -> str:
         rows.append("<p>変えるパラメータ:</p><ul>" + "".join(items) + "</ul>")
     shortcuts = step.get("shortcuts") or []
     if shortcuts:
-        items = [f"<li><code>{esc(s['keys'])}</code> … {esc(s['what'])}</li>" for s in shortcuts]
-        rows.append("<p>使うショートカット:</p><ul>" + "".join(items) + "</ul>")
+        rows.append("<p>使うショートカット（Houdini の標準のキー）:</p>")
+        groups: dict[str, list[dict]] = {}
+        for s in shortcuts:
+            groups.setdefault(str(s.get("group") or ""), []).append(s)  # 以前の案内データはグループが無い（まとめて1つ）
+        for group, items in groups.items():
+            if group:
+                rows.append(f"<p style='margin:.5em 0 0'><b>{esc(group)}</b></p>")
+            rows.append("<ul>" + "".join(f"<li><code>{esc(s['keys'])}</code> … {esc(s['what'])}</li>" for s in items) + "</ul>")
     return "".join(rows)
+
+
+def render_cheatsheet_html(query: str = "") -> str:
+    """ショートカット一覧（全部）。query があれば、キー・操作・グループの名前で絞る。"""
+    esc = html.escape
+    sections = guide_shortcuts.cheatsheet(query)
+    if not sections:
+        return f"<p>「{esc(query)}」に合うショートカットはありません。</p>"
+    total = sum(len(rows) for _group, rows in sections)
+    parts = [f"<p><b>ショートカット一覧</b>（{total}個。Houdini の標準のキー）</p>"]
+    for group, rows in sections:
+        parts.append(f"<p style='margin:.6em 0 0'><b>{esc(group)}</b></p><ul>")
+        parts += [f"<li><code>{esc(r['keys'])}</code> … {esc(r['what'])}</li>" for r in rows]
+        parts.append("</ul>")
+    used = sorted({r["source"] for _g, rows in sections for r in rows})
+    parts.append("<p style='color:#94a3b8'>出典（SideFX 公式ドキュメント）: " + "、".join(
+        f"{esc(guide_shortcuts.SOURCES[k][0])} {esc(guide_shortcuts.SOURCES[k][1])}" for k in used if k in guide_shortcuts.SOURCES
+    ) + "。ホットキーを変えている場合は、合わないことがあります。</p>")
+    return "".join(parts)
 
 
 def render_sections_html(guide: dict) -> str:
@@ -140,12 +167,37 @@ class GuideWidget(QWidget):
         self._apply_btn.setToolTip("見るタブを前面に出し、操作するノードを選んで画面に収めます（画面の部品は消しません）")
         self._apply_btn.clicked.connect(self._apply)
         self._auto = QCheckBox("手順を移るたびに自動で案内")
+        self._sheet_btn = QPushButton("ショートカット一覧")
+        self._sheet_btn.setCheckable(True)
+        self._sheet_btn.setToolTip("Houdini の標準のショートカットを、全部見る（キーや操作で絞れます）。もう一度押すと、手順書の前提・TIPS に戻ります")
+        self._sheet_btn.toggled.connect(self._on_sheet_toggled)
+        self._sheet_filter = QLineEdit()
+        self._sheet_filter.setPlaceholderText("キーや操作で絞る（例: Space・パラメータ・タイムライン）")
+        self._sheet_filter.setClearButtonEnabled(True)
+        self._sheet_filter.setVisible(False)
+        self._sheet_filter.textChanged.connect(self._render_sheet)
         actions.addWidget(self._apply_btn)
         actions.addWidget(self._auto)
+        actions.addWidget(self._sheet_btn)
+        actions.addWidget(self._sheet_filter, stretch=1)
         actions.addStretch()
         root.addLayout(actions)
 
         self._set_enabled(False)
+
+    # ── ショートカット一覧 ────────────────────────────────────────────────────
+
+    def _on_sheet_toggled(self, on: bool) -> None:
+        self._sheet_filter.setVisible(on)
+        if on:
+            self._render_sheet()
+        else:
+            self._sheet_filter.clear()
+            self._extra_view.setHtml(render_sections_html(self._guide) if self._guide else "")
+
+    def _render_sheet(self) -> None:
+        if self._sheet_btn.isChecked():
+            self._extra_view.setHtml(render_cheatsheet_html(self._sheet_filter.text()))
 
     def _set_enabled(self, has_guide: bool) -> None:
         self._prev_btn.setEnabled(has_guide)
@@ -201,7 +253,10 @@ class GuideWidget(QWidget):
         self._combo.blockSignals(True)
         self._combo.setCurrentIndex(index)
         self._combo.blockSignals(False)
-        self._extra_view.setHtml(render_sections_html(guide))
+        if self._sheet_btn.isChecked():
+            self._render_sheet()
+        else:
+            self._extra_view.setHtml(render_sections_html(guide))
         self._set_enabled(True)
         self._status.setText(
             "手順を1つずつ示します。「この手順を案内」で、Houdini の画面を動かします"

@@ -285,6 +285,7 @@ _LEVEL_INSTRUCTIONS: dict[str, str] = {
     level: f"{title}。{role}\n\n{lesson_design.explanation_style(level)}" for level, (title, role) in lesson_design.LESSON_PATH.items()
 }
 _DEFAULT_LEVEL = "basic"
+_MAX_LISTED_NODES = 120  # 手順書の「ノード」「接続」の一覧に載せる件数の上限
 
 _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、チュートリアルを作成するエージェントです。読者の水準は、下の「レベル」の「説明の書き方」に従ってください。
 与えられたツールで Houdini のノードグラフを実際に組み立て、動作確認済みのチュートリアルを作成します。
@@ -314,6 +315,7 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、チ
 - 各章の終わりに、数値は inspect_geometry、見た目は view_viewport（画像が返る。1回の生成で8回まで）で確かめます。シミュレーション・アニメーションは、inspect_geometry / view_viewport の frame で「N フレーム目」を確かめます。
 - レッスン2（実務で使える形）以降では、調整したい値を promote_parameter で親のコンテナの Parm パネルへまとめます（元は親を参照する式になる）。
 - レッスン3（設計の判断）では、別の構成を同じサンドボックスの別の geo に組み、同じ検査（inspect_geometry・try_parameter）の数値を並べて比べてかまいません。比べ終えたら、採用しなかった側は delete_node で消し、末端が1本になるようにします。規模（密度・数）を変えて測るときは、測ったあと元の値に戻します。
+- 時間で動く題材（爆発・煙・炎・水・パーティクル・布・アニメーション・リグ）は、結果が時間で動くように組む（シミュレーション、または $F・time を使った式。再生範囲は 1〜240 の既定のままでよい）。cook_node のあと、動く様子が約10秒の映像として動画に入る。動かない結果（静止した形）は、静止画のまま。「爆発のEffect」を、止まった形だけで済ませない。
 - finish_tutorial を呼ぶ前に、layout_network でノードを整列し、validate_network を1回呼び、エラー・警告・末端の複数（つなぎ忘れ）が無いことを確かめます。
 
 ## よく使うノードタイプ（このリストにあれば list_available_node_types は不要）
@@ -1571,6 +1573,11 @@ class TutorialAgent:
             f"- `{e['source']}` → `{e['target']}` (in:{e['targetInput']})"
             for e in result.graph.get("edges", [])
         ]
+        # 念のための上限。ロックされたアセットの中身を除いても、大きなネットワークは手順書を埋めてしまう（2026-11-06に195,000文字になった）
+        if len(node_lines) > _MAX_LISTED_NODES:
+            node_lines = node_lines[:_MAX_LISTED_NODES] + [f"- …ほか {len(node_lines) - _MAX_LISTED_NODES} ノード（一覧は省略。ノードグラフ JSON を参照）"]
+        if len(edge_lines) > _MAX_LISTED_NODES:
+            edge_lines = edge_lines[:_MAX_LISTED_NODES] + [f"- …ほか {len(edge_lines) - _MAX_LISTED_NODES} 本（省略）"]
 
         # "[エラー] " は cook_node の失敗行にのみ付与される接頭辞。cook成功メッセージ
         # 「cook 成功: ...（エラー・警告なし）」にも "エラー" という部分文字列が

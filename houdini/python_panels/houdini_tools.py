@@ -628,6 +628,8 @@ class HoudiniToolExecutor:
         # set_parameter を1枚のパラメータカードにまとめるための状態（動画用）。
         self._last_parm_change: dict | None = None
         self._param_group: dict | None = None
+        self._connect_group: dict | None = None  # 連続した connect_nodes を1ステップにまとめるための状態
+        self._long_clips = 0  # 撮った、約10秒のクリップの数
         self._lock = threading.Lock()
 
         # スクリーンショット保存先。渡された screenshot_dir の下に
@@ -889,17 +891,52 @@ class HoudiniToolExecutor:
     def _leaf(path: str | None) -> str:
         return (path or "").rstrip("/").rsplit("/", 1)[-1]
 
-    def _step_guide(self, tool_name: str, tool_input: dict, focus_path: str | None, changes: list[dict] | None) -> dict:
+    _LONG_CLIP_MAX = 3  # 1回の生成で撮る、約10秒のクリップの数（撮影に時間がかかるので）
+
+    def _capture_cook_clip(self, sc, step_index: int, log_path) -> tuple[list, int]:
+        """cook_node の手順のクリップ。動くシーンは約10秒（動画で、動く様子を再生する）。動かないシーンは撮らない（静止画のまま）。
+        動くか判定できないとき、約10秒のクリップが上限に達したときは、従来の短いクリップ（16コマ）にする。"""
+        base = f"step_{step_index:03d}_clip"
+        plan = None
+        animated = None
+        try:
+            start, end = sc.playback_range()
+            plan = sc.plan_clip(start, end)
+            animated = sc.scene_is_animated(self.sandbox_path, start, end, log_path)
+        except Exception as exc:  # noqa: BLE001 -- 判定に失敗しても、従来どおりの短いクリップは撮る
+            sc._log(f"clip planning failed: {exc!r}", log_path)
+        if plan is not None and animated is False:
+            sc._log("clip skipped: the displayed geometry does not change over the playback range", log_path)
+            return [], 0
+        if plan is not None and animated and getattr(self, "_long_clips", 0) < self._LONG_CLIP_MAX:
+            self._long_clips = getattr(self, "_long_clips", 0) + 1
+            sc._log(f"long clip: {plan['frames']} frames step {plan['step']} at {plan['fps']}fps (about {plan['seconds']}s)", log_path)
+            frames, fps = sc.capture_viewport_clip(
+                self._screenshot_dir, base, frame_count=plan["frames"], fps=plan["fps"],
+                width=sc.LONG_CLIP_WIDTH, height=sc.LONG_CLIP_HEIGHT, log_path=log_path,
+                frame_path=self.sandbox_path, start_frame=plan["start"], frame_step=plan["step"],
+            )
+            if frames:
+                return frames, fps
+        return sc.capture_viewport_clip(self._screenshot_dir, base, log_path=log_path, frame_path=self.sandbox_path)
+
+    def _step_guide(self, tool_name: str, tool_input: dict, focus_path: str | None, changes: list[dict] | None,
+                    connections: list[dict] | None = None) -> dict:
         """
         案内モード（guide_mode.py）用の、手順の構造データ。操作するノード（名前・タイプ・表示名）、
         つなぐ元と先、変えるパラメータ（名前・表示名・前後の値・Parm パネルでの場所）。
         取れなければ空の dict（案内は、操作文からの読み取りに切り替わる）。
         """
+        guide: dict = {}
         try:
-            guide: dict = {}
             if tool_name == "connect_nodes":
                 guide["from"] = self._leaf(tool_input.get("from_node"))
                 guide["to"] = self._leaf(tool_input.get("to_node"))
+                if connections and len(connections) > 1:
+                    guide["connections"] = [{"from": c["from"], "to": c["to"]} for c in connections][:12]
+        except Exception:  # noqa: BLE001 -- つなぎ先が取れなくても、生成は止めない
+            return guide
+        try:
             node = self._hou.node(focus_path) if focus_path else None
             if node is not None:
                 node_type = node.type()
@@ -922,11 +959,11 @@ class HoudiniToolExecutor:
                     for c in changes
                 ]
             return guide
-        except Exception:  # noqa: BLE001 -- 案内データが取れなくても、生成は止めない
-            return {}
+        except Exception:  # noqa: BLE001 -- 案内データが取れなくても、生成は止めない（取れた分だけ返す）
+            return guide
 
     def _step_instruction(self, tool_name: str, tool_input: dict, tool_result: str, focus_path: str | None,
-                          changes: list[dict] | None) -> str:
+                          changes: list[dict] | None, connections: list[dict] | None = None) -> str:
         """
         このステップで学習者が行う操作を、1〜2文の短い日本語にする。動画のスライド左側の
         文章になる。以前はツールの結果文（「接続しました: A[out:0] → B[in:0]」）をそのまま出して
@@ -943,6 +980,10 @@ class HoudiniToolExecutor:
             if not tool_input.get("parent"):
                 return f"Object レベルに「{desc}」ノードを作り、名前を {name} にする。この中で作業する"
             return f"「{desc}」ノード（{tname}）を作り、名前を {name} にする"
+        if tool_name == "connect_nodes" and connections and len(connections) > 1:
+            shown = "、".join(f"{c['from']} → {c['to']}" for c in connections[:6])
+            more = f" ほか{len(connections) - 6}本" if len(connections) > 6 else ""
+            return f"{len(connections)}本のノードをつなぐ: {shown}{more}"
         if tool_name == "connect_nodes":
             src, dst = self._leaf(tool_input.get("from_node")), self._leaf(tool_input.get("to_node"))
             idx = int(tool_input.get("input_index", 0) or 0)
@@ -995,10 +1036,32 @@ class HoudiniToolExecutor:
             focus_path = self._step_focus_path(tool_name, tool_input, tool_result)
             container_path = self._step_network_path(tool_name, tool_input, focus_path)
 
-            # ---- 連続する set_parameter を同じステップにまとめる ----
+            # ---- 連続する set_parameter / connect_nodes を同じステップにまとめる ----
             changes: list[dict] | None = None
+            connections: list[dict] | None = None
             replace_last = False
             step_index = len(self.step_screenshots) + 1
+            if tool_name == "connect_nodes":
+                # 「ノードをつなぐ」が12回続くと、同じ見出し・3秒のスライドが12枚になった（2026-11-06）。同じネットワークで
+                # 連続した接続は1ステップにまとめる（最後の状態の画像1枚）。
+                pair = {
+                    "from": self._leaf(tool_input.get("from_node")), "to": self._leaf(tool_input.get("to_node")),
+                    "input": tool_input.get("input_name") or int(tool_input.get("input_index", 0) or 0),
+                }
+                cgroup = self._connect_group
+                if (
+                    cgroup is not None and cgroup["container"] == container_path
+                    and self.step_screenshots and self.step_screenshots[-1].get("step") == cgroup["step"]
+                ):
+                    if pair not in cgroup["pairs"]:
+                        cgroup["pairs"].append(pair)
+                    step_index = cgroup["step"]
+                    replace_last = True
+                else:
+                    self._connect_group = cgroup = {"step": step_index, "container": container_path, "pairs": [pair]}
+                connections = cgroup["pairs"]
+            else:
+                self._connect_group = None
             change = self._last_parm_change if tool_name == "set_parameter" else None
             if change is not None:
                 group = self._param_group
@@ -1039,10 +1102,7 @@ class HoudiniToolExecutor:
             clip_frames: list = []
             clip_fps = 0
             if tool_name == "cook_node":
-                clip_frames, clip_fps = screen_capture.capture_viewport_clip(
-                    self._screenshot_dir, f"step_{step_index:03d}_clip", log_path=log_path,
-                    frame_path=self.sandbox_path,
-                )
+                clip_frames, clip_fps = self._capture_cook_clip(screen_capture, step_index, log_path)
 
             network_kind = "network"
             if changes:
@@ -1081,14 +1141,14 @@ class HoudiniToolExecutor:
             entry = {
                 "step": step_index,
                 "tool": tool_name,
-                "result": self._step_instruction(tool_name, tool_input, tool_result, focus_path, changes),
+                "result": self._step_instruction(tool_name, tool_input, tool_result, focus_path, changes, connections),
                 "tool_result": tool_result,
                 "viewport": str(viewport_path) if got_viewport else None,
                 "network": str(network_path) if got_network else None,
                 "network_kind": network_kind,
                 "viewport_clip_frames": [str(p) for p in clip_frames],
                 "viewport_clip_fps": clip_fps,
-                "guide": self._step_guide(tool_name, tool_input, focus_path, changes),
+                "guide": self._step_guide(tool_name, tool_input, focus_path, changes, connections),
             }
             if replace_last:
                 self.step_screenshots[-1] = entry
@@ -2363,17 +2423,17 @@ class HoudiniToolExecutor:
                 for child in parent.children():
                     node_id = self._rel(child)
                     pos = child.position()
+                    params, omitted = self._graph_params(child)
                     entry = {
                         "id": node_id,
                         "kind": child.type().name(),
                         "label": child.name(),
                         # Houdini のネットワーク座標は y が上向きなので反転して保存
                         "position": [round(pos[0], 3), round(-pos[1], 3)],
-                        "params": {
-                            p.name(): _json_safe(p.eval())
-                            for p in child.parms() if not p.isAtDefault()
-                        },
+                        "params": params,
                     }
+                    if omitted:
+                        entry["params_omitted"] = omitted
                     if parent_id:
                         entry["parent"] = parent_id
                     nodes.append(entry)
@@ -2388,7 +2448,9 @@ class HoudiniToolExecutor:
                             "target": node_id,
                             "targetInput": connection.inputIndex(),
                         })
-                    if child.children():
+                    # ロックされたデジタルアセット（Karma のライト・レンダ設定など）の中身は、部品であって、
+                    # チュートリアルの構成ではない。含めると321ノード・346KBになり、手順書も動画も読めなくなった（2026-11-06）。
+                    if child.children() and not self._is_locked_asset(child):
                         visit(child, node_id)
 
             visit(self._sandbox, None)
@@ -2408,6 +2470,36 @@ class HoudiniToolExecutor:
             "edge_count": len(graph["edges"]),
         })
         return graph
+
+    _GRAPH_MAX_PARMS = 40          # 1ノードあたり記録する「既定値でないパラメータ」の上限
+    _GRAPH_MAX_VALUE_CHARS = 300   # 1つの値の文字数の上限（長いコードなどは切る）
+
+    @staticmethod
+    def _is_locked_asset(node) -> bool:
+        """ロックされたデジタルアセットのインスタンスか。取れなければ False（従来どおり中身も数える）。"""
+        try:
+            return bool(node.isLockedHDA())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _graph_params(self, node) -> tuple[dict, int]:
+        """(既定値でないパラメータ（上限つき）, 上限で省いた数)。"""
+        params: dict = {}
+        omitted = 0
+        for p in node.parms():
+            try:
+                if p.isAtDefault():
+                    continue
+                if len(params) >= self._GRAPH_MAX_PARMS:
+                    omitted += 1
+                    continue
+                value = _json_safe(p.eval())
+            except Exception:  # noqa: BLE001 -- 読めないパラメータは飛ばす
+                continue
+            if isinstance(value, str) and len(value) > self._GRAPH_MAX_VALUE_CHARS:
+                value = value[: self._GRAPH_MAX_VALUE_CHARS] + "…"
+            params[p.name()] = value
+        return params, omitted
 
     def export_step_screenshots(self) -> list[dict]:
         """

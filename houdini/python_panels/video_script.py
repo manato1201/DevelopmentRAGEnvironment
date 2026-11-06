@@ -31,6 +31,8 @@ SCRIPT_VERSION = 1
 
 # 1手順のナレーションの長さ（文字）。短すぎると「説明」にならず、長すぎると動画が間延びする。
 STEP_NARRATION_MIN = 40
+ASCII_RATIO_MAX = 0.5  # 英字（識別子を除く）の割合の上限。ノード名を言う短い文（「emitの出力を、mergeにつなぎます」）が、0.3だと、定型の文に落ちていた
+SHORT_STEP_MIN = 20  # つなぐ・消す、のような短い操作の最小の文字数（40だと、正しい短い解説が定型の文に落ちた）
 STEP_NARRATION_MAX = 320
 INTRO_NARRATION_MAX = 520
 OUTRO_NARRATION_MAX = 360
@@ -131,6 +133,9 @@ _PROMPT_TEMPLATE = """@@ROLE@@
 14. 本文に「前提条件」「どんな場面で使うか」「作る前に」の節があるときは、手順に入る前の案内として話す。前提条件は「この動画は〇〇ができる人向けです。分からないときは、先に△△を見てください。知っている人は、〇番の手順から見てください」、場面は「たとえば〇〇のときに使います」、作る前には「使うノードは、順に〇〇（何ができるか）、△△（何ができるか）です」の形で。本文にあることだけを話す。
 15. 本文に「TIPS」の節があるときは、コツを1つずつ短く「こうすると楽です」の形で話す。「自分でやってみよう」の節は、結果の条件を読み、「手本を見ずに作ってみてください。できたかどうかは、〇〇で確かめられます」と促す。
 16. 手順を、目的や確認ポイント（✅）の切り替わりで2〜5個の章に分ける（chapters）。章の最初の手順の前に、場面が変わることが分かるつなぎの1文（bridge）を書く: 「ここまでで〇〇ができました。次は△△をします」。
+17. 手順が20を超えるときは、動画が長くなりすぎないよう、1手順の解説を短くする（ノードを作る・つなぐだけの手順は1〜2文）。
+18. ノード名（column_tube のような英字と_の名前）は、そのまま書いてよい。途中をカタカナに直したり、日本語の語を混ぜたりしない。
+19. 入力に「動く映像」がある手順は、その映像が再生されている間に話す。「いま動いているのは〇〇です。注目してほしいのは△△です」と、画面の動きに目を向けさせる（入力にある事実だけ。入力にない動きは作らない）。
 
 【出力】JSONだけを出力する（前後に説明やコードブロックを付けない）。形式:
 {
@@ -141,7 +146,7 @@ _PROMPT_TEMPLATE = """@@ROLE@@
   ],
   "chapters": [{"from_step": 章の最初の手順の番号, "title": "章の名前（20文字まで）", "bridge": "章のつなぎの1文（30〜80字。前の章で何ができて、次に何をするか）"}],
   "structure": {"narration": "作ったノード全体の流れを、上から下へ順に説明（2〜3文）", "points": []},
-  "sections": [{"match": "その他の節の見出し（入力と同じ文字）", "heading": "見出し（20文字まで。例: つまずきやすいところ）", "narration": "@@AUDIENCE@@の言い直し", "points": ["要点（短く）"]}],
+  "sections": [{"id": 節の番号（入力の【節1】の数字）, "match": "その他の節の見出し（入力と同じ文字）", "heading": "見出し（20文字まで。例: つまずきやすいところ）", "narration": "@@AUDIENCE@@の言い直し", "points": ["要点（短く）"]}],
   "outro": {"narration": "@@OUTRO@@", "points": ["次にやってみること（短く）"]}
 }
 stepsには、入力のすべての手順を、同じ順番で入れること。sectionsには、入力のすべての「その他の節」を入れること（無ければ空の配列）。"""
@@ -236,12 +241,20 @@ READINGS: dict[str, str] = {
 
 def to_katakana(text: str) -> str:
     for term in sorted(READINGS, key=len, reverse=True):
-        text = re.sub(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", READINGS[term], text, flags=re.IGNORECASE)
+        # 前後が英数字・アンダースコアのときは置き換えない（fire_sphere・マージ_layers のような名前の途中を壊さない）
+        text = re.sub(rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", READINGS[term], text, flags=re.IGNORECASE)
     return text
 
 
+_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9]*[_0-9][A-Za-z0-9_]*")
+
+
 def _ascii_letter_ratio(text: str) -> float:
-    return sum(1 for c in text if c.isascii() and c.isalpha()) / len(text) if text else 0.0
+    """英字の割合。ノード名（column_tube・merge1 のように _ か数字を含む名前）は、英語の文ではないので数えない。"""
+    if not text:
+        return 0.0
+    words_only = _IDENTIFIER_RE.sub("", text)
+    return sum(1 for c in words_only if c.isascii() and c.isalpha()) / len(text)
 
 
 def clean_narration(raw: object, max_chars: int, min_chars: int = 0) -> str | None:
@@ -253,7 +266,7 @@ def clean_narration(raw: object, max_chars: int, min_chars: int = 0) -> str | No
     text = to_katakana(text)
     if len(text) < min_chars or looks_like_code(text):
         return None
-    if _ascii_letter_ratio(text) > 0.3:  # 英字だらけ。音声が読めない
+    if _ascii_letter_ratio(text) > ASCII_RATIO_MAX:  # 英字だらけ。音声が読めない
         return None
     if len(text) > max_chars:
         # 文の切れ目（。）で切る。切れ目が無いときは使わない。
@@ -308,6 +321,17 @@ _NODE_HELP = {
 
 _CREATE_RE = re.compile(r"「(.+?)」ノード（(\w+)）を作り、名前を (\S+) にする")
 _CONNECT_RE = re.compile(r"^(\S+) の出力を、(\S+) の(.*?)入力につなぐ")
+def _spoken_pairs(text: str) -> str:
+    """「a → b、b → c ほか2本」を、「aからbへ、次に、bからcへ」にする（「ほか」は読まない）。"""
+    out = []
+    for chunk in text.split("、"):
+        parts = [p.strip() for p in chunk.split("→")]
+        if len(parts) == 2 and parts[0] and parts[1]:
+            out.append(f"{parts[0]}から{parts[1].split(' ')[0]}へ")
+    return "、次に、".join(out) or text
+
+
+_CONNECT_GROUP_RE = re.compile(r"^(\d+)本のノードをつなぐ: (.+)$")  # 連続した接続を1手順にまとめた操作文（houdini_tools）
 _PARAM_RE = re.compile(r"^(\S+) のパラメータを設定: (.+)$")
 _PARAM_ONE_RE = re.compile(r"(.+?) を (.+?)(?:、|$)")
 _CODE_INPUT_RE = re.compile(r"^(\S+) の「(.+?)」欄に、次のコードを入力する")
@@ -356,6 +380,15 @@ def _template_step(entry: dict, seen: set[str] | None = None, compact: bool = Fa
             "heading": "作業場所を作る",
             "narration": "作業場所になるジオメトリノードを作ります。" + ("このあとの処理は、この中に並べます。" if compact else _NODE_HELP["geo"] + "。"),
             "points": points,
+        }
+    if tool == "connect_nodes" and _CONNECT_GROUP_RE.match(first_line):
+        g = _CONNECT_GROUP_RE.match(first_line)
+        count, pairs = g.group(1), g.group(2)
+        return {
+            "heading": f"ノードを{count}本つなぐ",
+            "narration": f"ここで、{count}本のノードを、順につなぎます。つなぐのは、{_spoken_pairs(pairs)}です。"
+                         "上から下へ、データが流れる順につなぎます。",
+            "points": [_short(f"{count}本つなぐ: {pairs}")],
         }
     if tool == "connect_nodes":
         m = _CONNECT_RE.search(first_line)
@@ -430,6 +463,12 @@ SECTION_NARRATION_MAX = 360
 
 def _template_section(heading: str) -> dict:
     """その他の節の定型の言い直し。中身を読まず、その節の役目だけを伝える（専門家向けの本文を読み上げない）。"""
+    if "次のレッスン" in heading:
+        return {
+            "heading": "次のレッスン",
+            "narration": "次のレッスンの予告です。今回の内容を土台にして、次は、もう一歩進んだ使い方を扱います。今回の構成を残しておくと、そのまま続きが作れます。",
+            "points": ["次の学びにつなげる"],
+        }
     if "前提" in heading:
         return {
             "heading": "始める前に",
@@ -579,14 +618,17 @@ def build_user_prompt(
         result = str(s.get("result") or "").strip()
         tool_result = str(s.get("tool_result") or "").strip()
         item = {"step": s.get("step"), "tool": s.get("tool"), "操作": result.split("\n", 1)[0][:200]}
+        frames, fps = s.get("viewport_clip_frames") or [], s.get("viewport_clip_fps") or 0
+        if fps and len(frames) / fps >= 5:
+            item["動く映像"] = f"この手順の画面で、約{round(len(frames) / fps)}秒の動く映像が再生される"
         # コードを入れる手順は、コードそのものは説明の材料としてだけ渡す（読み上げ禁止）
         if "\n" in result or ";" in result or "\n" in tool_result:
             item["コード（説明の材料。読み上げ・転記は禁止）"] = (tool_result or result)[:600]
         lines.append(json.dumps(item, ensure_ascii=False))
     section_block = ""
     if sections:
-        section_block = f"【その他の節（{audience}に言い直すこと。matchには見出しをそのまま入れる）】\n" + "\n\n".join(
-            f"## {h}\n{b[:900]}" for h, b in sections
+        section_block = f"【その他の節（{audience}に言い直すこと。idに節の番号、matchに見出しをそのまま入れる）】\n" + "\n\n".join(
+            f"【節{n}】## {h}\n{b[:900]}" for n, (h, b) in enumerate(sections, start=1)
         ) + "\n\n"
     return (
         f"【チュートリアルのタイトル】{title}\n\n"
@@ -638,6 +680,50 @@ def apply_chapters(model: dict, out_steps: list[dict]) -> list[dict]:
     return [{"from_step": c["from_step"], "title": c["title"]} for c in chosen]
 
 
+def _norm_heading(text: object) -> str:
+    """見出しの比較用: 空白・記号・全角半角の違いを除く。"""
+    return re.sub(r"[\s:：、。・「」『』()（）\-_/／]+", "", str(text or "")).lower()
+
+
+def match_sections(raw: object, headings: list[str]) -> dict[str, dict]:
+    """モデルの sections を、入力の見出しに対応づける。戻り値: {見出し: 項目}。
+    以前は「見出しの完全一致」だけで、1つでもずれると定型の文に落ち、内容のない12節になった（2026-11-06）。
+    番号（id。1始まり）→ 完全一致 → 記号を除いた一致 → 数が同じなら出てきた順、の順に試す。"""
+    items = [i for i in (raw if isinstance(raw, list) else []) if isinstance(i, dict)]
+    out: dict[str, dict] = {}
+    used: set[int] = set()
+    for n, heading in enumerate(headings, start=1):
+        for k, item in enumerate(items):
+            if k in used:
+                continue
+            if isinstance(item.get("id"), int) and item["id"] == n:
+                out[heading] = item
+                used.add(k)
+                break
+    for heading in headings:
+        if heading in out:
+            continue
+        for k, item in enumerate(items):
+            if k not in used and isinstance(item.get("match"), str) and item["match"].strip() == heading:
+                out[heading] = item
+                used.add(k)
+                break
+    for heading in headings:
+        if heading in out:
+            continue
+        for k, item in enumerate(items):
+            if k not in used and _norm_heading(item.get("match")) == _norm_heading(heading) and _norm_heading(heading):
+                out[heading] = item
+                used.add(k)
+                break
+    if len(items) == len(headings):
+        for heading, (k, item) in zip(headings, enumerate(items)):
+            if heading not in out and k not in used:
+                out[heading] = item
+                used.add(k)
+    return out
+
+
 def assemble_script(
     model: dict | None, steps: list[dict], title: str, summary: str, sections: list[tuple[str, str]] | None = None,
     level: str = "",
@@ -659,7 +745,8 @@ def assemble_script(
     for entry in steps:
         n = entry.get("step")
         item = by_step.get(n)
-        narration = clean_narration(item.get("narration"), lim["step"], STEP_NARRATION_MIN) if item else None
+        step_min = SHORT_STEP_MIN if entry.get("tool") in ("connect_nodes", "delete_node") else STEP_NARRATION_MIN
+        narration = clean_narration(item.get("narration"), lim["step"], step_min) if item else None
         if narration:
             from_model += 1
             out_steps.append({
@@ -705,13 +792,10 @@ def assemble_script(
         script["structure"] = structure
 
     # その他の節（つまずきやすい点・応用のヒントなど）。モデルの言い直しが基準を満たさなければ、定型の文にする。
-    by_match: dict[str, dict] = {}
-    for item in model.get("sections") or []:
-        if isinstance(item, dict) and isinstance(item.get("match"), str):
-            by_match[item["match"].strip()] = item
     out_sections: list[dict] = []
+    matched_items = match_sections(model.get("sections"), [h for h, _b in sections or []])
     for heading, _body in sections or []:
-        item = by_match.get(heading)
+        item = matched_items.get(heading)
         narration = clean_narration(item.get("narration"), lim["section"], STEP_NARRATION_MIN) if item else None
         if narration:
             out_sections.append({
@@ -726,6 +810,7 @@ def assemble_script(
             out_sections.append({"match": heading, **_template_section(heading)})
     if out_sections:
         script["sections"] = out_sections
+    script["notes"] = notes[:40]  # 基準を満たさず、定型の文に差し替えた部分（動画の内容を調べるとき用。動画エンジンは読まない）
     return script, source, notes
 
 
