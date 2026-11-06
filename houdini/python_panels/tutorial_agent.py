@@ -582,6 +582,7 @@ class TutorialResult:
         # HoudiniToolExecutor.export_step_screenshots() の結果（各ステップ実行
         # 直後に撮ったビューポート/ネットワークエディタのPNGパス一覧）。
         self.step_screenshots: list[dict] = []
+        self.pruned_steps: int = 0  # 作って消したノードのため、動画・ガイドから省いた手順の数
         self.cost_usd: float = 0.0
         self.input_tokens: int = 0
         self.output_tokens: int = 0
@@ -820,6 +821,15 @@ class TutorialAgent:
         # ④ 成果物組み立て（打ち切りでも途中経過を提示する）
         result.graph = self.executor.export_node_graph()
         result.step_screenshots = self.executor.export_step_screenshots()
+        # 作って、あとで消したノードの手順は、動画とガイドから省く（案内・動画は、最終的に残る構成を伝える）。2026-11-06
+        try:
+            import trial_pruning
+            result.step_screenshots, dropped = trial_pruning.prune_failed_trials(result.step_screenshots)
+            result.pruned_steps = len(dropped)
+            if dropped:
+                self._progress(f"手順の記録: 試して消したノードの手順 {len(dropped)} 個を、動画とガイドから省きました")
+        except Exception:  # noqa: BLE001 -- 省けなくても、全部の手順のまま続ける
+            pass
         result.completed = self.executor.finish_data is not None
         finish = self.executor.finish_data
         if finish is None:

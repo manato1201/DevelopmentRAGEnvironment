@@ -961,8 +961,9 @@ class HoudiniToolExecutor:
             if tool_name == "connect_nodes":
                 guide["from"] = self._leaf(tool_input.get("from_node"))
                 guide["to"] = self._leaf(tool_input.get("to_node"))
+                guide["input"] = tool_input.get("input_name") or int(tool_input.get("input_index", 0) or 0)  # 省く手順の判定（trial_pruning）で使う
                 if connections and len(connections) > 1:
-                    guide["connections"] = [{"from": c["from"], "to": c["to"]} for c in connections][:12]
+                    guide["connections"] = [{"from": c["from"], "to": c["to"], "input": c.get("input", 0)} for c in connections][:12]
         except Exception:  # noqa: BLE001 -- つなぎ先が取れなくても、生成は止めない
             return guide
         try:
