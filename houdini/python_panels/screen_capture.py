@@ -383,11 +383,31 @@ def playback_range() -> tuple[float, float]:
         return frame, frame
 
 
+_EMPTY_SIGNATURE = ("empty", 0)
+
+
+def _has_displayed_object(container_path: str | None) -> bool:
+    """container_path の中に、表示フラグが立っているオブジェクトノードがあるか（中身が空でもよい）。"""
+    try:
+        container = hou.node(container_path) if container_path else None
+        if container is None:
+            return False
+        for child in container.children():
+            if child.type().category() == hou.objNodeTypeCategory() and hasattr(child, "isDisplayFlagSet") and child.isDisplayFlagSet():
+                return True
+    except Exception:  # noqa: BLE001
+        return False
+    return False
+
+
 def _displayed_signature(container_path: str | None, log_path: Path | None) -> tuple | None:
-    """表示中のジオメトリの「署名」（境界ボックスと、点の数）。フレームが違うと変わるかを比べるための値。求められなければ None。"""
+    """表示中のジオメトリの「署名」（境界ボックスと、点の数）。フレームが違うと変わるかを比べるための値。
+    表示中のオブジェクトがあるのに中身が空（燃え尽きた・エラー）なら、「空」という署名にする（2026-11-06: 以前は None で、
+    燃え尽きたあとのフレームがあるだけで「判定できない」になり、燃える様子の約10秒のクリップが、短い16コマの
+    クリップに落ちた）。表示中のオブジェクトが無い・求められないときだけ None。"""
     box = _displayed_bounds(container_path, log_path)
     if box is None:
-        return None
+        return _EMPTY_SIGNATURE if _has_displayed_object(container_path) else None
     count = 0
     try:
         container = hou.node(container_path)

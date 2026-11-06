@@ -612,6 +612,7 @@ class HoudiniToolExecutor:
         # 直前の finish_tutorial 呼び出しで撮ったビューポート画像（base64 PNG）。
         # tutorial_agent.py 側がこれを読み、その1回だけ tool_result に画像として添付する。
         self.last_screenshot_b64: str | None = None
+        self.last_screenshot_frame: float | None = None  # 自己確認の画像を撮ったフレーム（エージェントが、画像に添えて伝える）
         self.step_log: list[dict] = []        # Markdown 組み立て用の全呼び出し履歴
         # search_docs / get_doc の呼び先（doc_tools.DocClient）。tutorial_agent が生成の開始時に差し込む。
         # None のときは、この2つのツールは「使えない」と返す。
@@ -845,7 +846,19 @@ class HoudiniToolExecutor:
             # 途中のcook_nodeで表示を中間ノードへ切り替えていても、自己確認画像は
             # 必ず最終（末端）ノードの結果を映す。
             self._restore_final_display()
-            if screen_capture.capture_viewport(path, log_path=log_path, frame_path=self.sandbox_path):
+            # 時間で変わる題材（燃える・流れる）は、頭のフレームでは何も起きていない（2026-11-06: 紙が燃える題材で、
+            # 自己確認の画像が燃える前の紙だった）。動くときは、再生範囲の真ん中のフレームで撮る。撮ったあとは元のフレームへ戻す。
+            show_frame = self._mid_frame_if_animated(screen_capture, log_path)
+            original_frame = self._hou.frame()
+            try:
+                if show_frame is not None:
+                    self._hou.setFrame(show_frame)
+                ok = screen_capture.capture_viewport(path, log_path=log_path, frame_path=self.sandbox_path)
+            finally:
+                if show_frame is not None:
+                    self._hou.setFrame(original_frame)
+            if ok:
+                self.last_screenshot_frame = show_frame if show_frame is not None else original_frame
                 try:
                     self.last_screenshot_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
                 except OSError:
@@ -855,6 +868,16 @@ class HoudiniToolExecutor:
             _run_in_main_thread(_capture)
         except Exception:  # noqa: BLE001 -- best-effort, never raise
             pass
+
+    def _mid_frame_if_animated(self, sc, log_path) -> float | None:
+        """表示中のジオメトリが時間で変わるなら、再生範囲の真ん中のフレーム。動かない・判定できないときは None（今のフレームのまま）。"""
+        try:
+            start, end = sc.playback_range()
+            if sc.scene_is_animated(self.sandbox_path, start, end, log_path):
+                return float(round((start + end) / 2.0))
+        except Exception as exc:  # noqa: BLE001 -- 判定できなくても、今のフレームで撮る
+            sc._log(f"mid-frame check failed: {exc!r}", log_path)
+        return None
 
     def _step_focus_path(self, tool_name: str, tool_input: dict, tool_result: str) -> str | None:
         """
@@ -908,6 +931,12 @@ class HoudiniToolExecutor:
         if plan is not None and animated is False:
             sc._log("clip skipped: the displayed geometry does not change over the playback range", log_path)
             return [], 0
+        if animated is None:
+            # 判定できないときの短いクリップは、映すものがあるときだけ（エラーのクックで、空のグリッドを16コマ撮っていた）
+            probe = getattr(sc, "_displayed_bounds", None)
+            if probe is not None and probe(self.sandbox_path, log_path) is None:
+                sc._log("clip skipped: nothing is displayed to film", log_path)
+                return [], 0
         if plan is not None and animated and getattr(self, "_long_clips", 0) < self._LONG_CLIP_MAX:
             self._long_clips = getattr(self, "_long_clips", 0) + 1
             sc._log(f"long clip: {plan['frames']} frames step {plan['step']} at {plan['fps']}fps (about {plan['seconds']}s)", log_path)

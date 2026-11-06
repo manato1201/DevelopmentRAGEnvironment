@@ -1268,8 +1268,10 @@ class TutorialAgent:
                 # 画像を見て見た目を確認したうえでconfirm_tutorialを呼ぶ（houdini_tools.py参照）。
                 screenshot_b64 = getattr(self.executor, "last_screenshot_b64", None)
                 if name in ("finish_tutorial", "view_viewport") and screenshot_b64:
+                    shot_frame = getattr(self.executor, "last_screenshot_frame", None) if name == "finish_tutorial" else None
+                    note = f"\n（続く画像は、フレーム {shot_frame:g} のビューポートです）" if shot_frame is not None else ""
                     tool_content: object = [
-                        {"type": "text", "text": output},
+                        {"type": "text", "text": output + note},
                         {"type": "image", "source": {
                             "type": "base64", "media_type": "image/png", "data": screenshot_b64,
                         }},

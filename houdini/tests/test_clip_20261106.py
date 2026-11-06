@@ -101,11 +101,18 @@ class _Child:
 class FakeWorld:
     """frame に応じて、境界ボックスと点の数が変わる（または変わらない）世界。"""
 
-    def __init__(self, animated: bool, range_=(1.0, 240.0)):
+    def __init__(self, animated: bool, range_=(1.0, 240.0), empty_from: float | None = None):
         self.animated, self.frame_now, self.range_ = animated, 1.0, range_
+        self.empty_from = empty_from  # このフレーム以降は、ジオメトリが空（燃え尽きた・エラー）
         self.set_frames: list[float] = []
 
+    def is_empty(self): return self.empty_from is not None and self.frame_now >= self.empty_from
+
     def box(self):
+        if self.is_empty():
+            invalid = _Box()
+            invalid.isValid = lambda: False
+            return invalid
         grow = (self.frame_now / 24.0) if self.animated else 0.0
         return _Box((0, 0, 0), (1 + grow, 1 + grow, 1))
 
@@ -173,6 +180,29 @@ class SceneIsAnimatedTest(unittest.TestCase):
         fake.setFrame = mock.Mock(side_effect=RuntimeError("boom"))
         with mock.patch.object(sc, "hou", fake):
             self.assertIsNone(sc.scene_is_animated("/obj/sb", 1.0, 240.0))
+
+
+class EmptyGeometryTest(unittest.TestCase):
+    """燃え尽きて空になるフレームがあっても、「動く」と判定する（2026-11-06: None になり、短いクリップに落ちていた）。"""
+
+    def test_a_scene_that_burns_out_is_animated(self):
+        world = FakeWorld(False, empty_from=200.0)  # 形は変わらないが、終わりでは空
+        with mock.patch.object(sc, "hou", world.hou()):
+            self.assertIs(sc.scene_is_animated("/obj/sb", 1.0, 240.0), True)
+
+    def test_a_scene_that_is_empty_all_the_time_is_not_animated(self):
+        world = FakeWorld(True, empty_from=0.0)  # エラーのクック: ずっと空
+        with mock.patch.object(sc, "hou", world.hou()):
+            self.assertIs(sc.scene_is_animated("/obj/sb", 1.0, 240.0), False)
+        self.assertEqual(world.frame_now, 1.0)
+
+    def test_the_empty_signature_needs_a_displayed_object(self):
+        world = FakeWorld(True)
+        fake = world.hou()
+        fake.node = lambda path: types.SimpleNamespace(children=lambda: [])
+        with mock.patch.object(sc, "hou", fake):
+            self.assertFalse(sc._has_displayed_object("/obj/sb"))
+            self.assertIsNone(sc._displayed_signature("/obj/sb", None))
 
 
 # ── flipbook への指示 ─────────────────────────────────────────────────────────
@@ -261,6 +291,17 @@ class CookClipDecisionTest(unittest.TestCase):
         self.assertEqual((len(frames), fps), (16, 12))
         self.assertNotIn("frame_step", self.calls[0])
 
+    def test_when_it_cannot_tell_and_nothing_is_displayed_nothing_is_filmed(self):
+        self.sc.scene_is_animated = lambda *a, **k: None
+        self.sc._displayed_bounds = lambda path, log: None
+        self.assertEqual(self.ex._capture_cook_clip(self.sc, 5, None), ([], 0))
+        self.assertEqual(self.calls, [], "an empty grid is not worth 16 frames")
+
+    def test_when_it_cannot_tell_but_something_is_displayed_the_short_clip_is_kept(self):
+        self.sc.scene_is_animated = lambda *a, **k: None
+        self.sc._displayed_bounds = lambda path, log: object()
+        self.assertEqual(len(self.ex._capture_cook_clip(self.sc, 5, None)[0]), 16)
+
     def test_when_planning_raises_the_old_short_clip_is_kept(self):
         self.sc.playback_range = mock.Mock(side_effect=RuntimeError("no playbar"))
         frames, _ = self.ex._capture_cook_clip(self.sc, 5, None)
@@ -276,6 +317,44 @@ class CookClipDecisionTest(unittest.TestCase):
         self.sc.capture_viewport_clip = lambda out, base, **k: ([], 0) if "frame_step" in k else original(out, base, **k)
         frames, _ = self.ex._capture_cook_clip(self.sc, 5, None)
         self.assertEqual(len(frames), 16)
+
+
+# ── 自己確認の画像は、動く題材では途中のフレームで撮る ──────────────────────────────
+
+class MidFrameTest(unittest.TestCase):
+    def setUp(self):
+        self.ex = ht.HoudiniToolExecutor.__new__(ht.HoudiniToolExecutor)
+        self.ex.sandbox_path = "/obj/sb"
+
+    def test_an_animated_scene_is_checked_at_the_middle_of_the_range(self):
+        fake = types.SimpleNamespace(playback_range=lambda: (1.0, 240.0), scene_is_animated=lambda *a: True, _log=lambda *a: None)
+        self.assertEqual(self.ex._mid_frame_if_animated(fake, None), 120.0)
+
+    def test_a_static_or_unknown_scene_stays_on_the_current_frame(self):
+        for verdict in (False, None):
+            fake = types.SimpleNamespace(playback_range=lambda: (1.0, 240.0), scene_is_animated=lambda *a, v=verdict: v, _log=lambda *a: None)
+            self.assertIsNone(self.ex._mid_frame_if_animated(fake, None))
+
+    def test_a_failure_never_raises(self):
+        def boom(*a): raise RuntimeError("no playbar")
+        fake = types.SimpleNamespace(playback_range=boom, scene_is_animated=boom, _log=lambda *a: None)
+        self.assertIsNone(self.ex._mid_frame_if_animated(fake, None))
+
+
+class KatakanaFixTest(unittest.TestCase):
+    def test_a_mangled_wrangle_is_repaired(self):
+        self.assertEqual(vs.to_katakana("アトリビュートランglを作り、名前をburn_wrにします。"), "アトリビュートラングルを作り、名前をburn_wrにします。")
+        self.assertEqual(vs.to_katakana("ランglow_fxを作る"), "ランglow_fxを作る", "names that only start like it are left alone")
+
+    def test_node_labels_are_read_in_katakana(self):
+        self.assertEqual(vs.to_katakana("Blastノードを作る"), "ブラストノードを作る")
+        self.assertEqual(vs.to_katakana("Attribute Createを作る"), "アトリビュートクリエイトを作る")
+
+    def test_the_create_template_has_no_english_left(self):
+        entry = {"step": 9, "tool": "create_node", "result": "「Blast」ノード（blast）を作り、名前を ash_blast にする"}
+        text = vs._template_step(entry, set(), True)["narration"]
+        self.assertIn("ブラスト", text)
+        self.assertNotIn("Blast", text)
 
 
 # ── 台本とエージェントへの指示 ─────────────────────────────────────────────────

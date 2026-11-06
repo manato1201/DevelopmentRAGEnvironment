@@ -238,8 +238,27 @@ READINGS: dict[str, str] = {
     "Attribute": "アトリビュート", "Multiparm": "マルチパーム",
 }
 
+# ノードの表示名（create_node の定型文で、「Blastノード」のように英語が残っていた。2026-11-06）。
+# 大文字・小文字を区別して置き換える（blast・group のような、小文字のノード名は、そのまま読ませる）。
+LABEL_READINGS: dict[str, str] = {
+    "Blast": "ブラスト", "Attribute Create": "アトリビュートクリエイト", "Attribute Promote": "アトリビュートプロモート",
+    "Attribute Randomize": "アトリビュートランダマイズ", "Attribute Delete": "アトリビュートデリート",
+    "Attribute Transfer": "アトリビュートトランスファー", "Attribute VOP": "アトリビュートヴォップ",
+    "Group": "グループ", "Delete": "デリート", "Switch": "スイッチ", "Resample": "リサンプル", "Remesh": "リメッシュ",
+    "Fuse": "フューズ", "Trail": "トレイル", "Sort": "ソート", "Smooth": "スムーズ", "Normal": "ノーマル",
+    "Subdivide": "サブディバイド", "Time Shift": "タイムシフト", "Color": "カラー", "Line": "ライン", "Circle": "サークル",
+    "Tube": "チューブ", "Torus": "トーラス", "Add": "アド", "Ray": "レイ", "Mountain": "マウンテン", "Foreach": "フォーイーチ",
+    "attribwrangle": "アトリビュートラングル", "Point Wrangle": "ポイントラングル",
+}
+
+# モデルが「Wrangle」を、「ラン」＋英字の途中（「アトリビュートランgl」）で書いてしまうことがある（2026-11-06の紙燃焼で4回）。
+_WRANGLE_MANGLED_RE = re.compile(r"ラン(?:gl|GL|gle|GLE)(?![A-Za-z0-9_])")
+
 
 def to_katakana(text: str) -> str:
+    text = _WRANGLE_MANGLED_RE.sub("ラングル", text)
+    for term in sorted(LABEL_READINGS, key=len, reverse=True):
+        text = re.sub(rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", LABEL_READINGS[term], text)
     for term in sorted(READINGS, key=len, reverse=True):
         # 前後が英数字・アンダースコアのときは置き換えない（fire_sphere・マージ_layers のような名前の途中を壊さない）
         text = re.sub(rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", READINGS[term], text, flags=re.IGNORECASE)

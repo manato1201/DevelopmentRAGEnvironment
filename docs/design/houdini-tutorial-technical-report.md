@@ -72,7 +72,7 @@ sequenceDiagram
 | `create_node` / `delete_node` | ノードの作成・削除（サンドボックス内だけ） |
 | `set_parameter` | 値・式（expression）・キーフレーム・ランプ。タプルは成分ごと |
 | `connect_nodes` | 接続（`input_name` / `output_name` で名前指定できる） |
-| `cook_node` | 評価。時間依存のノードは複数フレーム評価し、短いクリップも撮る |
+| `cook_node` | 評価。時間依存のノードは複数フレーム評価する。動くシーンは約10秒のクリップ（最大3本）、判定できないときは短いクリップを撮る（空のときは撮らない） |
 | `inspect_geometry` | 点の数・範囲・属性・画像の値などを数値で確かめる（SOP / COP / LOP） |
 | `list_available_node_types` / `get_node_info` | タイプ名・入力名・パラメータの確認 |
 | `get_parm_schema` | パラメータの仕様（表示名・置き場所・型・既定・範囲・選択肢）。名前の当て推量を防ぎ、手順書に Parm パネルの場所を書けるようにする |
