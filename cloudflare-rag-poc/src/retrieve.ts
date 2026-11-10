@@ -99,6 +99,13 @@ export async function retrieve(
   };
 }
 
+// 資料の本文が、プロンプトの見出し(質問・会話・検索結果・出典の行)を偽装して、指示の区切りに見せかけるのを防ぐ。
+// 該当する行の頭に「（資料内）」を付けるだけで、本文の意味は変えない(普通の文章には当たらない)。
+const FORGED_HEADING = /^[ \t\u3000]*(質問[:：]|これまでの会話[:：]|検索結果[（(]|【検索結果の扱い】|【説明のレベル|\[\d+\][ \t\u3000]*ファイル[:：])/gm;
+export function defangChunkText(text: string): string {
+  return (text ?? "").replace(FORGED_HEADING, (m) => `（資料内）${m}`);
+}
+
 export function buildContextTexts(ranked: RankedChunk[], contextNote = ""): {
   texts: string[];
   sources: SourceEntry[];
@@ -111,7 +118,7 @@ export function buildContextTexts(ranked: RankedChunk[], contextNote = ""): {
 ${contextNote}`);
   const sources: SourceEntry[] = [];
   ranked.forEach((r, i) => {
-    texts.push(`\n[${i + 1}] ファイル: ${r.metadata.file}\n${r.metadata.text}`);
+    texts.push(`\n[${i + 1}] ファイル: ${r.metadata.file}\n${defangChunkText(r.metadata.text)}`);
     sources.push({
       file: r.metadata.file,
       namespace: r.metadata.namespace,
