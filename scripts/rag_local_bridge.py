@@ -18,6 +18,11 @@ Env:
 
     初回セットアップ:
         python scripts/auth_manager.py create-admin --name "Admin"
+
+ブラウザ経由の攻撃対策(認証ではない。scripts/bridge_guard.py):
+    Host は localhost / 127.0.0.1 / ::1 のみ(RAG_BRIDGE_ALLOWED_HOSTS で追加)。
+    変更操作は同一オリジンか RAG_BRIDGE_CORS_ORIGINS の Origin のみ(Origin 無しの Unity/Houdini/curl は可)。
+    CORS ヘッダは RAG_BRIDGE_CORS_ORIGINS に載せた Origin にだけ返す(`*` は使わない)。
 """
 
 from __future__ import annotations
@@ -65,12 +70,13 @@ _NS_SCOPED_KNOWLEDGE_PATHS = {
 # auth_manager をインポート（同ディレクトリにある）
 _SCRIPTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(_SCRIPTS_DIR))
+import bridge_guard  # Host / Origin 検査(認証ではない。ブラウザ経由の CSRF・DNS rebinding 対策)
 try:
     from auth_manager import AuthManager, VALID_NAMESPACES
     _AUTH_AVAILABLE = True
 except ImportError:
     _AUTH_AVAILABLE = False
-    print("[bridge] 警告: auth_manager が見つかりません。認証なしで動作します。", flush=True)
+    print("[bridge] 警告: auth_manager が見つかりません。--no-auth を付けない限り起動しません。", flush=True)
 
 try:
     from audit_logger import RAGAuditLogger
@@ -387,6 +393,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
     auth: "AuthManager | None" = None  # 認証マネージャー
     audit: "RAGAuditLogger | None" = None  # 監査ロガー
     kb:   "KnowledgeManager | None" = None  # ナレッジ登録・更新
+    allow_anonymous: bool = False  # --no-auth で明示したときだけ True(認証が無いとき、既定は拒否=fail-closed)
 
     def log_message(self, fmt: str, *args) -> None:
         pass
@@ -398,7 +405,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # CORS は許可リスト(RAG_BRIDGE_CORS_ORIGINS)の Origin にだけ。`*` は使わない。
+        # 管理画面・ユーザー画面は同一オリジンなので CORS 不要。
+        for k, v in bridge_guard.cors_headers_for(self.headers.get("Origin")).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
@@ -409,6 +419,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html)
 
+    def _guard(self) -> bool:
+        """Host / Origin を検査する。拒否したら 403 を返して False。認証とは別の層。"""
+        reason = bridge_guard.check_request(
+            self.command, self.headers.get("Host", ""), self.headers.get("Origin"))
+        if reason:
+            self._send_json(403, {"error": reason})
+            return False
+        return True
+
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(length)) if length else {}
@@ -418,8 +437,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def _authenticate(self) -> dict | None:
         """API キーを検証してユーザー dict を返す。認証不要時は None。"""
-        if not _AUTH_AVAILABLE or self.auth is None:
-            # 認証モジュールなし → 全アクセス許可（開発用）
+        if self.auth is None:
+            # 認証マネージャーが無い。以前は「全員を管理者として通す」(fail-open)だった。
+            # 依存の欠落・配置ミスで無認証になるのを防ぐため、--no-auth を明示したときだけ通す。
+            if not self.allow_anonymous:
+                return None
             return {"id": "anonymous", "display_name": "Anonymous",
                     "allowed_namespaces": VALID_NAMESPACES if _AUTH_AVAILABLE else [],
                     "is_admin": True}
@@ -438,6 +460,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
         user = self._require_auth()
         if user is None:
             return None
+        if self.auth is None:
+            # --no-auth のとき、ユーザー・ログ管理は成り立たない(以前は AttributeError で落ちた)
+            self._send_json(403, {"error": "認証が無効のため、管理 API は使えません。"})
+            return None
         if not user.get("is_admin"):
             self._send_json(403, {"error": "管理者権限が必要です。"})
             return None
@@ -452,14 +478,27 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     # ── CORS プリフライト ────────────────────────────────────────────────────────
     def do_OPTIONS(self) -> None:
+        if not self._guard():
+            return
+        cors = bridge_guard.cors_headers_for(self.headers.get("Origin"))
+        if not cors:
+            # 許可リスト外の Origin には CORS を許可しない(同一オリジン・非ブラウザは本来プリフライト不要)
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        for k, v in cors.items():
+            self.send_header(k, v)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key")
+        self.send_header("Content-Length", "0")
         self.end_headers()
 
     # ── GET ─────────────────────────────────────────────────────────────────────
     def do_GET(self) -> None:
+        if not self._guard():
+            return
         path = self.path.split("?")[0]
 
         # 認証不要エンドポイント
@@ -671,6 +710,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     # ── POST ─────────────────────────────────────────────────────────────────────
     def do_POST(self) -> None:
+        if not self._guard():
+            return
         path = self.path.split("?")[0]
 
         if path.startswith("/api/knowledge/"):
@@ -1005,6 +1046,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     # ── DELETE / PUT ─────────────────────────────────────────────────────────────
     def do_DELETE(self) -> None:
+        if not self._guard():
+            return
         path = self.path.split("?")[0]
         if path.startswith("/api/knowledge/sources/"):
             user = self._require_auth()
@@ -1025,6 +1068,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "Not found"})
 
     def do_PUT(self) -> None:
+        if not self._guard():
+            return
         path = self.path.split("?")[0]
         if path.startswith("/api/users/"):
             user = self._require_admin()
@@ -1051,6 +1096,13 @@ def main() -> None:
     parser.add_argument("--no-auth", action="store_true",
                         help="認証を無効化（開発用）")
     args = parser.parse_args()
+
+    if not _AUTH_AVAILABLE and not args.no_auth:
+        # fail-closed: 認証モジュールが無いのに、黙って無認証で起動しない
+        print("[bridge] エラー: auth_manager を読み込めないため起動しません。"
+              "scripts/auth_manager.py を確認してください(認証なしで試すだけなら --no-auth)。",
+              file=sys.stderr)
+        sys.exit(1)
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print("[bridge] 警告: ANTHROPIC_API_KEY が未設定です。", file=sys.stderr)
@@ -1101,7 +1153,8 @@ def main() -> None:
             print("[bridge]   python scripts/auth_manager.py create-admin --name 'Admin'", flush=True)
     else:
         BridgeHandler.auth = None
-        print("[bridge] 認証無効（開発モード）", flush=True)
+        BridgeHandler.allow_anonymous = True
+        print("[bridge] ★ 認証無効（--no-auth・開発用）。localhost の誰でも全 API を使えます。共有環境では使わないこと。", flush=True)
 
     server = HTTPServer(("localhost", args.port), BridgeHandler)
     print(f"[bridge] http://localhost:{args.port} で待機中", flush=True)
