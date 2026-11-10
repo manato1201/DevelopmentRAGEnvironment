@@ -153,10 +153,6 @@ export default {
       return json(405, { error: "POST のみ対応しています" });
     }
 
-    // 管理者キーが1つも無い初回セットアップ専用の抜け道。authenticate()より前段で処理する
-    // （そもそも認証できるキーが存在しない、という鶏卵問題への対応。src/keyAdmin.ts参照）。
-    // handleBootstrapAdmin自身が「管理者が1人でも存在すれば403」を強制するため、
-    // 認証をバイパスしても既存環境を乗っ取れるわけではない。
     // Slackのスラッシュコマンド。APIキーではなくSlackの署名で確認するため、authenticate()より前に置く。
     // Slackのチャット（メンション・DM）。同じく署名で確認するため、authenticate()より前に置く。
     if (url.pathname === "/slack/events") {
@@ -174,6 +170,11 @@ export default {
       }
     }
 
+    // 管理者キーが1つも無い初回セットアップ専用の抜け道。authenticate()より前段で処理する
+    // （そもそも認証できるキーが存在しない、という鶏卵問題への対応。src/keyAdmin.ts参照）。
+    // handleBootstrapAdmin自身が「管理者が1人でも存在すれば403」を強制し(INSERT自体が条件付きなので
+    // 同時リクエストでも管理者は1人だけ)、認証をバイパスしても既存環境を乗っ取れるわけではない。
+    // test/bootstrap.test.mjs で固定している。
     if (url.pathname === "/admin/bootstrap") {
       try {
         return await handleBootstrapAdmin(req, env);

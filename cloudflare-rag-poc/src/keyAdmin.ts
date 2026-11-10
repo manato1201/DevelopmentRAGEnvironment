@@ -14,6 +14,16 @@ function generateApiKey(): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+const BOOTSTRAP_CLOSED_MESSAGE =
+  "管理者キーは既に存在します。追加発行は管理タブ（要既存の管理者キー）から行ってください";
+
+// 初回セットアップの最中に、別のリクエストが先に管理者を作った(=もう閉じた)ことを表す。
+class BootstrapClosedError extends Error {
+  constructor() {
+    super(BOOTSTRAP_CLOSED_MESSAGE);
+  }
+}
+
 interface CreateKeyResult {
   apiKey: string;
   userId: string;
@@ -35,6 +45,10 @@ async function createKeyRecord(
     ragCapacity?: number;
     claudeCapacity?: number | null;
     expiresInDays?: number | null;
+    // 初回セットアップ(handleBootstrapAdmin)専用。true のとき、管理者が1人もいない場合に限って
+    // users への INSERT を成功させる(同一文の中で判定するので、同時に2回呼ばれても管理者は1人しかできない)。
+    // 管理者が既にいて挿入できなかったときは BootstrapClosedError を投げる。
+    onlyIfNoAdmin?: boolean;
   },
 ): Promise<CreateKeyResult> {
   const role = opts.role;
@@ -46,9 +60,19 @@ async function createKeyRecord(
   // 発行直後から失効済みのキーができてしまう欠陥があった。
   const expiresAt = opts.expiresInDays && opts.expiresInDays > 0 ? now + opts.expiresInDays * 86400 : null;
 
-  await env.DB.prepare("INSERT INTO users (user_id, display_name, role, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(newUserId, opts.displayName, role, now, expiresAt)
-    .run();
+  if (opts.onlyIfNoAdmin) {
+    const ins = await env.DB.prepare(
+      "INSERT INTO users (user_id, display_name, role, created_at, expires_at) " +
+        "SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin')"
+    )
+      .bind(newUserId, opts.displayName, role, now, expiresAt)
+      .run();
+    if (!ins.meta?.changes) throw new BootstrapClosedError();
+  } else {
+    await env.DB.prepare("INSERT INTO users (user_id, display_name, role, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(newUserId, opts.displayName, role, now, expiresAt)
+      .run();
+  }
 
   // 個人namespaceを自動作成する（既存の運用パターンに合わせる）。
   // guestロールには付与しない（2026-09-10フィードバック：ゲストは私物領域を持たせる
@@ -137,14 +161,26 @@ export async function handleCreateKey(req: Request, env: Env, user: AuthedUser):
 export async function handleBootstrapAdmin(req: Request, env: Env): Promise<Response> {
   const existingAdmin = await env.DB.prepare("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1").first();
   if (existingAdmin) {
-    return jsonResponse(403, { error: "管理者キーは既に存在します。追加発行は管理タブ（要既存の管理者キー）から行ってください" });
+    return jsonResponse(403, { error: BOOTSTRAP_CLOSED_MESSAGE });
   }
 
   const body = (await req.json().catch(() => ({}))) as { displayName?: string; ragCapacity?: number };
   const displayName = (body.displayName || "").trim() || "管理者";
 
-  const result = await createKeyRecord(env, { displayName, role: "admin", ragCapacity: body.ragCapacity });
-  return jsonResponse(200, { status: "ok", ...result });
+  // 上の存在確認と INSERT の間に別のリクエストが管理者を作る競合があるため、
+  // 本当の判定は INSERT 自身(onlyIfNoAdmin)で行う。先に作られていたら 403。
+  try {
+    const result = await createKeyRecord(env, {
+      displayName,
+      role: "admin",
+      ragCapacity: body.ragCapacity,
+      onlyIfNoAdmin: true,
+    });
+    return jsonResponse(200, { status: "ok", ...result });
+  } catch (err) {
+    if (err instanceof BootstrapClosedError) return jsonResponse(403, { error: BOOTSTRAP_CLOSED_MESSAGE });
+    throw err;
+  }
 }
 
 // POST /admin/keys/list — 発行済みキーの一覧（生のキーは表示できない。既存GAS adminListKeys相当）。
