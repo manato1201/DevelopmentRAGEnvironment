@@ -63,6 +63,7 @@ import { handleTutorialFeedbackSubmit, handleTutorialFeedbackList, handleTutoria
 import { handleMyNamespaces, handleMyBudget } from "./retrieve";
 import { RateLimitedError } from "./rateLimit";
 import { chatUiHtml } from "./chatUi";
+import { APPLE_ICON_PNG_BASE64, FAVICON_ICO_BASE64, ICON_SVG, decodeBase64 } from "./siteIcons";
 import { BudgetExceededError } from "./budget";
 
 const MEMORY_RETENTION_DAYS = 90;
@@ -97,9 +98,16 @@ export default {
       return new Response(chatUiHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", ...SECURITY_HEADERS } });
     }
 
-    // ブラウザが自動で取りに来る /favicon.ico に、405（開発者ツールの赤いエラー）を返さない。アイコンは無いので、中身なしで返す。
+    // サイトのアイコン(認証なし。画面の <head> から読まれ、ブラウザが /favicon.ico も自動で取りに来る)。
+    // 図形と作り方は DESIGN.md「アイコン」。画像は siteIcons.ts の定数(base64)。
     if (req.method === "GET" && url.pathname === "/favicon.ico") {
-      return new Response(null, { status: 204, headers: { "cache-control": "public, max-age=86400" } });
+      return new Response(decodeBase64(FAVICON_ICO_BASE64), { headers: { "content-type": "image/x-icon", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+    }
+    if (req.method === "GET" && url.pathname === "/icon.svg") {
+      return new Response(ICON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+    }
+    if (req.method === "GET" && url.pathname === "/apple-touch-icon.png") {
+      return new Response(decodeBase64(APPLE_ICON_PNG_BASE64), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
     }
 
     // OAuthクリック接続化（2026-09-22追加、oauthConnections.ts参照）。start/callbackは

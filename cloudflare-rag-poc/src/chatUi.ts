@@ -11,6 +11,9 @@ export function chatUiHtml(): string {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RAG Chat (Cloudflare POC)</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -37,28 +40,39 @@ export function chatUiHtml(): string {
     --accent: #8052ff; --highlight: #ffb829; --teal: #15846e;
     --user-bubble: #130f22; --assistant-bubble: transparent;
     --good: #15846e; --bad: #ff6f5e;
+    /* 文字に使う色(2026-11-11)。--accent・--teal は塗りの上の白文字のために暗めなので、文字用を別に持つ(地・パネル・吹き出しの上で 4.5:1 以上)。 */
+    --accent-text: #895eff; --teal-text: #168d75;
+    --on-bad: #000000; /* --bad の塗りの上の文字(白だと 2.7:1) */
   }
   /* U6: テーマは data-theme="light|dark" で手動指定。未指定（自動）ならOS設定に追従する。 */
   @media (prefers-color-scheme: light) {
     :root:not([data-theme]) {
       color-scheme: light;
       --bg: #ffffff; --panel: #f7f5ff; --border: #e4e1ea;
-      --text: #14121a; --muted: #6b6470; --muted2: #857e8c;
-      --accent: #6a3ef0; --highlight: #b8790f; --teal: #0f6656;
+      --text: #14121a; --muted: #6b6470; --muted2: #6f6875;
+      --accent: #6a3ef0; --highlight: #92600c; --teal: #0f6656;
       --user-bubble: #efe9ff; --assistant-bubble: transparent;
-      --good: #0f6656; --bad: #d94f3f;
+      --good: #0f6656; --bad: #c43727;
+      --accent-text: #6a3ef0; --teal-text: #0f6656; --on-bad: #ffffff;
     }
   }
   :root[data-theme="light"] {
     color-scheme: light;
     --bg: #ffffff; --panel: #f7f5ff; --border: #e4e1ea;
-    --text: #14121a; --muted: #6b6470; --muted2: #857e8c;
-    --accent: #6a3ef0; --highlight: #b8790f; --teal: #0f6656;
+    --text: #14121a; --muted: #6b6470; --muted2: #6f6875;
+    --accent: #6a3ef0; --highlight: #92600c; --teal: #0f6656;
     --user-bubble: #efe9ff; --assistant-bubble: transparent;
-    --good: #0f6656; --bad: #d94f3f;
+    --good: #0f6656; --bad: #c43727;
+    --accent-text: #6a3ef0; --teal-text: #0f6656; --on-bad: #ffffff;
   }
   /* U1: 数字は等幅（桁揃え）。追加トークンは2つだけ。 */
   :root { --font-num: tabular-nums; --row-sub: var(--muted); }
+  /* 動きの規則(DESIGN.md「動き」)。これから足す動きは、時間とイージングをここから使う(既存の動きは触らない)。
+     動かすのは transform と opacity だけ。動きを減らす設定では止める(CSS は @media (prefers-reduced-motion)、JS は matchMedia)。 */
+  :root {
+    --dur-instant: 120ms; --dur-open: 240ms; --dur-enter: 300ms;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-move: cubic-bezier(0.4, 0, 0.2, 1);
+  }
   .score-pct, #myBudget, .kpi-card .kpi-value, .kpi-card .kpi-sub, .pager, .ns-count, .answer-foot { font-variant-numeric: var(--font-num); }
   .icon { width: 1em; height: 1em; vertical-align: -.15em; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
   .answer-foot { font-size: .74rem; color: var(--row-sub); margin-top: .3rem; }
@@ -76,9 +90,9 @@ export function chatUiHtml(): string {
   .ns-presets select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: .25rem .5rem; font-family: inherit; font-size: .8rem; }
   .ns-chips { display: flex; gap: .4rem; flex-wrap: wrap; padding: .5rem 1.2rem 0; }
   .ns-chip { background: none; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-family: inherit; font-size: .78rem; padding: .15rem .7rem; cursor: pointer; }
-  .ns-chip[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .ns-chip[aria-pressed="true"] { color: var(--accent-text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
   #namespaceFocus { display: none; }
-  .count-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.15rem; height: 1.15rem; padding: 0 .3rem; margin-left: .4rem; border-radius: 999px; background: var(--bad); color: #fff; font-size: .68rem; font-weight: 700; font-variant-numeric: var(--font-num); }
+  .count-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.15rem; height: 1.15rem; padding: 0 .3rem; margin-left: .4rem; border-radius: 999px; background: var(--bad); color: var(--on-bad); font-size: .68rem; font-weight: 700; font-variant-numeric: var(--font-num); }
   .msg.skeleton { max-width: 70%; }
   .msg.skeleton i { display: block; height: .7rem; border-radius: 6px; background: var(--panel); margin: .55rem 0; }
   .msg.skeleton i:nth-of-type(1) { width: 90%; } .msg.skeleton i:nth-of-type(2) { width: 75%; } .msg.skeleton i:nth-of-type(3) { width: 55%; }
@@ -99,7 +113,7 @@ export function chatUiHtml(): string {
   .admin-toc { margin-top: 1rem; padding-top: .8rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: .1rem; }
   .admin-toc .toc-title { font-size: .72rem; color: var(--muted); margin-bottom: .3rem; }
   .admin-toc a { color: var(--muted); font-size: .78rem; text-decoration: none; padding: .2rem .5rem; border-left: 2px solid transparent; cursor: pointer; }
-  .admin-toc a.current { color: var(--accent); border-left-color: var(--accent); }
+  .admin-toc a.current { color: var(--accent-text); border-left-color: var(--accent); }
   @media (max-width: 720px) { .admin-toc { display: none; } }
   @media (prefers-reduced-motion: reduce) { #sourceDrawer { transition: none; } }
   /* ---- 動きの追補（2026-10-23、IMPROVEMENT_DESIGN_2026-10.md「外部リソースの追補 第2弾」Y2。名前は motion-prompt の番号）。
@@ -158,7 +172,7 @@ export function chatUiHtml(): string {
     background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
     color: var(--muted); padding: .5rem .9rem; font-size: .88rem; font-weight: 600; cursor: pointer;
   }
-  nav.tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  nav.tabs button.active { color: var(--accent-text); border-bottom-color: var(--accent); }
 
   .tabpanel { display: none; flex: 1; min-height: 0; flex-direction: column; }
   .tabpanel.active { display: flex; }
@@ -180,10 +194,10 @@ export function chatUiHtml(): string {
   .meta { display: flex; align-items: center; gap: .6rem; margin-top: .4rem; font-size: .78rem; color: var(--muted); flex-wrap: wrap; }
   .extraction { padding: .1rem .55rem; border-radius: 999px; border: 1px solid var(--border); }
   .extraction.low { color: var(--bad); }
-  .extraction.high { color: var(--teal); }
+  .extraction.high { color: var(--teal-text); }
   .rate-btn { background: none; border: none; border-radius: 999px; cursor: pointer; color: var(--muted); padding: .15rem .5rem; font-family: inherit; }
   .rate-btn:hover { color: var(--text); }
-  .rate-btn.active-up { color: var(--teal); }
+  .rate-btn.active-up { color: var(--teal-text); }
   .rate-btn.active-down { color: var(--bad); }
   .rate-btn.active-pin { color: var(--highlight); }
   details.sources { margin-top: .5rem; font-size: .8rem; color: var(--muted); }
@@ -200,7 +214,7 @@ export function chatUiHtml(): string {
   .ns-pill { display: inline-block; padding: 0 .5rem; border-radius: 999px; font-size: .7rem; font-weight: 600; color: #14121a; }
   .score-pct { font-size: .72rem; color: var(--muted); }
   .cited-badge { font-size: .7rem; padding: 0 .5rem; border-radius: 999px; border: 1px solid var(--border); }
-  .cited-badge.cited { color: var(--teal); }
+  .cited-badge.cited { color: var(--teal-text); }
   .cited-badge.uncited { color: var(--muted); }
   .citation-link { color: var(--highlight); cursor: pointer; text-decoration: underline; }
   .citation-highlight {
@@ -222,7 +236,7 @@ export function chatUiHtml(): string {
   }
   .toast.show { opacity: 1; transform: translateY(0); }
   .toast.error { border-color: var(--bad); color: var(--bad); }
-  .toast.success { border-color: var(--teal); color: var(--teal); }
+  .toast.success { border-color: var(--teal); color: var(--teal-text); }
   /* ヘルスチェック結果の視覚化（2026-09-09追加）: セクション左端に健全度バーを出す。 */
   .section.health-ok { border-left: 3px solid var(--teal); padding-left: 1rem; }
   .section.health-warn { border-left: 3px solid var(--highlight); padding-left: 1rem; }
@@ -291,8 +305,8 @@ export function chatUiHtml(): string {
      既定表示指定に必ず勝つようにしておく（2026-09-10: サブナビ導入に伴う対策）。 */
   body[data-role="editor"] .admin-only-section { display: none !important; }
   .role-badge { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 600; border: 1px solid var(--border); }
-  .role-badge.admin { color: var(--accent); border-color: var(--accent); }
-  .role-badge.editor { color: var(--teal); border-color: var(--teal); }
+  .role-badge.admin { color: var(--accent-text); border-color: var(--accent); }
+  .role-badge.editor { color: var(--teal-text); border-color: var(--teal); }
   .role-badge.member, .role-badge.guest { color: var(--muted); }
   .role-select { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: .2rem .4rem; font-size: .78rem; font-family: inherit; }
 
@@ -331,7 +345,7 @@ export function chatUiHtml(): string {
     color: var(--muted); padding: .55rem .7rem; font-size: .84rem; font-weight: 600; cursor: pointer;
     font-family: inherit; text-align: left; white-space: normal;
   }
-  .admin-subnav button.active { color: var(--accent); border-left-color: var(--accent); background: var(--panel); border-radius: 0 8px 8px 0; }
+  .admin-subnav button.active { color: var(--accent-text); border-left-color: var(--accent); background: var(--panel); border-radius: 0 8px 8px 0; }
   .admin-content { flex: 1; min-width: 0; }
   details.sync-settings { border: 1px solid var(--border); border-radius: 12px; padding: .7rem 1.2rem; margin-bottom: 1.2rem; }
   details.sync-settings > summary { cursor: pointer; font-weight: 700; font-size: .95rem; }
@@ -431,7 +445,7 @@ export function chatUiHtml(): string {
   #sourcePanel h3 { margin: 0 0 .5rem; font-size: .85rem; }
   .src-sort { display: flex; gap: .4rem; margin-bottom: .6rem; }
   .src-sort button { background: none; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-family: inherit; font-size: .72rem; padding: .1rem .6rem; cursor: pointer; }
-  .src-sort button.active { color: var(--accent); border-color: var(--accent); }
+  .src-sort button.active { color: var(--accent-text); border-color: var(--accent); }
   .src-row { display: grid; grid-template-columns: .7rem 1fr auto; gap: .5rem; align-items: start; padding: .5rem .3rem; border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 6px; }
   .src-row:hover { background: var(--panel); }
   .src-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: .35rem; }
@@ -489,13 +503,15 @@ export function chatUiHtml(): string {
   .file-row .detail { color: var(--muted); font-size: .76rem; margin: .1rem 0 0 1.6rem; word-break: break-all; }
   .badge { font-size: .7rem; padding: .05rem .5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
   .badge.running { color: var(--highlight); border-color: var(--highlight); }
-  .badge.ok { color: var(--teal); border-color: var(--teal); }
+  .badge.ok { color: var(--teal-text); border-color: var(--teal); }
   .badge.error { color: var(--bad); border-color: var(--bad); }
   .progress-track { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; margin: .6rem 0; }
   .progress-bar { height: 100%; background: var(--accent); transition: width .25s; }
   /* 終わりが読めない処理（1ファイルの変換・文字起こしなど）は、割合を出さず、動く帯にする（2026-10-21） */
+  /* 動かすのは transform(帯の幅 35% の 65/35 = 185.7% だけ右へ)。レイアウトを動かさない。動きを減らす設定では止める(読み込み中の例外も、そのときは静止)。 */
   .progress-bar.indeterminate { width: 35% !important; animation: progress-slide 1.2s ease-in-out infinite alternate; }
-  @keyframes progress-slide { from { margin-left: 0; } to { margin-left: 65%; } }
+  @keyframes progress-slide { from { transform: translateX(0); } to { transform: translateX(185.7%); } }
+  @media (prefers-reduced-motion: reduce) { .progress-bar.indeterminate { animation: none; } }
   .item-bar { height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: .35rem; }
   .item-bar > div { height: 100%; background: var(--accent); transition: width .25s; }
   .qa-pair { border: 1px solid var(--border); border-radius: 10px; padding: .6rem; margin-bottom: .6rem; background: var(--panel); }
@@ -526,7 +542,7 @@ export function chatUiHtml(): string {
   .pending-action pre { max-height: 10rem; overflow: auto; font-size: .76rem; margin: .4rem 0; padding: .4rem; background: var(--bg, transparent); border-radius: 6px; white-space: pre-wrap; word-break: break-all; }
   .pending-action small { display: block; color: var(--muted); font-size: .76rem; }
   .pending-action-buttons { display: flex; gap: .5rem; margin-top: .5rem; }
-  .ascii-critter { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; line-height: 1.1; color: var(--accent); margin: .6rem 0 0; white-space: pre; user-select: none; text-align: center; }
+  .ascii-critter { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8rem; line-height: 1.1; color: var(--accent); margin: .6rem 0 0; /* 装飾(情報を担わない)なので、文字用の --accent-text にしない */ white-space: pre; user-select: none; text-align: center; }
   .ascii-critter .ascii-glow { color: var(--highlight); }
   .msg.skeleton .ascii-critter { margin: 0 0 .4rem; text-align: left; }
   /* Z20: 背景の生き物（選んだ人だけ。既定はなし）。画面の右下に、薄く。本文・操作部品の後ろ（z-index:-1）で、操作を邪魔しない。狭い画面では出さない。 */
@@ -570,7 +586,7 @@ export function chatUiHtml(): string {
   /* 「どのユーザーで入っているか」の表示（キーの名前・役割・IDの先頭）。 */
   .whoami { font-size: .78rem; color: var(--muted); white-space: nowrap; padding: .12rem .6rem; border: 1px solid var(--border); border-radius: 999px; }
   .whoami:empty { display: none; }
-  .whoami.role-admin { color: var(--accent); border-color: var(--accent); }
+  .whoami.role-admin { color: var(--accent-text); border-color: var(--accent); }
   /* 折りたたみ（管理画面のセクション）。見出しのボタンか見出しの文字で開閉。選んだ状態は、ブラウザに覚えておく。 */
   .fold-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 .45rem 0 0; font: inherit; }
   .fold-btn::before { content: "▾"; display: inline-block; }
@@ -579,14 +595,14 @@ export function chatUiHtml(): string {
   .section.collapsed > *:not(.card-head):not(h2) { display: none; }
   .section.collapsed { padding-bottom: .6rem; }
   th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
-  th.sortable:hover, th.sortable:focus-visible { color: var(--accent); outline: none; }
+  th.sortable:hover, th.sortable:focus-visible { color: var(--accent-text); outline: none; }
   th.sortable::after { content: " ↕"; opacity: .35; font-size: .85em; }
-  th.sortable[aria-sort="ascending"]::after { content: " ▲"; opacity: 1; color: var(--accent); }
-  th.sortable[aria-sort="descending"]::after { content: " ▼"; opacity: 1; color: var(--accent); }
+  th.sortable[aria-sort="ascending"]::after { content: " ▲"; opacity: 1; color: var(--accent-text); }
+  th.sortable[aria-sort="descending"]::after { content: " ▼"; opacity: 1; color: var(--accent-text); }
 
   /* ---------- 別プロジェクトを参考にした画面構成（2026-10-08）：アクションバー・カード・システム選択・詳細 ---------- */
-  .btn.outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
-  .btn.outline:hover { background: var(--panel); color: var(--accent); }
+  .btn.outline { background: transparent; border: 1px solid var(--accent); color: var(--accent-text); }
+  .btn.outline:hover { background: var(--panel); color: var(--accent-text); }
   .kb-toolbar { display: flex; gap: .6rem; flex-wrap: wrap; padding-bottom: 1rem; }
   .section.card { border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.2rem 1.1rem; margin-bottom: 1.2rem; }
   .card-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .7rem; }
@@ -604,7 +620,7 @@ export function chatUiHtml(): string {
   .conn-desc { color: var(--muted); font-size: .78rem; }
   .conn-empty { color: var(--muted); font-size: .85rem; padding: .4rem 0; }
   .chip { font-size: .75rem; padding: .1rem .65rem; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); color: var(--muted2); }
-  .chip.ok { color: var(--teal); border-color: var(--teal); }
+  .chip.ok { color: var(--teal-text); border-color: var(--teal); }
   /* 登録ポップアップ：3つの帯状のステップ（別プロジェクトのナレッジ追加と同じ見せ方） */
   .modal-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; padding: 0 1.2rem .8rem; }
   .modal-step { padding: .55rem .8rem; border-radius: 10px; border: none; background: var(--panel); font-size: .85rem; }
@@ -618,7 +634,7 @@ export function chatUiHtml(): string {
   .method-card strong { font-size: .95rem; }
   .modal-tips ul { padding-left: 0; list-style: none; }
   .modal-tips li { display: flex; gap: .45rem; }
-  .tip-check { color: var(--teal); font-weight: 700; }
+  .tip-check { color: var(--teal-text); font-weight: 700; }
   /* 連携するシステム：選択グリッド */
   .sys-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .7rem; }
   .inline-check { display: flex; align-items: center; gap: .4rem; margin: .5rem 0; font-size: .85rem; color: var(--muted2); }
@@ -642,7 +658,7 @@ export function chatUiHtml(): string {
   .sys-hero { display: flex; gap: 1rem; align-items: center; background: color-mix(in srgb, var(--accent) 9%, var(--panel)); border-radius: 12px; padding: 1rem; margin-bottom: .8rem; }
   .sys-hero h4 { margin: 0 0 .2rem; font-size: 1.05rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
   .sys-hero p { margin: .1rem 0; font-size: .85rem; color: var(--muted2); }
-  .sys-hero p.sys-account { color: var(--accent); font-weight: 600; }
+  .sys-hero p.sys-account { color: var(--accent-text); font-weight: 600; }
   .sys-rows { display: flex; flex-direction: column; gap: .5rem; }
   .sys-row { display: grid; grid-template-columns: 9.5rem 1fr; gap: .8rem; align-items: center; }
   .sys-row-label { font-size: .85rem; font-weight: 700; }
@@ -2039,9 +2055,11 @@ export function chatUiHtml(): string {
         drawTriangle(p.x * rect.width, p.y * rect.height, p.r, p.color, alpha);
       });
       ctx.globalAlpha = 1;
-      heroAnimId = requestAnimationFrame(frame);
+      if (!heroCalm) heroAnimId = requestAnimationFrame(frame);
     }
-    heroAnimId = requestAnimationFrame(frame);
+    // 動きを減らす設定のときは、1 フレームだけ描いて止める(無限に動かさない)。0 は「開始済み」の印(再開始を防ぐ。cancelAnimationFrame(0) は何もしない)。
+    const heroCalm = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    if (heroCalm) { frame(0); heroAnimId = 0; } else heroAnimId = requestAnimationFrame(frame);
   }
 
   // U1: アイコンは線幅1.5pxの1セットのインラインSVGのみ（絵文字は使わない）。
