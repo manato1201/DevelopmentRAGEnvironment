@@ -200,6 +200,17 @@ export function chatUiHtml(): string {
   .rate-btn.active-up { color: var(--teal-text); }
   .rate-btn.active-down { color: var(--bad); }
   .rate-btn.active-pin { color: var(--highlight); }
+  .rate-btn.active-pin .icon { fill: currentColor; }
+  .rate-btn.active-up .icon, .rate-btn.active-down .icon { fill: currentColor; fill-opacity: .25; }
+  .rate-btn.active-speak { color: var(--teal-text); }
+  .act-btn { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; padding: 0; }
+  .act-btn .icon { width: 1.1rem; height: 1.1rem; }
+  .act-btn:hover { background: var(--border); }
+  .act-btn:focus-visible { outline: 2px solid var(--teal-text); outline-offset: 1px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .act-btn.act-pop .icon { animation: actPop var(--dur-open) var(--ease-out) 1; }
+    @keyframes actPop { 0% { transform: scale(1); } 40% { transform: scale(1.3); } 100% { transform: scale(1); } }
+  }
   details.sources { margin-top: .5rem; font-size: .8rem; color: var(--muted); }
   details.sources summary { cursor: pointer; }
   details.sources ul { margin: .4rem 0 0; padding-left: 1.2rem; }
@@ -286,6 +297,11 @@ export function chatUiHtml(): string {
   .table-scroll { overflow-x: auto; max-width: 100%; }
   table.admin-table { width: 100%; border-collapse: collapse; font-size: .82rem; table-layout: fixed; }
   table.admin-table th, table.admin-table td { text-align: left; padding: .5rem .5rem; border-bottom: 1px solid var(--border); word-break: break-all; }
+  /* 発行済みキー一覧は列が多い。均等割り(fixed)だと見出しが隣の列に重なるので、中身に合わせて幅を取り、足りなければ横にスクロールする */
+  table.admin-table#keysTable { table-layout: auto; min-width: 820px; }
+  .reset-controls { margin-top: .35rem; display: flex; flex-direction: column; gap: .25rem; }
+  .reset-controls .hint { font-size: .72rem; color: var(--muted); }
+  .reset-controls .reset-row { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
   table.admin-table th { color: var(--muted); font-weight: 600; font-size: .72rem; letter-spacing: .02em; }
   .keybox { background: var(--panel); border: 1px solid var(--teal); border-radius: 12px; padding: .6rem .8rem; font-family: monospace; font-size: .85rem; word-break: break-all; margin-top: .5rem; }
   .keybox-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .35rem; }
@@ -594,7 +610,7 @@ export function chatUiHtml(): string {
   .section.foldable h2 { cursor: pointer; user-select: none; }
   .section.collapsed > *:not(.card-head):not(h2) { display: none; }
   .section.collapsed { padding-bottom: .6rem; }
-  th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  th.sortable { cursor: pointer; user-select: none; }
   th.sortable:hover, th.sortable:focus-visible { color: var(--accent-text); outline: none; }
   th.sortable::after { content: " ↕"; opacity: .35; font-size: .85em; }
   th.sortable[aria-sort="ascending"]::after { content: " ▲"; opacity: 1; color: var(--accent-text); }
@@ -1159,7 +1175,7 @@ export function chatUiHtml(): string {
           </select>
         </div>
         <div class="field-row"><label>RAGトークン上限</label><input type="number" id="newKeyCapacity" value="100000"></div>
-        <div class="field-row"><label>Claude予算（チュートリアル生成等）</label><input type="number" id="newKeyClaudeCapacity" placeholder="空欄=無制限"></div>
+        <div class="field-row"><label title="チュートリアル生成などで使うClaudeの予算">Claude予算</label><input type="number" id="newKeyClaudeCapacity" placeholder="空欄=無制限"></div>
         <div class="field-row"><label>有効期限</label>
           <select id="newKeyExpiry" class="role-select">
             <option value="0" selected>無期限</option>
@@ -1187,7 +1203,7 @@ export function chatUiHtml(): string {
           </select>
           <button class="btn" id="refreshKeys">再読み込み</button>
         </div>
-        <div class="table-scroll"><table class="admin-table" id="keysTable"><thead><tr><th>名前</th><th>ロール</th><th>RAG予算</th><th>使用率</th><th>Claude予算（チュートリアル生成等）</th><th>最終利用</th><th>有効期限</th><th>作成日</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table" id="keysTable"><thead><tr><th>名前</th><th>ロール</th><th>RAG予算</th><th>使用率</th><th title="チュートリアル生成などで使うClaudeの予算">Claude予算</th><th>最終利用</th><th>有効期限</th><th>作成日</th><th></th></tr></thead><tbody></tbody></table></div>
       </div>
     </div>
 
@@ -2092,6 +2108,14 @@ export function chatUiHtml(): string {
     warn: "M8 2l6.5 11.5h-13zM8 6.5v3M8 11.5v.5",
     pen: "M3 13l1-3 7-7 2 2-7 7zM10 4l2 2",
     book: "M2 3h5a1 1 0 011 1v9a1 1 0 00-1-1H2zM14 3H9a1 1 0 00-1 1v9a1 1 0 011-1h5z",
+    copy: "M5.5 5.5h7v8h-7zM3.5 10.5v-8h7",
+    thumbUp: "M2.5 7.5h2.5v6H2.5zM5 7.5l2.5-5c1.2 0 1.8.8 1.5 2L8.6 6.5h3.9a1 1 0 011 1.2l-.9 4.8a1 1 0 01-1 .8H5",
+    thumbDown: "M2.5 8.5h2.5v-6H2.5zM5 8.5l2.5 5c1.2 0 1.8-.8 1.5-2l-.4-2h3.9a1 1 0 001-1.2l-.9-4.8a1 1 0 00-1-.8H5",
+    share: "M4.5 9.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM11.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM11.5 14a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM6 8.2l4-2.4M6 7.8l4 2.4",
+    speaker: "M2.5 6.5h2.5L8.5 3.5v9L5 9.5H2.5zM10.8 5.8a3 3 0 010 4.4M12.5 4a5.5 5.5 0 010 8",
+    refresh: "M13 8a5 5 0 10-1.6 3.7M13 3v3.5h-3.5",
+    bookmark: "M4 2.5h8v11L8 10.5l-4 3z",
+    docSearch: "M3.5 2h5l2.5 2.5V7M3.5 2v11h4M9.5 12a2 2 0 100-4 2 2 0 000 4zM11 11.5l2 2",
     pin: "M8 14s5-4.5 5-8a5 5 0 00-10 0c0 3.5 5 8 5 8zM8 7.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z",
   };
   // アイコンを包む<span>。絵文字の代わりに使う（固定パスのみ）。
@@ -2416,55 +2440,103 @@ export function chatUiHtml(): string {
     badge.textContent = "出典引用率 " + extractionRate + "% (" + extractionDetail + ")";
     meta.appendChild(badge);
 
-    if (memoryId) {
-      const up = document.createElement("button");
-      up.className = "rate-btn" + (existingRating === 1 ? " active-up" : "");
-      up.textContent = "役に立った";
-      const down = document.createElement("button");
-      down.className = "rate-btn" + (existingRating === -1 ? " active-down" : "");
-      down.textContent = "役に立たなかった";
-      up.onclick = () => rate(memoryId, 1, up, down);
-      down.onclick = () => rate(memoryId, -1, up, down);
-      meta.appendChild(up);
-      meta.appendChild(down);
-
-      // お気に入り登録（2026-09-04追加）。ratingとは独立に「あとで見返したい」を残せるようにする。
-      const pinBtn = document.createElement("button");
-      pinBtn.className = "rate-btn" + (existingPinned ? " active-pin" : "");
-      setPinLabel(pinBtn, !!existingPinned);
-      pinBtn.onclick = () => togglePin(memoryId, !pinBtn.classList.contains("active-pin"), pinBtn);
-      meta.appendChild(pinBtn);
+    // 回答の下の操作は、アイコン 1 つ 1 操作に統一する(コピー・いいね・悪いね・共有・読み上げ・再試行・ブックマーク・参照元)。
+    // 名前は title と aria-label に出す。押した結果は、トーストかボタンの色で必ず分かるようにする。
+    function actionBtn(icon, label, onClick) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "rate-btn act-btn";
+      b.title = label;
+      b.setAttribute("aria-label", label);
+      b.appendChild(iconEl(icon));
+      b.addEventListener("click", onClick);
+      return b;
     }
-
-    // 出典付きの回答をそのままチームに共有したいことがあるため、Markdown形式で
-    // クリップボードにコピーするボタンを用意する（2026-08-31）。
-    const exportBtn = document.createElement("button");
-    exportBtn.className = "rate-btn";
-    exportBtn.textContent = "Markdownコピー";
-    exportBtn.addEventListener("click", async () => {
+    // 1 回だけ「押せた」と見せる(transform だけ。動きを減らす設定では CSS 側で止まる)
+    function popAction(btn) {
+      btn.classList.remove("act-pop");
+      void btn.offsetWidth;
+      btn.classList.add("act-pop");
+    }
+    const copyBtn = actionBtn("copy", "回答をコピー(Shift を押しながらで、出典つきの Markdown)", async (ev) => {
       try {
-        await navigator.clipboard.writeText(buildMarkdownExport(question, answer, sources));
-        showToast("Markdownをコピーしました", "success");
+        const text = ev.shiftKey ? buildMarkdownExport(question, answer, sources) : answer;
+        await navigator.clipboard.writeText(text);
+        popAction(copyBtn);
+        showToast(ev.shiftKey ? "出典つきの Markdown をコピーしました" : "回答をコピーしました", "success");
       } catch {
         showToast("コピーに失敗しました", "error");
       }
     });
-    meta.appendChild(exportBtn);
+    meta.appendChild(copyBtn);
+
     if (memoryId) {
-      // 回答へのリンク（自分の履歴の回答だけ開ける。2026-10-22追加）
-      const linkBtn = document.createElement("button");
-      linkBtn.className = "rate-btn";
-      linkBtn.textContent = "リンクをコピー";
-      linkBtn.title = "この回答を開くリンクです。開けるのは、あなた自身（同じAPIキー）だけです";
-      linkBtn.addEventListener("click", async () => {
+      const up = actionBtn("thumbUp", "役に立った", () => rate(memoryId, 1, up, down));
+      const down = actionBtn("thumbDown", "役に立たなかった", () => rate(memoryId, -1, up, down));
+      if (existingRating === 1) up.classList.add("active-up");
+      if (existingRating === -1) down.classList.add("active-down");
+      meta.appendChild(up);
+      meta.appendChild(down);
+
+      // 回答へのリンク(自分の履歴の回答だけ開ける。2026-10-22追加)。共有アイコンから、Web Share があればそれ、無ければリンクのコピー。
+      const shareBtn = actionBtn("share", "回答へのリンクを共有(開けるのは、あなた自身=同じ APIキー だけです)", async () => {
+        const url = location.origin + location.pathname + "#answer=" + memoryId;
         try {
-          await navigator.clipboard.writeText(location.origin + location.pathname + "#answer=" + memoryId);
-          showToast("回答へのリンクをコピーしました（自分だけが開けます）", "success");
-        } catch {
-          showToast("コピーに失敗しました", "error");
+          if (navigator.share) await navigator.share({ title: "RAG Chat の回答", url: url });
+          else { await navigator.clipboard.writeText(url); showToast("回答へのリンクをコピーしました(自分だけが開けます)", "success"); }
+          popAction(shareBtn);
+        } catch (e) {
+          if (e && e.name === "AbortError") return; // 共有の取りやめは失敗ではない
+          showToast("共有に失敗しました", "error");
         }
       });
-      meta.appendChild(linkBtn);
+      meta.appendChild(shareBtn);
+    }
+
+    // 読み上げ(ブラウザ内蔵の音声。もう一度押すと止まる。音声が無い環境では、ボタンごと出さない)
+    if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
+      const speakBtn = actionBtn("speaker", "回答を読み上げる(もう一度押すと止まる)", () => {
+        const synth = window.speechSynthesis;
+        if (speakBtn.classList.contains("active-speak")) { synth.cancel(); speakBtn.classList.remove("active-speak"); return; }
+        synth.cancel();
+        const u = new SpeechSynthesisUtterance(answer.replace(/\[\d+\]/g, ""));
+        u.lang = "ja-JP";
+        u.onend = u.onerror = () => speakBtn.classList.remove("active-speak");
+        speakBtn.classList.add("active-speak");
+        synth.speak(u);
+      });
+      meta.appendChild(speakBtn);
+    }
+
+    // 再試行(同じ質問をもう一度送る。画像の添付は引き継がない)
+    if (container === messagesEl) {
+      const retryBtn = actionBtn("refresh", "同じ質問で、回答をもう一度つくる", () => {
+        if (sendBtn.disabled) { showToast("回答をつくっている途中です", "error"); return; }
+        inputEl.value = question;
+        send();
+      });
+      meta.appendChild(retryBtn);
+    }
+
+    if (memoryId) {
+      // お気に入り(ブックマーク。2026-09-04追加)。ratingとは独立に「あとで見返したい」を残せる。塗りつぶし=登録済み。
+      const pinBtn = actionBtn("bookmark", existingPinned ? "お気に入りから外す" : "お気に入りに登録", () => togglePin(memoryId, !pinBtn.classList.contains("active-pin"), pinBtn));
+      if (existingPinned) pinBtn.classList.add("active-pin");
+      meta.appendChild(pinBtn);
+    }
+
+    // 参照元(根拠)。出典があるときだけ、出典の一覧を開いて、そこへ移動する。
+    if (sources && sources.length > 0) {
+      const srcBtn = actionBtn("docSearch", "参照した情報源と根拠を開く", () => {
+        if (sourcesDetailsEl) { sourcesDetailsEl.open = true; sourcesDetailsEl.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
+        const panelEl = $("sourcePanel");
+        if (panelEl && panelEl.offsetParent !== null) {
+          if (container === messagesEl) showSourcePanel(sources);
+          panelEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+        popAction(srcBtn);
+      });
+      meta.appendChild(srcBtn);
     }
     wrap.appendChild(meta);
 
@@ -2621,17 +2693,12 @@ export function chatUiHtml(): string {
     }
   }
 
-  function setPinLabel(btn, pinned) {
-    btn.textContent = "";
-    btn.appendChild(iconEl("star"));
-    btn.appendChild(document.createTextNode(pinned ? " お気に入り済み" : " お気に入り"));
-  }
-
   async function togglePin(memoryId, pinned, btn) {
     try {
       await api("/memory/pin", { id: memoryId, pinned });
       btn.classList.toggle("active-pin", pinned);
-      setPinLabel(btn, pinned);
+      btn.title = pinned ? "お気に入りから外す" : "お気に入りに登録";
+      btn.setAttribute("aria-label", btn.title);
       showToast(pinned ? "お気に入りに登録しました" : "お気に入りから外しました", "success");
     } catch (e) {
       showToast("お気に入り登録に失敗しました: " + e.message, "error");
@@ -4393,6 +4460,7 @@ ${ASCII_ART_JS}
 
       const budgetCell = document.createElement("td");
       budgetCell.textContent = k.rag_limit != null ? (k.rag_used + '/' + k.rag_limit) : '無制限';
+      budgetCell.appendChild(budgetResetControls(k, "rag", "RAG予算"));
       tr.appendChild(budgetCell);
 
       const donutCell = document.createElement("td");
@@ -4414,7 +4482,8 @@ ${ASCII_ART_JS}
       const claudeInput = document.createElement("input");
       claudeInput.type = "number";
       claudeInput.min = "0";
-      claudeInput.style.width = "90px";
+      claudeInput.style.width = "100%";
+      claudeInput.style.maxWidth = "7rem";
       claudeInput.style.marginLeft = ".4rem";
       claudeInput.placeholder = "空欄=無制限";
       if (k.claude_limit != null) claudeInput.value = k.claude_limit;
@@ -4435,6 +4504,7 @@ ${ASCII_ART_JS}
       };
       claudeCell.appendChild(claudeInput);
       claudeCell.appendChild(claudeSetBtn);
+      claudeCell.appendChild(budgetResetControls(k, "claude", "Claude予算"));
 
       // 最終利用日時（2026-09-10追加、別プロジェクト Usersページの"Last Login"に相当）。
       // audit_log全体のMAX(created_at)なのでClaudeプロキシ利用も含む（keyAdmin.ts参照）。
@@ -4528,6 +4598,59 @@ ${ASCII_ART_JS}
     box.appendChild(kpiCard("管理者", counts.admin));
     box.appendChild(kpiCard("編集者", counts.editor));
     box.appendChild(kpiCard("一般ユーザー", counts.member + counts.guest));
+  }
+
+  // トークン予算の「リセット」の操作(2026-11-17)。どこで戻すのかが分からない、という指摘への対応。
+  // 1 行目: いつ戻るか(自動の周期と次回の日時)。2 行目: 「使用量を0に戻す」(今すぐ)と、自動の周期の変更。
+  const RESET_CHOICES = [[0, "自動で戻さない"], [24, "毎日"], [168, "毎週"], [720, "30日ごと"]];
+  function budgetResetControls(k, type, label) {
+    const limit = k[type + "_limit"];
+    const hours = k[type + "_reset_hours"];
+    const resetAt = k[type + "_reset_at"];
+    const box = document.createElement("div");
+    box.className = "reset-controls";
+    if (limit == null) return box; // 無制限のときは、戻す対象がない
+    const when = document.createElement("div");
+    when.className = "hint";
+    const choice = RESET_CHOICES.find((c) => c[0] === hours);
+    when.textContent = hours && resetAt
+      ? "次に戻る日時: " + new Date(resetAt * 1000).toLocaleString() + "(" + (choice ? choice[1] : hours + "時間ごと") + ")"
+      : "自動では戻りません";
+    box.appendChild(when);
+    const row = document.createElement("div");
+    row.className = "reset-row";
+    const resetBtn = document.createElement("button");
+    resetBtn.type = "button";
+    resetBtn.className = "btn";
+    resetBtn.textContent = "使用量を0に戻す";
+    resetBtn.title = k.display_name + " の" + label + "の使用量を、今すぐ 0 に戻します(上限は変わりません)";
+    resetBtn.onclick = async () => {
+      try {
+        await api("/admin/keys/charge", { userId: k.user_id, budgetType: type, reset: true });
+        showToast(k.display_name + " の" + label + "の使用量を 0 に戻しました", "success");
+        loadKeys();
+      } catch (e) { showToast("リセットに失敗しました: " + e.message, "error"); }
+    };
+    const sel = document.createElement("select");
+    sel.title = "使用量を自動で 0 に戻す周期";
+    sel.setAttribute("aria-label", label + "の自動リセットの周期");
+    RESET_CHOICES.forEach((c) => {
+      const o = document.createElement("option");
+      o.value = String(c[0]); o.textContent = c[1];
+      if (c[0] === (hours || 0)) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.onchange = async () => {
+      try {
+        await api("/admin/keys/set-capacity", { userId: k.user_id, budgetType: type, limitTokens: limit, resetIntervalHours: Number(sel.value) });
+        showToast(k.display_name + " の" + label + "の自動リセットを「" + sel.options[sel.selectedIndex].textContent + "」にしました", "success");
+        loadKeys();
+      } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
+    };
+    row.appendChild(resetBtn);
+    row.appendChild(sel);
+    box.appendChild(row);
+    return box;
   }
 
   async function loadKeys() {

@@ -71,6 +71,8 @@ from panel_widgets import CollapsibleBox as _CollapsibleBox, ui_state_get as _ui
 import panel_debug as _debug
 from pilot_panel import PilotTaskPanel as _PilotTaskPanel
 from rag_client import post_json as _post_json
+from rag_client import _cf_base as _cf_base_url
+from panel_actions import Speaker as _Speaker, action_button as _action_button, normalize_fonts as _normalize_fonts, set_active as _action_set_active
 from PySide6.QtCore import Qt, QSize, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -314,6 +316,21 @@ def tame_label_widths(root: QWidget) -> None:
 
 # ─── チャットバブル ───────────────────────────────────────────────────────────
 
+def _answer_markdown(question: str, answer: str, sources: list) -> str:
+    """回答を、出典つきの Markdown にする(Web のチャット画面の「Markdown コピー」と同じ形)。"""
+    lines = []
+    if question:
+        lines += ["## " + question.strip(), ""]
+    lines += [answer.strip(), ""]
+    if sources:
+        lines.append("### 出典")
+        for i, src in enumerate(sources, 1):
+            name = src.get("file") or src.get("title") or "(名称なし)"
+            ns = src.get("namespace") or ""
+            lines.append("%d. %s%s" % (i, name, "（" + ns + "）" if ns else ""))
+    return chr(10).join(lines).strip() + chr(10)
+
+
 class ChatBubble(QLabel):
     """
     1件のメッセージをバブル形式で表示するラベル。
@@ -428,6 +445,8 @@ class RAGChatbotPanel(QWidget):
         self._worker: QueryWorker | None        = None
         self._bridge_worker: BridgeStartWorker | None = None
         self._rate_workers: list[RateWorker]    = []  # GC 防止のため参照を保持
+        self._last_query = ""            # 直近の質問(回答の「再試行」「出典つきコピー」で使う)
+        self._speaker = _Speaker()       # 読み上げ(QtTextToSpeech が無い環境では available=False)
         self._conn_worker: _ConnectionCheckWorker | None = None
         self._role: str = str(_ui_state_get("last_role", "") or "")  # 最後に確認できた役割（画面の出し分け用）
         self._last_health: tuple[float, bool] | None = None
@@ -526,6 +545,7 @@ class RAGChatbotPanel(QWidget):
         # ラベルの最小幅がペインより広くなり、パネルがペインからはみ出して、ペインの
         # 区切り（比率）が動かせなくなった。折り返さないラベルは、中身の長さを無視させる。
         tame_label_widths(self)
+        _normalize_fonts(self)  # px のフォントを pt に揃える(4K・拡大表示で、文字の大きさが部品とずれないように)
 
     def _build_help_tab(self) -> QWidget:
         """
@@ -1283,6 +1303,7 @@ class RAGChatbotPanel(QWidget):
                 self._add_bubble("画面のキャプチャに失敗しました（添付なしで続行します）", is_user=False)
 
         self._input.clear()
+        self._last_query = query
         self._add_bubble(query, is_user=True)
         self._history.append({"role": "user", "text": query})
         self._set_status("応答中...")
@@ -1471,6 +1492,7 @@ class RAGChatbotPanel(QWidget):
         # 出典と採用比率（回答で使った資料／検索で見つかった資料）。見出しに要約、中身は折りたたみ。
         # 出典の番号による引用が無いときは、警告として最初から開いておく。
         info = _summarize_sources(sources or [])
+        body_box = None
         if info["state"] != "empty":
             body = QLabel(info["html"])
             body.setTextFormat(Qt.RichText)
@@ -1478,41 +1500,107 @@ class RAGChatbotPanel(QWidget):
             body.setTextInteractionFlags(Qt.TextSelectableByMouse)
             body.setStyleSheet("color:#cbd5e1;font-size:11px;padding:2px 6px;")
             body.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)  # 長いファイル名で、ペインを広げない
-            v.addWidget(_CollapsibleBox(info["summary"], body, collapsed=info["state"] != "none"))
+            body_box = _CollapsibleBox(info["summary"], body, collapsed=info["state"] != "none")
+            v.addWidget(body_box)
 
-        # 評価ボタン行（Cloudflare モードで memoryId がある場合のみ）
-        if memory_id:
-            btn_row = QHBoxLayout()
-            thumb_up   = QPushButton("👍")
-            thumb_down = QPushButton("👎")
-            for btn in (thumb_up, thumb_down):
-                btn.setFixedSize(32, 24)
-                btn.setFlat(True)
-                btn.setStyleSheet("QPushButton{border-radius:4px;font-size:14px;}")
+        # 操作の行。アイコン 1 つ = 操作 1 つ(Web のチャット画面と同じ並び)。名前はツールチップに出す。
+        v.addLayout(self._build_answer_actions(text, memory_id, sources or [], body_box))
 
-            def _on_up(checked=False, mid=memory_id, u=thumb_up, d=thumb_down):
-                u.setStyleSheet("QPushButton{border-radius:4px;font-size:14px;background:#2a7a2a;}")
-                d.setStyleSheet("QPushButton{border-radius:4px;font-size:14px;}")
-                u.setEnabled(False)
-                d.setEnabled(False)
-                self._on_rate(mid, "up")
-
-            def _on_down(checked=False, mid=memory_id, u=thumb_up, d=thumb_down):
-                d.setStyleSheet("QPushButton{border-radius:4px;font-size:14px;background:#7a2a2a;}")
-                u.setStyleSheet("QPushButton{border-radius:4px;font-size:14px;}")
-                u.setEnabled(False)
-                d.setEnabled(False)
-                self._on_rate(mid, "down")
-
-            thumb_up.clicked.connect(_on_up)
-            thumb_down.clicked.connect(_on_down)
-            btn_row.addWidget(thumb_up)
-            btn_row.addWidget(thumb_down)
-            btn_row.addStretch()
-            v.addLayout(btn_row)
-
+        _normalize_fonts(container)
         insert_at = max(0, self._chat_layout.count() - 1)
         self._chat_layout.insertWidget(insert_at, container)
+
+    def _build_answer_actions(self, answer: str, memory_id, sources: list, sources_box) -> QHBoxLayout:
+        """
+        回答の下の操作行: コピー・いいね・悪いね・共有・読み上げ・再試行・ブックマーク・参照元。
+        評価・共有・ブックマークは、回答の記録(memoryId)があるときだけ(Cloudflare モード)。
+        """
+        question = self._last_query
+        row = QHBoxLayout()
+        row.setSpacing(2)
+
+        def toast(text: str) -> None:
+            self._set_status(text)
+
+        def on_copy(checked=False, a=answer, q=question, s=sources):
+            mods = QApplication.keyboardModifiers()
+            text = _answer_markdown(q, a, s) if mods & Qt.ShiftModifier else a
+            QApplication.clipboard().setText(text)
+            toast("出典つきの Markdown をコピーしました" if mods & Qt.ShiftModifier else "回答をコピーしました")
+
+        row.addWidget(_action_button("copy", "回答をコピー(Shift を押しながらで、出典つきの Markdown)", on_copy))
+
+        if memory_id:
+            up = _action_button("thumbUp", "役に立った", checkable=True)
+            down = _action_button("thumbDown", "役に立たなかった", checkable=True)
+
+            def on_rate(rating: str, mine, other, mid=memory_id):
+                # 評価は 1 回だけ送る(送ったあとは、2 つとも押せなくする。以前の動作のまま)
+                mine.setChecked(True)
+                mine.setEnabled(False)
+                other.setEnabled(False)
+                self._on_rate(mid, rating)
+
+            up.clicked.connect(lambda checked=False: on_rate("up", up, down))
+            down.clicked.connect(lambda checked=False: on_rate("down", down, up))
+            row.addWidget(up)
+            row.addWidget(down)
+
+            def on_share(checked=False, mid=memory_id):
+                base = _cf_base_url(self._cfg)
+                link = (base + "/#answer=" + str(mid)) if base else ""
+                if not link:
+                    toast("共有リンクを作れません(接続先が未設定です)")
+                    return
+                QApplication.clipboard().setText(link)
+                toast("回答へのリンクをコピーしました(開けるのは、あなた自身=同じ APIキー だけです)")
+
+            row.addWidget(_action_button("share", "回答へのリンクをコピー(開けるのは、あなた自身=同じ APIキー だけです)", on_share))
+
+        if self._speaker.available:
+            speak = _action_button("speaker", "回答を読み上げる(もう一度押すと止まる)", checkable=True)
+
+            def on_speak(checked=False, a=answer, b=speak):
+                b.setChecked(self._speaker.toggle(a))
+
+            speak.clicked.connect(on_speak)
+            row.addWidget(speak)
+
+        def on_retry(checked=False, q=question):
+            if not q or (self._worker and self._worker.isRunning()):
+                toast("回答をつくっている途中です" if q else "再試行できる質問がありません")
+                return
+            self._input.setPlainText(q)
+            self._on_send()
+
+        row.addWidget(_action_button("refresh", "同じ質問で、回答をもう一度つくる", on_retry))
+
+        if memory_id:
+            mark = _action_button("bookmark", "お気に入りに登録(もう一度押すと外す)", checkable=True)
+
+            def on_mark(checked=False, mid=memory_id, b=mark):
+                want = b.isChecked()
+                if self._client.pin(mid, want):
+                    toast("お気に入りに登録しました" if want else "お気に入りから外しました")
+                else:
+                    b.blockSignals(True)
+                    b.setChecked(not want)
+                    _action_set_active(b, not want)
+                    b.blockSignals(False)
+                    toast("お気に入りの登録に失敗しました")
+
+            mark.clicked.connect(on_mark)
+            row.addWidget(mark)
+
+        if sources_box is not None:
+            def on_sources(checked=False, box=sources_box):
+                box.set_collapsed(False)
+                self._scroll_to_bottom()
+
+            row.addWidget(_action_button("docSearch", "参照した情報源と根拠を開く", on_sources))
+
+        row.addStretch()
+        return row
 
     def _on_rate(self, memory_id: str, rating: str) -> None:
         """評価を RateWorker でバックグラウンド送信する。"""

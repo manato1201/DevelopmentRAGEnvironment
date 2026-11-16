@@ -255,6 +255,26 @@ class RAGClient:
         except Exception:
             return False
 
+    def pin(self, memory_id, pinned: bool) -> bool:
+        """
+        Cloudflare モードのみ有効。回答をお気に入り(ブックマーク)に登録・解除する（/memory/pin）。
+        Local モードは保存先がないため常に False（呼び出し側は、ボタンを出さない）。
+        """
+        if self.cfg["mode"] != "cloudflare":
+            return False
+        base = _cf_base(self.cfg)
+        try:
+            mid = int(memory_id)
+        except (TypeError, ValueError):
+            return False
+        if not base:
+            return False
+        try:
+            post_json(f"{base}/memory/pin", {"id": mid, "pinned": bool(pinned)}, timeout=15, api_key=self.cfg.get("cf_api_key", ""))
+            return True
+        except Exception:
+            return False
+
 
 # GAS（Google Apps Script）を使っていた頃の設定キー。Cloudflare へ移行したので、
 # 読み込み時に取り除く（設定ファイルに残っていても無視する）。

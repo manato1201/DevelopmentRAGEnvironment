@@ -57,6 +57,7 @@ from PySide6.QtWidgets import (
 import gallery_upload
 import token_usage
 import video_progress
+from panel_actions import Speaker, action_button, normalize_fonts, px
 from report_dialog import ReportDialog
 from tutorial_graph_simplify import graph_to_mermaid, layered_positions, simplify_graph
 
@@ -527,6 +528,7 @@ class TutorialGeneratePanel(QWidget):
         # 手動でファイルを探して消す手間をなくす「生成した3件を削除」ボタン用。
         self._chain_saved_paths: list[tuple[str, Path, Path]] = []
         self._build_ui()
+        normalize_fonts(self)  # px のフォントを pt に揃える(4K・拡大表示で文字と部品の大きさがずれないように)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -557,7 +559,7 @@ class TutorialGeneratePanel(QWidget):
         cond_label.setAlignment(Qt.AlignTop)
         self._requirements_edit = QTextEdit()
         self._requirements_edit.setAcceptRichText(False)
-        self._requirements_edit.setFixedHeight(54)
+        self._requirements_edit.setFixedHeight(px(54))
         self._requirements_edit.setPlaceholderText(
             "（任意）必ず守ってほしい条件。例: ガウシアンスプラットを実際に使う / SOPだけで作る / Karmaは使わない"
         )
@@ -683,10 +685,9 @@ class TutorialGeneratePanel(QWidget):
         rate_layout.setContentsMargins(0, 0, 0, 0)
         rate_hint = QLabel("保存しました。よければ評価を（任意。履歴タブでもあとから付けられます）")
         rate_hint.setStyleSheet("color:#94a3b8;font-size:11px;")
-        self._rate_good_btn = QPushButton("👍")
-        self._rate_bad_btn = QPushButton("👎")
+        self._rate_good_btn = action_button("thumbUp", "良い(このチュートリアルを「良い」と評価して保存)")
+        self._rate_bad_btn = action_button("thumbDown", "悪い(このチュートリアルを「悪い」と評価して保存)")
         for btn, rating in ((self._rate_good_btn, 1), (self._rate_bad_btn, -1)):
-            btn.setFixedWidth(40)
             btn.clicked.connect(lambda _checked=False, r=rating: self._on_quick_rate(r))
         rate_layout.addWidget(rate_hint)
         rate_layout.addWidget(self._rate_good_btn)
@@ -706,7 +707,7 @@ class TutorialGeneratePanel(QWidget):
         self._video_bar = QProgressBar()
         self._video_bar.setRange(0, 100)
         self._video_bar.setTextVisible(True)
-        self._video_bar.setFixedHeight(16)
+        self._video_bar.setFixedHeight(px(16))
         self._video_bar.setVisible(False)
         layout.addWidget(self._video_bar)
         self._script_timer = QTimer(self)
@@ -1496,6 +1497,7 @@ class VideoLibraryPanel(QWidget):
         super().__init__(parent)
         self._cfg_getter = cfg_getter
         self._build_ui()
+        normalize_fonts(self)  # px のフォントを pt に揃える(4K・拡大表示で文字と部品の大きさがずれないように)
         self.refresh()
 
     def _build_ui(self) -> None:
@@ -1503,8 +1505,7 @@ class VideoLibraryPanel(QWidget):
         layout.setSpacing(4)
 
         toolbar = QHBoxLayout()
-        refresh_btn = QPushButton("更新")
-        refresh_btn.setFixedWidth(60)
+        refresh_btn = action_button("refresh", "一覧を更新")
         refresh_btn.clicked.connect(self.refresh)
         toolbar.addWidget(refresh_btn)
         # 選択した動画（複数選択可、Ctrl/Shiftクリック）だけを削除する（2026-09-12追加）。
@@ -1544,7 +1545,7 @@ class VideoLibraryPanel(QWidget):
         self._upload_bar.setRange(0, 100)
         self._upload_bar.setTextVisible(True)
         self._upload_bar.setFormat("%p%")
-        self._upload_bar.setFixedHeight(16)
+        self._upload_bar.setFixedHeight(px(16))
         self._upload_bar.setStyleSheet(self._UPLOAD_BAR_STYLE % "#22c55e")
         self._upload_bar.setVisible(False)
         layout.addWidget(self._upload_bar)
@@ -1819,7 +1820,7 @@ class VideoLibraryPanel(QWidget):
 
 # ─── ノードグラフビューア（NodeGraphAsset JSON） ─────────────────────────────────
 
-_NODE_W, _NODE_H = 130.0, 34.0
+_NODE_W, _NODE_H = 130.0 * max(1.0, px(100) / 100.0), 34.0 * max(1.0, px(100) / 100.0)  # 拡大率に合わせる(文字が pt で大きくなるため)
 _POS_SCALE = 150.0  # Houdini ネットワーク座標 → シーン座標のスケール（生の座標を使う経路のみ）
 
 # layered_positions() が返す (col, row) の格子座標をシーン座標へ変換するスケール。
@@ -1986,6 +1987,7 @@ class TutorialHistoryPanel(QWidget):
         self._selected_video_path: Path | None = None
         self._selected_video_log_path: Path | None = None
         self._build_ui()
+        normalize_fonts(self)  # px のフォントを pt に揃える(4K・拡大表示で文字と部品の大きさがずれないように)
         self.refresh()
         # 未送信の評価の再送は、パネルが落ち着いてから、裏で1回だけ（画面は止めない）
         QTimer.singleShot(4000, self._resend_pending_feedback)
@@ -1995,8 +1997,7 @@ class TutorialHistoryPanel(QWidget):
         layout.setSpacing(4)
 
         toolbar = QHBoxLayout()
-        refresh_btn = QPushButton("更新")
-        refresh_btn.setFixedWidth(60)
+        refresh_btn = action_button("refresh", "一覧を更新")
         refresh_btn.clicked.connect(self.refresh)
         toolbar.addWidget(refresh_btn)
 
@@ -2042,7 +2043,7 @@ class TutorialHistoryPanel(QWidget):
         toolbar.addWidget(self._simple_btn)
         toolbar.addWidget(self._detail_btn)
 
-        self._copy_mermaid_btn = QPushButton("Mermaidとしてコピー")
+        self._copy_mermaid_btn = action_button("share", "ノードグラフを Mermaid 記法でコピー(共有用。貼り付け先で図になります)")
         self._copy_mermaid_btn.clicked.connect(self._on_copy_mermaid)
         toolbar.addWidget(self._copy_mermaid_btn)
 
@@ -2112,17 +2113,32 @@ class TutorialHistoryPanel(QWidget):
 
         row = QHBoxLayout()
         row.addWidget(QLabel("評価:"))
-        self._good_btn = QPushButton("👍 良い")
-        self._bad_btn = QPushButton("👎 悪い")
+        self._good_btn = action_button("thumbUp", "良い(このチュートリアルを「良い」と評価して保存。理由タグ・メモは後から付けられます)", checkable=True)
+        self._bad_btn = action_button("thumbDown", "悪い(「悪い」と評価して保存。理由タグやメモを付けると、教訓の候補作りに使えます)", checkable=True)
         for btn in (self._good_btn, self._bad_btn):
-            btn.setCheckable(True)
             btn.setEnabled(False)
-        self._good_btn.setToolTip("このチュートリアルを「良い」と評価して保存します（理由タグ・メモは後から付けられます）")
-        self._bad_btn.setToolTip("このチュートリアルを「悪い」と評価して保存します。理由タグやメモを付けると、教訓の候補作りに使えます")
         self._good_btn.clicked.connect(lambda: self._on_rating_clicked(1))
         self._bad_btn.clicked.connect(lambda: self._on_rating_clicked(-1))
         row.addWidget(self._good_btn)
         row.addWidget(self._bad_btn)
+
+        # 選んだチュートリアルへの操作。アイコン 1 つ = 操作 1 つ(チャットの回答と同じ並び)。
+        self._speaker = Speaker()
+        self._copy_btn = action_button("copy", "チュートリアルの本文(Markdown)をコピー")
+        self._copy_btn.clicked.connect(self._on_copy_markdown)
+        self._speak_btn = action_button("speaker", "本文を読み上げる(もう一度押すと止まる)", checkable=True)
+        self._speak_btn.clicked.connect(self._on_speak)
+        self._mark_btn = action_button("bookmark", "お気に入りに登録(もう一度押すと外す)", checkable=True)
+        self._mark_btn.clicked.connect(self._on_bookmark)
+        self._src_btn = action_button("docSearch", "参照元・根拠の節へ移動(本文の「参照」「出典」「根拠」の見出し)")
+        self._src_btn.clicked.connect(self._on_jump_sources)
+        row.addWidget(self._copy_btn)
+        if self._speaker.available:
+            row.addWidget(self._speak_btn)
+        else:
+            self._speak_btn.hide()
+        row.addWidget(self._mark_btn)
+        row.addWidget(self._src_btn)
 
         self._tag_btn = QToolButton()
         self._tag_btn.setText("理由タグ ▾")
@@ -2170,12 +2186,67 @@ class TutorialHistoryPanel(QWidget):
         row2.addWidget(self._fb_status, stretch=1)
         layout.addLayout(row2)
 
+    def _on_copy_markdown(self) -> None:
+        md_path = self._current_md_path()
+        if md_path is None:
+            self._status.setText("先にチュートリアルを選択してください")
+            return
+        try:
+            QGuiApplication.clipboard().setText(md_path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            self._status.setText(f"コピーできませんでした: {exc}")
+            return
+        self._status.setText("本文(Markdown)をクリップボードにコピーしました")
+
+    def _on_speak(self) -> None:
+        text = self._md_view.toPlainText().strip()
+        if not text:
+            self._speak_btn.setChecked(False)
+            return
+        self._speak_btn.setChecked(self._speaker.toggle(text))
+
+    def _bookmarked(self) -> list[str]:
+        from panel_widgets import ui_state_get
+
+        value = ui_state_get("tutorial_bookmarks", [])
+        return [str(v) for v in value] if isinstance(value, list) else []
+
+    def _on_bookmark(self) -> None:
+        from panel_widgets import ui_state_set
+
+        md_path = self._current_md_path()
+        if md_path is None:
+            self._mark_btn.setChecked(False)
+            return
+        names = [n for n in self._bookmarked() if n != md_path.stem]
+        if self._mark_btn.isChecked():
+            names.append(md_path.stem)
+        ui_state_set("tutorial_bookmarks", names)
+        self._status.setText("お気に入りに登録しました" if self._mark_btn.isChecked() else "お気に入りから外しました")
+
+    def _on_jump_sources(self) -> None:
+        """本文の「参照」「出典」「根拠」を含む見出しへ移動する。無ければ、無いと伝える。"""
+        doc = self._md_view.document()
+        block = doc.begin()
+        while block.isValid():
+            text = block.text()
+            if text and any(key in text for key in ("参照", "出典", "根拠", "参考")) and len(text) <= 40:
+                cursor = self._md_view.textCursor()
+                cursor.setPosition(block.position())
+                self._md_view.setTextCursor(cursor)
+                self._md_view.ensureCursorVisible()
+                self._status.setText("参照元の節へ移動しました")
+                return
+            block = block.next()
+        self._status.setText("このチュートリアルには、参照元の節がありません")
+
     def _current_md_path(self) -> Path | None:
         item = self._list.currentItem()
         return Path(item.data(Qt.UserRole)) if item is not None else None
 
     def _set_feedback_enabled(self, enabled: bool) -> None:
-        for widget in (self._good_btn, self._bad_btn, self._tag_btn, self._note_edit, self._fb_save_btn, self._fb_clear_btn):
+        for widget in (self._good_btn, self._bad_btn, self._copy_btn, self._speak_btn, self._mark_btn, self._src_btn,
+                       self._tag_btn, self._note_edit, self._fb_save_btn, self._fb_clear_btn):
             widget.setEnabled(enabled)
 
     def _load_feedback_state(self, md_path: Path | None) -> None:
@@ -2186,6 +2257,7 @@ class TutorialHistoryPanel(QWidget):
             entry = self._fb.read_feedback(md_path) if md_path is not None else None
             self._good_btn.setChecked(bool(entry and entry["rating"] == 1))
             self._bad_btn.setChecked(bool(entry and entry["rating"] == -1))
+            self._mark_btn.setChecked(md_path is not None and md_path.stem in self._bookmarked())
             tags = set(entry["tags"]) if entry else set()
             for tag, action in self._tag_actions.items():
                 action.setChecked(tag in tags)

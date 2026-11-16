@@ -193,7 +193,9 @@ export async function handleListKeys(req: Request, env: Env, user: AuthedUser): 
   const res = await env.DB.prepare(
     `SELECT u.user_id, u.display_name, u.role, u.created_at, u.expires_at,
             tb.limit_tokens AS rag_limit, tb.used_tokens AS rag_used,
+            tb.reset_at AS rag_reset_at, tb.reset_interval_hours AS rag_reset_hours,
             cb.limit_tokens AS claude_limit, cb.used_tokens AS claude_used,
+            cb.reset_at AS claude_reset_at, cb.reset_interval_hours AS claude_reset_hours,
             (SELECT MAX(a.created_at) FROM audit_log a WHERE a.user_id = u.user_id) AS last_active
      FROM users u
      LEFT JOIN token_budgets tb ON tb.user_id = u.user_id AND tb.budget_type = 'rag'
@@ -353,11 +355,19 @@ export async function handleSetKeyCapacity(req: Request, env: Env, user: AuthedU
 // POST /admin/keys/charge — 残量を即座に補充する（既存GAS adminChargeKeyBalance相当）。
 export async function handleChargeKey(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireAdmin(user);
-  const body = (await req.json()) as { userId?: string; budgetType?: "rag" | "claude"; amount?: number };
+  const body = (await req.json()) as { userId?: string; budgetType?: "rag" | "claude"; amount?: number; reset?: boolean };
   const userId = (body.userId || "").trim();
   const budgetType = body.budgetType ?? "rag";
-  if (!userId || typeof body.amount !== "number") {
-    return jsonResponse(400, { error: "userId と amount（数値）は必須です" });
+  // reset: true は「使った分を 0 に戻す」(管理画面の「使用量を0に戻す」ボタン)。amount は不要。
+  if (!userId || (body.reset !== true && typeof body.amount !== "number")) {
+    return jsonResponse(400, { error: "userId と、amount（数値）または reset: true は必須です" });
+  }
+
+  if (body.reset === true) {
+    await env.DB.prepare("UPDATE token_budgets SET used_tokens = 0 WHERE user_id = ? AND budget_type = ?")
+      .bind(userId, budgetType)
+      .run();
+    return jsonResponse(200, { status: "ok" });
   }
 
   await env.DB.prepare(
