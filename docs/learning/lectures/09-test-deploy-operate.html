@@ -75,7 +75,7 @@
 <header class="hero">
   <span class="badge">講義</span>
   <h1>第9回 テスト・デプロイ・運用（標準の流れ・戻し方・見守り）</h1>
-  <div class="meta">HTML生成: 2026-10-31（元: docs/learning/lectures/09-test-deploy-operate.md）</div>
+  <div class="meta">HTML生成: 2026-11-13（元: docs/learning/lectures/09-test-deploy-operate.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-4種類のテスト">2.1 4種類のテスト</a></li><li><a href="#22-本番を変える操作見分ける">2.2 本番を変える操作（見分ける）</a></li><li><a href="#23-順序の理由">2.3 順序の理由</a></li><li><a href="#24-戻し方">2.4 戻し方</a></li><li><a href="#25-日々の見守り">2.5 日々の見守り</a></li><li><a href="#26-費用と上限">2.6 費用と上限</a></li><li><a href="#27-git-の作法">2.7 Git の作法</a></li></ol></li><li><a href="#3-このプロジェクトでは">3. このプロジェクトでは</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
 <main>
@@ -184,7 +184,7 @@
 <ol>
 <li><strong>型検査 → テスト → 通しの確認</strong>（手元で、壊れていないことを確かめる）。</li>
 <li><strong>D1 のマイグレーション（本番）→ Worker のデプロイ</strong>。<strong>表の形が先</strong>。新しい Worker が、まだ無い列を読むと、失敗する。</li>
-<li><strong>疎通の確認</strong>: 鍵なしで、新しい API を呼び、<strong>401</strong>（認証が効いている＝窓口がある）。404 なら、Worker が古い。</li>
+<li><strong>疎通の確認</strong>: <strong>鍵なしの 401 では、新旧は分からない</strong>（認証が、道筋の振り分けより前にあるため、窓口が無くても 401）。①鍵なしで取れる画面（<code>GET /</code>）に、今回の目印があること、または ②管理者の鍵で新しい API を呼び、<strong>200</strong>（404 なら、Worker が古い）。</li>
 <li><strong>パネルの配置</strong>は、<strong>Worker のあと</strong>。先に配ると、新しい機能が「サーバーが、この機能にまだ対応していません」（404）になる。</li>
 <li><strong>ドキュメント → コミット・プッシュ</strong>。<strong>実際に出した内容と同じ版を</strong>記録する。</li>
 </ol>

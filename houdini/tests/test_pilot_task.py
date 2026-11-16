@@ -188,9 +188,19 @@ class TextTest(unittest.TestCase):
         self.assertEqual(pt.format_elapsed(-5), "0:00:00")
 
     def test_header(self):
-        self.assertEqual(pt.format_plan_header({"round": 2, "pid": 3}), "第2回 / 3回（参加者 P03）")
-        self.assertEqual(pt.format_plan_header({"round": 1, "pid": None}), "第1回 / 3回")
+        self.assertEqual(pt.format_plan_header({"round": 2, "pid": 3}), "第2回（参加者 P03）")
+        self.assertEqual(pt.format_plan_header({"round": 1, "pid": None}), "第1回")
+        self.assertEqual(pt.format_plan_header({"round": 1, "pid": 1, "roundLabel": "11/16〜11/21"}), "第1回（11/16〜11/21）（参加者 P01）")
         self.assertIn("完了", pt.format_plan_header({"finished": True}))
+        # 固定課題を終えた（自由課題は任意）
+        done = pt.format_plan_header({"round": 1, "pid": 4, "completed": True, "finished": False})
+        self.assertIn("固定課題は完了", done)
+        self.assertIn("自由課題は、時間があるときだけ", done)
+        self.assertIn("P04", done)
+        # 受付を止めているとき（運営が管理画面で切り替える）
+        self.assertIn("受け付けていません", pt.format_plan_header({"round": None, "canStart": False, "pid": 2}))
+        self.assertIn("P02", pt.format_plan_header({"round": None, "canStart": False, "pid": 2}))
+        self.assertIn("受け付けていません", pt.format_plan_header({"round": None}))
 
     def test_docs_only_text_tells_not_to_use_the_system(self):
         self.assertIn("使わないでください", pt.CONDITION_TEXT["docs_only"])

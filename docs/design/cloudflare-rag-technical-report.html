@@ -75,7 +75,7 @@
 <header class="hero">
   <span class="badge">技術解説書（Cloudflare）</span>
   <h1>Cloudflare RAG POC 技術解説書</h1>
-  <div class="meta">HTML生成: 2026-10-31（元: docs/design/cloudflare-rag-technical-report.md）</div>
+  <div class="meta">HTML生成: 2026-11-11（元: docs/design/cloudflare-rag-technical-report.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-概要">1. 概要</a></li><li><a href="#2-なぜcloudflareか">2. なぜCloudflareか</a></li><li><a href="#3-システム全体構成">3. システム全体構成</a></li><li><a href="#4-データモデル">4. データモデル</a></li><li><a href="#5-主要フロー">5. 主要フロー</a><ol><li><a href="#51-ragクエリquery">5.1 RAGクエリ（/query）</a></li><li><a href="#52-知識ベース同期バッチ処理パターン">5.2 知識ベース同期（バッチ処理パターン）</a></li><li><a href="#53-oauthクリック接続2026-09-22追加">5.3 OAuthクリック接続（2026-09-22追加）</a></li></ol></li><li><a href="#6-セキュリティアクセス制御">6. セキュリティ・アクセス制御</a></li><li><a href="#7-知識ベース取り込みパイプライン">7. 知識ベース取り込みパイプライン</a></li><li><a href="#8-実装上の技術的な工夫と実際に発見修正したバグ">8. 実装上の技術的な工夫と、実際に発見・修正したバグ</a></li><li><a href="#9-gas版との機能対応表サマリ">9. GAS版との機能対応表（サマリ）</a></li><li><a href="#10-今後の課題">10. 今後の課題</a></li><li><a href="#11-追補2026-10-21-音声合成章つきのドキュメント有料プラン">11. 追補（2026-10-21）: 音声合成、章つきのドキュメント、有料プラン</a><ol><li><a href="#111-音声合成の中継post-ttssrcttsts">11.1 音声合成の中継（POST /tts、src/tts.ts）</a></li><li><a href="#112-houdini-公式ドキュメントの章srchoudinicontextts">11.2 Houdini 公式ドキュメントの章（src/houdiniContext.ts）</a></li><li><a href="#113-クライアントの章のヒント">11.3 クライアントの章のヒント</a></li><li><a href="#114-プラン">11.4 プラン</a></li><li><a href="#115-テスト">11.5 テスト</a></li></ol></li><li><a href="#12-追補2026-10-30-実証実験の課題の記録図">12. 追補（2026-10-30）: 実証実験の課題の記録、図</a><ol><li><a href="#121-追加した表マイグレーション-00350036">12.1 追加した表（マイグレーション 0035・0036）</a></li><li><a href="#122-流れ">12.2 流れ</a></li><li><a href="#123-リクエストの一生">12.3 リクエストの一生</a></li><li><a href="#124-テスト">12.4 テスト</a></li></ol></li></ol></details></nav>
 <main>
@@ -571,7 +571,8 @@
 <h3 id="122-流れ">12.2 流れ</h3>
 <p><a href="../images/12-pilot-flow.svg"><img alt="実証実験の流れ" src="../images/12-pilot-flow.svg" /></a></p>
 <ul>
-<li>固定課題の順序は、<code>LATIN[slot]</code>（<code>src/pilotTasks.ts</code>）。対照の回は、回 = slot。</li>
+<li>固定課題の題材と条件は、<code>assignmentForSlot(slot)</code>（<code>src/pilotTasks.ts</code>）。登録順の番号から slot（1〜6）を決め、3 題材 × 2 条件（本システム／公式ドキュメントのみ）を回す。</li>
+<li>参加は 1 回だけ。回 = 募集期間で、<code>pilot_config.open_round</code>（管理画面の「受け付ける回の切り替え」、<code>POST /admin/pilot/config</code>）が、新しい参加者の参加先を決める（2026-11-11）。</li>
 <li>所要時間 = 終了 − 開始 − 中断。終了の時刻は、送信の時刻から、振り返りに使った秒（<code>surveySec</code>）を引いたもの。質問回数は、その時間内の <code>memory</code> の数をサーバーが数える。</li>
 <li>破棄は、次の回の課題を始める前だけ（<code>handlePilotSessionReset</code>）。</li>
 </ul>

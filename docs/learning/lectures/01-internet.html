@@ -75,7 +75,7 @@
 <header class="hero">
   <span class="badge">講義</span>
   <h1>第1回 インターネットの基礎（URL・DNS・HTTPS・HTTP・JSON・API キー）</h1>
-  <div class="meta">HTML生成: 2026-10-31（元: docs/learning/lectures/01-internet.md）</div>
+  <div class="meta">HTML生成: 2026-11-13（元: docs/learning/lectures/01-internet.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体像">1. 全体像</a></li><li><a href="#2-基礎">2. 基礎</a><ol><li><a href="#21-url宛先の書き方">2.1 URL（宛先の書き方）</a></li><li><a href="#22-dns名前を住所に直す">2.2 DNS（名前を住所に直す）</a></li><li><a href="#23-https暗号化した封筒">2.3 HTTPS（暗号化した封筒）</a></li><li><a href="#24-http手紙と返事の書き方">2.4 HTTP（手紙と返事の書き方）</a></li><li><a href="#25-ステータスコード返事の第一声">2.5 ステータスコード（返事の第一声）</a></li><li><a href="#26-jsonデータの書き方">2.6 JSON（データの書き方）</a></li><li><a href="#27-api-キー誰が出した手紙か">2.7 API キー（誰が出した手紙か）</a></li></ol></li><li><a href="#3-このプロジェクトでは">3. このプロジェクトでは</a></li><li><a href="#4-演習">4. 演習</a></li><li><a href="#5-つまずきやすい点">5. つまずきやすい点</a></li><li><a href="#6-確認問題">6. 確認問題</a></li><li><a href="#解答の方針">解答の方針</a></li></ol></details></nav>
 <main>
@@ -163,7 +163,7 @@ content-type: application/json; charset=utf-8
 <tr>
 <td>404</td>
 <td>その窓口は無い</td>
-<td><strong>未定義のエンドポイントです: /pilot/plan</strong> ＝ Worker が古い、または綴りの間違い</td>
+<td><strong>未定義のエンドポイントです: /pilot/plan</strong> ＝ Worker が古い、または綴りの間違い（<strong>鍵が正しいときだけ</strong>出る。鍵なしは、先に 401）</td>
 </tr>
 <tr>
 <td>405</td>
@@ -260,8 +260,8 @@ content-type: application/json; charset=utf-8
 <p><strong>演習 1.1（読む）</strong> <code>cloudflare-rag-poc/src/index.ts</code> の <code>async fetch(</code> を開き、<strong>リクエストが、401 になる条件</strong>と、<strong>405 になる条件</strong>を、行番号つきで書いてください。</p>
 <p><strong>演習 1.2（読む）</strong> <code>houdini/python_panels/panel_info.py</code> の <code>friendly_error</code> を読み、次の入力がどのメッセージになるか、予想してから、<code>houdini/tests/test_panel_debug.py</code> で確かめてください。<br />
 1. <code>HTTP Error 404: Not Found</code>　2. <code>処理に 15000ms かかりました</code>　3. <code>&lt;urlopen error [Errno 11001] getaddrinfo failed&gt;</code></p>
-<p><strong>演習 1.3（送る）</strong> 本番に<strong>読み取りだけ</strong>の確認を送ります（キーは使いません）。下の PowerShell を実行し、結果を説明してください。</p>
-<pre><code class="language-powershell"># 鍵なしで /pilot/plan を呼ぶ → 401 になるはず（404 なら、Worker が古い）
+<p><strong>演習 1.3（送る）</strong> 本番に<strong>読み取りだけ</strong>の確認を送ります（キーは使いません）。下の PowerShell を実行し、結果を説明してください。<strong>なぜ、道筋が無くても 401 になるのか</strong>も、<code>index.ts</code> の行番号で答えてください。</p>
+<pre><code class="language-powershell"># 鍵なしで呼ぶ → 道筋があっても無くても、401（認証が先）。これでは、Worker の新旧は分からない
 try { Invoke-RestMethod -Method Post -Uri &quot;https://rag-poc.manato1201m.workers.dev/pilot/plan&quot; -ContentType &quot;application/json&quot; -Body &quot;{}&quot; }
 catch { $_.Exception.Response.StatusCode.value__ }
 </code></pre>
@@ -270,6 +270,7 @@ catch { $_.Exception.Response.StatusCode.value__ }
 <ul>
 <li><strong>401 と 403 を混同する。</strong> 401 は「誰か分からない」、403 は「権限が無い」。</li>
 <li><strong>404 を「バグ」だと決めつける。</strong> このプロジェクトでは、<strong>新しい機能だけ 404</strong> は、ほぼ「Worker が、まだデプロイされていない」です（第9回）。</li>
+<li><strong>鍵なしの 401 を「窓口がある」と読む。</strong> 認証は道筋の振り分けより前なので、道筋が無くても 401 です。Worker の新旧は、鍵つきの応答、または <code>GET /</code> の中身で確かめます。</li>
 <li><strong>curl が Windows で動かない。</strong> PowerShell の <code>Invoke-RestMethod</code>、または Node の <code>fetch</code> を使うと、確実です。</li>
 <li><strong>キーをコピーして、うっかり貼る。</strong> 貼ってしまったら、<strong>そのキーを失効して、作り直す</strong>（運営の管理画面）。</li>
 </ul>
@@ -285,7 +286,7 @@ catch { $_.Exception.Response.StatusCode.value__ }
 <ul>
 <li>1.1: <code>index.ts</code> の <code>authenticate</code> の直後（<code>if (!user)</code>）と、<code>req.method !== "POST"</code> を探す。</li>
 <li>1.2: 1 → 「まだ対応していません」、2 → 「うまくいきませんでした」（桁の途中の数字を、ステータスと取り違えない。<code>has_status</code> の正規表現）、3 → 「サーバーに接続できません」。</li>
-<li>1.3: 401。レスポンスが 404 なら、<code>index.ts</code> の <code>case "/pilot/plan"</code> を含むバージョンが、デプロイされていない。</li>
+<li>1.3: 401。道筋が無くても、鍵が無ければ 401（<code>authenticate</code> の直後の <code>if (!user)</code> が、<code>switch (url.pathname)</code> より前）。404 が出るのは、鍵が正しいときだけ。新旧の確認は、鍵つきの呼び出し、または <code>GET /</code> の中身で行う。</li>
 <li>1.4: (a) 応答の本文が JSON でない（サーバー側）、(b) 認証（401）、(c) 通信の前の段階（DNS・ネットワーク）。</li>
 <li>確認問題 5: D1 が漏れても、キーが復元できないようにするため（ハッシュは一方向）。</li>
 </ul>

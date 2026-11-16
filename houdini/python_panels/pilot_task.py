@@ -155,10 +155,15 @@ def format_elapsed(seconds: float) -> str:
 
 def format_plan_header(plan: dict) -> str:
     if plan.get("finished"):
-        return "3回すべて完了しました。ご協力ありがとうございました。"
+        return "課題はすべて完了しました。ご協力ありがとうございました。"
     pid = plan.get("pid")
     who = f"（参加者 P{int(pid):02d}）" if pid else ""
-    return f"第{plan['round']}回 / 3回{who}"
+    if plan.get("completed"):  # 固定課題を終えた。自由課題は任意（1コマに収めるため。時間が余ったときだけ）
+        return f"固定課題は完了しました。自由課題は、時間があるときだけ{who}"
+    if plan.get("canStart") is False or plan.get("round") is None:
+        return f"いま、課題は受け付けていません{who}"
+    label = (plan.get("roundLabel") or "").strip()  # 回の期間（運営が管理画面で決める。「11/16〜11/21」など）
+    return f"第{plan['round']}回{f'（{label}）' if label else ''}{who}"
 
 
 def format_history_line(item: dict) -> str:

@@ -77,7 +77,7 @@ content-type: application/json; charset=utf-8
 | 400 | 手紙の書き方が悪い | `kind は fixed か free を指定してください`（`pilotTasks.ts`） |
 | 401 | 誰か分からない（認証に失敗） | キーが無い・違う・期限切れ。`index.ts` の `authenticate` が null を返したとき |
 | 403 | 誰かは分かるが、権限が無い | admin 専用の API を、一般ユーザーが呼んだ（`ForbiddenError`） |
-| 404 | その窓口は無い | **未定義のエンドポイントです: /pilot/plan** ＝ Worker が古い、または綴りの間違い |
+| 404 | その窓口は無い | **未定義のエンドポイントです: /pilot/plan** ＝ Worker が古い、または綴りの間違い（**鍵が正しいときだけ**出る。鍵なしは、先に 401） |
 | 405 | その方法は受け付けない | GET で API を呼んだ |
 | 409 | 今の状態では、できない | 完了済みの課題を、もう一度終える・次の回を始めたあとに前の回をやり直す |
 | 429 | 回数・予算が上限 | 60秒に30回を超えた（`rateLimit.ts`）・トークン予算が尽きた（`budget.ts`） |
@@ -131,10 +131,10 @@ content-type: application/json; charset=utf-8
 **演習 1.2（読む）** `houdini/python_panels/panel_info.py` の `friendly_error` を読み、次の入力がどのメッセージになるか、予想してから、`houdini/tests/test_panel_debug.py` で確かめてください。
 1. `HTTP Error 404: Not Found`　2. `処理に 15000ms かかりました`　3. `<urlopen error [Errno 11001] getaddrinfo failed>`
 
-**演習 1.3（送る）** 本番に**読み取りだけ**の確認を送ります（キーは使いません）。下の PowerShell を実行し、結果を説明してください。
+**演習 1.3（送る）** 本番に**読み取りだけ**の確認を送ります（キーは使いません）。下の PowerShell を実行し、結果を説明してください。**なぜ、道筋が無くても 401 になるのか**も、`index.ts` の行番号で答えてください。
 
 ```powershell
-# 鍵なしで /pilot/plan を呼ぶ → 401 になるはず（404 なら、Worker が古い）
+# 鍵なしで呼ぶ → 道筋があっても無くても、401（認証が先）。これでは、Worker の新旧は分からない
 try { Invoke-RestMethod -Method Post -Uri "https://rag-poc.manato1201m.workers.dev/pilot/plan" -ContentType "application/json" -Body "{}" }
 catch { $_.Exception.Response.StatusCode.value__ }
 ```
@@ -145,6 +145,7 @@ catch { $_.Exception.Response.StatusCode.value__ }
 
 - **401 と 403 を混同する。** 401 は「誰か分からない」、403 は「権限が無い」。
 - **404 を「バグ」だと決めつける。** このプロジェクトでは、**新しい機能だけ 404** は、ほぼ「Worker が、まだデプロイされていない」です（第9回）。
+- **鍵なしの 401 を「窓口がある」と読む。** 認証は道筋の振り分けより前なので、道筋が無くても 401 です。Worker の新旧は、鍵つきの応答、または `GET /` の中身で確かめます。
 - **curl が Windows で動かない。** PowerShell の `Invoke-RestMethod`、または Node の `fetch` を使うと、確実です。
 - **キーをコピーして、うっかり貼る。** 貼ってしまったら、**そのキーを失効して、作り直す**（運営の管理画面）。
 
@@ -160,6 +161,6 @@ catch { $_.Exception.Response.StatusCode.value__ }
 
 - 1.1: `index.ts` の `authenticate` の直後（`if (!user)`）と、`req.method !== "POST"` を探す。
 - 1.2: 1 → 「まだ対応していません」、2 → 「うまくいきませんでした」（桁の途中の数字を、ステータスと取り違えない。`has_status` の正規表現）、3 → 「サーバーに接続できません」。
-- 1.3: 401。レスポンスが 404 なら、`index.ts` の `case "/pilot/plan"` を含むバージョンが、デプロイされていない。
+- 1.3: 401。道筋が無くても、鍵が無ければ 401（`authenticate` の直後の `if (!user)` が、`switch (url.pathname)` より前）。404 が出るのは、鍵が正しいときだけ。新旧の確認は、鍵つきの呼び出し、または `GET /` の中身で行う。
 - 1.4: (a) 応答の本文が JSON でない（サーバー側）、(b) 認証（401）、(c) 通信の前の段階（DNS・ネットワーク）。
 - 確認問題 5: D1 が漏れても、キーが復元できないようにするため（ハッシュは一方向）。

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>別のPCへの導入手順（1枚）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">資料</span>
+  <h1>別のPCへの導入手順（1枚）</h1>
+  <div class="meta">HTML生成: 2026-11-08（元: docs/guides/install-other-pc.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-用意するもの">1. 用意するもの</a></li><li><a href="#2-手順">2. 手順</a></li><li><a href="#3-動作の確認3分">3. 動作の確認（3分）</a></li><li><a href="#4-困ったとき">4. 困ったとき</a></li></ol></details></nav>
+<main>
+
+<p><strong>RAGReel Tutorial（Houdini パネル）＋ RAGReel（動画エンジン）</strong> ／ 所要時間: 約10分 ／ 管理者権限: 不要</p>
+<h2 id="1-用意するもの">1. 用意するもの</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>もの</th>
+<th>中身</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RAGReelTutorial-&lt;版&gt;.zip</code></td>
+<td>Houdini のパネル本体（28 個の Python と <code>install.cmd</code>）</td>
+</tr>
+<tr>
+<td><code>RAGReel-Setup-1.1.0.exe</code></td>
+<td>動画エンジン（動画を作る PC だけ）</td>
+</tr>
+<tr>
+<td>接続先の <strong>URL</strong></td>
+<td>運営から。どの PC も同じ</td>
+</tr>
+<tr>
+<td><strong>API キー</strong></td>
+<td>その PC 用に、管理画面で<strong>新しく発行</strong>する（発行時に1度しか表示されません）</td>
+</tr>
+<tr>
+<td>Houdini</td>
+<td>21.0 または 22.0 ／ Windows 10・11（64ビット）／ インターネット接続</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>やってはいけないこと:</strong> 元の PC の <code>~\.houdini\rag_chatbot_config.json</code> をコピーしない（API キーが入っています）。</p>
+</blockquote>
+<h2 id="2-手順">2. 手順</h2>
+<ol>
+<li><strong>動画を作るなら、先に</strong> <code>RAGReel-Setup-1.1.0.exe</code> を実行する。ウィザードの指示どおりに進めるだけ（「自分だけ」へのインストールで可）。音声ソフト（VOICEVOX など）は要らない。</li>
+<li>Houdini を<strong>一度起動して、終了</strong>する（<code>Documents\houdini22.0</code> を作るため。使い込んでいる PC では不要）。</li>
+<li>zip を好きな場所に<strong>展開</strong>し、<strong><code>install.cmd</code> をダブルクリック</strong>する。</li>
+<li>聞かれたら <strong>URL</strong> と <strong>API キー</strong>を入れる（キーは画面に出ない）。空のまま Enter でもよい（あとで<strong>接続</strong>タブで入れられる）。</li>
+<li>「完了しました」と出たら <strong>Houdini を起動</strong>する。</li>
+<li>ペインのタブ「＋」→ <strong>New Pane Tab Type</strong> →「<strong>RAGReel Tutorial</strong>」を選ぶ。</li>
+</ol>
+<h2 id="3-動作の確認3分">3. 動作の確認（3分）</h2>
+<ol>
+<li><strong>接続</strong>タブで、接続が通ることを確認する。</li>
+<li><strong>Tutorial</strong> タブにトピック（例: <code>岩を地面に散らす</code>）を入れ、レベル <code>basic</code> で<strong>生成</strong>を押す（2〜4分）。</li>
+<li>プレビューが出たら<strong>保存</strong>する。RAGReel を入れていれば、続けて動画の生成が始まる。</li>
+<li><strong>動画</strong>タブから、できた動画を開く。</li>
+</ol>
+<h2 id="4-困ったとき">4. 困ったとき</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>対処</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RAGReel Tutorial</code> が一覧に出ない</td>
+<td>Windows → Python Panel も確認。それでも無ければ Houdini を一度終了して起動し直す</td>
+</tr>
+<tr>
+<td>「URL/APIキーが未設定です」・接続できない</td>
+<td><strong>接続</strong>タブの URL と API キーを入れて保存。誤りなら入れ直す（キーは再発行も可）</td>
+</tr>
+<tr>
+<td>動画が作られない</td>
+<td><strong>接続</strong>タブ「動画・ギャラリー」の <code>Video Factory exe</code> のパスを確認（RAGReel を入れると自動で入る）。入っていなければ RAGReel を入れ直す</td>
+</tr>
+<tr>
+<td>ギャラリーに載せる（実証実験）</td>
+<td>同じ「動画・ギャラリー」に、運営から受け取った<strong>ギャラリーの URL とアップロードトークン</strong>を入れて保存</td>
+</tr>
+<tr>
+<td>更新したい</td>
+<td>新しい zip で、手順3〜5をやり直す（設定は残る）</td>
+</tr>
+<tr>
+<td>取り除きたい</td>
+<td><code>install.cmd -Uninstall</code> ／ RAGReel は「アプリと機能」から</td>
+</tr>
+</tbody>
+</table></div>
+<p>詳しくは <a href="manual-houdini-tutorial.html">manual-houdini-tutorial.md</a> と <a href="manual-ragreel.html">manual-ragreel.md</a>。</p>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

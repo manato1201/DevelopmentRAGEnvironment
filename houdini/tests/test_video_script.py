@@ -100,6 +100,62 @@ class CleanNarration(unittest.TestCase):
         self.assertTrue(len(vs.clean_heading("あ" * 60)) <= 24)
 
 
+class SubtitleKeepsTheSpelling(unittest.TestCase):
+    """読み上げる文はカタカナ、字幕は元のつづり（2026-11-08。字幕から、Houdini で探すノードの名前を確かめられるように）。"""
+
+    TEXT = "Attribute Wrangleノードで、VEXを書きます。つぎに、Blastノードで、いらない点を消します。" + "あ" * 20
+
+    def test_the_pair_has_a_reading_and_the_original_spelling(self):
+        spoken, shown = vs.clean_narration_pair(self.TEXT, 300, 10)
+        self.assertIn("アトリビュートラングル", spoken)
+        self.assertNotIn("Wrangle", spoken)
+        self.assertIn("Attribute Wrangle", shown)
+        self.assertIn("Blast", shown)
+        self.assertEqual(spoken.count("。"), shown.count("。"), "the number of sentences matches")
+
+    def test_a_cut_keeps_the_same_number_of_sentences(self):
+        text = "Attribute Wrangleを作ります。" * 20
+        spoken, shown = vs.clean_narration_pair(text, 80, 10)
+        self.assertLessEqual(len(spoken), 80)
+        self.assertEqual(spoken.count("。"), shown.count("。"))
+        self.assertTrue(shown.endswith("。"))
+        self.assertIn("Attribute Wrangle", shown)
+
+    def test_the_mangled_wrangle_is_fixed_in_both(self):
+        spoken, shown = vs.clean_narration_pair("アトリビュートランglを作ります。" + "あ" * 20, 300, 10)
+        self.assertNotIn("gl", spoken)
+        self.assertNotIn("gl", shown)
+
+    def test_with_subtitle_writes_the_subtitle_only_when_it_differs(self):
+        self.assertEqual(vs.with_subtitle({}, "あ。", "あ。"), {"narration": "あ。"})
+        self.assertEqual(vs.with_subtitle({}, "ブラスト。", "Blast。"), {"narration": "ブラスト。", "subtitle": "Blast。"})
+        self.assertNotIn("subtitle", vs.with_subtitle({"subtitle": "old"}, "あ。", "あ。"))
+
+    def test_the_script_carries_the_subtitle(self):
+        with tempfile.TemporaryDirectory() as d:
+            steps = make_steps(Path(d))
+            model = good_model(steps)
+            model["steps"][1]["narration"] = self.TEXT
+            model["outro"]["narration"] = "Blastノードで消した点を、もう一度Attribute Wrangleで確かめてみましょう。" + "あ" * 10
+            script, _source, _notes = vs.assemble_script(model, steps, "t", "")
+            step2 = script["steps"][1]
+            self.assertIn("ブラスト", step2["narration"])
+            self.assertIn("Blast", step2["subtitle"])
+            self.assertNotIn("subtitle", script["steps"][0], "a step without English names has no subtitle key")
+            self.assertIn("Blast", script["outro"]["subtitle"])
+
+    def test_a_chapter_bridge_is_added_to_both(self):
+        entries = [{"step": 1, "narration": "一つ目です。"}, {"step": 2, "narration": "ブラストを置きます。", "subtitle": "Blastを置きます。"}]
+        model = {"chapters": [
+            {"from_step": 1, "title": "前半", "bridge": "Blastの前に、準備します。" + "あ" * 10},
+            {"from_step": 2, "title": "後半", "bridge": "ここからはBlastの話です。" + "あ" * 10},
+        ]}
+        vs.apply_chapters(model, entries)
+        self.assertTrue(entries[1]["narration"].startswith("ここからはブラストの話です。"))
+        self.assertTrue(entries[1]["subtitle"].startswith("ここからはBlastの話です。"))
+        self.assertTrue(entries[1]["subtitle"].endswith("Blastを置きます。"))
+
+
 class Assemble(unittest.TestCase):
     def test_all_valid_is_claude(self):
         with tempfile.TemporaryDirectory() as d:

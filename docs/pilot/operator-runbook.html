@@ -75,9 +75,9 @@
 <header class="hero">
   <span class="badge">運営者向け手順書</span>
   <h1>運営者向け手順書（実証実験の運営）</h1>
-  <div class="meta">HTML生成: 2026-10-31（元: docs/pilot/operator-runbook.md）</div>
+  <div class="meta">HTML生成: 2026-11-13（元: docs/pilot/operator-runbook.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体の構成">1. 全体の構成</a></li><li><a href="#2-実証実験の前にやることチェックリスト">2. 実証実験の前にやること（チェックリスト）</a></li><li><a href="#3-テスターの鍵を発行する">3. テスターの鍵を発行する</a></li><li><a href="#4-日々の見守り">4. 日々の見守り</a></li><li><a href="#5-houdini-公式ドキュメントの登録約2000ページ">5. Houdini 公式ドキュメントの登録（約2,000ページ）</a><ol><li><a href="#51-方針なぜこうするか">5.1 方針（なぜこうするか）</a></li><li><a href="#52-手順">5.2 手順</a></li><li><a href="#53-費用と時間の目安">5.3 費用と時間の目安</a></li><li><a href="#54-注意">5.4 注意</a></li></ol></li><li><a href="#6-worker-の更新デプロイ">6. Worker の更新（デプロイ）</a><ol><li><a href="#61-実証実験の課題の機能を出すときマイグレーション-00350036">6.1 実証実験の「課題」の機能を出すとき（マイグレーション 0035・0036）</a></li></ol></li><li><a href="#7-配布物を作る">7. 配布物を作る</a></li><li><a href="#8-実験の終了後片付け">8. 実験の終了・後片付け</a></li><li><a href="#9-困ったとき">9. 困ったとき</a></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体の構成">1. 全体の構成</a></li><li><a href="#2-実証実験の前にやることチェックリスト">2. 実証実験の前にやること（チェックリスト）</a></li><li><a href="#3-テスターの鍵を発行する">3. テスターの鍵を発行する</a></li><li><a href="#4-日々の見守り">4. 日々の見守り</a></li><li><a href="#5-houdini-公式ドキュメントの登録約2000ページ">5. Houdini 公式ドキュメントの登録（約2,000ページ）</a><ol><li><a href="#51-方針なぜこうするか">5.1 方針（なぜこうするか）</a></li><li><a href="#52-手順">5.2 手順</a></li><li><a href="#53-費用と時間の目安">5.3 費用と時間の目安</a></li><li><a href="#54-注意">5.4 注意</a></li></ol></li><li><a href="#6-worker-の更新デプロイ">6. Worker の更新（デプロイ）</a><ol><li><a href="#61-実証実験の課題の機能を出すときマイグレーション-003500360037">6.1 実証実験の「課題」の機能を出すとき（マイグレーション 0035・0036・0037）</a></li></ol></li><li><a href="#7-配布物を作る">7. 配布物を作る</a></li><li><a href="#8-実験の終了後片付け">8. 実験の終了・後片付け</a></li><li><a href="#9-困ったとき">9. 困ったとき</a><ol><li><a href="#62-受け付ける回を切り替える管理画面">6.2 受け付ける回を切り替える（管理画面）</a></li></ol></li></ol></details></nav>
 <main>
 
 <p><strong>対象:</strong> サーバー（Cloudflare）と、テスターの鍵・予算を管理する人 ／ <strong>版:</strong> 2026-10-21</p>
@@ -317,7 +317,7 @@ npx wrangler deploy
 <li>今回の変更（<code>/tts</code>、章の見出し・検索の補正）は、<strong>既存のデータを書き換えません</strong>（再クロールするまで、既存の検索は従来どおりです）。</li>
 <li>シークレットの登録: <code>npx wrangler secret put &lt;名前&gt;</code>（値は、画面に出ません）。</li>
 </ul>
-<h3 id="61-実証実験の課題の機能を出すときマイグレーション-00350036">6.1 実証実験の「課題」の機能を出すとき（マイグレーション 0035・0036）</h3>
+<h3 id="61-実証実験の課題の機能を出すときマイグレーション-003500360037">6.1 実証実験の「課題」の機能を出すとき（マイグレーション 0035・0036・0037）</h3>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -328,11 +328,11 @@ npx wrangler deploy
 <tbody>
 <tr>
 <td>1</td>
-<td><code>npx wrangler d1 migrations list rag-poc-db --remote</code> で、<strong>0035（課題の記録）・0036（やり直し）</strong>が保留中か確認する</td>
+<td><code>npx wrangler d1 migrations list rag-poc-db --remote</code> で、<strong>0035（課題の記録）・0036（やり直し）・0037（いま受け付ける回）</strong>が保留中か確認する</td>
 </tr>
 <tr>
 <td>2</td>
-<td>中身を読む（0035: <code>pilot_profile</code>・<code>pilot_sessions</code> を作る ／ 0036: <code>discarded_at</code>・<code>paused_sec</code> の列と、部分一意索引）</td>
+<td>中身を読む（0035: <code>pilot_profile</code>・<code>pilot_sessions</code> を作る ／ 0036: <code>discarded_at</code>・<code>paused_sec</code> の列と、部分一意索引 ／ 0037: <code>pilot_config</code> を作り、<code>open_round</code> を 0（受付停止）で入れる）</td>
 </tr>
 <tr>
 <td>3</td>
@@ -344,7 +344,7 @@ npx wrangler deploy
 </tr>
 <tr>
 <td>5</td>
-<td>疎通: 鍵なしで <code>/pilot/plan</code>・<code>/pilot/session/reset</code>・<code>/admin/pilot/tasks</code> を呼び、<strong>401</strong>（認証が効いている）になること。<strong>404 なら、Worker が古い</strong></td>
+<td>疎通: <strong>鍵なしの 401 では、新しい Worker かどうか分かりません</strong>（鍵なしでは、道筋が無くても 401 になる。<code>index.ts</code> は、認証を、道筋の振り分けより前に置いている）。次のどちらかで確かめる。①鍵なしで取れる画面（<code>GET /</code>）の中身に、今回の目印（例: 管理画面の <code>pilotRoundOpen</code>）があること ②管理者の鍵で <code>POST /admin/pilot/config</code>（本文 <code>{}</code>。読むだけ）を呼び、<strong>200</strong>（<strong>404 なら、Worker が古い</strong>）。鍵は環境変数に入れ、画面に出さない</td>
 </tr>
 <tr>
 <td>6</td>
@@ -353,7 +353,8 @@ npx wrangler deploy
 </tbody>
 </table></div>
 <ul>
-<li>運営（admin）のテストは、参加者番号を取らず、集計に入りません。<strong>割り当ては、一律で番号 1 の順序</strong>になります（実際の参加者は、登録順に 1・2・3 を繰り返します）。</li>
+<li>運営（admin）のテストは、参加者番号を取らず、集計に入りません。<strong>割り当ては、一律で番号 1（Pyro・本システム）</strong>になります（実際の参加者は、登録順に、3 題材 × 2 条件の 6 通りを繰り返します。<a href="pilot-analysis-design.md">pilot-analysis-design.md</a> §11）。</li>
+<li><strong>導入の直後は「受付停止」です</strong>（<code>open_round</code> = 0）。次の「6.2」で、受け付ける回に切り替えるまで、参加者は課題を始められません。</li>
 <li>参加者が「やり直す」で破棄した記録は、消えずに残ります（D1 の <code>pilot_sessions.discarded_at</code>）。集計には入りません。消去の依頼を受けたときの扱いは、<a href="pilot-announcement.md">pilot-announcement.md</a> の確認事項を参照。</li>
 <li>変更の標準の流れは <a href="../images/16-change-flow.svg">図16</a>。</li>
 </ul>
@@ -430,6 +431,40 @@ npx wrangler deploy
 </tr>
 </tbody>
 </table></div>
+<h3 id="62-受け付ける回を切り替える管理画面">6.2 受け付ける回を切り替える（管理画面）</h3>
+<p>回 = 募集期間（第 1 回 11/16〜11/21、第 2 回 11/23〜11/28）です。<strong>管理 →「実証実験」タブ →「受け付ける回の切り替え」</strong>で行います（管理者だけ）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>手順</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>「第 1 回の期間」「第 2 回の期間」に、表示する期間（例: <code>11/16〜11/21</code>）を入れる</td>
+</tr>
+<tr>
+<td>2</td>
+<td>「いま受け付ける回」を、<strong>第 1 回</strong>にして「保存」（確認が出る）。参加者のパネルの「課題」タブに、「第 1 回（11/16〜11/21）」と出る</td>
+</tr>
+<tr>
+<td>3</td>
+<td>期間が終わったら、<strong>第 2 回</strong>に切り替える（または「受付停止」）。新しく参加する人は、第 2 回に入る</td>
+</tr>
+<tr>
+<td>4</td>
+<td>表で、回ごとの<strong>参加した人・完了した人</strong>を見る（完了 = 固定課題を終えた人。自由課題は任意）</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>参加者は、受け付けている回に 1 回だけ</strong>参加します。参加済みの人は、受付を止めても、自分の回の課題（固定課題・自由課題）を<strong>最後まで続けられます</strong>。「いま新しく参加できる回」を切り替えるものです。</li>
+<li>受付を止めている間に「課題」タブを開いた人には、「いま、課題は受け付けていません。運営からの案内をお待ちください」と出ます。</li>
+<li>切り替えは、<strong>新しい参加者の参加先</strong>だけを変えます。記録済みの課題の回は、変わりません（やり直しも、元の回のままです）。</li>
+<li>事前アンケート（参加者番号の取得）は、受付を止めていても答えられます。<strong>番号は、登録順に 6 通りを回す</strong>ので、受付の開始前に登録した人の割り当ては、先に決まります（どの回に参加するかは、始めたときに受け付けている回で決まります）。</li>
+</ul>
 </main>
 
 <footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>

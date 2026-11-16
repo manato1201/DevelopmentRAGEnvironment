@@ -6,7 +6,7 @@ pilot_panel.py — 「課題」タブ（実証実験の参加者向け。PySide6
   ・経過時間と、cook エラーのノード数（ErrorSampler）を、課題の間だけ記録する。
   ・アンケートで止めない: 答えなくても閉じられる（「戻る」）。答えなかった項目は空欄のまま送る。
   ・途中で Houdini が閉じても、「続きから開始」で再開できる（途中経過はこのPCに残し、閉じていた時間は所要時間から引く）。
-  ・やり直し: 計測中は「計測をやり直す」、終えたあとは「完了した記録」の「やり直す」。次の回を始めるまでは、前の回も直せる。
+  ・やり直し: 計測中は「計測をやり直す」、終えたあとは「完了した記録」の「やり直す」。参加は1回だけなので、いつでも取り直せる。
 
 接続・保存は rag_client（/pilot/*）。このタブは、接続タブの「実証実験に参加する」を入れたときだけ表示する。
 """
@@ -291,9 +291,14 @@ class PilotTaskPanel(QWidget):
         if plan.get("finished"):
             self._plan_box.setVisible(False)
             return
+        if plan.get("canStart") is False:  # 受付を止めている（運営が管理画面で切り替える）。参加済みの人は、止まっても続けられる
+            self._plan_box.setVisible(False)
+            self._message.setText("いま、課題は受け付けていません。運営からの案内をお待ちください。")
+            return
         for kind in ("fixed", "free"):
             item, card = plan[kind], self._cards[kind]
-            card["title"].setText(f"{pt.KIND_TEXT[kind]}: {item['label']}")
+            optional = "（任意）" if item.get("optional") else ""  # 自由課題は任意（時間が余った人だけ）
+            card["title"].setText(f"{pt.KIND_TEXT[kind]}{optional}: {item['label']}")
             card["condition"].setText(pt.CONDITION_TEXT.get(item["condition"], ""))
             card["condition"].setStyleSheet("color:#fbbf24;" if item["condition"] == "docs_only" else "color:#cbd5e1;")
             card["criterion"].setText(f"到達の基準: {plan.get('criterion', '')}" if kind == "fixed" else "自分が作りたいものを題材にしてください。")
@@ -306,7 +311,7 @@ class PilotTaskPanel(QWidget):
             card["status"].setText("完了しました" if item["done"] else ("" if not running else "記録中…"))
 
     def _rebuild_history(self, history: list) -> None:
-        """完了した記録の一覧。次の回を始める前なら、「やり直す」が出る（計測中の記録は、カードの「計測をやり直す」）。"""
+        """完了した記録の一覧。「やり直す」が出る（計測中の記録は、カードの「計測をやり直す」）。"""
         while self._history_layout.count():
             item = self._history_layout.takeAt(0)
             if item.widget():
@@ -336,7 +341,7 @@ class PilotTaskPanel(QWidget):
             holder.setLayout(row)
             row.setContentsMargins(0, 0, 0, 0)
             self._history_layout.addWidget(holder)
-        note = QLabel("間違えて終えたときは、「やり直す」で取り直せます（次の回を始めるまで）。やり直した回数は、記録に残ります。")
+        note = QLabel("間違えて終えたときは、「やり直す」で取り直せます。やり直した回数は、記録に残ります。")
         note.setWordWrap(True)
         note.setStyleSheet("color:#94a3b8;")
         self._history_layout.addWidget(note)

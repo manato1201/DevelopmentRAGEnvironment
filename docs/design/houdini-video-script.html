@@ -75,14 +75,14 @@
 <header class="hero">
   <span class="badge">動画の台本と音声</span>
   <h1>Houdiniチュートリアル動画: 初心者向け台本と音声の改善</h1>
-  <div class="meta">HTML生成: 2026-10-31（元: docs/design/houdini-video-script.md）</div>
+  <div class="meta">HTML生成: 2026-11-08（元: docs/design/houdini-video-script.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-何が問題だったか実データで確認">1. 何が問題だったか（実データで確認）</a></li><li><a href="#2-どう直したか">2. どう直したか</a><ol><li><a href="#21-台本houdini側">2.1 台本（Houdini側）</a></li><li><a href="#22-動画エンジン側">2.2 動画エンジン側</a></li><li><a href="#23-音声">2.3 音声</a></li></ol></li><li><a href="#3-実データでの確認ブラックホールのチュートリアル16手順">3. 実データでの確認（ブラックホールのチュートリアル、16手順）</a></li><li><a href="#4-使い方設定">4. 使い方・設定</a></li><li><a href="#5-未確認のこと">5. 未確認のこと</a></li><li><a href="#6-関連して見つかった不具合動画エンジン">6. 関連して見つかった不具合（動画エンジン）</a></li><li><a href="#7-テスト">7. テスト</a></li><li><a href="#8-2026-10-21の追加-ぼやけた画面の解消パラメータの実画面チャットのレイアウト崩れ">8. 2026-10-21の追加: ぼやけた画面の解消、パラメータの実画面、チャットのレイアウト崩れ</a><ol><li><a href="#81-説明スライドのぼやけた画面をなくした">8.1 説明スライドの「ぼやけた画面」をなくした</a></li><li><a href="#82-パラメータ画面を実画面で見せる撮れなければ従来のカード">8.2 パラメータ画面を、実画面で見せる（撮れなければ従来のカード）</a></li><li><a href="#83-チャットのあとにレイアウトが崩れる不具合">8.3 チャットのあとにレイアウトが崩れる不具合</a></li></ol></li></ol></details></nav>
 <main>
 
 <p><strong>作成日:</strong> 2026-10-19<br />
 <strong>対象:</strong> <code>houdini/python_panels/video_script.py</code>（新規）、<code>tutorial_view.py</code>、<code>video_factory_bridge.py</code>、動画エンジン（別リポジトリ <code>RAGReel</code>）<br />
-<strong>関連:</strong> <a href="content-generation.md">content-generation.md §2.8・§2.11</a>、RAGReelの<code>docs/narration-quality.md</code>・<code>docs/technical-reference.md §22</code></p>
+<strong>関連:</strong> <a href="content-generation.html">content-generation.md §2.8・§2.11</a>、RAGReelの<code>docs/narration-quality.md</code>・<code>docs/technical-reference.md §22</code></p>
 <hr />
 <h2 id="1-何が問題だったか実データで確認">1. 何が問題だったか（実データで確認）</h2>
 <p>保存済みのチュートリアル（<code>procedural-black-hole-particles_20261018</code>）の動画で確認した。</p>
@@ -148,6 +148,7 @@
 <li><strong>コードは読まない</strong>。何をするコードかを、日常のたとえで説明する。変数名・記号・数式は読み上げない。</li>
 <li>ナレーションに英字を使わない（ノード名はカタカナ）。話し言葉の「です・ます」調、1文は40文字くらいまで。</li>
 <li>与えられた手順・値・ノード名にないことは、書かない。</li>
+<li><strong>字幕には元の綴りを出す</strong>（2026-11-08）: <code>narration</code> は読み上げ用（英語名をカタカナにしたもの）。<code>subtitle</code> は、同じ文を英語名の綴りのままにしたもの（「ブラスト」→「Blast」）。視聴者が字幕から、Houdini で探すノード名を確かめられる。同じ文面なら <code>subtitle</code> は書かない。文の数（「。」の数）は <code>narration</code> と同じにする。動画エンジンは、文の数が違うときは <code>subtitle</code> を使わず、読み上げる文を字幕に出す（違う言葉が出ないように）。</li>
 <li><strong>検証</strong>（<code>clean_narration</code>）: コードのような文章、40文字未満、320文字超（文の切れ目で切れないもの）、英字が3割超の文章は、採用しない。採用しなかった手順・節は、<strong>定型の解説</strong>で補う（同じ説明を繰り返さず、ノード名・パラメータ名を入れる）。</li>
 <li>台本が作れない（手順が無い等）ときだけ、従来の動画になる。</li>
 </ul>
@@ -209,7 +210,7 @@
 <li>進捗欄の表示:</li>
 <li><code>動画生成: 初心者向けの台本を作っています…</code> → <code>台本: Claudeが書いた台本（16手順） / 動画生成をバックグラウンドで開始しました（初心者向け台本つき / …）</code> → <code>動画生成: フレーム N/M（P%） / 音声: VOICEVOX:春日部つむぎ(ノーマル)</code></li>
 <li>台本の元が <code>定型の解説</code> のときは、その理由（「Claudeに接続できないため」等）が出る。</li>
-<li>台本はそのまま<strong>手で直せる</strong>（JSONの<code>narration</code>・<code>points</code>・<code>heading</code>）。直したあと、エンジンを直接実行すれば、その内容で動画が作れる:<br />
+<li>台本はそのまま<strong>手で直せる</strong>（JSONの<code>narration</code>・<code>subtitle</code>・<code>points</code>・<code>heading</code>。<code>narration</code> を直したら、<code>subtitle</code> も同じ文の数に直すか、消す）。直したあと、エンジンを直接実行すれば、その内容で動画が作れる:<br />
 <code>video_factory_cloudrag_poc.exe --houdini-md &lt;md&gt; --houdini-json &lt;json&gt; --houdini-screenshots &lt;screenshots.json&gt; --houdini-script &lt;video_script.json&gt; &lt;トピック&gt; &lt;db&gt;</code></li>
 <li>Claudeのトークンは、チュートリアル生成と同じ<strong>Claude予算</strong>から引かれる（1回あたりの量は、まだ実測していない。16手順のチュートリアルで、入力・出力とも数千トークンの見込み）。</li>
 </ul>

@@ -277,12 +277,26 @@ def _ascii_letter_ratio(text: str) -> float:
     return sum(1 for c in words_only if c.isascii() and c.isalpha()) / len(text)
 
 
-def clean_narration(raw: object, max_chars: int, min_chars: int = 0) -> str | None:
-    """ナレーションとして使える文章に整える。使えないときは None（理由はcheck_narrationで）。"""
+def _first_sentences(text: str, count: int) -> str:
+    """先頭から count 文（「。」で終わる文）まで。足りなければ全部。"""
+    end = -1
+    for _ in range(count):
+        end = text.find("。", end + 1)
+        if end < 0:
+            return text
+    return text[: end + 1]
+
+
+def clean_narration_pair(raw: object, max_chars: int, min_chars: int = 0) -> tuple[str, str] | None:
+    """ナレーションとして使える文章に整える。戻り値: (読み上げる文, 字幕に出す文)。使えないときは None。
+    読み上げる文は、英語名をカタカナにしたもの（音声が正しく読めるように）。字幕に出す文は、英語名を元のつづりのままにしたもの
+    （動画を見て、Houdini で探すノードの名前を確かめられるように。2026-11-08）。文の数（「。」の数）は、どちらも同じ。
+    英字が多すぎる・長すぎるかの判定と、長いときに切る位置は、読み上げる文で決める。"""
     if not isinstance(raw, str):
         return None
     text = re.sub(r"[`*#]+", "", raw)
     text = re.sub(r"\s*\n+\s*", " ", text).strip()
+    shown = _WRANGLE_MANGLED_RE.sub("ラングル", text)
     text = to_katakana(text)
     if len(text) < min_chars or looks_like_code(text):
         return None
@@ -294,7 +308,23 @@ def clean_narration(raw: object, max_chars: int, min_chars: int = 0) -> str | No
         if cut < min_chars:
             return None
         text = text[: cut + 1]
-    return text
+        shown = _first_sentences(shown, text.count("。"))
+    return text, shown
+
+
+def clean_narration(raw: object, max_chars: int, min_chars: int = 0) -> str | None:
+    """ナレーションとして使える文章に整える（読み上げる文だけ）。使えないときは None（理由はcheck_narrationで）。"""
+    pair = clean_narration_pair(raw, max_chars, min_chars)
+    return pair[0] if pair else None
+
+
+def with_subtitle(entry: dict, spoken: str, shown: str) -> dict:
+    """台本の項目に、読み上げる文と字幕の文を入れる。同じなら字幕は書かない（動画エンジンは、無ければ読み上げる文を出す）。"""
+    entry["narration"] = spoken
+    entry.pop("subtitle", None)
+    if shown != spoken:
+        entry["subtitle"] = shown
+    return entry
 
 
 def clean_points(raw: object) -> list[str]:
@@ -683,7 +713,8 @@ def apply_chapters(model: dict, out_steps: list[dict]) -> list[dict]:
         title = clean_heading(item.get("title"))
         if not isinstance(n, int) or n not in order or not title or any(c["from_step"] == n for c in chosen):
             continue
-        chosen.append({"from_step": n, "title": title, "bridge": clean_narration(item.get("bridge"), 160, 10) or ""})
+        bridge, bridge_shown = clean_narration_pair(item.get("bridge"), 160, 10) or ("", "")
+        chosen.append({"from_step": n, "title": title, "bridge": bridge, "bridge_shown": bridge_shown})
     chosen.sort(key=lambda c: order.index(c["from_step"]))
     if len(chosen) < 2:
         return []
@@ -694,7 +725,8 @@ def apply_chapters(model: dict, out_steps: list[dict]) -> list[dict]:
             current = starts[entry["step"]]
             entry["chapter_start"] = True
             if current["bridge"] and entry["step"] != order[0]:
-                entry["narration"] = current["bridge"] + entry["narration"]
+                shown = entry.get("subtitle") or entry["narration"]
+                with_subtitle(entry, current["bridge"] + entry["narration"], current["bridge_shown"] + shown)
         if current is not None:
             entry["chapter"] = current["title"]
     return [{"from_step": c["from_step"], "title": c["title"]} for c in chosen]
@@ -766,15 +798,14 @@ def assemble_script(
         n = entry.get("step")
         item = by_step.get(n)
         step_min = SHORT_STEP_MIN if entry.get("tool") in ("connect_nodes", "delete_node") else STEP_NARRATION_MIN
-        narration = clean_narration(item.get("narration"), lim["step"], step_min) if item else None
-        if narration:
+        pair = clean_narration_pair(item.get("narration"), lim["step"], step_min) if item else None
+        if pair:
             from_model += 1
-            out_steps.append({
+            out_steps.append(with_subtitle({
                 "step": n,
                 "heading": clean_heading(item.get("heading")) or _template_step(entry, set(), compact)["heading"],
-                "narration": narration,
                 "points": clean_points(item.get("points")) or _template_step(entry, set(), compact)["points"],
-            })
+            }, *pair))
         else:
             if item:
                 notes.append(f"手順{n}: 解説が基準を満たさなかったため、定型の解説にしました")
@@ -783,9 +814,9 @@ def assemble_script(
 
     def section(key: str, max_chars: int, fallback: dict | None) -> dict | None:
         raw = model.get(key) if isinstance(model.get(key), dict) else {}
-        narration = clean_narration(raw.get("narration"), max_chars, 20)
-        if narration:
-            return {"narration": narration, "points": clean_points(raw.get("points"))}
+        pair = clean_narration_pair(raw.get("narration"), max_chars, 20)
+        if pair:
+            return with_subtitle({"points": clean_points(raw.get("points"))}, *pair)
         if key in ("intro", "outro") and raw:
             notes.append(f"{key}: 基準を満たさなかったため、定型の文にしました")
         return fallback
@@ -816,14 +847,13 @@ def assemble_script(
     matched_items = match_sections(model.get("sections"), [h for h, _b in sections or []])
     for heading, _body in sections or []:
         item = matched_items.get(heading)
-        narration = clean_narration(item.get("narration"), lim["section"], STEP_NARRATION_MIN) if item else None
-        if narration:
-            out_sections.append({
+        pair = clean_narration_pair(item.get("narration"), lim["section"], STEP_NARRATION_MIN) if item else None
+        if pair:
+            out_sections.append(with_subtitle({
                 "match": heading,
                 "heading": clean_heading(item.get("heading")) or _template_section(heading)["heading"],
-                "narration": narration,
                 "points": clean_points(item.get("points")) or _template_section(heading)["points"],
-            })
+            }, *pair))
         else:
             if item:
                 notes.append(f"節「{heading}」: 基準を満たさなかったため、定型の文にしました")

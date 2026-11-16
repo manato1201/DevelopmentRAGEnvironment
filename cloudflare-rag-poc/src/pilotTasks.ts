@@ -4,10 +4,11 @@ import { requireAdmin } from "./auth";
 
 // 実証実験の課題の記録とアンケート（2026-10-28）。設計: docs/pilot/pilot-analysis-design.md
 //
-//   ・参加者は、事前アンケートで登録する。登録順の匿名番号（pid）から、割り当て番号 slot（1〜3）が決まる。
-//   ・固定課題の題材は、回ごとに違う（Pyro・RBD・雲）。slot ごとに順序をずらす（ラテン方格）。
-//   ・3回のうち1回（回 = slot）だけ、固定課題を「公式ドキュメント・Web検索のみ」で行う（参加者の中の対照）。
-//   ・各回に、固定課題と自由課題を1つずつ。終了時に、課題後アンケートと、到達・自己申告のミスを送る。
+//   ・参加者は、事前アンケートで登録する。登録順の匿名番号（pid）から、割り当て番号 slot（1〜6）が決まる。
+//   ・回 = 募集期間（第1回・第2回）。参加者は、管理画面で受け付けている回に、1回だけ参加する（1回 3 時間ほど。2026-11-11）。
+//   ・1回には、固定課題（必須）と自由課題（任意。時間が余った人だけ。1コマに収めるため。2026-11-13）を1つずつ。固定課題の題材（Pyro・RBD・雲）と、条件（本システム／公式ドキュメント・Web検索のみ）は、
+//     slot で決まる（3題材 × 2条件 = 6通りを、登録順に回す）。対照は、参加者の間で比べる。
+//   ・終了時に、課題後アンケートと、到達・自己申告のミスを送る。
 //   ・所要時間は、サーバーの時刻（開始・終了）から出す。質問回数は、その時間内の質問（memory）の数で、サーバーが数える
 //     （画面からの申告に頼らない。「公式ドキュメントのみ」の回に質問が混ざったかも、これで分かる）。
 //   ・集計は管理者だけ。氏名は出さず、P01 のような番号で出す。管理者の記録は、集計に入れない。
@@ -20,18 +21,21 @@ export type TaskId = "pyro" | "rbd" | "cloud";
 export type Kind = "fixed" | "free";
 export type Condition = "system" | "docs_only";
 
-export const ROUNDS = 3;
+export const ROUNDS = 2; // 回 = 募集期間の数。管理画面で、いま受け付ける回を切り替える（pilot_config の open_round）
 export const TASKS: Record<TaskId, string> = {
   pyro: "Pyro（煙・炎のシミュレーション）",
   rbd: "RBD（剛体・破壊のシミュレーション）",
   cloud: "雲（パーティクルでの雲の制作）",
 };
-// slot → 回ごとの固定課題。どの課題も、どの回も、対照（公式ドキュメントのみ）に1度ずつ当たる。
-export const LATIN: Record<number, TaskId[]> = {
-  1: ["pyro", "rbd", "cloud"],
-  2: ["rbd", "cloud", "pyro"],
-  3: ["cloud", "pyro", "rbd"],
-};
+// 固定課題の題材の並び。slot 1〜3 が本システム、4〜6 が対照（公式ドキュメント・Web検索のみ）で、題材は同じ順に当たる。
+export const TASK_ORDER: TaskId[] = ["pyro", "rbd", "cloud"];
+export const SLOTS = 6;
+
+// slot から、固定課題の題材と条件を決める（登録順の6人ごとに、3題材 × 2条件が1度ずつ当たる）。
+export function assignmentForSlot(slot: number): { taskId: TaskId; condition: Condition } {
+  const i = (((Math.trunc(slot) - 1) % SLOTS) + SLOTS) % SLOTS;
+  return { taskId: TASK_ORDER[i % TASK_ORDER.length], condition: i >= TASK_ORDER.length ? "docs_only" : "system" };
+}
 export const CRITERION = "課題の題材として、作品物ができていること";
 
 // 操作ミス = メカニクス面（cookエラー）7割 + ビジュアル操作面（自己申告）3割。どちらも 0〜1 にそろえてから合わせる。
@@ -51,7 +55,7 @@ const SURVEY_COLUMN: Record<SurveyField, string> = {
 };
 
 export function slotForPid(pid: number): number {
-  return ((pid - 1) % 3) + 1;
+  return ((pid - 1) % SLOTS) + 1;
 }
 
 // 操作ミスのスコア（0〜1。大きいほどミスが多い）。どちらかが無いときは null（片方だけで代用しない）。
@@ -78,33 +82,39 @@ export interface TaskPlanItem {
   condition: Condition;
   done: boolean;
   active: boolean; // 開始したが、まだ終えていない
+  optional: boolean; // 任意（自由課題。1コマに収めるため、固定課題だけで参加は完了。2026-11-13）
 }
 
 export interface TaskPlan {
   slot: number;
-  round: number;
-  completedRounds: number;
-  finished: boolean;
+  rounds: number; // 回の数
+  round: number | null; // 参加している回（まだ参加していなければ、いま受け付けている回。受付中でなければ null）
+  openRound: number; // いま新しく参加できる回（0 = 受付を止めている）
+  canStart: boolean; // 課題を始められるか（参加済みの人は、受付が止まっても自分の回を続けられる）
+  completed: boolean; // 必須の課題（固定課題）を終えた = 参加は完了
+  finished: boolean; // 固定課題も、自由課題も、終えた
   fixed: TaskPlanItem;
   free: TaskPlanItem;
   criterion: string;
 }
 
-export function buildPlan(slot: number, sessions: PlanSession[]): TaskPlan {
-  const done = (round: number, kind: Kind) => sessions.some((s) => s.round === round && s.kind === kind && s.ended_at != null);
-  const active = (round: number, kind: Kind) => sessions.some((s) => s.round === round && s.kind === kind && s.ended_at == null);
-  let completed = 0;
-  while (completed < ROUNDS && done(completed + 1, "fixed") && done(completed + 1, "free")) completed++;
-  const round = Math.min(completed + 1, ROUNDS);
-  const order = LATIN[slot] ?? LATIN[1];
-  const taskId = order[round - 1];
+export function buildPlan(slot: number, sessions: PlanSession[], openRound = 0): TaskPlan {
+  const joined = sessions.length ? Math.min(...sessions.map((s) => s.round)) : null; // 参加は1回だけ。最初に始めた回
+  const accepting = openRound >= 1 && openRound <= ROUNDS;
+  const round = joined ?? (accepting ? openRound : null);
+  const done = (kind: Kind) => round != null && sessions.some((s) => s.round === round && s.kind === kind && s.ended_at != null);
+  const active = (kind: Kind) => round != null && sessions.some((s) => s.round === round && s.kind === kind && s.ended_at == null);
+  const { taskId, condition } = assignmentForSlot(slot);
   return {
     slot,
+    rounds: ROUNDS,
     round,
-    completedRounds: completed,
-    finished: completed >= ROUNDS,
-    fixed: { kind: "fixed", taskId, label: TASKS[taskId], condition: round === slot ? "docs_only" : "system", done: done(round, "fixed"), active: active(round, "fixed") },
-    free: { kind: "free", taskId: "free", label: "自分の作りたいもの", condition: "system", done: done(round, "free"), active: active(round, "free") },
+    openRound: accepting ? openRound : 0,
+    canStart: joined != null || accepting,
+    completed: done("fixed"),
+    finished: done("fixed") && done("free"),
+    fixed: { kind: "fixed", taskId, label: TASKS[taskId], condition, done: done("fixed"), active: active("fixed"), optional: false },
+    free: { kind: "free", taskId: "free", label: "自分の作りたいもの", condition: "system", done: done("free"), active: active("free"), optional: true },
     criterion: CRITERION,
   };
 }
@@ -116,7 +126,7 @@ export interface HistoryItem {
   label: string;
   running: boolean;
   durationSec: number | null;
-  redoable: boolean; // 次の回を始める前なら、やり直せる
+  redoable: boolean; // 参加は1回だけなので、通常は、いつでもやり直せる
 }
 
 // これまでの記録（破棄していないもの）。画面の「完了した記録」と「やり直す」の元。
@@ -166,29 +176,19 @@ export function median(values: Array<number | null | undefined>): number | null 
   return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
 }
 
-// 対応のある rank-biserial 相関（Wilcoxon の符号付き順位から。-1〜1。0の差は除く。同順位は平均順位）。
-export function pairedRankBiserial(diffs: number[]): number | null {
-  const nonzero = diffs.filter((d) => d !== 0 && Number.isFinite(d));
-  if (nonzero.length === 0) return null;
-  const sorted = nonzero.map((d) => ({ d, a: Math.abs(d) })).sort((x, y) => x.a - y.a);
-  const ranks = new Array<number>(sorted.length);
-  for (let i = 0; i < sorted.length; ) {
-    let j = i;
-    while (j + 1 < sorted.length && sorted[j + 1].a === sorted[i].a) j++;
-    const avg = (i + j) / 2 + 1;
-    for (let k = i; k <= j; k++) ranks[k] = avg;
-    i = j + 1;
-  }
-  let plus = 0;
-  let minus = 0;
-  sorted.forEach((s, i) => (s.d > 0 ? (plus += ranks[i]) : (minus += ranks[i])));
-  return Math.round(((plus - minus) / (plus + minus)) * 1000) / 1000;
+// Cliff の delta（2つの群の効果量。-1〜1。x の群が大きいほど正。同じ値は0として数える）。どちらかが空なら null。
+export function cliffsDelta(xs: number[], ys: number[]): number | null {
+  if (xs.length === 0 || ys.length === 0) return null;
+  let greater = 0;
+  let less = 0;
+  for (const x of xs) for (const y of ys) x > y ? greater++ : x < y ? less++ : 0;
+  return Math.round(((greater - less) / (xs.length * ys.length)) * 1000) / 1000;
 }
 
 const withMistake = (r: TaskRow) => mistakeScore(r.cookErrorNodes, r.selfMistakes);
 const minutes = (r: TaskRow) => (r.durationSec == null ? null : Math.round((r.durationSec / 60) * 10) / 10);
 
-const PAIRED_METRICS: Array<{ key: string; label: string; better: "lower" | "higher"; value: (r: TaskRow) => number | null }> = [
+const COMPARE_METRICS: Array<{ key: string; label: string; better: "lower" | "higher"; value: (r: TaskRow) => number | null }> = [
   { key: "difficulty", label: "難しさ（1〜5）", better: "lower", value: (r) => r.difficulty },
   { key: "clarity", label: "わかりやすさ（1〜5）", better: "higher", value: (r) => r.clarity },
   { key: "durationMin", label: "所要時間（分）", better: "lower", value: minutes },
@@ -229,27 +229,25 @@ export function summarizeTasks(rows: TaskRow[]) {
     })
     .sort((a, b) => a.round - b.round || a.kind.localeCompare(b.kind) || a.condition.localeCompare(b.condition));
 
-  // 対照（公式ドキュメントのみ）と、本システムの比較。固定課題だけ。同じ参加者の中で、システムの回の平均 − 対照の回。
+  // 対照（公式ドキュメントのみ）と、本システムの比較。固定課題だけ。参加者の間で比べる（参加は1回だけ。2026-11-11）。
+  // 差 = 本システムの中央値 − 対照の中央値。効果量は Cliff の delta（本システムの群が大きいほど正）。
   const fixed = rows.filter((r) => r.kind === "fixed");
-  const pids = [...new Set(fixed.map((r) => r.pid))];
-  const paired = PAIRED_METRICS.map((metric) => {
-    const diffs: number[] = [];
-    for (const pid of pids) {
-      const docs = fixed.find((r) => r.pid === pid && r.condition === "docs_only");
-      const sys = fixed.filter((r) => r.pid === pid && r.condition === "system").map(metric.value).filter((v): v is number => v != null);
-      const base = docs ? metric.value(docs) : null;
-      if (base == null || sys.length === 0) continue;
-      diffs.push(sys.reduce((a, b) => a + b, 0) / sys.length - base);
-    }
-    const improved = diffs.filter((d) => (metric.better === "lower" ? d < 0 : d > 0)).length;
+  const compared = COMPARE_METRICS.map((metric) => {
+    const valuesOf = (condition: Condition) => fixed.filter((r) => r.condition === condition).map(metric.value).filter((v): v is number => v != null);
+    const sys = valuesOf("system");
+    const docs = valuesOf("docs_only");
+    const medianSystem = median(sys);
+    const medianDocs = median(docs);
     return {
       key: metric.key,
       label: metric.label,
       better: metric.better,
-      pairs: diffs.length,
-      medianDiff: median(diffs),
-      improved,
-      rankBiserial: pairedRankBiserial(diffs),
+      nSystem: sys.length,
+      nDocs: docs.length,
+      medianSystem,
+      medianDocs,
+      medianDiff: medianSystem != null && medianDocs != null ? medianSystem - medianDocs : null,
+      cliffsDelta: cliffsDelta(sys, docs),
     };
   });
 
@@ -260,7 +258,7 @@ export function summarizeTasks(rows: TaskRow[]) {
     sessions: rows.length,
     participants: new Set(rows.map((r) => r.pid)).size,
     byGroup,
-    paired,
+    compared,
     contaminated: [...new Set(contaminated)].sort((a, b) => a - b),
     comments: rows.filter((r) => r.comment).map((r) => ({ pid: r.pid, round: r.round, kind: r.kind, condition: r.condition, comment: r.comment })),
   };
@@ -305,11 +303,38 @@ async function loadSessions(env: Env, userId: string): Promise<SessionRow[]> {
   return res.results ?? [];
 }
 
+// ---- いま受け付けている回（pilot_config。管理画面で切り替える） ----
+
+export interface PilotConfig {
+  openRound: number; // 0 = 受付を止めている
+  labels: Record<number, string>; // 回の表示（「11/16〜11/21」など）
+}
+
+const LABEL_MAX = 40;
+
+export async function loadPilotConfig(env: Env): Promise<PilotConfig> {
+  const res = await env.DB.prepare("SELECT key, value FROM pilot_config").all<{ key: string; value: string }>();
+  const map = new Map((res.results ?? []).map((r) => [r.key, r.value]));
+  const open = Number(map.get("open_round") ?? 0);
+  const labels: Record<number, string> = {};
+  for (let r = 1; r <= ROUNDS; r++) labels[r] = map.get(`label_${r}`) ?? "";
+  return { openRound: Number.isInteger(open) && open >= 1 && open <= ROUNDS ? open : 0, labels };
+}
+
+async function saveConfigValue(env: Env, key: string, value: string): Promise<void> {
+  await env.DB.prepare("INSERT INTO pilot_config (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+    .bind(key, value, Math.floor(Date.now() / 1000))
+    .run();
+}
+
 async function planResponse(env: Env, userId: string): Promise<Response> {
   const profile = await loadProfile(env, userId);
   if (!profile) return jsonResponse(200, { status: "ok", profile: false });
   const sessions = await loadSessions(env, userId);
-  return jsonResponse(200, { status: "ok", profile: true, pid: profile.pid, ...buildPlan(profile.slot, sessions), history: buildHistory(sessions) });
+  const config = await loadPilotConfig(env);
+  const plan = buildPlan(profile.slot, sessions, config.openRound);
+  const roundLabel = plan.round != null ? config.labels[plan.round] ?? "" : "";
+  return jsonResponse(200, { status: "ok", profile: true, pid: profile.pid, ...plan, roundLabel, history: buildHistory(sessions) });
 }
 
 // POST /pilot/plan — 自分の次の課題（本人だけ）
@@ -352,7 +377,7 @@ export async function handlePilotProfile(req: Request, env: Env, user: AuthedUse
   return planResponse(env, user.userId);
 }
 
-// POST /pilot/session/start { kind } — いまの回の課題を始める。始めたまま終えていなければ、その続きを返す
+// POST /pilot/session/start { kind } — 自分の回の課題を始める（初めてのときは、いま受け付けている回に参加する）。始めたまま終えていなければ、その続きを返す
 export async function handlePilotSessionStart(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   const body = await readBody(req);
   const kind = body.kind === "fixed" || body.kind === "free" ? body.kind : null;
@@ -360,8 +385,10 @@ export async function handlePilotSessionStart(req: Request, env: Env, user: Auth
   const profile = await loadProfile(env, user.userId);
   if (!profile) return jsonResponse(409, { error: "先に事前アンケートに答えてください" });
   const sessions = await loadSessions(env, user.userId);
-  const plan = buildPlan(profile.slot, sessions);
-  if (plan.finished) return jsonResponse(409, { error: "3回すべて完了しています" });
+  const config = await loadPilotConfig(env);
+  const plan = buildPlan(profile.slot, sessions, config.openRound);
+  if (plan.finished) return jsonResponse(409, { error: "課題は、すべて完了しています" });  // 自由課題は任意。固定課題だけを終えた人は、自由課題を始められる
+  if (!plan.canStart || plan.round == null) return jsonResponse(409, { error: "いま、課題は受け付けていません。運営からの案内をお待ちください", code: "closed" });
   const item = kind === "fixed" ? plan.fixed : plan.free;
   if (item.done) return jsonResponse(409, { error: `第${plan.round}回の${kind === "fixed" ? "固定" : "自由"}課題は、完了しています` });
   const open = sessions.find((s) => s.round === plan.round && s.kind === kind && s.ended_at == null);
@@ -431,7 +458,7 @@ export async function handlePilotSessionEnd(req: Request, env: Env, user: Authed
 }
 
 // POST /pilot/session/reset { sessionId } — 計測中・終えた記録を、破棄してやり直す（本人だけ）。
-// 次の回の課題を始めたあとは、前の回はやり直せない。破棄した記録は消さずに残す（集計には入れない）。
+// 破棄した記録は消さずに残す（集計には入れない）。
 export async function handlePilotSessionReset(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   const body = await readBody(req);
   const id = typeof body.sessionId === "string" ? body.sessionId : "";
@@ -471,4 +498,40 @@ export async function handlePilotTasks(_req: Request, env: Env, user: AuthedUser
     ...summarizeTasks(rows),
     rows: rows.map((r) => ({ ...r, participant: "P" + String(r.pid).padStart(2, "0"), mistake: withMistake(r), durationMin: minutes(r) })),
   });
+}
+
+// POST /admin/pilot/config { openRound?, labels? } — いま受け付ける回と、回の表示を切り替える（管理者だけ）。何も指定しなければ、いまの状態を返す。
+export async function handlePilotConfig(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  requireAdmin(user);
+  const body = await readBody(req);
+  if (body.openRound !== undefined) {
+    const open = Number(body.openRound);
+    if (!Number.isInteger(open) || open < 0 || open > ROUNDS) return jsonResponse(400, { error: `openRound は 0（受付停止）〜${ROUNDS} で指定してください` });
+    await saveConfigValue(env, "open_round", String(open));
+  }
+  if (body.labels && typeof body.labels === "object") {
+    const labels = body.labels as Record<string, unknown>;
+    for (let r = 1; r <= ROUNDS; r++) {
+      if (labels[String(r)] !== undefined) await saveConfigValue(env, `label_${r}`, text(labels[String(r)], LABEL_MAX));
+    }
+  }
+  const config = await loadPilotConfig(env);
+  // 回ごとの参加人数と完了人数（管理者の記録と、やり直しで破棄した記録は数えない）
+  const res = await env.DB.prepare(
+    `SELECT s.user_id AS userId, s.round AS round, s.kind AS kind, s.ended_at AS endedAt
+     FROM pilot_sessions s JOIN users u ON u.user_id = s.user_id
+     WHERE s.discarded_at IS NULL AND u.role != 'admin'`,
+  ).all<{ userId: string; round: number; kind: Kind; endedAt: number | null }>();
+  const sessions = res.results ?? [];
+  const rounds = Array.from({ length: ROUNDS }, (_, i) => {
+    const round = i + 1;
+    const mine = sessions.filter((s) => s.round === round);
+    const users = [...new Set(mine.map((s) => s.userId))];
+    const finished = users.filter((id) => mine.some((s) => s.userId === id && s.kind === "fixed" && s.endedAt != null)); // 完了 = 固定課題を終えた（自由課題は任意）
+    return { round, label: config.labels[round] ?? "", open: config.openRound === round, joined: users.length, finished: finished.length };
+  });
+  const registered = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM pilot_profile p JOIN users u ON u.user_id = p.user_id WHERE p.pid IS NOT NULL AND u.role != 'admin'",
+  ).first<{ n: number }>();
+  return jsonResponse(200, { status: "ok", openRound: config.openRound, maxRound: ROUNDS, rounds, registered: registered?.n ?? 0 });
 }

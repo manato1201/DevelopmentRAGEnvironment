@@ -466,7 +466,8 @@ DOCX/PPTXの変換は、外部ライブラリを追加せず**ZIP形式を自前
 
 [![実証実験の流れ](../images/12-pilot-flow.svg)](../images/12-pilot-flow.svg)
 
-- 固定課題の順序は、`LATIN[slot]`（`src/pilotTasks.ts`）。対照の回は、回 = slot。
+- 固定課題の題材と条件は、`assignmentForSlot(slot)`（`src/pilotTasks.ts`）。登録順の番号から slot（1〜6）を決め、3 題材 × 2 条件（本システム／公式ドキュメントのみ）を回す。
+- 参加は 1 回だけ。回 = 募集期間で、`pilot_config.open_round`（管理画面の「受け付ける回の切り替え」、`POST /admin/pilot/config`）が、新しい参加者の参加先を決める（2026-11-11）。
 - 所要時間 = 終了 − 開始 − 中断。終了の時刻は、送信の時刻から、振り返りに使った秒（`surveySec`）を引いたもの。質問回数は、その時間内の `memory` の数をサーバーが数える。
 - 破棄は、次の回の課題を始める前だけ（`handlePilotSessionReset`）。
 

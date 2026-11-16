@@ -2,6 +2,7 @@
 
 **更新日:** 2026-10-28
 **使い方:** 【要記入】を埋めて、相手に合わせた版（A: プロへのレビュー依頼／B: 学生（ビギナー）／C: Slack 用の短い版）を使います。
+**2026-11-11 の変更:** 参加は**1人1回（約3時間）**、募集は **11/16〜11/21 と 11/23〜11/28 の2期間**、対照は**参加者の間**で比べる形に変わった（[pilot-analysis-design.md §11](pilot-analysis-design.md)）。**以下の§0〜C の「3回」「日程」「3 回のうち 1 回は公式ドキュメントのみ」は古い。** 最新の募集文は [recruit-slack.md](recruit-slack.md)。
 **根拠:** 実験のたてつけは [pilot-analysis-design.md](pilot-analysis-design.md)。配布の範囲・相手は [houdini-distribution-plan.md](../design/houdini-distribution-plan.md)、導入・使い方は [manual-houdini-tutorial.md](../guides/manual-houdini-tutorial.md)、所要時間・予算は [cost-and-quota.md](../operations/cost-and-quota.md)。
 
 ---

@@ -694,18 +694,12 @@ export function chatUiHtml(): string {
     <select id="namespaceFocus" title="検索対象を個別DBに絞り込む（精度向上）">
       <option value="">全DB横断検索</option>
     </select>
-    <select id="level">
-      <option value="">レベル: すべて</option>
-      <option value="basic">basic</option>
-      <option value="applied">applied</option>
-      <option value="advanced">advanced</option>
-    </select>
-    <select id="explain" title="回答の説明の深さ。おまかせ＝これまでの質問（使った専門用語）から、だんだん高度になります。">
-      <option value="">説明: 指定なし</option>
-      <option value="auto">説明: おまかせ（成長）</option>
-      <option value="basic">説明: basic（やさしく）</option>
-      <option value="applied">説明: applied（仕組みまで）</option>
-      <option value="advanced">説明: advanced（専門的に）</option>
+    <select id="level" title="回答のレベル。basic・applied・advanced を選ぶと、同じレベルの資料に絞り（レベルの付いていない資料は残します）、説明の深さも合わせます。おまかせ＝資料は絞らず、これまでの質問（使った専門用語）から、説明がだんだん高度になります。">
+      <option value="">レベル: 指定なし</option>
+      <option value="auto">レベル: おまかせ（成長）</option>
+      <option value="basic">レベル: basic（やさしく）</option>
+      <option value="applied">レベル: applied（仕組みまで）</option>
+      <option value="advanced">レベル: advanced（専門的に）</option>
     </select>
     <span id="myBudget" class="hint" title="自分のAPIキーのトークン予算残量"></span>
     <button type="button" id="myConnBtn" class="hidden" title="自分専用の連携（Gmail・Drive・カレンダー・Jira・Backlog・公式MCP）。他の人からは見えません">自分用の連携</button>
@@ -1380,14 +1374,24 @@ export function chatUiHtml(): string {
         <div class="table-scroll"><table class="admin-table" id="pilotParticipants"><thead><tr><th>ユーザー</th><th>質問数</th><th>チャット評価</th><th>チュートリアル評価</th><th>最後の質問</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="section">
+        <h2>受け付ける回の切り替え</h2>
+        <p class="hint">回 = 募集期間です。<b>いま新しく参加できる回</b>を選びます（「受付停止」にもできます）。参加者は、受け付けている回に<b>1回だけ</b>参加します。すでに参加している人は、受付を止めても、自分の回を最後まで続けられます。表の「完了した人」は、<b>固定課題を終えた人</b>です（自由課題は任意）。</p>
+        <div class="field-row"><label for="pilotRoundOpen">いま受け付ける回</label>
+          <select id="pilotRoundOpen"><option value="0">受付停止</option><option value="1">第1回</option><option value="2">第2回</option></select></div>
+        <div class="field-row"><label for="pilotRoundLabel1">第1回の期間（表示）</label><input type="text" id="pilotRoundLabel1" maxlength="40" placeholder="例: 11/16〜11/21"></div>
+        <div class="field-row"><label for="pilotRoundLabel2">第2回の期間（表示）</label><input type="text" id="pilotRoundLabel2" maxlength="40" placeholder="例: 11/23〜11/28"></div>
+        <div class="field-row"><button class="btn" id="pilotRoundSave">保存</button></div>
+        <div class="table-scroll"><table class="admin-table" id="pilotRoundTable"><thead><tr><th>回</th><th>期間</th><th>受付</th><th>参加した人</th><th>完了した人</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="section">
         <h2>課題の記録（固定課題・自由課題）</h2>
         <p class="hint" id="pilotTaskNote">-</p>
         <div class="field-row"><button class="btn" id="pilotTasksCsv">課題ごとのCSV（P01 などの番号。氏名なし）</button></div>
         <h3>回・種類・条件ごと（中央値）</h3>
         <div class="table-scroll"><table class="admin-table" id="pilotTaskGroups"><thead><tr><th>回</th><th>種類</th><th>条件</th><th>人数</th><th>到達</th><th>難しさ</th><th>わかりやすさ</th><th>所要(分)</th><th>質問数</th><th>操作ミス</th></tr></thead><tbody></tbody></table></div>
-        <h3>公式ドキュメントのみ（対照）と本システムの比較（固定課題・同じ参加者の中）</h3>
-        <p class="hint">差 = 本システムの回の平均 − 対照の回。効果量は、対応のある rank-biserial（−1〜1。0に近いほど差なし）。人数が少ないうちは、参考です。</p>
-        <div class="table-scroll"><table class="admin-table" id="pilotPaired"><thead><tr><th>指標</th><th>組の数</th><th>差の中央値</th><th>良い向きになった人</th><th>効果量</th></tr></thead><tbody></tbody></table></div>
+        <h3>公式ドキュメントのみ（対照）と本システムの比較（固定課題・参加者の間）</h3>
+        <p class="hint">参加は1回だけなので、本システムを使った人と、公式ドキュメントのみで行った人の<b>2つの群</b>を比べます。差 = 本システムの中央値 − 対照の中央値。効果量は Cliff の delta（−1〜1。本システムの群が大きいほど正。0に近いほど差なし）。「良い向き」は、難しさ・所要時間・操作ミスは小さいほう、わかりやすさ・到達は大きいほどです。人数が少ないうちは、参考です。</p>
+        <div class="table-scroll"><table class="admin-table" id="pilotCompared"><thead><tr><th>指標</th><th>本システム(人)</th><th>対照(人)</th><th>本システムの中央値</th><th>対照の中央値</th><th>差</th><th>効果量</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="section">
         <h2>説明レベル別のチャット評価</h2>
@@ -1506,11 +1510,14 @@ export function chatUiHtml(): string {
   }
 
   const apiKeyEl = $("apiKey");
+  // レベル（2026-11-13: 以前の「レベル」＝資料の絞り込みと、「説明」＝説明の深さを、1つにした）。
+  //   basic / applied / advanced … 同じレベルの資料に絞り、説明の深さも合わせる ／ おまかせ … 資料は絞らず、説明は成長に合わせる ／ 指定なし … どちらもしない
+  // 選んだ状態は、ブラウザに覚えておく（以前の「説明」の選択も、そのまま引き継ぐ）。
   const levelEl = $("level");
-  // 説明のレベル（おまかせ＝成長）。選んだ状態は、ブラウザに覚えておく。
-  const explainEl = $("explain");
-  try { const saved = localStorage.getItem("ragPocExplain"); if (saved !== null && explainEl.querySelector('option[value="' + saved + '"]')) explainEl.value = saved; } catch { /* 保存できなくても、使える */ }
-  explainEl.addEventListener("change", () => { try { localStorage.setItem("ragPocExplain", explainEl.value); } catch { /* 保存できなくても、使える */ } });
+  const LEVELS = ["basic", "applied", "advanced"];
+  const levelFilter = () => (LEVELS.includes(levelEl.value) ? levelEl.value : "");
+  try { const saved = localStorage.getItem("ragPocExplain"); if (saved !== null && levelEl.querySelector('option[value="' + saved + '"]')) levelEl.value = saved; } catch { /* 保存できなくても、使える */ }
+  levelEl.addEventListener("change", () => { try { localStorage.setItem("ragPocExplain", levelEl.value); } catch { /* 保存できなくても、使える */ } });
   const namespaceFocusEl = $("namespaceFocus");
   const selectedNs = new Set(); // 検索対象に選んだnamespace（チップ）。空 = 全DB横断
   let revealNext = false; // 次に描画する回答を、タイプライターで表示する
@@ -2838,7 +2845,7 @@ export function chatUiHtml(): string {
           if (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 160) messagesEl.scrollTop = messagesEl.scrollHeight;
         },
       };
-      const data = await queryStream({ query: text, limit: 5, level: levelEl.value, explain: explainEl.value || undefined, namespaces: picked.length > 0 ? picked : (focusNs ? [focusNs] : undefined), image: imageToSend || undefined, useMcp: useMcp || undefined, threadId: currentThread.id, history: currentThread.history.slice(-6) });
+      const data = await queryStream({ query: text, limit: 5, level: levelFilter(), explain: levelEl.value || undefined, namespaces: picked.length > 0 ? picked : (focusNs ? [focusNs] : undefined), image: imageToSend || undefined, useMcp: useMcp || undefined, threadId: currentThread.id, history: currentThread.history.slice(-6) });
       skeleton.remove();
       // ストリーミングで表示した途中の回答を、出典リンク・評価ボタンつきの完成した表示に置き換える
       const streamed = !!liveBubble;
@@ -3428,9 +3435,42 @@ ${ASCII_ART_JS}
         fill("pilotTerms", g.topTerms.map((t) => [t.term, t.users, t.total]), 3);
       }
     } catch (e) { showToast("実証実験の集計を読み込めませんでした: " + e.message, "error"); }
+    loadPilotRounds();
     loadPilotTasks();
   }
-  // 課題の記録（/admin/pilot/tasks。期間では絞らない: 3回ぶんの全体で見る）
+  // 受け付ける回の切り替え（/admin/pilot/config。管理者だけ）。何も送らなければ、いまの状態だけ返る
+  async function loadPilotRounds(update) {
+    try {
+      const data = await api("/admin/pilot/config", update || {});
+      const select = $("pilotRoundOpen");
+      select.innerHTML = "";
+      const stop = document.createElement("option");
+      stop.value = "0";
+      stop.textContent = "受付停止";
+      select.appendChild(stop);
+      data.rounds.forEach((r) => {
+        const opt = document.createElement("option");
+        opt.value = String(r.round);
+        opt.textContent = "第" + r.round + "回" + (r.label ? "（" + r.label + "）" : "");
+        select.appendChild(opt);
+        const input = $("pilotRoundLabel" + r.round);
+        if (input && document.activeElement !== input) input.value = r.label || "";
+      });
+      select.value = String(data.openRound);
+      const tbody = $("pilotRoundTable").querySelector("tbody");
+      tbody.innerHTML = "";
+      data.rounds.forEach((r) => appendRow(tbody, ["第" + r.round + "回", r.label || "-", r.open ? "受付中" : "-", r.joined + "人", r.finished + "人"]));
+    } catch (e) { showToast("回の状態を読み込めませんでした: " + e.message, "error"); }
+  }
+  $("pilotRoundSave").addEventListener("click", async () => {
+    const open = Number($("pilotRoundOpen").value) || 0;
+    const label = (n) => $("pilotRoundLabel" + n).value.trim();
+    const names = open === 0 ? "受付を止めます" : "第" + open + "回を受け付けます";
+    if (!confirm(names + "。よろしいですか？（新しく参加する人が、この回に入ります。参加済みの人は、自分の回を続けられます）")) return;
+    await loadPilotRounds({ openRound: open, labels: { 1: label(1), 2: label(2) } });
+    showToast("保存しました: " + names, "success");
+  });
+  // 課題の記録（/admin/pilot/tasks。期間では絞らない: 全部の回をまとめて見る）
   let lastPilotTaskRows = [];
   async function loadPilotTasks() {
     const num = (v, digits) => (v == null ? "-" : Number(v).toFixed(digits));
@@ -3453,9 +3493,10 @@ ${ASCII_ART_JS}
         g.reachedRate == null ? "-" : Math.round(g.reachedRate * 100) + "%",
         num(g.median.difficulty, 1), num(g.median.clarity, 1), num(g.median.durationMin, 1), num(g.median.queries, 0), num(g.median.mistake, 2),
       ]), 10);
-      fillRows("pilotPaired", data.paired.map((p) => [
-        p.label, p.pairs, num(p.medianDiff, 2), p.pairs === 0 ? "-" : p.improved + " / " + p.pairs, num(p.rankBiserial, 2),
-      ]), 5);
+      fillRows("pilotCompared", data.compared.map((p) => [
+        p.label + (p.better === "lower" ? "（小さいほど良い）" : "（大きいほど良い）"), p.nSystem, p.nDocs,
+        num(p.medianSystem, 2), num(p.medianDocs, 2), num(p.medianDiff, 2), num(p.cliffsDelta, 2),
+      ]), 7);
     } catch (e) { showToast("課題の記録を読み込めませんでした: " + e.message, "error"); }
   }
   $("pilotTasksCsv").addEventListener("click", () => {

@@ -65,14 +65,32 @@ assert.match(code, /ragPocFolded/);
 assert.match(html, /\.section\.collapsed > \*:not\(\.card-head\):not\(h2\)/);
 
 // 段階③（2026-10-27）: 説明のレベル（おまかせ＝成長）
-assert.match(html, /id="explain"/);
-assert.match(code, /explain: explainEl\.value \|\| undefined/);
+assert.match(html, /id="level"/);
+assert.doesNotMatch(
+  html,
+  /id="explain"/,
+  "the level and the explanation depth are one selector now",
+);
+assert.match(html, /レベル: おまかせ（成長）/);
+assert.match(
+  code,
+  /level: levelFilter\(\), explain: levelEl\.value \|\| undefined/,
+  "one selector feeds both the knowledge filter and the explanation depth",
+);
+assert.match(code, /const LEVELS = \["basic", "applied", "advanced"\]/);
 assert.match(code, /ragPocExplain/);
 assert.match(code, /data\.explain\.introduced/);
 
 // 段階④（2026-10-27）: 実証実験の集計（管理者だけ）
-assert.match(html, /<button data-subtab="pilot" class="admin-only-section">実証実験<\/button>/);
-assert.match(html, /<div class="admin-subpanel admin-only-section" data-subtab="pilot">/, "the pilot panel is hidden from editors");
+assert.match(
+  html,
+  /<button data-subtab="pilot" class="admin-only-section">実証実験<\/button>/,
+);
+assert.match(
+  html,
+  /<div class="admin-subpanel admin-only-section" data-subtab="pilot">/,
+  "the pilot panel is hidden from editors",
+);
 assert.match(code, /async function loadPilotSummary\(/);
 assert.match(code, /api\("\/admin\/pilot\/summary"/);
 assert.match(code, /btn\.dataset\.subtab === "pilot"/);

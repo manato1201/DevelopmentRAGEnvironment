@@ -25,7 +25,7 @@ def plan(round_=1, profile=True, fixed_done=False, free_done=False, active=False
     if not profile:
         return {"status": "ok", "profile": False}
     return {
-        "status": "ok", "profile": True, "pid": 1, "slot": 1, "round": round_, "completedRounds": round_ - 1, "finished": finished,
+        "status": "ok", "profile": True, "pid": 1, "slot": 1, "round": round_, "rounds": 2, "openRound": round_, "canStart": True, "roundLabel": "11/16〜11/21", "finished": finished,
         "fixed": {"kind": "fixed", "taskId": "pyro", "label": "Pyro（煙・炎のシミュレーション）", "condition": condition, "done": fixed_done, "active": active},
         "free": {"kind": "free", "taskId": "free", "label": "自由課題（自分の作りたいもの）", "condition": "system", "done": free_done, "active": False},
         "criterion": "課題の題材として、作品物ができていること",
@@ -99,7 +99,7 @@ panel._on_profile_send()
 pump(lambda: panel._plan_box.isVisible())
 assert not panel._profile_box.isVisible()
 assert FakeClient.calls[-1][0] == "profile" and FakeClient.calls[-1][1]["experienceYears"] == 1.5
-assert "第1回 / 3回" in panel._header.text() and "P01" in panel._header.text()
+assert "第1回（11/16〜11/21）" in panel._header.text() and "P01" in panel._header.text()
 fixed = panel._cards["fixed"]
 assert "Pyro" in fixed["title"].text()
 assert "使わないでください" in fixed["condition"].text(), "the control round says not to use the system"
@@ -202,6 +202,19 @@ assert "/obj/before_crash" in panel._sampler.paths, "errors seen before the rest
 assert panel._sampler.count >= 1
 panel._stop_recording()
 FakeClient.state["resumed"] = False
+
+# 4b) 受付を止めているとき（運営が管理画面で切り替える）: 課題のカードは出さず、案内を出す
+class Closed(FakeClient):
+    def pilot_plan(self):
+        return {**plan(), "round": None, "openRound": 0, "canStart": False, "roundLabel": ""}
+
+
+pp.RAGClient = Closed
+panel.refresh()
+pump(lambda: "受け付けていません" in panel._header.text())
+assert not panel._plan_box.isVisible(), "no task cards while closed"
+assert "運営からの案内" in panel._message.text()
+pp.RAGClient = FakeClient
 
 # 5) 接続エラーは、利用者向けの短い文で出る
 class Down(FakeClient):
