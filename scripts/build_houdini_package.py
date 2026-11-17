@@ -5,7 +5,7 @@
     uv run python scripts/build_houdini_package.py --version 1.1.0 --out dist
 
 zip の中身（展開して install.cmd をダブルクリックすれば導入できる）:
-    install.cmd / install.ps1          導入（Houdini のパッケージ登録 + 設定 + 動画エンジンの検出）。-Uninstall で削除
+    install.cmd / install.ps1          導入（Houdini のパッケージ登録 + 設定 + 動画エンジンの検出 + 導入後の自己診断）。-Uninstall で削除
     python/*.py                        パネルの Python ファイル（houdini/python_panels の全部）
     houdini/python_panels/RAGReelTutorial.pypanel   パネル定義（薄い読み込み用。中身は python/ にある）
     VERSION                            版

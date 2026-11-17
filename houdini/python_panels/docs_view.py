@@ -80,7 +80,7 @@ class DocsWidget(QWidget):
     # ── 公開 ─────────────────────────────────────────────────────────────────
 
     def set_connection(self, cfg: dict) -> None:
-        """接続設定が変わったとき（設定タブで保存・モード切り替え）に、パネルから呼ばれる。"""
+        """接続設定が変わったとき（接続の保存・モード切り替え）に、パネルから呼ばれる。"""
         self._cfg = cfg
         self._loaded_namespaces = False
         if self.isVisible():
@@ -216,7 +216,7 @@ class DocsWidget(QWidget):
     def _load_namespaces(self) -> None:
         self._loaded_namespaces = True
         if self._cfg.get("mode") != "cloudflare":
-            self._status.setText("Docs は、Cloudflare モードで、Worker の URL と APIキーを設定すると使えます（接続タブ）")
+            self._status.setText("Docs は、Cloudflare モードで、Worker の URL と APIキーを設定すると使えます（歯車メニュー →「接続・アカウント」）")
             return
         client = self._client()
         self._run(client.docs_namespaces, self._on_namespaces, "ナレッジの一覧を取得しています…")

@@ -13,6 +13,13 @@ VEXpression を int n = 30000; float rin = ...」）を出し、ナレーショ�
 を Claude に書かせ、`<slug>_video_script.json` に保存する。動画エンジン（RAGReel）は、これを
 `--houdini-script` で受け取り、手順ごとに音声を作って、画面と同期させる。
 
+2026-11-17（実証実験を受けた変更）:
+  ・各手順の解説・字幕に、対象（ノード名・変えたパラメータの表示名）を必ず入れる（step_facts / ensure_target）。
+    チェックボックス・メニューは、数字でなく表示名で言う。消す手順は「消します」と言う。
+  ・スライドの短い文（points）に、ノードのパス・タブ・変更前→後を入れ、台本の手順に "detail"（場所・変更・目的）を付ける
+  ・"sources": 参照した情報源（重複を除く。キーはギャラリーの rag_sources と同じ）と、"quality": 品質チェッカーの結果
+    （check_video_quality。書き出す前に、台本と素材が最低限の基準を満たすかを調べる）
+
 安全策:
   ・Claude の出力は検証する。コードのような文章、長すぎる文章、英字だらけの文章は採用しない。
   ・Claude が使えない・出力が壊れている・一部の手順が不合格のときは、定型の解説（_template_step）で
@@ -137,13 +144,18 @@ _PROMPT_TEMPLATE = """@@ROLE@@
 18. ノード名（column_tube のような英字と_の名前）は、そのまま書いてよい。途中をカタカナに直したり、日本語の語を混ぜたりしない。
 19. 入力に「動く映像」がある手順は、その映像が再生されている間に話す。「いま動いているのは〇〇です。注目してほしいのは△△です」と、画面の動きに目を向けさせる（入力にある事実だけ。入力にない動きは作らない）。
 20. 「動画に出る手順」は、作って、あとで消したノードの手順を省いてある。本文に、試して消した方式の話が出てきても、動画では触れない。最終的に残る構成の説明に絞る。
+21. 各手順の最初の文で、対象（ノード名と、変えるパラメータの表示名）を必ず言う。入力の「対象ノード」「変更」にある名前を、そのまま使う。「4にすると、最大値は約0.998になりました」のような、何を変えたのか分からない文は書かない（「noise1の『Element Size』を4にすると、…」のように、対象を言ってから値を言う）。
+22. チェックボックスとメニューは、数字で言わない。「0にします」ではなく、「オフにします」「Detailにします」と、画面に出る表示名で言う。入力に表示名が無いときは、数字を言わず、「切り替えます」と言う。
+23. ノードやパラメータを消す手順は、「〇〇を消します」とはっきり言う（「整理します」「外します」にしない）。
+24. ノードを作る手順では、そのノードを使う目的を、1文で言う（purpose にも、30文字まで）。入力にない目的は作らない。
 
 【出力】JSONだけを出力する（前後に説明やコードブロックを付けない）。形式:
 {
   "intro": {"narration": "@@INTRO@@", "points": ["作るもの（短く）", "身につくこと（短く）"]},
   "steps": [
     {"step": 手順の番号（入力と同じ数字）, "heading": "手順の見出し（20文字まで。例: スキャッターで点を散らす）",
-     "narration": "解説（@@STEP@@）", "points": ["画面に出す短い文（任意、最大2行）"]}
+     "narration": "解説（@@STEP@@）", "points": ["画面に出す短い文（任意、最大2行）"],
+     "purpose": "ノードを使う目的（30文字まで。ノードを作る手順では必ず書く。それ以外は空でよい）"}
   ],
   "chapters": [{"from_step": 章の最初の手順の番号, "title": "章の名前（20文字まで）", "bridge": "章のつなぎの1文（30〜80字。前の章で何ができて、次に何をするか）"}],
   "structure": {"narration": "作ったノード全体の流れを、上から下へ順に説明（2〜3文）", "points": []},
@@ -387,6 +399,17 @@ _PARAM_ONE_RE = re.compile(r"(.+?) を (.+?)(?:、|$)")
 _CODE_INPUT_RE = re.compile(r"^(\S+) の「(.+?)」欄に、次のコードを入力する")
 
 
+def _merge_points(first: list[str], second: list[str]) -> list[str]:
+    """画面に出す短い文。事実から作った行（場所・変更前→後）を先に、足りなければ、あとの行（解説の要点）で埋める。最大 MAX_POINTS 行。"""
+    out = list(first)
+    for p in second:
+        if len(out) >= MAX_POINTS:
+            break
+        if p and p not in out:
+            out.append(p)
+    return out[:MAX_POINTS]
+
+
 def _short(text: str) -> str:
     return text[:POINT_MAX_CHARS] if len(text) <= POINT_MAX_CHARS else text[: POINT_MAX_CHARS - 1] + "…"
 
@@ -618,6 +641,527 @@ def _template_outro() -> dict:
     }
 
 
+# ── 手順の事実（対象・場所・変更前→後）と、字幕に対象を入れる（2026-11-17） ────────────────────────────────
+# 実験の結果: 字幕「4にすると、最大値は約0.998になりました。」のように、何を 4 にしたのかが、字幕に無い手順があった。
+# 手順の操作文（result）と、ツールの結果（tool_result）から、「どのノードの・どのパラメータを・いくつからいくつに」を取り出し、
+#   ・ナレーション／字幕に、対象の名前が入っているかを確かめる（足りなければ、先頭に 1 文を足す）
+#   ・スライドの短い文（points）と、詳細（detail）に、ノードのパス・タブ・変更前→後を入れる
+# 手順の記録（step_screenshots の 1 件）に "changes"（label / name / old / new / code / tab / kind / menu_labels の一覧）が
+# あれば、それを使う。無ければ、操作文から読み取る（変更前の値は、操作文に無いので、空になる）。
+
+_REL_SET_RE = re.compile(r"^(\S+?)\.(\w+) = ")
+_REL_CREATE_RE = re.compile(r"^作成しました: (\S+)（タイプ")
+_CREATE_ANY_RE = re.compile(r"「(.+?)」ノード(?:（(\w+)）)?を作り、名前を (\S+) にする")
+_DELETE_RE = re.compile(r"不要になった (\S+) を削除する")
+_COOK_RE = re.compile(r"^(\S+) を評価")
+_MORE_RE = re.compile(r"\s*ほか(\d+)件$")
+_CHANGE_ITEM_RE = re.compile(r"^(.+?) を (.+)$")
+
+
+def _clean_change(raw: object) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    label = str(raw.get("label") or raw.get("name") or "").strip()
+    name = str(raw.get("name") or "").strip()
+    if not label and not name:
+        return None
+    labels = raw.get("menu_labels")
+    return {
+        "label": label or name, "name": name, "old": str(raw.get("old") if raw.get("old") is not None else "").strip(),
+        "new": str(raw.get("new") if raw.get("new") is not None else "").strip(), "code": bool(raw.get("code")),
+        "tab": str(raw.get("tab") or "").strip(), "kind": str(raw.get("kind") or "").strip(),
+        "menu_labels": [str(x) for x in labels] if isinstance(labels, list) else [],
+    }
+
+
+def display_value(change: dict, which: str = "new") -> str:
+    """値を、画面に出る言い方にする。チェックボックスは「オン／オフ」、メニューは表示名（数字のままにしない）。
+    同じ値の並び（「0.8 0.8 0.8」）は「すべて0.8」。"""
+    value = str(change.get(which, "")).strip()
+    kind = change.get("kind")
+    if kind == "toggle":
+        if value.lower() in ("1", "true", "on"):
+            return "オン"
+        if value.lower() in ("0", "false", "off"):
+            return "オフ"
+    if kind == "menu":
+        labels = change.get("menu_labels") or []
+        if value.isdigit() and int(value) < len(labels):
+            return str(labels[int(value)])
+    parts = value.split()
+    if len(parts) > 1 and len(set(parts)) == 1:
+        return f"すべて{parts[0]}"
+    return value
+
+
+def step_facts(entry: dict) -> dict:
+    """手順（step_screenshots の 1 件）から、何を・どこで・どう変えたかを取り出す。Houdini に依存しない。
+    戻り値: {"tool", "action"（create / set / code / connect / delete / cook / other）, "node"（葉の名前）,
+    "node_path"（サンドボックスからの相対パス。分かる範囲）, "changes": [...], "more": 省略された件数,
+    "is_code", "connect": (入力元, 出力先, 入力の番号) or None, "created": (表示名, タイプ, 名前) or None}。"""
+    tool = str(entry.get("tool") or "")
+    result = str(entry.get("result") or "").strip()
+    first = result.split("\n", 1)[0].strip()
+    tool_result = str(entry.get("tool_result") or "").strip()
+    facts: dict = {
+        "tool": tool, "action": "other", "node": "", "node_path": "", "changes": [], "more": 0,
+        "is_code": False, "connect": None, "created": None,
+    }
+    if tool == "create_node":
+        m = _CREATE_ANY_RE.search(first)
+        if m:
+            facts.update(action="create", node=m.group(3), created=(m.group(1), m.group(2) or "", m.group(3)))
+        rel = _REL_CREATE_RE.match(tool_result)
+        facts["node_path"] = rel.group(1) if rel else facts["node"]
+    elif tool == "set_parameter":
+        listed = [c for c in (_clean_change(x) for x in (entry.get("changes") or [])) if c]
+        rel = _REL_SET_RE.match(tool_result)
+        pm = _PARAM_RE.search(first)
+        cm = _CODE_INPUT_RE.search(first or result)
+        node = (pm.group(1) if pm else cm.group(1) if cm else (rel.group(1).split("/")[-1] if rel else ""))
+        if not node and " のパラメータ" in result:
+            node = result.split(" のパラメータ", 1)[0].strip()
+        changes = listed
+        if not changes and cm:
+            changes = [{"label": cm.group(2), "name": "", "old": "", "new": "", "code": True, "tab": "", "kind": "", "menu_labels": []}]
+        elif not changes and pm:
+            body = pm.group(2)
+            more = _MORE_RE.search(body)
+            if more:
+                facts["more"] = int(more.group(1))
+                body = body[: more.start()]
+            for chunk in body.split("、"):
+                item = _CHANGE_ITEM_RE.match(chunk.strip())
+                if item:
+                    changes.append({"label": item.group(1).strip(), "name": "", "old": "", "new": item.group(2).strip(),
+                                    "code": False, "tab": "", "kind": "", "menu_labels": []})
+        if node or changes:
+            facts.update(action="code" if any(c["code"] for c in changes) else "set", node=node, changes=changes)
+            facts["is_code"] = facts["action"] == "code"
+            facts["node_path"] = rel.group(1) if rel else node
+    elif tool == "connect_nodes":
+        g = _CONNECT_GROUP_RE.match(first)
+        m = _CONNECT_RE.search(first)
+        if m:
+            facts.update(action="connect", connect=(m.group(1), m.group(2), m.group(3).strip()))
+        elif g:
+            facts.update(action="connect")
+    elif tool == "delete_node":
+        m = _DELETE_RE.search(first)
+        facts.update(action="delete", node=m.group(1) if m else "")
+        facts["node_path"] = facts["node"]
+    elif tool == "cook_node":
+        m = _COOK_RE.match(first)
+        facts.update(action="cook", node=m.group(1) if m else "")
+        facts["node_path"] = facts["node"]
+    return facts
+
+
+def _mentions(text: str, term: str) -> bool:
+    """text に term（またはそのカタカナの読み）が入っているか。大文字・小文字は区別しない。"""
+    if not term or not text:
+        return False
+    low = text.casefold()
+    return term.casefold() in low or to_katakana(term).casefold() in low
+
+
+def target_terms(facts: dict) -> tuple[list[str], list[str]]:
+    """解説に必ず入れる語。戻り値: (全部が必要な語, どれか 1 つでよい語)。"""
+    action = facts["action"]
+    node = facts["node"]
+    if action in ("set", "code"):
+        names = [t for c in facts["changes"][:3] for t in (c["label"], c["name"]) if t]
+        return ([node] if node else []), names
+    if action == "create" and facts["created"]:
+        desc, ntype, name = facts["created"]
+        return [], [t for t in (name, desc, ntype) if t]
+    if action == "connect" and facts["connect"]:
+        return [facts["connect"][0], facts["connect"][1]], []
+    if action in ("delete", "cook") and node:
+        return [node], []
+    return [], []
+
+
+def missing_targets(facts: dict, *texts: str) -> list[str]:
+    """texts（ナレーション・字幕）のどれにも入っていない、必須の語。"""
+    required, any_of = target_terms(facts)
+    missing = [t for t in required if not any(_mentions(x, t) for x in texts)]
+    if any_of and not any(_mentions(x, t) for x in texts for t in any_of):
+        missing.append(any_of[0])
+    return missing
+
+
+def target_sentence(facts: dict) -> tuple[str, str] | None:
+    """対象を言う 1 文。戻り値: (読み上げる文, 字幕の文)。作れない手順は None。
+    チェックボックス・メニューは表示名で言う。消す手順は「消します」と言う。"""
+    action, node = facts["action"], facts["node"]
+    shown = ""
+    if action == "set" and node and facts["changes"]:
+        changes = facts["changes"]
+        c = changes[0]
+        if len(changes) == 1 and not facts["more"]:
+            new, old = display_value(c, "new"), display_value(c, "old")
+            if not new or len(new) > 24:
+                shown = f"{node}の「{c['label']}」を設定します。"
+            elif old and old != new and len(old) <= 24:
+                shown = f"{node}の「{c['label']}」を、{old}から{new}に変えます。"
+            else:
+                shown = f"{node}の「{c['label']}」を、{new}にします。"
+        else:
+            labels = "」と「".join(x["label"] for x in changes[:3])
+            rest = len(changes) - 3 + facts["more"]
+            shown = f"{node}の「{labels}」を変えます。" + (f"ほか{rest}件も変えます。" if rest > 0 else "")
+    elif action == "code" and node and facts["changes"]:
+        shown = f"{node}の「{facts['changes'][0]['label']}」に、コードを入力します。"
+    elif action == "delete" and node:
+        shown = f"{node}を消します。"
+    elif action == "create" and facts["created"]:
+        desc, _ntype, name = facts["created"]
+        shown = f"{desc}ノード、{name}を作ります。"
+    elif action == "connect" and facts["connect"]:
+        src, dst, nth = facts["connect"]
+        shown = f"{src}の出力を、{dst}の{nth}入力につなぎます。" if nth else f"{src}の出力を、{dst}につなぎます。"
+    elif action == "cook" and node:
+        shown = f"{node}をクックして、結果を確認します。"
+    if not shown:
+        return None
+    return to_katakana(shown), shown
+
+
+def ensure_target(spoken: str, shown: str, facts: dict, max_chars: int) -> tuple[str, str, bool]:
+    """解説に対象の名前が無ければ、先頭に、対象を言う 1 文を足す。戻り値: (読み上げる文, 字幕, 足したか)。
+    長さの上限を超えるときは、末尾の文を落とす（足した文は残す）。"""
+    if not missing_targets(facts, spoken, shown):
+        return spoken, shown, False
+    sentence = target_sentence(facts)
+    if sentence is None:
+        return spoken, shown, False
+    head_spoken, head_shown = sentence
+    new_spoken, new_shown = head_spoken + spoken, head_shown + shown
+    while len(new_spoken) > max_chars and new_spoken.count("。") > 1:
+        cut = new_spoken.rfind("。", 0, len(new_spoken) - 1)
+        if cut <= len(head_spoken):
+            break
+        new_spoken = new_spoken[: cut + 1]
+        new_shown = _first_sentences(new_shown, new_spoken.count("。"))
+    return new_spoken, new_shown, True
+
+
+_DANGLING_RE = re.compile(
+    r"^(?:ここで|すると|では|次に|そして|また)?[、,]?\s*[-+]?\d+(?:\.\d+)?\s*(?:倍|度|個|%|％|px|フレーム)?\s*(?:に|へ)"
+    r"(?:すると|したら|して|変える|変えると|変えて|します|した|なります)"
+)
+
+
+def dangling_value_sentences(text: str, known_terms: list[str] | None = None) -> list[str]:
+    """「4にすると、…」のように、何の値か分からない文（数字から始まる）。
+    known_terms（対象のノード名・パラメータ名）が、それより前の文に出ていれば、何の値かは分かるので、数えない。"""
+    sentences = [x.strip() for x in text.split("。") if x.strip()]
+    out = []
+    for i, sentence in enumerate(sentences):
+        if not _DANGLING_RE.match(sentence):
+            continue
+        named_before = any(_mentions(prev, t) for prev in sentences[:i] for t in (known_terms or []))
+        if not named_before:
+            out.append(sentence)
+    return out
+
+
+def _fit_path_line(parts: list[str], limit: int = POINT_MAX_CHARS) -> str:
+    """「geo1/emit › Code › Run Over」の形の 1 行。長いときは、先頭のパスの前のほうを「…/」にして、項目名を残す。"""
+    parts = [p for p in parts if p]
+    if not parts:
+        return ""
+    head, tail = parts[0], parts[1:]
+    prefix = ""
+    while len(prefix + " › ".join([head] + tail)) > limit and "/" in head:
+        head, prefix = head.split("/", 1)[1], "…/"
+    line = prefix + " › ".join([head] + tail)
+    if len(line) <= limit:
+        return line
+    keep = limit - len(" › ".join([""] + tail)) - 1  # ノード名も長いときは、ノード名の前を「…」にして、項目名を残す
+    if keep >= 4:
+        return "…" + head[-keep:] + " › " + " › ".join(tail)
+    return _short(line)
+
+
+def facts_points(facts: dict) -> list[str]:
+    """スライドに出す短い 2 行（場所と、変更前→後）。事実が足りないときは空。"""
+    action = facts["action"]
+    path = facts["node_path"] or facts["node"]
+    if action in ("set", "code") and path and facts["changes"]:
+        c = facts["changes"][0]
+        first = _fit_path_line([path, c["tab"], c["label"]] if len(facts["changes"]) == 1 else [path, c["tab"]])
+        if action == "code":
+            return [first, "コードを入力する"]
+        if len(facts["changes"]) > 1 or facts["more"]:
+            return [first, _short(f"{len(facts['changes']) + facts['more']}件のパラメータを変更")]
+        new, old = display_value(c, "new"), display_value(c, "old")
+        return [first, _short(f"{old} → {new}" if old and old != new else f"{c['label']} = {new}")]
+    if action == "delete" and path:
+        return [_short(f"{path} を消す"), "このノードを削除する"]
+    if action == "connect" and facts["connect"]:
+        src, dst, nth = facts["connect"]
+        return [_short(f"{src} → {dst}" + (f"（{nth}入力）" if nth else ""))]
+    if action == "cook" and path:
+        return [_short(f"{path} を評価（cook）する")]
+    return []
+
+
+def _help_purpose(node_type: str) -> str:
+    """定型の説明（_NODE_HELP）から、ノードを使う目的を取る。「スフィアは、球の形を作るノードです」→「球の形を作るノードです」。
+    前は「、」の手前を取っていたため、「スフィアは」だけになっていた。"""
+    first = _NODE_HELP.get(str(node_type).lower(), "").split("。", 1)[0]
+    _topic, sep, rest = first.partition("は、")
+    return (rest if sep else first)[:40].strip()
+
+
+RECORDED_PURPOSE_MAX = 60  # houdini_tools.HoudiniTools._PURPOSE_CHARS と同じ（記録側が、この長さに切って書く）
+
+
+def recorded_purpose(entry: dict) -> str:
+    """手順の記録（step_screenshots の 1 件）の "purpose"（ノードを使う目的の 1 文）。文字列でない・空・コードのような文は ""。"""
+    raw = entry.get("purpose")
+    if not isinstance(raw, str):
+        return ""
+    text = " ".join(re.sub(r"[`*#]+", "", raw).split())[:RECORDED_PURPOSE_MAX]
+    return "" if looks_like_code(text) else text
+
+
+def step_detail(facts: dict, purpose: str = "") -> dict:
+    """台本の手順に付ける詳細（動画エンジンが、スライドに出せる形）。キー: action / node / node_path / location / changes / purpose / remove。"""
+    detail: dict = {"action": facts["action"]}
+    if facts["node"]:
+        detail["node"] = facts["node"]
+    if facts["node_path"]:
+        detail["node_path"] = facts["node_path"]
+    if facts["changes"]:
+        detail["changes"] = [
+            {"label": c["label"], "name": c["name"], "tab": c["tab"], "old": display_value(c, "old") if c["old"] else "",
+             "new": display_value(c, "new"), "code": c["code"]}
+            for c in facts["changes"][:6]
+        ]
+        c0 = facts["changes"][0]
+        detail["location"] = " › ".join(x for x in (c0["tab"], c0["label"]) if x)
+    if facts["more"]:
+        detail["more"] = facts["more"]
+    if facts["action"] == "delete":
+        detail["remove"] = True
+    if purpose:
+        detail["purpose"] = purpose
+    return detail
+
+
+# ── 参照した情報源（出典）。同じ資料が複数の断片で出る（Shelf tools が 2 件、など）ので、重複を除く（2026-11-17） ─────────
+
+_SOURCE_LINE_RE = re.compile(r"^-\s*\[(\d+)\]\s*(?:(✅|⬜)\s*(?:引用済み|未引用)?\s*)?(.+?)(?:（([^）]*)）)?\s*$", re.M)
+
+
+def dedupe_sources(items: list[dict]) -> list[dict]:
+    """出典の重複を除く（資料の名前と、ナレッジの名前が同じものを 1 件にする）。順番は最初に出た順。
+    items: [{"title" or "file", "db" or "namespace", "cited"（任意）}]。
+    戻り値: ギャラリーの metadata.json の rag_sources と同じキーの一覧
+    [{"file", "namespace", "cited"（True / False。分からなければ書かない）, "similarity": 0, "excerpt": "", "numbers": [元の番号]}]。
+    1 件でも引用されていれば、cited は True（引用された資料を、「検索のみ」にしない）。"""
+    merged: dict[tuple[str, str], dict] = {}
+    for n, item in enumerate(items or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("file") or "").strip()
+        if not title:
+            continue
+        db = str(item.get("db") or item.get("namespace") or "").strip()
+        key = (title.casefold(), db.casefold())
+        number = item.get("number") if isinstance(item.get("number"), int) else n
+        if key not in merged:
+            entry = {"file": title, "namespace": db, "similarity": 0, "excerpt": "", "numbers": [number]}
+            if "cited" in item:
+                entry["cited"] = bool(item["cited"])
+            merged[key] = entry
+        else:
+            entry = merged[key]
+            entry["numbers"].append(number)
+            if "cited" in item:
+                entry["cited"] = bool(entry.get("cited")) or bool(item["cited"])
+    return list(merged.values())
+
+
+def parse_md_sources(md_text: str) -> list[dict]:
+    """チュートリアル(.md)の「## 参考」の出典の行を読む（tutorial_agent の source_lines の形）。
+    戻り値: [{"title", "db", "cited"（バッジが無い=打ち切りの生成では書かない）, "number"}]。"""
+    text = md_text.replace("\r\n", "\n")
+    start = re.search(r"^## 参考\s*$", text, re.M)
+    if not start:
+        return []
+    body = text[start.end():]
+    nxt = re.search(r"^## ", body, re.M)
+    if nxt:
+        body = body[: nxt.start()]
+    out = []
+    for m in _SOURCE_LINE_RE.finditer(body):
+        item: dict = {"title": m.group(3).strip(), "db": (m.group(4) or "").strip(), "number": int(m.group(1))}
+        if m.group(2):
+            item["cited"] = m.group(2) == "✅"
+        out.append(item)
+    return out
+
+
+# ── 動画の品質チェッカー（2026-11-17）。書き出す前に、台本と素材が最低限の基準を満たすかを調べる ─────────────────────────
+# 実験の結果: 動画の品質に差がありすぎた（対象が見えない・字幕に対象が無い・文字がつぶれる・ノード図が読めない、など）。
+# check_video_quality() は、手順ごとに次を調べ、満たさない手順を一覧にする（level: error=直すべき / warn=注意 / info=参考）。
+#   no_visual            画面の素材（ビューポート・ノード画面）が 1 枚も無い                                   error
+#   no_target_view       パラメータを変える手順で、変更した項目の画面が無い                                      warn
+#   image_small          画像の幅が MIN_IMAGE_WIDTH 未満（文字がつぶれる）                                     warn
+#   diagram_unreadable   ノード図のノード名が MIN_NAME_PT 未満、または図が画面に収まっていない                     error
+#   code_hidden          長いコードが、カードに入りきらずに省かれている                                         warn
+#   code_not_enlarged    コードを入れる手順なのに、読める大きさのカード（code_card）の画像が無い                  warn
+#   target_not_named     ナレーション・字幕に、対象（ノード名・パラメータ名）が無い                              error
+#   dangling_value       「4にすると、…」のように、何の値か分からない文がある                                    error
+#   delete_wording       消す手順なのに、「消す」「削除」と言っていない                                          error
+#   numeric_choice       チェックボックス・メニューを、数字で言っている                                          warn
+#   subtitle_long        字幕の 1 文が SUBTITLE_SENTENCE_MAX 文字を超える（画面からはみ出す・読み切れない）       warn
+#   detail_missing       パラメータを変える手順に、変更前→後・場所の情報が無い                                  info
+#   template_fallback    Claude の解説が基準を満たさず、定型の解説になった                                       info
+#   sources_empty / sources_duplicate  出典が空（ギャラリーで「出典なし」になる）／重複                         warn
+# 画像の文字の大きさは、撮影側が画像のとなりに書く <画像>.meta.json（screen_capture.write_capture_meta）を読む。無ければ、幅だけで判断する。
+
+MIN_IMAGE_WIDTH = 1280
+MIN_NAME_PT = 12.0  # screen_capture.MIN_NAME_PT と同じ値（このモジュールは hou を読み込まないので、複製している。テストで一致を確かめる）
+SUBTITLE_SENTENCE_MAX = 60
+_LEVEL_ORDER = {"error": 0, "warn": 1, "info": 2}
+
+
+def _png_size(path: Path) -> tuple[int, int] | None:
+    """PNG の幅・高さ（ヘッダだけ読む）。PNG でない・読めないときは None。"""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+        if head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+            return None
+        return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+    except OSError:
+        return None
+
+
+def _read_capture_meta(path: Path) -> dict:
+    try:
+        data = json.loads(path.with_name(path.name + ".meta.json").read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _number(value: object, default: float = 0.0) -> float:
+    """補足情報の数値を読む。壊れた値（None・文字列）のときは default（品質チェックで、台本の生成を止めない）。"""
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+def _issue(step: int | None, level: str, code: str, message: str) -> dict:
+    return {"step": step, "level": level, "code": code, "message": message}
+
+
+def check_step_quality(entry: dict, script_step: dict | None) -> list[dict]:
+    """1 手順の品質チェック。entry: 撮影した手順の記録。script_step: 台本の手順（無ければ None）。"""
+    n = entry.get("step")
+    issues: list[dict] = []
+    facts = step_facts(entry)
+    images = {k: Path(str(entry[k])) for k in ("viewport", "network") if entry.get(k)}
+    existing = {k: p for k, p in images.items() if p.exists()}
+    if not existing:
+        issues.append(_issue(n, "error", "no_visual", "画面の素材（ビューポート・ノード画面）がありません"))
+    if facts["action"] in ("set", "code") and not ("network" in existing and entry.get("network_kind") in ("parameter", None, "")):
+        issues.append(_issue(n, "warn", "no_target_view", "変更したパラメータの画面がありません"))
+    for kind, path in existing.items():
+        size = _png_size(path)
+        if size and size[0] < MIN_IMAGE_WIDTH:
+            issues.append(_issue(n, "warn", "image_small", f"{kind} の画像が小さい（幅{size[0]}px。{MIN_IMAGE_WIDTH}px以上にする）"))
+        meta = _read_capture_meta(path)
+        if meta.get("kind") == "node_diagram" and not meta.get("overview"):
+            if meta.get("fits") is False or _number(meta.get("name_pt"), MIN_NAME_PT) < MIN_NAME_PT:
+                issues.append(_issue(n, "error", "diagram_unreadable",
+                                     f"ノード図のノード名が小さい（{meta.get('name_pt', '?')}pt。{MIN_NAME_PT}pt以上にする）"))
+        hidden = int(_number(meta.get("lines_hidden")))
+        if meta.get("kind") == "code_card" and hidden > 0:
+            issues.append(_issue(n, "warn", "code_hidden", f"コードが {hidden} 行、カードに入りきらず省かれています"))
+    if facts["action"] == "code" and "network" in existing and _read_capture_meta(existing["network"]).get("kind") != "code_card":
+        issues.append(_issue(n, "warn", "code_not_enlarged", "コードを、読める大きさのカードで出していません（小さい画面のままです）"))
+    if facts["action"] in ("set", "code") and not facts["changes"]:
+        issues.append(_issue(n, "info", "detail_missing", "変更したパラメータが読み取れません（場所・変更前→後を出せません）"))
+    if script_step is not None:
+        spoken = str(script_step.get("narration") or "")
+        shown = str(script_step.get("subtitle") or spoken)
+        missing = missing_targets(facts, spoken, shown)
+        if missing:
+            issues.append(_issue(n, "error", "target_not_named", f"解説・字幕に対象の名前がありません: {'、'.join(missing)}"))
+        required, any_of = target_terms(facts)
+        for sentence in dangling_value_sentences(spoken, required + any_of) + dangling_value_sentences(shown, required + any_of):
+            issues.append(_issue(n, "error", "dangling_value", f"何の値か分からない文があります: 「{sentence[:30]}」"))
+            break
+        if facts["action"] == "delete" and not any(w in spoken + shown for w in ("消", "削除")):
+            issues.append(_issue(n, "error", "delete_wording", "消す手順なのに、「消す」と言っていません"))
+        for c in facts["changes"]:
+            if c["kind"] in ("toggle", "menu") and display_value(c) != c["new"] and c["new"].isdigit():
+                if re.search(rf"{re.escape(c['label'])}[^。]{{0,6}}を\s*{re.escape(c['new'])}\s*に", spoken + shown):
+                    issues.append(_issue(n, "warn", "numeric_choice", f"「{c['label']}」を数字で言っています（表示名: {display_value(c)}）"))
+        longest = max((len(x) for x in shown.split("。")), default=0)
+        if longest > SUBTITLE_SENTENCE_MAX:
+            issues.append(_issue(n, "warn", "subtitle_long", f"字幕の 1 文が長い（{longest}文字。{SUBTITLE_SENTENCE_MAX}文字まで）"))
+        if script_step.get("source") == "template":
+            issues.append(_issue(n, "info", "template_fallback", "Claude の解説が基準を満たさず、定型の解説になっています"))
+    return issues
+
+
+def check_video_quality(script: dict | None, steps: list[dict]) -> dict:
+    """台本（build_script の出力）と、手順の素材（step_screenshots）が、最低限の基準を満たすかを調べる。
+    戻り値: {"ok": error が 0 件か, "errors", "warnings", "infos", "issues": [{"step", "level", "code", "message"}…（重い順）]}。
+    Houdini・Claude に依存しない。台本の段階で直す・警告するために使う（書き出す前に呼ぶ）。"""
+    script = script if isinstance(script, dict) else {}
+    script_steps = script.get("steps") if isinstance(script.get("steps"), list) else []
+    by_step = {e.get("step"): e for e in script_steps if isinstance(e, dict) and isinstance(e.get("step"), (int, str))}
+    issues: list[dict] = []
+    for entry in steps or []:
+        if not isinstance(entry, dict):
+            continue
+        step_key = entry.get("step")
+        issues.extend(check_step_quality(entry, by_step.get(step_key) if isinstance(step_key, (int, str)) else None))
+    for section in script.get("sections") or []:  # その他の節（パラメータを動かして確かめる、など）。自動では直せないので、注意にとどめる
+        if isinstance(section, dict) and dangling_value_sentences(str(section.get("narration") or "")):
+            issues.append(_issue(None, "warn", "dangling_value", f"節「{section.get('heading') or section.get('match', '')}」に、何の値か分からない文があります"))
+    sources = script.get("sources")
+    if isinstance(sources, list) and not sources:
+        issues.append(_issue(None, "warn", "sources_empty", "出典が空です（ギャラリーで「出典なし」になります）"))
+    elif isinstance(sources, list):
+        keys = [(str(s.get("file", "")).casefold(), str(s.get("namespace", "")).casefold()) for s in sources if isinstance(s, dict)]
+        if len(keys) != len(set(keys)):
+            issues.append(_issue(None, "warn", "sources_duplicate", "出典に同じ資料が複数あります"))
+    images = script.get("images") if isinstance(script.get("images"), dict) else {}
+    diagram = images.get("node_diagram")
+    if diagram and Path(str(diagram)).exists():
+        meta = _read_capture_meta(Path(str(diagram)))
+        if meta.get("readable") is False:
+            issues.append(_issue(None, "info", "overview_dense", "全体図のノードが多く、名前は小さくなっています（構成の確認用）"))
+    issues.sort(key=lambda i: (_LEVEL_ORDER.get(i["level"], 9), i["step"] if isinstance(i["step"], int) else -1))
+    count = lambda level: sum(1 for i in issues if i["level"] == level)  # noqa: E731
+    return {"ok": count("error") == 0, "errors": count("error"), "warnings": count("warn"), "infos": count("info"), "issues": issues}
+
+
+def format_quality_report(report: dict, limit: int = 12) -> list[str]:
+    """品質チェックの結果を、画面に出す行にする。error と warn を重い順に limit 件まで（info は出さない）。"""
+    marks = {"error": "要修正", "warn": "注意"}
+    lines = []
+    for i in report.get("issues", []):
+        if i["level"] not in marks:
+            continue
+        where = f"手順{i['step']}" if i["step"] is not None else "全体"
+        lines.append(f"[{marks[i['level']]}] {where}: {i['message']}")
+    if len(lines) > limit:
+        lines = lines[:limit] + [f"…ほか {len(lines) - limit} 件"]
+    return lines
+
+
 # ── 入力の用意・出力の検証 ─────────────────────────────────────────────────
 
 def tutorial_excerpt(md_text: str, limit: int = 7000) -> tuple[str, str, str]:
@@ -668,6 +1212,15 @@ def build_user_prompt(
         result = str(s.get("result") or "").strip()
         tool_result = str(s.get("tool_result") or "").strip()
         item = {"step": s.get("step"), "tool": s.get("tool"), "操作": result.split("\n", 1)[0][:200]}
+        facts = step_facts(s)
+        if facts["node_path"]:
+            item["対象ノード"] = facts["node_path"]
+        if facts["changes"]:
+            item["変更"] = [
+                {k: v for k, v in (("パラメータ", c["label"]), ("タブ", c["tab"]), ("前", display_value(c, "old") if c["old"] else ""),
+                                   ("後", "（コード）" if c["code"] else display_value(c, "new"))) if v}
+                for c in facts["changes"][:6]
+            ]
         frames, fps = s.get("viewport_clip_frames") or [], s.get("viewport_clip_fps") or 0
         if fps and len(frames) / fps >= 5:
             item["動く映像"] = f"この手順の画面で、約{round(len(frames) / fps)}秒の動く映像が再生される"
@@ -797,20 +1350,38 @@ def assemble_script(
     for entry in steps:
         n = entry.get("step")
         item = by_step.get(n)
+        facts = step_facts(entry)
         step_min = SHORT_STEP_MIN if entry.get("tool") in ("connect_nodes", "delete_node") else STEP_NARRATION_MIN
         pair = clean_narration_pair(item.get("narration"), lim["step"], step_min) if item else None
         if pair:
             from_model += 1
-            out_steps.append(with_subtitle({
+            spoken, shown, added = ensure_target(pair[0], pair[1], facts, lim["step"])
+            if added:
+                notes.append(f"手順{n}: 解説に対象の名前（ノード・パラメータ）が無かったため、対象を言う文を先頭に足しました")
+            template = _template_step(entry, set(), compact)
+            purpose = clean_heading(item.get("purpose"))
+            out = with_subtitle({
                 "step": n,
-                "heading": clean_heading(item.get("heading")) or _template_step(entry, set(), compact)["heading"],
-                "points": clean_points(item.get("points")) or _template_step(entry, set(), compact)["points"],
-            }, *pair))
+                "heading": clean_heading(item.get("heading")) or template["heading"],
+                "points": _merge_points(facts_points(facts), clean_points(item.get("points")) or template["points"]),
+            }, spoken, shown)
+            out["source"] = "claude"
         else:
             if item:
                 notes.append(f"手順{n}: 解説が基準を満たさなかったため、定型の解説にしました")
             t = _template_step(entry, seen, compact)
-            out_steps.append({"step": n, **t})
+            spoken, shown, _added = ensure_target(t["narration"], t["narration"], facts, lim["step"])  # 定型の解説への追加は、注意書きにしない
+            purpose = ""
+            out = with_subtitle({"step": n, "heading": t["heading"], "points": _merge_points(facts_points(facts), t["points"])}, spoken, shown)
+            out["source"] = "template"
+        if facts["action"] == "create":
+            # 目的の優先順: 手順の記録（houdini_tools が entry["purpose"] に書く。ノードを作った時にモデルが書いた目的）→ 台本のモデルの出力 → 定型文
+            purpose = recorded_purpose(entry) or purpose
+        if facts["action"] == "create" and not purpose and facts["created"]:
+            purpose = _help_purpose(facts["created"][1])
+        if facts["action"] != "other":
+            out["detail"] = step_detail(facts, purpose)
+        out_steps.append(out)
 
     def section(key: str, max_chars: int, fallback: dict | None) -> dict | None:
         raw = model.get(key) if isinstance(model.get(key), dict) else {}
@@ -898,12 +1469,20 @@ def build_script(
     clean_images = {k: str(v) for k, v in (images or {}).items() if v}
     if clean_images:
         script["images"] = clean_images
+    # 参照した情報源。重複（同じ資料の別の断片）を除く。キーは、ギャラリーの metadata.json の rag_sources と同じ
+    # （file / namespace / cited / similarity / excerpt）。動画エンジンが、ここから metadata を作れる。
+    script["sources"] = dedupe_sources(parse_md_sources(md_text))
+    report = check_video_quality(script, steps)
+    script["quality"] = {k: report[k] for k in ("ok", "errors", "warnings", "infos")}
+    script["quality"]["issues"] = report["issues"][:60]
     label ={"claude": "Claudeが書いた台本", "claude+template": "Claudeの台本（一部は定型の解説）", "template": "定型の解説"}[source]
     message = f"台本: {label}（{len(steps)}手順）"
     if source == "template" and detail:
         message += f" — {detail}"
     if notes:
         message += f" / 注意: {len(notes)}件"
+    if report["errors"] or report["warnings"]:
+        message += f" / 品質チェック: 要修正{report['errors']}件・注意{report['warnings']}件"
     return script, message, usage
 
 

@@ -21,6 +21,10 @@ failed等）が一切見えなかった。ログをファイルに残すこと�
 ベストエフォート: どの段階が失敗してもチュートリアル保存自体は既に成功して
 いるので、例外を外に投げず、状態表示用の短い文字列を返すだけに留める。
 
+2026-11-17: 手順ごとの記録（<slug>_screenshots.json）に、"network_pages"（長いコードを複数枚に分けたときの 2 枚目以降の画像）と
+"capture"（画像の補足情報）を足した（manifest_entries）。エンジンが読まなければ無視される。出典は、台本（--houdini-script）の
+"sources" として渡る（video_script.build_script）。
+
 2026-08-31: 戻り値に log_path を追加した。呼び出し元（tutorial_view.py）が
 この後の生成進捗（video_encoder.cpp が書く "Rendered frame N / M" 行）を
 ログファイルのポーリングで追跡できるようにするため。起動そのものに失敗した
@@ -29,10 +33,55 @@ failed等）が一切見えなかった。ログをファイルに残すこと�
 
 from __future__ import annotations
 
+import glob
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
+
+
+def _extra_pages(image_path: str | None) -> list[str]:
+    """長いコードを複数枚に分けた画像の、2 枚目以降（<画像>_p2.png, _p3.png…）。無ければ空。
+    screen_capture.extra_page_path と同じ名前（screen_capture は hou を読み込むので、ここでは再実装している）。"""
+    if not image_path:
+        return []
+    base = Path(image_path)
+    found = []
+    for path in base.parent.glob(f"{glob.escape(base.stem)}_p*{glob.escape(base.suffix)}"):  # 名前に [ ] などがあっても探せる
+        match = re.fullmatch(rf"{re.escape(base.stem)}_p(\d+)", path.stem)
+        if match:
+            found.append((int(match.group(1)), str(path)))
+    return [p for _n, p in sorted(found)]
+
+
+def _capture_meta(image_path: str | None) -> dict:
+    """画像のとなりの <画像>.meta.json（撮影側が書いた、ノード数・文字の大きさ・コードの省略など）。無ければ空。"""
+    if not image_path:
+        return {}
+    try:
+        data = json.loads(Path(image_path + ".meta.json").read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def manifest_entries(step_screenshots: list[dict]) -> list[dict]:
+    """動画エンジンに渡す、手順ごとの記録（<slug>_screenshots.json の中身）。
+    guide は案内モード用なので、渡さない。2026-11-17 に足した（エンジンが読まなければ、無視される）:
+      "network_pages": 長いコードを複数枚に分けたときの、2 枚目以降の画像のパス（順番どおり）
+      "capture": "network" 画像の補足情報（kind=node_diagram / code_card、nodes_shown / nodes_total、name_pt、pages など）"""
+    out = []
+    for s in step_screenshots:
+        entry = {k: v for k, v in s.items() if k != "guide"}
+        pages = _extra_pages(entry.get("network"))
+        if pages:
+            entry["network_pages"] = pages
+        meta = _capture_meta(entry.get("network"))
+        if meta:
+            entry["capture"] = meta
+        out.append(entry)
+    return out
 
 
 def launch_video_generation(
@@ -75,7 +124,7 @@ def launch_video_generation(
 
     try:
         screenshots_path.write_text(
-            json.dumps([{k: v for k, v in s.items() if k != "guide"} for s in step_screenshots], ensure_ascii=False, indent=2),  # guide は案内モード用（動画エンジンには渡さない）
+            json.dumps(manifest_entries(step_screenshots), ensure_ascii=False, indent=2),  # guide は案内モード用（動画エンジンには渡さない）
             encoding="utf-8",
         )
     except OSError as exc:

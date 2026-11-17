@@ -55,6 +55,7 @@ from PySide6.QtWidgets import (
 )
 
 import gallery_upload
+import panel_paths
 import token_usage
 import video_progress
 from panel_actions import Speaker, action_button, normalize_fonts, px
@@ -462,7 +463,7 @@ class LessonsDialog(QDialog):
             self._status.setText(f"承認は最大{limit}件までです。チェックを減らしてください")
             return
         if not self._fb.save_lessons(self._project_dir, lessons):
-            self._status.setText("保存に失敗しました（Bridge Directoryを確認してください）")
+            self._status.setText("保存に失敗しました（保存先フォルダを確認してください）")
             return
         self.accept()
 
@@ -928,6 +929,37 @@ class TutorialGeneratePanel(QWidget):
             f"{state} — ${result.cost_usd:.3f} / {result.iterations} ステップ。"
             "内容を確認して「保存」を押してください（保存するまでファイルは書き込まれません）"
         )
+        # 2026-11-17: 生成が終わったら、Guide タブを最新の手順にして、切り替える（切り替わりに気づかなかったという指摘）。
+        # 保存前でも、手順は Guide タブで使える。切り替えない設定のときは、Guide タブの名前に印が付く。
+        guide_note = self._announce_guide(result)
+        if guide_note:
+            self._status.setText(f"{self._status.text()} / {guide_note}")
+
+    def _announce_guide(self, result) -> str:
+        """生成の結果から手順を作って、Guide タブへ渡す（ベストエフォート。失敗しても、生成の結果の表示は止めない）。"""
+        try:
+            import guide_mode
+            import guide_view
+
+            guide = guide_mode.guide_from_result(result)
+            if not guide["steps"]:
+                return ""
+            return guide_view.announce_generated(self, guide, guide_mode.guide_label(guide))
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _announce_guide_saved(self, md_path: Path, switch: bool | None = None) -> str:
+        """保存で書かれた案内データを、Guide タブで選ぶ（ベストエフォート）。"""
+        try:
+            import guide_mode
+            import guide_view
+
+            guide_path = guide_mode.guide_path_for(md_path)
+            if not guide_path.exists():
+                return ""
+            return guide_view.announce_saved(self, guide_path, switch)
+        except Exception:  # noqa: BLE001
+            return ""
 
     def _on_chain_done(self, results: list) -> None:
         """
@@ -989,6 +1021,11 @@ class TutorialGeneratePanel(QWidget):
         self._delete_sandbox_btn.setEnabled(True)
         self._discard_chain_btn.setEnabled(bool(self._chain_saved_paths))
         self._status.setText(" | ".join(status_parts))
+        # 2026-11-17: 3段階とも保存したので、Guide タブを最新（最後に保存した手順）にして、切り替える
+        if self._chain_saved_paths:
+            guide_note = self._announce_guide_saved(self._chain_saved_paths[-1][1])
+            if guide_note:
+                self._status.setText(f"{self._status.text()} | {guide_note}")
 
     def _on_failed(self, msg: str) -> None:
         self._progress_log.append(f"エラー: {msg}")
@@ -1007,7 +1044,7 @@ class TutorialGeneratePanel(QWidget):
         if not bridge_dir:
             QMessageBox.warning(
                 self, "保存先未設定",
-                "設定タブ（Local RAG）で Bridge Directory（DevelopmentRAGEnvironment のパス）を設定してください。",
+                panel_paths.SAVE_DIR_MISSING + "。",
             )
             return None
         return Path(bridge_dir) / "localRAG" / "tutorials"
@@ -1050,10 +1087,8 @@ class TutorialGeneratePanel(QWidget):
         try:
             import guide_mode
 
-            guide = guide_mode.build_guide(
-                getattr(result, "step_screenshots", None) or [], result.title, result.level,
-                guide_mode.sections_from_markdown(result.markdown),
-            )
+            # サンドボックスのパスと、ノードの目的（手順書の「使うノード」）も添える（2026-11-17）
+            guide = guide_mode.guide_from_result(result)
             if guide["steps"]:
                 guide_mode.write_guide(guide_mode.guide_path_for(md_path), guide)
         except Exception:  # noqa: BLE001
@@ -1164,7 +1199,7 @@ class TutorialGeneratePanel(QWidget):
         if voice:
             name = voice[-1].strip()
             if name.startswith("SAPI"):
-                return f"音声: 従来の音声（{name}）。自然な声にするには、接続タブの URL / APIキーを設定するか、VOICEVOXを起動してください"
+                return f"音声: 従来の音声（{name}）。自然な声にするには、歯車メニュー →「接続・アカウント」の URL / APIキーを設定するか、VOICEVOXを起動してください"
             return f"音声: {name}"
         engine = re.findall(r"Narration engine: (.+)", log_text)
         return f"音声: {engine[-1].strip()[:90]}" if engine else ""
@@ -1355,6 +1390,10 @@ class TutorialGeneratePanel(QWidget):
             self._status.setText(f"{self._status.text()} / {video_status}")
         self._index_screenshots_async(self._result)
         self._show_rating_row(md_path)
+        # 生成直後に Guide タブへ読み込んだ手順（未保存）を、保存したものに置き換える。切り替えはしない（保存の操作中なので）
+        guide_note = self._announce_guide_saved(md_path, switch=False)
+        if guide_note:
+            self._status.setText(f"{self._status.text()} / {guide_note}")
 
     def _show_rating_row(self, md_path: Path) -> None:
         self._rate_md_path = md_path
@@ -1584,10 +1623,10 @@ class VideoLibraryPanel(QWidget):
         url, token = cfg.get("gallery_url", ""), cfg.get("gallery_token", "")
         exe_path = cfg.get("video_factory_exe_path", "")
         if not url.strip() or not token.strip():
-            self._status.setText("設定者に、設定タブでギャラリーのURLとアップロードトークンを設定してもらってください")
+            self._status.setText("歯車メニュー →「接続・アカウント」の「動画・ギャラリー」で、ギャラリーのURLとアップロードトークンを設定してください（運営から受け取った値です）")
             return
         if not exe_path:
-            self._status.setText("設定者に、設定タブで動画エンジン（video_factory_exe_path）を設定してもらってください")
+            self._status.setText("歯車メニュー →「接続・アカウント」の「動画・ギャラリー」で、Video Factory exe パス（動画エンジン）を設定してください")
             return
         output_dir = gallery_upload.output_dir_for(exe_path)
         only_ids: set[str] | None = None
@@ -1677,7 +1716,7 @@ class VideoLibraryPanel(QWidget):
 
         tutorials_dir = self._tutorials_dir()
         if tutorials_dir is None:
-            self._status.setText("設定タブ（Local RAG）で Bridge Directory を設定してください")
+            self._status.setText(panel_paths.SAVE_DIR_MISSING)
             return
         if not tutorials_dir.exists():
             self._status.setText("まだ保存されたチュートリアルがありません")
@@ -2394,7 +2433,7 @@ class TutorialHistoryPanel(QWidget):
     def _on_open_lessons(self) -> None:
         project_dir = self._cfg_getter().get("local_bridge_dir", "")
         if not project_dir:
-            self._fb_status.setText("設定タブ（Local RAG）で Bridge Directory を設定してください")
+            self._fb_status.setText(panel_paths.SAVE_DIR_MISSING)
             return
         dialog = LessonsDialog(self, project_dir, self._tutorials_dir(), self._make_agent)
         if dialog.exec():
@@ -2440,7 +2479,7 @@ class TutorialHistoryPanel(QWidget):
         self._list.clear()
         tutorials_dir = self._tutorials_dir()
         if tutorials_dir is None:
-            self._status.setText("設定タブ（Local RAG）で Bridge Directory を設定してください")
+            self._status.setText(panel_paths.SAVE_DIR_MISSING)
             return
         if not tutorials_dir.exists():
             self._status.setText("まだ保存されたチュートリアルがありません")

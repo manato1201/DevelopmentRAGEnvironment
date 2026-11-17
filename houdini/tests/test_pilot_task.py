@@ -205,6 +205,31 @@ class TextTest(unittest.TestCase):
     def test_docs_only_text_tells_not_to_use_the_system(self):
         self.assertIn("使わないでください", pt.CONDITION_TEXT["docs_only"])
 
+    def test_condition_is_shown_clearly_for_both_conditions(self):
+        # 運営が割り当てを切り替える（全員ツール使用・全員ドキュメントのみ）ので、どちらの条件かを、はっきり出す
+        self.assertIn("ツール使用", pt.CONDITION_TEXT["system"])
+        self.assertIn("ドキュメントのみ", pt.CONDITION_TEXT["docs_only"])
+        self.assertNotIn("構いません", pt.CONDITION_TEXT["system"], "the tool condition is an instruction, not a permission")
+
+    def test_task_title_carries_the_condition_from_the_server(self):
+        item = {"label": "Pyro", "condition": "system", "optional": False}
+        self.assertEqual(pt.format_task_title("fixed", item), "固定課題: Pyro［ツール使用］")
+        self.assertEqual(pt.format_task_title("fixed", {**item, "condition": "docs_only"}), "固定課題: Pyro［ドキュメントのみ］")
+        free = pt.format_task_title("free", {"label": "自分の作りたいもの", "condition": "system", "optional": True})
+        self.assertEqual(free, "自由課題（任意）: 自分の作りたいもの［ツール使用］")
+        self.assertEqual(pt.format_task_title("fixed", {"label": "Pyro"}), "固定課題: Pyro", "no label for an unknown condition")
+
+    def test_started_task_overrides_a_stale_plan(self):
+        # 画面の plan を取ったあとに、運営が条件を切り替えた。始めたときにサーバーが返した条件を、画面に反映する
+        plan = {"fixed": {"taskId": "pyro", "label": "Pyro", "condition": "docs_only", "active": False}, "free": {"condition": "system"}}
+        out = pt.apply_started(plan, {"kind": "fixed", "taskId": "pyro", "label": "Pyro", "condition": "system"})
+        self.assertEqual(out["fixed"]["condition"], "system")
+        self.assertTrue(out["fixed"]["active"])
+        self.assertEqual(out["free"], {"condition": "system"}, "the other task is untouched")
+        self.assertIsNone(pt.apply_started(None, {"kind": "fixed", "condition": "system"}))
+        pt.apply_started(plan, {"kind": "fixed"})  # 条件が無い返事でも、壊れない・消さない
+        self.assertEqual(plan["fixed"]["condition"], "system")
+
 
 class ClientTest(unittest.TestCase):
     CFG = {"mode": "cloudflare", "cf_url": "https://w.example/", "cf_api_key": "KEY"}

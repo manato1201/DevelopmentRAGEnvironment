@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>実証実験の結果を受けた改善（前と後の差）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">資料</span>
+  <h1>実証実験の結果を受けた改善（前と後の差）</h1>
+  <div class="meta">HTML生成: 2026-11-17（元: docs/reports/pilot-feedback-2026-11-17.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-項目ごとの前と後">1. 項目ごとの前と後</a><ol><li><a href="#11-ガイド">1.1 ガイド</a></li><li><a href="#12-生成エンジン速度打ち切り品質">1.2 生成エンジン（速度・打ち切り・品質）</a></li><li><a href="#13-動画の素材houdini-側">1.3 動画の素材（Houdini 側）</a></li><li><a href="#14-動画エンジンギャラリーragreel">1.4 動画エンジン・ギャラリー（RAGReel）</a></li><li><a href="#15-パネルの画面チャット導入手順">1.5 パネルの画面・チャット・導入手順</a></li><li><a href="#16-管理画面集計課題タブ">1.6 管理画面（集計）・課題タブ</a></li></ol></li><li><a href="#2-テスト">2. テスト</a></li><li><a href="#3-残っていること">3. 残っていること</a></li><li><a href="#4-本番へ出すとき順序">4. 本番へ出すとき（順序）</a></li></ol></details></nav>
+<main>
+
+<p><strong>日付:</strong> 2026-11-17　<strong>対象:</strong> Houdini パネル（RAGReel Tutorial）、Cloudflare Worker（rag-poc）、動画エンジン・ギャラリー（RAGReel）</p>
+<p>実証実験で出た改善点（感想・要望）を、6 つの担当に分けて直した。各担当は、<strong>直す前の動きを確かめてから</strong>直し、前と後を記録した。この文書は、その全体の一覧である。詳しい根拠（原因のファイル・関数、テスト名、数値）は、担当ごとの記録にある。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>担当</th>
+<th>詳しい記録</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ガイド</td>
+<td><a href="pilot-feedback-2026-11-17/guide.md">guide.md</a></td>
+</tr>
+<tr>
+<td>生成エンジン（速度・打ち切り・品質）</td>
+<td><a href="pilot-feedback-2026-11-17/generation.md">generation.md</a></td>
+</tr>
+<tr>
+<td>動画の素材（Houdini 側）</td>
+<td><a href="pilot-feedback-2026-11-17/video-capture.md">video-capture.md</a></td>
+</tr>
+<tr>
+<td>動画エンジン・ギャラリー（RAGReel）</td>
+<td><a href="pilot-feedback-2026-11-17/video-engine.md">video-engine.md</a></td>
+</tr>
+<tr>
+<td>パネルの画面・チャット・導入手順</td>
+<td><a href="pilot-feedback-2026-11-17/panel-install.md">panel-install.md</a></td>
+</tr>
+<tr>
+<td>管理画面（集計）・課題タブ</td>
+<td><a href="pilot-feedback-2026-11-17/pilot-admin.md">pilot-admin.md</a></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>状態の読み方:</strong> 完了 = 直して、自動テストで確かめた。一部 = 直したが、確かめられない部分・やり残しがある。未対応 = 直していない（理由つき）。<strong>実機（Houdini・別 PC・ブラウザ）では、まだ、どれも確かめていない</strong>（実機が無いため）。</p>
+<h2 id="1-項目ごとの前と後">1. 項目ごとの前と後</h2>
+<h3 id="11-ガイド">1.1 ガイド</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>要望</th>
+<th>前</th>
+<th>後</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ガイドで違うオブジェクトが表示される／対応オブジェクトに追従</td>
+<td>同じ種類の別ノード（<code>scatter1</code>）を選ぶ、<code>/obj</code> 全体を探して前回の生成のノードを選ぶ、選んでからネットワークを切り替える、ピン固定のパラメータ画面を外さない、の 4 つの原因（再現テストで確認）</td>
+<td>パス一致 → 名前と種類が一致（1 つだけ）→ 同じ種類で別名（1 つだけ）の順に探す。見つからなければ理由を表示。ネットワーク切り替え → 選択 → 表示 → 確認の順にし、ピンを外す</td>
+<td>完了（偽の Houdini で確認）</td>
+</tr>
+<tr>
+<td>UI の強調表示</td>
+<td>無し</td>
+<td>ノードの選択・ネットワークエディタの寄せ・パラメータ画面の前面化。パラメータ画面内のタブ・項目の強調は、API を確かめられないため、文言（「パラメータのタブ: Sourcing &gt; Emission、項目: Run Over」）で補う</td>
+<td>一部</td>
+</tr>
+<tr>
+<td>ショートカットは最初だけ</td>
+<td>毎回、長い一覧が上に出る</td>
+<td>最初の手順だけ自動で開く。以降は折りたたみ（ボタンで開く。状態は記憶）</td>
+<td>完了</td>
+</tr>
+<tr>
+<td>パスの省略／階層の表示</td>
+<td><code>…</code> で切る。階層が分からない</td>
+<td>省略しない（長いパスは折り返す）。いまのネットワークと、この手順の場所を常に表示</td>
+<td>完了</td>
+</tr>
+<tr>
+<td>数字でなく名前で指示（チェックボックス・メニュー）</td>
+<td>「Run Over = 2」</td>
+<td>「Run Over を Detail (only once) にする」（表示名が引けないときは数字のまま）</td>
+<td>完了</td>
+</tr>
+<tr>
+<td>パラメータ先・削除・細かい調整・作業する部分・ノードの目的</td>
+<td>無い・弱い</td>
+<td>タブ・項目・内部名・変更前→後を表示。削除は「【消す】」の帯。冒頭に作業する部分。ノードの目的は、手順書の「使うノード」の節から読む（生成側が <code>purpose</code> を記録する）</td>
+<td>一部（単位は、データが無く出せない）</td>
+</tr>
+<tr>
+<td>生成後は自動でガイドを最新に</td>
+<td>切り替わりに気づかない</td>
+<td>生成の完了で、Guide タブへ自動で切り替え。切り替えない設定では、タブ名に「Guide ●」。既定はオン</td>
+<td>完了</td>
+</tr>
+<tr>
+<td>別のタブと並行して見る（ガイド側）</td>
+<td>不可</td>
+<td>「手順だけ別ウィンドウ」ボタン（手順と同期）</td>
+<td>完了</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="12-生成エンジン速度打ち切り品質">1.2 生成エンジン（速度・打ち切り・品質）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>要望</th>
+<th>前</th>
+<th>後</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>打ち切りの割合が高い</td>
+<td>打ち切りは 13/46（28%）。理由は 5 種類。実記録の未確定 2 件は、上限ではなく、<code>confirm_tutorial(false)</code> のあと直さずに止まっていた</td>
+<td>仕上げの促しを 3 段階（48・64・75 回目）に。上限後に仕上げ専用の予備 4 回。直さず止まったときの救済文。5xx・過負荷のリトライ。「弱い」という note の差し戻し</td>
+<td>一部（率が下がる量は、実機で測るまで不明）</td>
+</tr>
+<tr>
+<td>生成に時間がかかる要因・高速化（半分〜10 分の 1）</td>
+<td>時間の内訳を測る仕組みが無い。炎の竜巻の記録（833 秒）は、推定で、応答待ちなど約 408 秒、重い評価・撮影約 382 秒</td>
+<td>計測（<code>elapsed_s</code>・<code>capture</code>・<code>api_call</code> イベント、<code>slowest_steps</code>）を追加。約 10 秒のクリップは最後の 1 本だけ。独立した操作は 1 回の応答でまとめる。<code>RAG_TUTORIAL_EFFORT</code> で effort を切り替え</td>
+<td>一部（<strong>推定 20〜35% 短縮</strong>。測っていない。半分〜10 分の 1 は、品質に響く選択が要る）</td>
+</tr>
+<tr>
+<td>ノードのつなぎ方をきれいに</td>
+<td>自動の整列・まとまりが無い</td>
+<td>接続のたびに自動整列。ロックされたアセットの内側は整列しない。まとまりごとにネットワークボックス。重なりが残れば件数を報告</td>
+<td>一部（見た目は、実機確認が要る）</td>
+</tr>
+<tr>
+<td>レッスン品質チェックの見直し／省いた箇所の抜け漏れ</td>
+<td>実記録 4 件の全件で、手順書にコード全文・つなぐ順・値が欠けていた（炎の竜巻は、接続 7 本中 5 本が未記載）</td>
+<td>ツール記録から最終構成を組み立て、ノード・値・コード・接続・幻のノードの抜けを検出。抜けは、記録から機械的に補足</td>
+<td>完了</td>
+</tr>
+<tr>
+<td>竜巻ができていない</td>
+<td>題材別の基準が無い。「細い柱状で弱い」という note のまま確定していた</td>
+<td>竜巻・炎・煙・雲・RBD・リグの手がかりと達成基準。note の差し戻し</td>
+<td>一部（実際に竜巻らしくなるかは、実機確認が要る）</td>
+</tr>
+<tr>
+<td>APEX・リギングの品質確認</td>
+<td>検証項目が無い</td>
+<td>検証項目 3 つ（KineFX/APEX の使用・関節・2 フレーム以上の動き）と手がかり</td>
+<td>一部（品質は、実機確認が要る）</td>
+</tr>
+<tr>
+<td>ノード数が増えたときの構造</td>
+<td>簡約は、動画の図に効いていなかった（図が 14 ノードを超えるのは、保存済み 43 件のうち 1 件）</td>
+<td>図の折りたたみ（14 ノード超で一本道をまとめる）</td>
+<td>一部（サブネット化は未対応）</td>
+</tr>
+<tr>
+<td>手順の記録に <code>purpose</code>・<code>changes</code></td>
+<td>無い（ガイド・動画が読めない）</td>
+<td><code>purpose</code>、<code>changes</code>（<code>kind</code>・<code>menu_labels</code>・変更前→後）を記録。読む側（ガイド・動画）と結合をテスト</td>
+<td>完了</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="13-動画の素材houdini-側">1.3 動画の素材（Houdini 側）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>要望</th>
+<th>前</th>
+<th>後</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ノード数が多いと見づらい</td>
+<td>全ノードを 1 枚に収め、拡大率の下限 0.35。40 ノードの一本道で名前が 3.85pt、図が画面からはみ出す</td>
+<td>注目ノードと前後だけを、名前 12pt 以上で描く（40 ノードで 7 個表示、12.6pt）。全体図は画面内に収める</td>
+<td>一部（章ごとの全体図は、手順ごとのグラフの記録が無いため未対応。範囲の数値は推測）</td>
+</tr>
+<tr>
+<td>VEX など文字が多いところがつぶれる</td>
+<td>右の列に 11pt で 1 行ずつ「…」で切る</td>
+<td>専用カード（等幅 16pt、行番号つき、折り返し、最大 4 枚）</td>
+<td>一部（2 枚目以降をエンジンが出すまでは、1 枚目の約 16 行だけ）</td>
+</tr>
+<tr>
+<td>値を変える対象が見えない／見切れる</td>
+<td>対象の項目が写らない</td>
+<td>変更した項目のタブを前面にし、タブ名をスライドに出す</td>
+<td>一部（タブ切替は実機未確認。折りたたみ・スクロールで隠れる項目は、API 不明で未対応）</td>
+</tr>
+<tr>
+<td>ワード・位置が合っているか</td>
+<td>字幕「4にすると、最大値は約0.998になりました。」は、何を 4 にしたのか分からない</td>
+<td>字幕・解説にノード名・パラメータ名が無ければ、対象を言う 1 文を足す。台本の規則 21〜24 を追加</td>
+<td>一部（字幕の表示時刻と画面の同期は、エンジン側で未検査）</td>
+</tr>
+<tr>
+<td>パラメータ調整・作業する部分を出す</td>
+<td>無い</td>
+<td>台本の手順に <code>points</code>（パス › タブ › 項目、変更前→後）・<code>detail</code>・<code>source</code>。消す手順は「消します」と言う。メニューは表示名で言う</td>
+<td>一部（変更前の値・表示名は、生成側の記録（上の <code>changes</code>）で取れる形になった）</td>
+</tr>
+<tr>
+<td>動画の品質差 → 品質チェッカー</td>
+<td>無い</td>
+<td><code>check_video_quality</code>（error 5 種・warn 8 種・info 3 種）。台本の <code>quality</code> に書き、状態の文に「品質チェック: 要修正 N 件・注意 N 件」</td>
+<td>一部（書き出しを止める判断は、まだ入れていない）</td>
+</tr>
+<tr>
+<td>出典の重複</td>
+<td>同じ資料が 2 件ずつ</td>
+<td>台本の <code>sources</code> を、重複を除いて作る</td>
+<td>完了</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="14-動画エンジンギャラリーragreel">1.4 動画エンジン・ギャラリー（RAGReel）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>要望</th>
+<th>前</th>
+<th>後</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>15 fps・低解像度を、フル HD に／文字のつぶれ</td>
+<td>1280x720・15 fps・VP9 crf 32</td>
+<td>既定 1920x1080・30 fps（crf 30）。<code>--video-profile</code> か環境変数 <code>RAGREEL_VIDEO_PROFILE</code>（<code>1080p30</code>・<code>1080p15</code>・<code>720p30</code>・<code>720p15</code>）で選べる。QML は拡大して描き、文字を大きく。実測（短い動画）: 描画＋エンコード 16〜20 秒 → 約 58 秒、ファイル 5〜6 MB → 約 9 MB、メモリ 352 → 508 MB</td>
+<td>完了（<strong>書き出しは約 3〜4 倍遅い</strong>。長い動画は未測定）</td>
+</tr>
+<tr>
+<td>RAG 出典が「出典なし」</td>
+<td>エンジンが、チュートリアル動画で <code>rag_sources: []</code> を書いていた（Cloud RAG に直接聞かないため）</td>
+<td>チュートリアルの「## 参考」から出典を作って書く。同じ資料は 1 件に。ギャラリーは「活用／検索のみ」を出す</td>
+<td>完了（実際の動画をギャラリーで見る確認は、していない）</td>
+</tr>
+<tr>
+<td>動画サイトで、まとめて消す</td>
+<td>1 本ずつ</td>
+<td>一覧に「選択」モード。<code>DELETE /api/videos</code>（本文 <code>{"ids": [...]}</code>、鍵必須、1 回 100 本まで）。確認画面に「全 M 本のうち N 本」。全部消すときは本数の入力</td>
+<td>完了（ブラウザでの操作は未確認）</td>
+</tr>
+<tr>
+<td>書き出しの検査</td>
+<td>基準が 720p15</td>
+<td>基準を 1080p30 に。720p15・720p30・1080p15 は警告</td>
+<td>完了</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="15-パネルの画面チャット導入手順">1.5 パネルの画面・チャット・導入手順</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>要望</th>
+<th>前</th>
+<th>後</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>「保存先未設定」で保存できない</td>
+<td>参加者には「設定」タブが出ず、案内が行き止まり。文面は開発者向け。空・<code>null</code>・<code>[]</code> の設定ファイルで install が失敗。開いたまま導入すると、古い空の値が保存先を消す</td>
+<td>保存先が未設定なら、ドキュメント内の <code>RAGReelTutorial</code> を自動で使う。「保存先フォルダ」の欄を、全員に見える画面へ。設定の書き込みは一時ファイル経由で、導入済みの値を消さない。install が変な設定ファイルでも設定する。案内文を参加者向けに</td>
+<td>完了（実験 PC で空だった<strong>真の原因は、断定できていない</strong>）</td>
+</tr>
+<tr>
+<td>他 PC への導入手順の見直し／「Misc に見つからない」</td>
+<td><code>.pypanel</code> が <code>Toolbar</code> メニューにしか出ず、New Pane Tab Type に出ていなかった（有力な原因）</td>
+<td>両方のメニューに出る。読み込み失敗時は原因を画面に出す。install の終わりに自己診断（場所・登録の成否・URL とキーの有無〈値は出さない〉・保存先）を表示し、<code>install_report.txt</code> にも書く。OneDrive のドキュメントも探す。手順書に、困ったときの表・Python Shell での確認を追加</td>
+<td>完了（実機・別 PC は未確認）</td>
+</tr>
+<tr>
+<td>Houdini の版の比較（22.0.429・459・504）</td>
+<td>—</td>
+<td>手順書に確認手順と記録表の欄だけ作った</td>
+<td><strong>未対応</strong>（実機が無い）</td>
+</tr>
+<tr>
+<td>チャット: 外部 URL のリンク</td>
+<td>文字のまま</td>
+<td>クリックで外部ブラウザへ。<code>javascript:</code> などはリンクにしない</td>
+<td>完了</td>
+</tr>
+<tr>
+<td>チャット: ノードの外部リンク</td>
+<td>無い</td>
+<td>回答のノード名から、SideFX 公式ドキュメントのリンク。公式のノード一覧の 4058 件をデータにし、60 件を確認（全件 HTTP 200）。一覧に無い名前は、公式サイトの検索リンク</td>
+<td>完了（三輪さんのデータは、リポジトリ内に見つからなかった。リンクは最新版のページ）</td>
+</tr>
+<tr>
+<td>タブが並行して見られない／設定タブが同じ比重</td>
+<td>設定・接続・History が、他のタブと同じ並び</td>
+<td>タブは「はじめに・Chat・Docs・Guide・Tutorial・動画（課題は参加者だけ）」に。History・接続・設定・デバッグは、右上の歯車メニューへ。歯車に「別ウィンドウで開く」「並べて見る方法」</td>
+<td>一部（1 つのパネルの中で 2 タブを並べる機能は未対応。案のみ）</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="16-管理画面集計課題タブ">1.6 管理画面（集計）・課題タブ</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>要望</th>
+<th>前</th>
+<th>後</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>アンケートの自由記述・計測値を、Cloudflare で見たい</td>
+<td>D1 には入っていたが、画面に 1 件ずつの表が無く、自由記述は CSV にしか出ない。開始・終了の時刻と中断は、取り出していなかった</td>
+<td>「実証実験」に「回答の一覧」（番号・回・種類・題材・条件・開始・終了・所要・中断・質問数・cook エラー・自己申告のミス・到達・アンケート 6 項目・やり直し・自由記述）。事前アンケートの表も。CSV に開始・終了・中断の列。管理者だけ。HTML は <code>textContent</code>（<code>&lt;img onerror&gt;</code> が文字のまま返ることをテスト）</td>
+<td>完了（本番に未反映）</td>
+</tr>
+<tr>
+<td>課題タブ: ドキュメントのみ／ツール使用を選べる</td>
+<td>参加者番号から、機械的に決まる</td>
+<td>管理画面で「自動（番号から半々）」「全員ツール使用」「全員ドキュメントのみ」を切り替え（<code>pilot_config</code> の <code>condition_mode</code>）。<strong>既定は自動のまま</strong>。開始済みの人は、そのまま。課題カードに「［ツール使用］／［ドキュメントのみ］」</td>
+<td>完了（本番での切り替えは、あなたが行う）</td>
+</tr>
+<tr>
+<td>比較の集計</td>
+<td>片方の群が 0 件でも差を出す</td>
+<td>片方が 0 件なら「比較できない」と理由を出す。自由課題は比較に入れない</td>
+<td>完了</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-テスト">2. テスト</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>対象</th>
+<th>変更前</th>
+<th>変更後</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Houdini（<code>unittest discover</code>）</td>
+<td>467 件</td>
+<td><strong>759 件、すべて成功</strong></td>
+</tr>
+<tr>
+<td>Worker（<code>npm test</code>・型検査）</td>
+<td>33 件</td>
+<td><strong>34 件、すべて成功</strong>（型検査にエラー無し）</td>
+</tr>
+<tr>
+<td>ギャラリー Worker（<code>npm test</code>）</td>
+<td>—</td>
+<td>18 件、すべて成功</td>
+</tr>
+<tr>
+<td>RAGReel（C++）</td>
+<td>—</td>
+<td><code>video_profile_tests</code> 7、<code>manifest_writer_tests</code> 16、<code>script_composer_tests</code> 33、<code>narration_tests</code> 52、<code>cloud_rag_client_tests</code> 4 が成功。ビルドにエラー無し</td>
+</tr>
+<tr>
+<td>動画の検査（<code>tools/tests</code>）</td>
+<td>—</td>
+<td>26 件、すべて成功</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-残っていること">3. 残っていること</h2>
+<p><strong>この回では、つなげていない（担当の境界で止まった）もの</strong><br />
+- 動画の品質チェッカーの判定を、書き出しの前に使う（<code>tutorial_view.py</code> で、<code>script["quality"]["ok"]</code> を見る）。<br />
+- VEX の 2 枚目以降の画像（<code>network_pages</code>）を、エンジンが動画に出す。出さないと、1 枚目の約 16 行だけが出る。<br />
+- エンジンが自動アップロードするとき以外の、Houdini の「動画」タブの手動アップロードで、出典を渡す（<code>tutorial_dirs</code> を渡す）。<br />
+- Mermaid の図を 2 倍の画素にする（<code>ingest/script_composer.cpp</code> の <code>renderMermaidToPng</code> に <code>-s 2</code>）。1080p で効く。<br />
+- 生成の「3 段階連続生成」を続けるか（時間が段の数だけ掛かる）。あなたの判断。</p>
+<p><strong>実機でしか確認できないもの</strong><br />
+- ガイド: <code>editor.setCurrentNode</code>・<code>hou.ui.paneTabOfType</code>・ピンの解除・階層表示の更新タイマー。<br />
+- パネル: <code>includeInPaneTabMenu</code> で New Pane Tab Type に出ること、<code>createFloatingPaneTab</code>。<br />
+- 動画: ネットワークエディタの範囲の数値（推測）、パラメータのタブ切替、文字サイズ（12pt・16pt）が 1080p で読めるか、1000px のしきい値。<br />
+- 生成: 竜巻・APEX・リギングの品質、ノードの整列の見た目、短縮の実測。<br />
+- 導入: OneDrive のドキュメントの PC。<br />
+- 管理画面・ギャラリーのブラウザでの見え方（回答の一覧は、最小幅 1500px の横に広い表）。</p>
+<h2 id="4-本番へ出すとき順序">4. 本番へ出すとき（順序）</h2>
+<p>まだ、コミット・デプロイは、していない（あなたの指示を待っている）。</p>
+<ol>
+<li><strong>コミット・push</strong>（2 つのリポジトリ）。</li>
+<li><strong>Worker のデプロイ</strong>（<code>cloudflare-rag-poc</code>）。<strong>新しいマイグレーションは無い</strong>（最新は 0037 のまま）。デプロイ後、管理画面で「全員ツール使用」に切り替える（今回はツール使用で行うため）。</li>
+<li><strong>ギャラリー Worker のデプロイ</strong>（<code>RAGReel/cloudflare/ragreel-gallery</code>）。まとめて削除が、本番に出る。</li>
+<li><strong>RAGReel のインストーラーの作り直し</strong>（動画がフル HD・30 fps になるため。書き出しが遅くなることを、利用者に伝える）。</li>
+<li><strong>Houdini 22.0 へのパネルの配置</strong>と、<strong>配布 zip の作り直し</strong>。</li>
+<li>他 PC では、新しい zip で <code>install.cmd</code> を実行し直す。</li>
+</ol>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

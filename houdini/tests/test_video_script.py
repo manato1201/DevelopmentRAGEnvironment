@@ -36,6 +36,11 @@ def make_steps(tmp: Path) -> list[dict]:
     ]
 
 
+# 解説の最初の文で、対象（ノード名・パラメータ名）を言う（2026-11-17。字幕に、何の値か分からない文を出さないため）
+TARGETS = {
+    1: "geo1を作ります。", 2: "emitを作ります。", 3: "emitの「Run Over」を変えます。",
+    4: "emitの出力を、merge1につなぎます。", 5: "merge1をクックします。",
+}
 GOOD_STEP = "ここでは、点を作るための準備をします。ジオメトリノードは、形を作るための作業場所です。まず、この中に入って作業を始めましょう。"
 
 
@@ -43,7 +48,7 @@ def good_model(steps: list[dict]) -> dict:
     return {
         "intro": {"narration": "この動画では、点をたくさん並べて、円盤の形を作ります。はじめての方でも、順番にやれば大丈夫です。",
                   "points": ["点で円盤を作る", "ノードのつなぎ方を知る", "三つ目は使われない"]},
-        "steps": [{"step": s["step"], "heading": f"手順{s['step']}の見出し", "narration": GOOD_STEP, "points": ["短い文"]} for s in steps],
+        "steps": [{"step": s["step"], "heading": f"手順{s['step']}の見出し", "narration": TARGETS.get(s["step"], "") + GOOD_STEP, "points": ["短い文"]} for s in steps],
         "structure": {"narration": "ここまでの流れを、上から下へ順に見てみましょう。点を作って、まとめて、結果を確かめています。"},
         "outro": {"narration": "お疲れさまでした。次は、数字を変えて、形がどう変わるかを試してみましょう。", "points": ["数字を変えてみる"]},
     }

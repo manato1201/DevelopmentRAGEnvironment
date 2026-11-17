@@ -297,7 +297,7 @@ class HoudiniActionsTest(unittest.TestCase):
         hou = make_hou()
         messages = gm.apply_step(hou, steps[3])  # set_parameter
         self.assertEqual(hou.fake.parm.shown, 1)
-        self.assertTrue(any("示したノード: scatter1" in m for m in messages))
+        self.assertTrue(any("示したノード: /obj/geo1/scatter1" in m for m in messages), "the full path is shown")
         hou = make_hou()
         gm.apply_step(hou, steps[2])  # connect: 両方を選ぶ
         self.assertTrue(hou.fake.grid.selected and hou.fake.scatter.selected)

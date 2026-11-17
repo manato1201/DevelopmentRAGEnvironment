@@ -111,7 +111,7 @@ class RAGClient:
         if self.cfg["mode"] == "cloudflare":
             base = _cf_base(self.cfg)
             if not base:
-                raise RuntimeError("Cloudflare の URL が未設定です（設定タブで入力してください）")
+                raise RuntimeError("Cloudflare の URL が未設定です（右上の歯車メニューの「接続・アカウント」で入力してください）")
             body: dict = {
                 "query": query,
                 # Worker は {role, content} 形式。パネルの履歴は {role, text}。

@@ -87,6 +87,59 @@ def find_local_entry(output_dir: Path, video_path: Path) -> dict | None:
     return None
 
 
+# ─── 出典（RAG 出典）。ギャラリーの「出典なし」対策（2026-11-17） ───────────────────────────────────────────
+# 原因（確認したこと）: 動画エンジンの main_cloudrag.cpp は、Houdini のチュートリアルから作るとき、検索の問い合わせをしないので
+#   response.sources が空のまま、detail.ragSources = response.sources で metadata.json の "rag_sources": [] を書く。
+#   ギャラリー（RAGReel/web/public/app.js の sourcesHTML）は、空なら「出典なし」と出す。つまり、出典が metadata に入っていない。
+# 送る側の対応: 台本（<slug>_video_script.json）の "sources"（video_script.dedupe_sources の出力。キーは rag_sources と同じ）を、
+#   metadata の "rag_sources" が空のときに、送る直前に入れる。キー: file / namespace / cited（true=活用・false=検索のみ）/ similarity / excerpt。
+#   動画エンジンが metadata.json に自分で入れるようになれば、ここは何もしない（空でないときは、触らない）。
+
+HOUDINI_TUTORIAL_PREFIX = "houdini-tutorial:"
+
+
+def sources_from_script(script_path: Path) -> list[dict]:
+    """台本（<slug>_video_script.json）の "sources" を読む。無い・読めないときは空のリスト。"""
+    try:
+        data = json.loads(Path(script_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    items = data.get("sources") if isinstance(data, dict) else None
+    return [x for x in items if isinstance(x, dict) and x.get("file")] if isinstance(items, list) else []
+
+
+def find_script_sources(entry: dict, search_dirs: Iterable[Path]) -> list[dict]:
+    """動画の項目（manifest.json の 1 件。"source_tutorial": "houdini-tutorial:<md の名前>"）に対応する台本を探し、その出典を返す。
+    search_dirs: チュートリアルの保存先（<名前>_video_script.json があるフォルダ）。見つからなければ空のリスト。"""
+    source = str(entry.get("source_tutorial") or entry.get("sourceTutorial") or "")
+    if not source.startswith(HOUDINI_TUTORIAL_PREFIX):
+        return []
+    stem = source[len(HOUDINI_TUTORIAL_PREFIX):].strip()
+    if not stem or any(c in stem for c in ("/", "\\", "..")):  # フォルダの外の台本を読まない（manifest.json の値は、信用しない）
+        return []
+    for folder in search_dirs:
+        found = sources_from_script(Path(folder) / f"{stem}_video_script.json")
+        if found:
+            return found
+    return []
+
+
+def merge_rag_sources(metadata_text: str, sources: list[dict]) -> str:
+    """metadata.json の本文の "rag_sources" が空（または無い）ときだけ、sources を入れて返す。すでにあるときは、そのまま。"""
+    if not sources:
+        return metadata_text
+    try:
+        meta = json.loads(metadata_text)
+    except ValueError:
+        return metadata_text
+    if not isinstance(meta, dict) or meta.get("rag_sources"):
+        return metadata_text
+    meta["rag_sources"] = [
+        {k: v for k, v in x.items() if k in ("file", "namespace", "cited", "similarity", "excerpt")} for x in sources
+    ]
+    return json.dumps(meta, ensure_ascii=False)
+
+
 # ─── 送信 ───────────────────────────────────────────────────────────────────
 
 def _connection(base_url: str, timeout: float) -> tuple[http.client.HTTPConnection, str]:
@@ -207,11 +260,13 @@ def upload_entry(
     entry: dict,
     timeout: float = 600,
     progress: Callable[[int, int], None] | None = None,
+    sources: list[dict] | None = None,
 ) -> int:
     """
     output/ の1本（entry）を、ギャラリーへ送る。失敗は GalleryUploadError（メッセージはそのまま画面に出せる）。
     動画が無い・大きすぎる・認証できない・通信できない、のいずれでも、他の動画には影響しない。
     progress(送ったバイト数, 全体のバイト数) が、送りながら呼ばれる（どのスレッドから呼ばれても構わない作りにすること）。
+    sources: 出典（台本の "sources"）。metadata の rag_sources が空のときだけ、送る本文に入れる（merge_rag_sources）。
     戻り値: 送ったバイト数（本文の全体）。
     """
     if not base_url.strip() or not token.strip():
@@ -232,6 +287,7 @@ def upload_entry(
         metadata_text = json.dumps(entry, ensure_ascii=False)
     except ValueError as exc:
         raise GalleryUploadError(f"metadata.json が壊れています: {meta} ({exc})") from exc
+    metadata_text = merge_rag_sources(metadata_text, sources or [])
 
     files: list[tuple[str, Path, str, str]] = [("video", video, "video.webm", "video/webm")]
     if thumb.is_file():
@@ -297,12 +353,14 @@ def upload_missing(
     only_ids: set[str] | None = None,
     progress: Callable[[str], None] | None = None,
     on_bytes: Callable[[int, int, str], None] | None = None,
+    tutorial_dirs: Iterable[Path] | None = None,
 ) -> dict[str, list]:
     """
     output/ の中で、まだギャラリーに無い動画（only_ids があれば、その id のうち、無いもの）を、古い順に送る。
     戻り値: {"uploaded": [id…], "skipped": [id…]（すでにある）, "failed": [(id, 理由)…]}。
     1本の失敗で止めず、残りを続ける（認証エラーだけは、全部が同じ結果になるので、そこで止める）。
     on_bytes(送った合計, 送る合計, 題名) は、全体の進み具合（プログレスバー用）。送る合計は、送る対象のファイルの大きさの和。
+    tutorial_dirs: チュートリアルの保存先。あれば、各動画の台本から出典を探し、metadata に出典が無いときに入れる（ギャラリーの「出典なし」対策）。
     """
     say = progress or (lambda _msg: None)
     existing = fetch_gallery_ids(base_url)
@@ -334,7 +392,8 @@ def upload_missing(
                 if on_bytes:
                     on_bytes(min(base + sent, total_bytes), total_bytes, label)
 
-            done_bytes += upload_entry(base_url, token, output_dir, entry, progress=_file_progress)
+            found = find_script_sources(entry, list(tutorial_dirs or []))
+            done_bytes += upload_entry(base_url, token, output_dir, entry, progress=_file_progress, sources=found)
             result["uploaded"].append(vid)
         except GalleryUploadError as exc:
             result["failed"].append((vid, str(exc)))
@@ -365,5 +424,6 @@ def describe_result(result: dict[str, list]) -> str:
 
 __all__ = [
     "GalleryUploadError", "MAX_UPLOAD_BYTES", "describe_result", "entry_files", "fetch_gallery_ids",
-    "find_local_entry", "gallery_env", "output_dir_for", "read_local_manifest", "upload_entry", "upload_missing",
+    "find_local_entry", "find_script_sources", "gallery_env", "merge_rag_sources", "output_dir_for", "read_local_manifest",
+    "sources_from_script", "upload_entry", "upload_missing",
 ]

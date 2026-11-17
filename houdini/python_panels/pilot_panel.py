@@ -297,10 +297,9 @@ class PilotTaskPanel(QWidget):
             return
         for kind in ("fixed", "free"):
             item, card = plan[kind], self._cards[kind]
-            optional = "（任意）" if item.get("optional") else ""  # 自由課題は任意（時間が余った人だけ）
-            card["title"].setText(f"{pt.KIND_TEXT[kind]}{optional}: {item['label']}")
+            card["title"].setText(pt.format_task_title(kind, item))  # 条件（ツール使用／ドキュメントのみ）は、サーバーの値のまま出す
             card["condition"].setText(pt.CONDITION_TEXT.get(item["condition"], ""))
-            card["condition"].setStyleSheet("color:#fbbf24;" if item["condition"] == "docs_only" else "color:#cbd5e1;")
+            card["condition"].setStyleSheet("color:#fbbf24;font-weight:bold;" if item["condition"] == "docs_only" else "color:#34d399;font-weight:bold;")
             card["criterion"].setText(f"到達の基準: {plan.get('criterion', '')}" if kind == "fixed" else "自分が作りたいものを題材にしてください。")
             running = bool(self._active and self._active["kind"] == kind)
             card["start"].setText("続きから開始" if item.get("active") and not running else "開始")
@@ -372,6 +371,7 @@ class PilotTaskPanel(QWidget):
             "condition": started["condition"], "label": started["label"], "pausedSec": paused,
         }
         self._pending_end = None
+        pt.apply_started(self._plan, started)  # 運営が条件を切り替えていても、実際に記録された条件を出す
         self._sampler.reset()
         self._sampler.restore(paths)
         self._on_sample()

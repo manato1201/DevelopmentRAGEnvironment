@@ -69,11 +69,15 @@ from rag_client import RAGClient, migrate_config as _migrate_config
 from panel_info import EXPLAIN_CHOICES as _EXPLAIN_CHOICES, format_explain as _format_explain, format_growth as _format_growth, format_user as _format_user, friendly_error as _friendly_error, is_setup_user as _is_setup_user, summarize_sources as _summarize_sources
 from panel_widgets import CollapsibleBox as _CollapsibleBox, ui_state_get as _ui_state_get, ui_state_set as _ui_state_set
 import panel_debug as _debug
+import node_links as _node_links
+import panel_nav as _nav
+import panel_paths as _paths
 from pilot_panel import PilotTaskPanel as _PilotTaskPanel
 from rag_client import post_json as _post_json
 from rag_client import _cf_base as _cf_base_url
 from panel_actions import Speaker as _Speaker, action_button as _action_button, normalize_fonts as _normalize_fonts, set_active as _action_set_active
-from PySide6.QtCore import Qt, QSize, QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QSize, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -81,12 +85,16 @@ from PySide6.QtWidgets import (
     QLabel,
     QApplication,
     QLineEdit,
+    QMenu,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QStackedWidget,
     QTabWidget,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -120,27 +128,76 @@ _DEFAULT_CONFIG = {
     "gallery_auto_upload": True,   # 動画生成の完了時に、自動でギャラリーへ上げる
 }
 
+def _read_config_file(path: Path) -> tuple[dict | None, str]:
+    """設定ファイルを読む。戻り値は (設定, 読めなかった理由)。無いときは (None, "")。
+
+    BOM つき（メモ帳で保存したもの）も読む。空のファイル・壊れた JSON・オブジェクトでない JSON は、
+    理由つきで None を返す（呼び出し側が、既定の設定で続ける。以前は、これらが黙って「設定が空」になっていた）。
+    """
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        return None, ""
+    except OSError as exc:
+        return None, f"設定ファイルを読めません（{exc.__class__.__name__}）"
+    if not text.strip():
+        return None, "設定ファイルが空です"
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        return None, f"設定ファイルが壊れています（{exc}）"
+    if not isinstance(data, dict):
+        return None, "設定ファイルの形が違います（{ ... } の形ではありません）"
+    return data, ""
+
+
 def _load_config() -> dict:
     """
     設定ファイルを読み込む。
-    ファイルが存在しない or 壊れている場合はデフォルト設定を返す。
+    ファイルが存在しない or 壊れている場合はデフォルト設定を返す（理由は、歯車メニューの「デバッグ」の記録に残す）。
     既存設定とデフォルトをマージするので、新しいキーが追加されても後方互換を保てる。
+    保存先（local_bridge_dir）が未設定なら、既定の場所（ドキュメント内の RAGReelTutorial フォルダ）を使う（panel_paths）。
     """
-    if _CONFIG_PATH.exists():
-        try:
-            with open(_CONFIG_PATH, encoding="utf-8") as f:
-                cfg = json.load(f)
-            return _migrate_config({**_DEFAULT_CONFIG, **cfg})  # デフォルトに既存設定を上書きマージ
-        except Exception:
-            pass
-    return dict(_DEFAULT_CONFIG)
+    data, note = _read_config_file(_CONFIG_PATH)
+    if note:
+        _debug.log("設定", f"{note}: {_CONFIG_PATH}。既定の設定で続けます。")
+    cfg = _migrate_config({**_DEFAULT_CONFIG, **data}) if data is not None else dict(_DEFAULT_CONFIG)
+    result = _paths.apply_default_data_dir(cfg)
+    if result["source"] == "default":
+        _debug.log("設定", f"保存先が未設定のため、既定の場所を使います: {result['path']}")
+    elif result["error"] and cfg.get("mode") != "local":
+        _debug.log("設定", f"保存先を用意できません: {result['error']}")
+    return cfg
 
 
-def _save_config(cfg: dict) -> None:
-    """設定を JSON ファイルに書き込む。ディレクトリが存在しない場合は作成する。"""
+def _save_config(cfg: dict, dir_edited: bool = False) -> None:
+    """
+    設定を JSON ファイルに書き込む。ディレクトリが存在しない場合は作成する。
+    途中で失敗しても、元のファイルを壊さない（一時ファイルに書いてから置き換える。以前は、途中で失敗すると、空のファイルが残り得た）。
+    保存先は、ファイルにある別の値（インストーラーが入れたもの）を、手元の空・既定の値で消さない（panel_paths.choose_to_save）。
+    ただし、利用者が画面で保存先を変えた・空にしたとき（dir_edited=True）は、その値をそのまま書く。
+    いまのファイルが壊れているときは、上書きする前に、元の中身を「.broken」の名前で残す（手で直せるように）。
+    """
+    on_disk, note = _read_config_file(_CONFIG_PATH)
+    if not dir_edited:
+        cfg["local_bridge_dir"] = _paths.choose_to_save(cfg.get("local_bridge_dir"), (on_disk or {}).get("local_bridge_dir"))
     _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    if on_disk is None and ("壊れて" in note or "形が違" in note):  # 空のファイル・読めないファイルは、残さない
+        try:
+            _os.replace(_CONFIG_PATH, _CONFIG_PATH.with_name(_CONFIG_PATH.name + ".broken"))
+        except OSError:
+            pass
+    temp = _CONFIG_PATH.with_name(_CONFIG_PATH.name + ".tmp")
+    try:
+        with open(temp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        _os.replace(temp, _CONFIG_PATH)
+    finally:
+        if temp.exists():
+            try:
+                temp.unlink()
+            except OSError:
+                pass
 
 
 # ─── RAG クライアント ─────────────────────────────────────────────────────────
@@ -261,7 +318,7 @@ class BridgeStartWorker(QThread):
     def run(self) -> None:
         bridge_dir = self._cfg.get("local_bridge_dir", "")
         if not bridge_dir:
-            self.failed.emit("local_bridge_dir が設定されていません（設定タブの Local RAG で指定してください）")
+            self.failed.emit("保存先フォルダ（ブリッジのあるフォルダ）が設定されていません（歯車メニュー → 接続・アカウント → 保存先フォルダ）")
             return
 
         port = self._cfg["local_port"]
@@ -331,17 +388,49 @@ def _answer_markdown(question: str, answer: str, sources: list) -> str:
     return chr(10).join(lines).strip() + chr(10)
 
 
+LINK_COLOR = _node_links.LINK_COLOR  # 暗い背景で読めるリンクの色
+
+
+def open_external_url(url: str) -> bool:
+    """外部ブラウザで URL を開く。http / https 以外（javascript: など）は、開かない。"""
+    if not _node_links.is_safe_url(url):
+        _debug.log("リンク", f"開けない URL を止めました: {url[:80]}")
+        return False
+    return bool(QDesktopServices.openUrl(QUrl(url)))
+
+
+def make_links_clickable(label: QLabel) -> None:
+    """リッチテキストのラベルの、リンクを、クリックで外部ブラウザに開く（Qt 任せにせず、URL を検査してから開く）。"""
+    label.setTextFormat(Qt.RichText)
+    label.setOpenExternalLinks(False)
+    label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse)
+    palette = label.palette()
+    palette.setColor(QPalette.Link, QColor(LINK_COLOR))
+    palette.setColor(QPalette.LinkVisited, QColor("#c4b5fd"))
+    label.setPalette(palette)
+    label.linkActivated.connect(open_external_url)
+    label.linkHovered.connect(lambda url, w=label: w.setToolTip(url or ""))  # 開く前に、行き先を確かめられる
+
+
 class ChatBubble(QLabel):
     """
     1件のメッセージをバブル形式で表示するラベル。
     ユーザー発言は青系背景・右寄せ、RAG 回答はグレー背景・左寄せ で視覚的に区別する。
     テキスト選択を有効にしてコピーできるようにしている。
+    rich_links=True（RAG の回答）のときは、回答の中の http(s) の URL を、クリックできるリンクにする
+    （外部ブラウザで開く。文字は、すべてエスケープする）。それ以外は、文字のまま表示する（< や > があっても、タグにならない）。
     """
 
-    def __init__(self, text: str, is_user: bool) -> None:
-        super().__init__(text)
+    def __init__(self, text: str, is_user: bool, rich_links: bool = False) -> None:
+        super().__init__()
         self.setWordWrap(True)
-        self.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        if rich_links:
+            self.setText(_node_links.linkify_html(text))
+            make_links_clickable(self)
+        else:
+            self.setTextFormat(Qt.PlainText)
+            self.setText(text)
+            self.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
 
         bg    = "#2a4a7f" if is_user else "#3a3a3a"
@@ -363,7 +452,9 @@ _CONNECTION_CHECK_INTERVAL_MS = 20_000  # 自動再チェックの間隔（ミ�
 
 
 class _ConnectionLamp(QWidget):
-    """接続状態を丸いランプ（色）+ テキストで示すインジケータ。"""
+    """接続状態を丸いランプ（色）+ テキストで示すインジケータ。クリックすると、接続の画面（歯車メニュー内）を開く。"""
+
+    clicked = Signal()
 
     _COLORS = {"ok": "#22c55e", "fail": "#ef4444", "checking": "#f59e0b"}
     _LABELS = {"ok": "接続OK", "fail": "接続なし", "checking": "確認中…"}
@@ -387,8 +478,14 @@ class _ConnectionLamp(QWidget):
         self._dot.setStyleSheet(f"background:{color};border-radius:5px;")
         self._text.setText(f"{mode_label} {label}".strip())
         self.setToolTip(
-            "Cloudflare: Worker の /health への疎通 / Local: ブリッジの /health を定期確認しています"
+            "Cloudflare: Worker の /health への疎通 / Local: ブリッジの /health を定期確認しています\n"
+            "クリックすると、接続・アカウントの画面を開きます"
         )
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self, event) -> None:  # noqa: D102 -- Qt override
+        self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 # ─── サイズヒント固定コンテナ ─────────────────────────────────────────────────
@@ -452,6 +549,7 @@ class RAGChatbotPanel(QWidget):
         self._last_health: tuple[float, bool] | None = None
         self._last_user_info: dict | None = None
         self._last_growth: dict | None = None
+        self._current_sub = ""           # 歯車メニューの中の画面を開いているとき、そのキー（タブの画面なら ""）
 
         self._build_ui()
         self._ensure_bridge()  # Local モードなら起動確認
@@ -502,17 +600,21 @@ class RAGChatbotPanel(QWidget):
         tabs.addTab(self._wrap_tab(self._build_docs_tab()),     "Docs")
         tabs.addTab(self._wrap_tab(self._build_guide_tab()),    "Guide")
         tabs.addTab(self._tutorial_tab_wrapper,                 "Tutorial")
-        tabs.addTab(self._wrap_tab(self._build_history_tab()),  "History")
         tabs.addTab(self._video_tab_wrapper,                    "動画")
-        # 「課題」タブ（実証実験の参加者向け）。接続タブの「実証実験に参加する」を入れたときだけ表示する（既定は非表示）。
+        # 「課題」タブ（実証実験の参加者向け）。歯車メニュー「接続・アカウント」の「実証実験に参加する」を入れたときだけ表示する（既定は非表示）。
         self._pilot_panel = _PilotTaskPanel(lambda: self._cfg)
         self._pilot_tab_idx = tabs.addTab(self._wrap_tab(self._pilot_panel, scrollable=True), "課題")
         tabs.setTabVisible(self._pilot_tab_idx, bool(_ui_state_get("pilot_enabled", False)))
-        # 一般ユーザーが使う画面は「接続」まで。「設定」と「デバッグ」は、設定者（admin / editor）にだけ出す
-        # （_apply_role_visibility）。サーバー側の権限が正で、これは画面の出し分け。
-        tabs.addTab(self._wrap_tab(self._build_connection_tab(), scrollable=True), "接続")
-        self._settings_tab_idx = tabs.addTab(self._wrap_tab(self._build_settings_tab(), scrollable=True), "設定")
-        self._debug_tab_idx = tabs.addTab(self._wrap_tab(self._build_debug_tab(), scrollable=True), "デバッグ")
+        # ふだん使わない画面（履歴・接続・設定・デバッグ）は、タブに並べず、右上の歯車メニューの中に置く
+        # （2026-11-17 実証実験の感想: 設定のタブが、ふだん使うタブと同じ重さで目立っていた）。
+        # 「設定」と「デバッグ」は、設定者（admin / editor）にだけ出す（_apply_role_visibility）。
+        # サーバー側の権限が正で、これは画面の出し分け。
+        self._sub_wrappers = {
+            "history": self._wrap_tab(self._build_history_tab()),
+            "connection": self._wrap_tab(self._build_connection_tab(), scrollable=True),
+            "settings": self._wrap_tab(self._build_settings_tab(), scrollable=True),
+            "debug": self._wrap_tab(self._build_debug_tab(), scrollable=True),
+        }
         tabs.currentChanged.connect(self._on_tab_changed)
         self._tabs = tabs  # /tutorial コマンドでのタブ切り替えに使う
 
@@ -532,9 +634,15 @@ class RAGChatbotPanel(QWidget):
         lamp_row.addWidget(self._user_label)
         lamp_row.addStretch()
         lamp_row.addWidget(self._conn_lamp)
+        self._conn_lamp.clicked.connect(lambda: self._show_sub("connection"))
+        lamp_row.addWidget(self._build_gear_button())
         root.addLayout(lamp_row)
 
-        root.addWidget(tabs, stretch=1)
+        # 0: タブの画面 / 1: 歯車メニューの中の画面（戻るボタンつき）
+        self._main_stack = QStackedWidget()
+        self._main_stack.addWidget(tabs)
+        self._main_stack.addWidget(self._build_sub_view())
+        root.addWidget(self._main_stack, stretch=1)
 
         # 下部ステータスバー（接続状態や参照ドキュメントを表示）
         self._status = QLabel("")
@@ -589,9 +697,9 @@ class RAGChatbotPanel(QWidget):
 
 <h2>はじめの3ステップ</h2>
 <ol>
-<li><b>接続を確認する</b> — タブバー右端に「Local 接続OK」または「Cloudflare 接続OK」の
-緑ランプが出ているか確認してください。赤色（接続なし）の場合は
-<code>接続</code> タブで URL と APIキーを確認し、「保存して接続を確認」を押してください。</li>
+<li><b>接続を確認する</b> — 右上に「Local 接続OK」または「Cloudflare 接続OK」の
+緑ランプが出ているか確認してください。赤色（接続なし）の場合は、ランプをクリックするか、
+右上の歯車 → <code>接続・アカウント</code> で URL と APIキーを確認し、「保存して接続を確認」を押してください。</li>
 <li><b>まず Chat タブで質問してみる</b> — 例:「mountainノードの使い方は？」と入力して
 <code>Ctrl+Enter</code>（または「送信」ボタン）で聞いてみてください。</li>
 <li><b>慣れたら Tutorial タブでチュートリアル生成を試す</b> — トピックを1行で入力
@@ -603,28 +711,40 @@ class RAGChatbotPanel(QWidget):
 <h2>各タブの役割</h2>
 <ul>
 <li><b>Chat</b> — ナレッジベースに質問して回答を得る通常のチャット。<code>/tutorial ＜トピック＞</code>
-と入力すると Tutorial タブに切り替わりその場で生成を開始できます。</li>
+と入力すると Tutorial タブに切り替わりその場で生成を開始できます。回答の中の URL はリンクになり、
+クリックすると外部ブラウザで開きます。ノードの名前（Pyro Solver など）が出てきたときは、回答の下に、
+SideFX の公式ドキュメントへのリンクが出ます。</li>
 <li><b>Docs</b> — ナレッジベースに入っているドキュメントを探して読むタブ。「意味で検索」は関連度の高い順、
 「名前で絞る」は名前の部分一致で並べます。クリックすると本文が開き、長いときは「続きを読む」で追加できます。
 チュートリアルの「参考」に出る名前（出典）の中身も、ここで確かめられます。Cloudflare モードで使えます。</li>
 <li><b>Tutorial</b> — トピックを入力してチュートリアルを自動生成するタブ。生成結果は
 プレビュー表示されるだけで、「保存」を押すまでファイルには書き込まれません。</li>
-<li><b>History</b> — 保存済みチュートリアルの一覧と、実際に組み立てられたノード
+<li><b>動画</b> — 生成した動画の一覧。「ダッシュボードへアップロード」で、
+ダッシュボードの動画ページ（ギャラリー）に載せられます。</li>
+</ul>
+
+<h2>右上の歯車メニュー（ふだん使わない画面）</h2>
+<ul>
+<li><b>保存したチュートリアル（History）</b> — 保存済みチュートリアルの一覧と、実際に組み立てられたノード
 グラフのビューア。「簡易」は直列に繋がったノードを1つにまとめた要約表示、
 「詳細」は全ノードをそのまま表示するモードです（マウスホバーで各ボタンの
 説明が出ます）。</li>
-<li><b>動画</b> — 生成した動画の一覧。「ダッシュボードへアップロード」で、
-ダッシュボードの動画ページ（ギャラリー）に載せられます。</li>
-<li><b>接続</b> — あなたの情報（ユーザー名・役割）と、Worker の URL / APIキー、チャットで検索するナレッジ、動画ギャラリーの接続。</li>
+<li><b>接続・アカウント</b> — あなたの情報（ユーザー名・役割）と、Worker の URL / APIキー、チャットで検索するナレッジ、
+<b>保存先フォルダ</b>（チュートリアル・動画・記録の置き場所。空欄ならドキュメント内の RAGReelTutorial フォルダ）、動画ギャラリーの接続。</li>
 <li><b>設定・デバッグ</b>（設定者だけに表示） — チュートリアル生成のモデル・検索するナレッジ、Local RAG の設定と、
 接続の詳細・記録（ログ）。</li>
+<li><b>このパネルを別ウィンドウで開く</b> — タブを切り替えずに、<b>別のタブを並べて見る</b>ためのものです。
+たとえば、片方で Guide を見ながら、もう片方で Chat に質問できます。Houdini のペインを分けて、
+もう 1 つ「RAGReel Tutorial」を開いても、同じことができます（「並べて見る方法」を選ぶと、手順が出ます）。</li>
 </ul>
 
 <h2>よくある詰まりポイント</h2>
 <ul>
 <li><b>ランプが赤い（接続なし）</b> — Local モードならブリッジ（<code>rag_local_bridge.py</code>）
-が起動しているか確認してください。<code>設定</code> タブの「Local RAG」にある「ブリッジ再起動」で
+が起動しているか確認してください。歯車メニューの <code>設定</code> の「Local RAG」にある「ブリッジ再起動」で
 自動起動を試みます。Cloudflare モードなら Worker の URL / APIキー の設定を見直してください。</li>
+<li><b>「保存先未設定」と出る</b> — 通常は、ドキュメント内の RAGReelTutorial フォルダに自動で保存します。
+出たときは、歯車 → <code>接続・アカウント</code> の「保存先フォルダ」に、書き込める場所を入力して保存してください。</li>
 <li><b>チュートリアル生成が途中で打ち切られる</b> — 抽象的すぎるトピック
 （例: 具体的なノードで表現しにくい題材）だと、Houdiniのノードタイプを
 探し続けて反復回数を使い切ることがあります。より具体的な操作
@@ -683,7 +803,7 @@ class RAGChatbotPanel(QWidget):
         self._explain_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._explain_combo.setToolTip(
             "回答の説明の深さ。おまかせ＝質問に使った専門用語の蓄積から、だんだん高度になります。\n"
-            "「接続」タブで、いまの習熟度を確認できます（Cloudflareモードのみ）。"
+            "歯車メニュー →「接続・アカウント」で、いまの習熟度を確認できます（Cloudflareモードのみ）。"
         )
         self._explain_combo.setEnabled(self._cfg["mode"] == "cloudflare")
         self._explain_combo.currentIndexChanged.connect(self._on_explain_changed)
@@ -834,6 +954,7 @@ class RAGChatbotPanel(QWidget):
         """
         if self._video_library_panel is not None:
             self._video_library_panel.show_video(name, video_path)
+        self._show_main()  # 履歴（歯車メニューの中）から呼ばれたとき、動画のタブへ戻る
         self._tabs.setCurrentWidget(self._video_tab_wrapper)
 
     @staticmethod
@@ -886,8 +1007,8 @@ class RAGChatbotPanel(QWidget):
 
     def _build_connection_tab(self) -> QWidget:
         """
-        接続タブ（全員）: あなたの情報 / Worker URL / APIキー / 検索するナレッジ / 動画・ギャラリー。
-        一般ユーザーが触る設定は、ここまで（チュートリアルのモデル・ローカルRAGは「設定」タブ＝設定者だけ）。
+        「接続・アカウント」の画面（歯車メニュー。全員）: あなたの情報 / Worker URL / APIキー / 検索するナレッジ / 保存先フォルダ / 動画・ギャラリー。
+        一般ユーザーが触る設定は、ここまで（チュートリアルのモデル・ローカルRAGは「設定」の画面＝設定者だけ）。
         """
         w = QWidget()
         layout = QVBoxLayout(w)
@@ -926,7 +1047,29 @@ class RAGChatbotPanel(QWidget):
         self._cf_ns_edit.setPlaceholderText("例: houdini22, shared:houdini22")
         layout.addWidget(self._cf_ns_edit)
 
-        # 動画・ギャラリー: テスター（一般ユーザー）が、運営から受け取った URL とトークンを自分で入れるので、接続タブに置く。
+        # 保存先フォルダ（local_bridge_dir）。一般の利用者にも見える場所に置く（以前は設定者だけの「設定」タブにあり、
+        # 未設定のとき、参加者には直せなかった）。空欄なら、ドキュメント内の RAGReelTutorial フォルダを自動で使う。
+        layout.addWidget(QLabel("保存先フォルダ（チュートリアル・動画・記録の置き場所。空欄=自動）:"))
+        self._bridge_dir_edit = QLineEdit(self._cfg.get("local_bridge_dir", ""))
+        self._bridge_dir_edit.setPlaceholderText(str(_paths.default_data_dir()))
+        self._bridge_dir_edit.setToolTip(
+            "空欄のときは、ドキュメント内の RAGReelTutorial フォルダを使います。\n"
+            "Local モード（開発者）では、rag_local_bridge.py のあるプロジェクトのフォルダを入力します。"
+        )
+        layout.addWidget(self._bridge_dir_edit)
+        dir_row = QHBoxLayout()
+        open_dir_btn = QPushButton("保存先を開く")
+        open_dir_btn.clicked.connect(self._on_open_data_dir)
+        dir_row.addWidget(open_dir_btn)
+        dir_row.addStretch()
+        layout.addLayout(dir_row)
+        self._data_dir_note = QLabel("")
+        self._data_dir_note.setWordWrap(True)
+        self._data_dir_note.setStyleSheet("color:#94a3b8;font-size:11px;")
+        layout.addWidget(self._data_dir_note)
+        self._refresh_data_dir_note()
+
+        # 動画・ギャラリー: テスター（一般ユーザー）が、運営から受け取った URL とトークンを自分で入れるので、「接続・アカウント」に置く。
         def fill_video(box: QVBoxLayout) -> None:
             box.addWidget(QLabel("Video Factory exe パス:"))
             self._video_factory_exe_edit = QLineEdit(self._cfg.get("video_factory_exe_path", ""))
@@ -972,8 +1115,8 @@ class RAGChatbotPanel(QWidget):
 
     def _build_settings_tab(self) -> QWidget:
         """
-        設定タブ（設定者だけ）: チュートリアル生成（モデル・検索するナレッジ）/ Local RAG。グループごとに折りたためる。
-        URL・APIキー・検索するナレッジ・動画・ギャラリーは「接続」タブにある（一般ユーザーが自分で入れるもの）。
+        設定の画面（歯車メニュー。設定者だけ）: チュートリアル生成（モデル・検索するナレッジ）/ Local RAG。グループごとに折りたためる。
+        URL・APIキー・検索するナレッジ・保存先・動画・ギャラリーは「接続・アカウント」にある（一般ユーザーが自分で入れるもの）。
         """
         w = QWidget()
         layout = QVBoxLayout(w)
@@ -983,10 +1126,10 @@ class RAGChatbotPanel(QWidget):
             box.addWidget(QLabel("Bridge Port:"))
             self._port_edit = QLineEdit(str(self._cfg.get("local_port", 8766)))
             box.addWidget(self._port_edit)
-            box.addWidget(QLabel("Bridge Directory:"))
-            self._bridge_dir_edit = QLineEdit(self._cfg.get("local_bridge_dir", ""))
-            self._bridge_dir_edit.setPlaceholderText("DevelopmentRAGEnvironment のパス")
-            box.addWidget(self._bridge_dir_edit)
+            bridge_note = QLabel("ブリッジのあるフォルダ（Bridge Directory）は、「接続・アカウント」の「保存先フォルダ」と共通です。")
+            bridge_note.setWordWrap(True)
+            bridge_note.setStyleSheet("color:#888;")
+            box.addWidget(bridge_note)
             box.addWidget(QLabel("LLM バックエンド:"))
             self._backend_combo = QComboBox()
             self._backend_combo.addItems(["claude", "gemini"])
@@ -1017,7 +1160,7 @@ class RAGChatbotPanel(QWidget):
             hint.setStyleSheet("color:#888;")
             box.addWidget(hint)
 
-            # 検索対象のナレッジ（Houdiniのバージョン別）。「接続」タブの「チャットで検索するナレッジ」とは別設定。
+            # 検索対象のナレッジ（Houdiniのバージョン別）。「接続・アカウント」の「チャットで検索するナレッジ」とは別設定。
             box.addWidget(QLabel("チュートリアル生成: 検索するナレッジ（空欄=起動中のHoudiniに自動で合わせる）:"))
             self._tutorial_rag_ns_combo = QComboBox()
             self._tutorial_rag_ns_combo.setEditable(True)
@@ -1025,7 +1168,7 @@ class RAGChatbotPanel(QWidget):
             self._tutorial_rag_ns_combo.setCurrentText(self._cfg.get("tutorial_rag_namespace", ""))
             self._tutorial_rag_ns_combo.setToolTip(
                 "空欄: Houdini 22で起動していれば houdini22、21なら houdini21 を検索します。\n"
-                "「接続」タブの「チャットで検索するナレッジ」はチャット用で、この設定には影響しません。"
+                "「接続・アカウント」の「チャットで検索するナレッジ」はチャット用で、この設定には影響しません。"
             )
             box.addWidget(self._tutorial_rag_ns_combo)
 
@@ -1110,6 +1253,7 @@ class RAGChatbotPanel(QWidget):
             f"役割（画面の出し分けに使用）: {self._role or '-'}",
             f"最後の接続確認: {health}",
             f"Local ブリッジ: ポート {self._cfg.get('local_port')} / {self._cfg.get('local_bridge_dir') or '未設定'}",
+            f"保存先フォルダ: {_paths.resolve_data_dir(self._cfg)['source']}（{self._cfg.get('local_bridge_dir') or '未設定'}）",
             f"設定ファイル: {_CONFIG_PATH}",
             f"画面の状態ファイル: {Path.home() / '.houdini' / 'rag_chatbot_ui.json'}",
             f"パネルのモジュール: {Path(_pi.__file__).parent}",
@@ -1129,9 +1273,7 @@ class RAGChatbotPanel(QWidget):
         self._set_status("デバッグ情報をコピーしました")
 
     def _on_tab_changed(self, index: int) -> None:
-        if index == getattr(self, "_debug_tab_idx", -1):
-            self._refresh_debug()
-        elif index == getattr(self, "_pilot_tab_idx", -1):
+        if index == getattr(self, "_pilot_tab_idx", -1):
             self._pilot_panel.refresh()
 
     def _on_pilot_toggled(self, enabled: bool) -> None:
@@ -1139,18 +1281,114 @@ class RAGChatbotPanel(QWidget):
         _ui_state_set("pilot_enabled", bool(enabled))
         self._tabs.setTabVisible(self._pilot_tab_idx, bool(enabled))
         if enabled:
+            self._show_main()
             self._tabs.setCurrentIndex(self._pilot_tab_idx)  # 切り替わると _on_tab_changed が、課題を読み込む
 
+    # ── 歯車メニュー（ふだん使わない画面）・別ウィンドウ ────────────────────────────
+
+    def _is_setup(self) -> bool:
+        return _is_setup_user(self._role, self._cfg.get("mode", "cloudflare"))
+
+    def _build_gear_button(self) -> QToolButton:
+        """右上の歯車。履歴・接続・設定・デバッグの画面と、「別ウィンドウで開く」をまとめたメニュー。"""
+        menu = QMenu(self)
+        self._sub_actions = {}
+        for key, label, _title, _setup_only in _nav.SUB_PAGES:
+            action = menu.addAction(label)
+            action.triggered.connect(lambda checked=False, k=key: self._show_sub(k))
+            self._sub_actions[key] = action
+        menu.addSeparator()
+        menu.addAction("このパネルを別ウィンドウで開く（並べて見る）").triggered.connect(self._on_open_new_window)
+        menu.addAction("並べて見る方法").triggered.connect(self._show_parallel_help)
+        self._gear_menu = menu
+        button = _action_button("gear", "履歴・接続・設定、別ウィンドウで開く")
+        button.setMenu(menu)
+        button.setPopupMode(QToolButton.InstantPopup)
+        button.setStyleSheet("QToolButton::menu-indicator{image:none;}")
+        return button
+
+    def _build_sub_view(self) -> QWidget:
+        """歯車メニューの中の画面を出す場所。上に「戻る」と見出し。"""
+        view = _FixedHintTab()
+        layout = QVBoxLayout(view)
+        layout.setContentsMargins(0, 0, 0, 0)
+        header = QHBoxLayout()
+        back = QPushButton("← タブに戻る")
+        back.setToolTip("Chat / Guide / Tutorial などのタブの画面に戻ります")
+        back.clicked.connect(self._show_main)
+        self._sub_title = QLabel("")
+        self._sub_title.setStyleSheet("color:#e2e8f0;font-weight:bold;")
+        header.addWidget(back)
+        header.addWidget(self._sub_title, stretch=1)
+        layout.addLayout(header)
+        self._sub_stack = QStackedWidget()
+        for wrapper in self._sub_wrappers.values():
+            self._sub_stack.addWidget(wrapper)
+        layout.addWidget(self._sub_stack, stretch=1)
+        return view
+
+    def _show_sub(self, key: str) -> None:
+        """歯車メニューの中の画面を開く。設定・デバッグは、設定者だけ。"""
+        wrapper = self._sub_wrappers.get(key)
+        if wrapper is None or key not in _nav.visible_sub_pages(self._is_setup()):
+            return
+        self._sub_stack.setCurrentWidget(wrapper)
+        self._sub_title.setText(_nav.sub_page_title(key))
+        self._main_stack.setCurrentIndex(1)
+        self._current_sub = key
+        if key == "debug":
+            self._refresh_debug()
+
+    def _show_main(self) -> None:
+        """タブの画面に戻る。"""
+        self._main_stack.setCurrentIndex(0)
+        self._current_sub = ""
+
+    def _on_open_new_window(self) -> None:
+        """パネルをもう 1 つ、別ウィンドウで開く（別のタブを並べて見るため）。開けなければ、手動の方法を案内する。"""
+        ok, reason = _nav.open_in_new_window()
+        if ok:
+            self._set_status("別ウィンドウでパネルを開きました")
+            return
+        _debug.log("画面", f"別ウィンドウで開けませんでした: {reason}")
+        QMessageBox.information(self, "別ウィンドウで開けませんでした", f"（{reason}）\n\n" + _nav.PARALLEL_VIEW_HELP)
+
+    def _show_parallel_help(self) -> None:
+        QMessageBox.information(self, "並べて見る方法", _nav.PARALLEL_VIEW_HELP)
+
+    def _refresh_data_dir_note(self) -> None:
+        """接続・アカウントの「保存先フォルダ」の下に、いま使っている場所と、その決まり方を出す。"""
+        result = _paths.resolve_data_dir(self._cfg)
+        if result["source"] == "config":
+            auto = _paths.default_data_dir()
+            same = str(Path(result["path"])).lower() == str(auto).lower()
+            text = f"いまの保存先: {result['path']}" + ("（既定の場所）" if same else "")
+        elif result["source"] == "default":
+            text = f"いまの保存先: {result['path']}（空欄のため、自動で決めました）"
+        else:
+            text = result["error"] or _paths.STORAGE_HELP
+            if self._cfg.get("mode") != "local":
+                text = f"{_paths.STORAGE_HELP}（{text}）"
+        self._data_dir_note.setText(text)
+
+    def _on_open_data_dir(self) -> None:
+        """保存先のフォルダを、エクスプローラーで開く。"""
+        path = (self._bridge_dir_edit.text().strip() or self._cfg.get("local_bridge_dir", "")).strip()
+        if not path or not Path(path).is_dir():
+            self._set_status("保存先のフォルダがまだありません（チュートリアルを保存すると作られます）")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
     def _apply_role_visibility(self) -> None:
-        """設定者（admin / editor、または Local モード）にだけ、設定・デバッグのタブとモード切り替えを出す。"""
-        setup = _is_setup_user(self._role, self._cfg.get("mode", "cloudflare"))
-        tabs = getattr(self, "_tabs", None)
-        if tabs is not None:
-            tabs.setTabVisible(self._settings_tab_idx, setup)
-            tabs.setTabVisible(self._debug_tab_idx, setup)
+        """設定者（admin / editor、または Local モード）にだけ、歯車メニューの設定・デバッグと、モード切り替えを出す。"""
+        visible = set(_nav.visible_sub_pages(self._is_setup()))
+        for key, action in getattr(self, "_sub_actions", {}).items():
+            action.setVisible(key in visible)
+        if self._current_sub and self._current_sub not in visible:
+            self._show_main()
         box = getattr(self, "_mode_box", None)
         if box is not None:
-            box.setVisible(setup)
+            box.setVisible(self._is_setup())
 
     # ── イベント ───────────────────────────────────────────────────────────────
 
@@ -1175,6 +1413,8 @@ class RAGChatbotPanel(QWidget):
         """モード切り替え時に設定を保存してクライアントを再生成する。"""
         self._cfg["mode"] = mode
         _save_config(self._cfg)
+        _paths.apply_default_data_dir(self._cfg)  # Cloudflare に戻したとき、保存先が空なら、既定の場所を使う
+        self._refresh_data_dir_note()
         self._client = RAGClient(self._cfg)
         self._sync_docs_connection()
         if mode == "local":
@@ -1287,6 +1527,7 @@ class RAGChatbotPanel(QWidget):
             # QTabWidgetに実際に登録されているのは_wrap_tab()が返したラッパー
             # であって_tutorial_panelそのものではないため、切り替え先は
             # self._tutorial_tab_wrapperを指定する。
+            self._show_main()
             self._tabs.setCurrentWidget(self._tutorial_tab_wrapper)
             self._tutorial_panel.start_with_topic(topic)
             return
@@ -1336,7 +1577,7 @@ class RAGChatbotPanel(QWidget):
         """クエリ失敗時のコールバック。エラーをバブルとステータスに表示する。"""
         _debug.log("質問", f"エラー: {msg}")
         friendly = _friendly_error(msg)
-        hint = "（詳細は「デバッグ」タブ）" if _is_setup_user(self._role, self._cfg.get("mode", "cloudflare")) else ""
+        hint = "（詳細は、歯車メニューの「デバッグ」）" if _is_setup_user(self._role, self._cfg.get("mode", "cloudflare")) else ""
         self._add_bubble(f"エラー: {friendly}{hint}", is_user=False)
         self._set_status(friendly)
         self._send_btn.setEnabled(True)
@@ -1356,11 +1597,13 @@ class RAGChatbotPanel(QWidget):
         self._set_status("")
 
     def _on_save_settings(self) -> None:
-        """設定タブの入力値を _cfg に反映してファイルに保存し、クライアントを再生成する。"""
+        """「接続・アカウント」「設定」の入力値を _cfg に反映してファイルに保存し、クライアントを再生成する。"""
         self._cfg["cf_url"]           = self._cf_url_edit.text().strip()
         self._cfg["cf_api_key"]       = self._cf_api_key_edit.text().strip()
         self._cfg["cf_namespaces"]    = self._cf_ns_edit.text().strip()
-        self._cfg["local_bridge_dir"] = self._bridge_dir_edit.text().strip()
+        dir_text = self._bridge_dir_edit.text().strip()
+        dir_edited = dir_text != str(self._cfg.get("local_bridge_dir") or "").strip()  # 触っていなければ、インストーラーの値を守る
+        self._cfg["local_bridge_dir"] = dir_text
         self._cfg["llm_backend"]      = self._backend_combo.currentText()
         self._cfg["tutorial_model"]   = self._tutorial_model_combo.currentText()
         self._cfg["tutorial_rag_namespace"] = self._tutorial_rag_ns_combo.currentText().strip()
@@ -1373,7 +1616,14 @@ class RAGChatbotPanel(QWidget):
             self._cfg["local_port"] = int(self._port_edit.text())
         except ValueError:
             pass  # 不正なポート値は無視して既存値を維持
-        _save_config(self._cfg)
+        if dir_edited:
+            _save_config(self._cfg, dir_edited=True)
+        else:
+            _save_config(self._cfg)
+        _paths.apply_default_data_dir(self._cfg)  # 空欄で保存したときは、既定の場所を使う（ファイルには、空のまま残る）
+        if not _paths.is_blank(self._cfg.get("local_bridge_dir")):
+            self._bridge_dir_edit.setText(self._cfg["local_bridge_dir"])  # 保存先を、いま使っている値にそろえる
+        self._refresh_data_dir_note()
         self._client = RAGClient(self._cfg)
         self._sync_docs_connection()
         # バックエンド変更をブリッジに通知
@@ -1476,14 +1726,31 @@ class RAGChatbotPanel(QWidget):
 
         # テキストバブル行
         bubble_row = QHBoxLayout()
-        bubble_row.addWidget(ChatBubble(text, is_user=False))
+        bubble_row.addWidget(ChatBubble(text, is_user=False, rich_links=True))  # 回答の中の URL は、リンクにする
         bubble_row.addStretch()
         v.addLayout(bubble_row)
+
+        # 回答にノードの名前（Pyro Solver など）が出てくるときは、SideFX の公式ドキュメントへのリンクを、回答の下に出す
+        # （公式の一覧にあるページだけ。無い名前は、公式サイトの検索のリンク。node_links.py）
+        try:
+            node_row = _node_links.node_links_html(_node_links.find_node_links(text))
+        except Exception as exc:  # noqa: BLE001 -- リンクが作れなくても、回答は出す
+            _debug.log("リンク", f"ノードのリンクを作れませんでした: {exc}")
+            node_row = ""
+        if node_row:
+            node_label = QLabel(node_row)
+            node_label.setWordWrap(True)
+            node_label.setStyleSheet("color:#cbd5e1;font-size:11px;padding:2px 6px;")
+            node_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
+            make_links_clickable(node_label)
+            v.addWidget(node_label)
 
         # 説明レベルと、今回の回答で紹介した用語（explain を付けた質問だけ）
         explain_text = _format_explain(explain)
         if explain_text:
-            tag = QLabel(explain_text)
+            tag = QLabel()
+            tag.setTextFormat(Qt.PlainText)  # サーバーの返した用語は、書式として解釈しない
+            tag.setText(explain_text)
             tag.setStyleSheet("color:#94a3b8;font-size:11px;padding:0 6px;")
             tag.setWordWrap(True)
             tag.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)

@@ -103,6 +103,7 @@ assert "第1回（11/16〜11/21）" in panel._header.text() and "P01" in panel._
 fixed = panel._cards["fixed"]
 assert "Pyro" in fixed["title"].text()
 assert "使わないでください" in fixed["condition"].text(), "the control round says not to use the system"
+assert "ドキュメントのみ" in fixed["condition"].text() and "［ドキュメントのみ］" in fixed["title"].text(), "the condition is shown plainly, from the server value"
 assert "作品物" in fixed["criterion"].text()
 assert fixed["start"].isEnabled() and not fixed["finish"].isEnabled()
 

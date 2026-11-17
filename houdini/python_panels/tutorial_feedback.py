@@ -47,6 +47,8 @@ _UPLOAD_METRIC_KEYS = (
     "domain", "confirm_rejections", "reference_images", "has_requirements", "has_target_model",
     # 2026-10-21: レッスン設計の有無と品質点数（学習効果のレビューで、点数と評価を突き合わせる）、キャッシュのトークン数
     "lesson_plan", "lesson_score", "lesson_missing", "cache_write_tokens", "cache_read_tokens",
+    # 2026-11-17: 打ち切りの理由と、時間の内訳（Claudeの応答待ち・Houdiniのツール・画面の撮影）。遅さ・打ち切りの原因を、集計で見る
+    "abort_reason", "api_turns", "api_seconds", "tool_seconds", "capture_seconds", "wrapup_stage", "reserve_used", "repro_gaps",
 )
 
 

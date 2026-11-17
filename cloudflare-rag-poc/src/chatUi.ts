@@ -321,6 +321,10 @@ export function chatUiHtml(): string {
   .table-scroll { overflow-x: auto; max-width: 100%; }
   table.admin-table { width: 100%; border-collapse: collapse; font-size: .82rem; table-layout: fixed; }
   table.admin-table th, table.admin-table td { text-align: left; padding: .5rem .5rem; border-bottom: 1px solid var(--border); word-break: break-all; }
+  /* 実証実験の回答の一覧は列が多い。自由記述の列は、折り返して全文を見せる */
+  table.admin-table.pilot-answers { table-layout: auto; min-width: 1500px; }
+  table.admin-table.pilot-answers td, table.admin-table.pilot-answers th { word-break: normal; overflow-wrap: anywhere; }
+  table.admin-table.pilot-answers td.pilot-comment { min-width: 18rem; white-space: pre-wrap; }
   /* 発行済みキー一覧は列が多い。均等割り(fixed)だと見出しが隣の列に重なるので、中身に合わせて幅を取り、足りなければ横にスクロールする */
   table.admin-table#keysTable { table-layout: auto; min-width: 780px; }
   /* 6 列に整理（2026-11-17）: 最終利用は名前の下、使用率（ドーナツ）は RAG 予算の横へ。作成日と予算の自動リセットは、行を開くと出る（消してはいない）。 */
@@ -1435,6 +1439,12 @@ export function chatUiHtml(): string {
         <div class="field-row"><label for="pilotRoundLabel2">第2回の期間（表示）</label><input type="text" id="pilotRoundLabel2" maxlength="40" placeholder="例: 11/23〜11/28"></div>
         <div class="field-row"><button class="btn" id="pilotRoundSave">保存</button></div>
         <div class="table-scroll"><table class="admin-table" id="pilotRoundTable"><thead><tr><th>回</th><th>期間</th><th>受付</th><th>参加した人</th><th>完了した人</th></tr></thead><tbody></tbody></table></div>
+        <h3>課題の条件（ツール使用／ドキュメントのみ）の割り当て</h3>
+        <p class="hint">固定課題を、<b>本システム（ツール使用）</b>で行うか、<b>公式ドキュメント・Web検索のみ</b>で行うかを決めます。<b>自動</b>は、参加者番号から半々に割り当てる、いまの動きです（既定）。切り替えが効くのは、<b>まだ固定課題を始めていない人</b>だけです。すでに始めた課題（終えたものを含む）は、始めたときの条件のまま続きます。自由課題は、いつも本システムです。全員を同じ条件にすると、群の間の比較はできません。</p>
+        <div class="field-row"><label for="pilotConditionMode">条件の割り当て</label>
+          <select id="pilotConditionMode"><option value="auto">自動（参加者番号から、半々）</option><option value="system">全員ツール使用（本システム）</option><option value="docs_only">全員ドキュメントのみ</option></select>
+          <button class="btn" id="pilotConditionSave">保存</button></div>
+        <p class="hint" id="pilotConditionNote">-</p>
       </div>
       <div class="section">
         <h2>課題の記録（固定課題・自由課題）</h2>
@@ -1443,8 +1453,19 @@ export function chatUiHtml(): string {
         <h3>回・種類・条件ごと（中央値）</h3>
         <div class="table-scroll"><table class="admin-table" id="pilotTaskGroups"><thead><tr><th>回</th><th>種類</th><th>条件</th><th>人数</th><th>到達</th><th>難しさ</th><th>わかりやすさ</th><th>所要(分)</th><th>質問数</th><th>操作ミス</th></tr></thead><tbody></tbody></table></div>
         <h3>公式ドキュメントのみ（対照）と本システムの比較（固定課題・参加者の間）</h3>
+        <p class="hint" id="pilotCompareNote"></p>
         <p class="hint">参加は1回だけなので、本システムを使った人と、公式ドキュメントのみで行った人の<b>2つの群</b>を比べます。差 = 本システムの中央値 − 対照の中央値。効果量は Cliff の delta（−1〜1。本システムの群が大きいほど正。0に近いほど差なし）。「良い向き」は、難しさ・所要時間・操作ミスは小さいほう、わかりやすさ・到達は大きいほどです。人数が少ないうちは、参考です。</p>
         <div class="table-scroll"><table class="admin-table" id="pilotCompared"><thead><tr><th>指標</th><th>本システム(人)</th><th>対照(人)</th><th>本システムの中央値</th><th>対照の中央値</th><th>差</th><th>効果量</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="section">
+        <h2>回答の一覧（アンケートと計測した値）</h2>
+        <p class="hint">課題を終えた記録を、<b>参加者ごと・課題ごと</b>に1行で出します（P01 などの番号。氏名は出しません）。自由記述には、<b>個人情報が書かれているかもしれません</b>。この画面は管理者だけが見られます。外に出すときは、書かれている内容を確かめてからにしてください。所要(分)は、終了 − 開始 − 中断です。1〜5 のアンケート項目は、難しさ・わかりやすさ・集中を妨げた・正確性の不安・出典が役立った（ドキュメントのみの回は空）・また使いたい、の順です。</p>
+        <div class="field-row"><button class="btn" id="pilotAnswersCsv">回答の一覧のCSV（開始・終了・中断・自由記述を含む）</button></div>
+        <div class="table-scroll"><table class="admin-table pilot-answers" id="pilotAnswers"><thead><tr><th>参加者</th><th>回</th><th>種類</th><th>題材</th><th>条件</th><th>開始</th><th>終了</th><th>所要(分)</th><th>中断(分)</th><th>質問数</th><th>cookエラー(ノード)</th><th>自己申告ミス</th><th>到達</th><th>難しさ</th><th>わかりやすさ</th><th>集中</th><th>不安</th><th>出典</th><th>また使う</th><th>やり直し</th><th>自由記述</th></tr></thead><tbody></tbody></table></div>
+        <h3>事前アンケート（参加者ごと）</h3>
+        <p class="hint">登録時に答えた内容です。自由記述（経歴・練習・使ったことのあるツール）には、個人情報が書かれているかもしれません。</p>
+        <div class="field-row"><button class="btn" id="pilotProfilesCsv">事前アンケートのCSV</button></div>
+        <div class="table-scroll"><table class="admin-table pilot-answers" id="pilotProfiles"><thead><tr><th>参加者</th><th>経験年数</th><th>自己評価</th><th>経歴</th><th>練習</th><th>使ったことのあるツール</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="section">
         <h2>説明レベル別のチャット評価</h2>
@@ -1547,7 +1568,7 @@ export function chatUiHtml(): string {
       // ——過去に一度、まさにこの説明コメントの中に書いた1個のバックスラッシュ表記が
       // 同じ理由で壊れた前例がある）。二重にすることで、ブラウザ側の正規表現エンジンに
       // 渡る時点までエスケープシーケンスの文字列のまま残る。
-      return /[",\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      return /[",\\r\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
     const lines = [headers.map(escapeCell).join(",")];
     rows.forEach((row) => lines.push(row.map(escapeCell).join(",")));
@@ -3542,18 +3563,54 @@ ${ASCII_ART_JS}
       const tbody = $("pilotRoundTable").querySelector("tbody");
       tbody.innerHTML = "";
       data.rounds.forEach((r) => appendRow(tbody, ["第" + r.round + "回", r.label || "-", r.open ? "受付中" : "-", r.joined + "人", r.finished + "人"]));
-    } catch (e) { showToast("回の状態を読み込めませんでした: " + e.message, "error"); }
+      const modeSelect = $("pilotConditionMode");
+      if (modeSelect && document.activeElement !== modeSelect) modeSelect.value = data.conditionMode || "auto";
+      const modeNames = { auto: "自動（参加者番号から、半々）", system: "全員ツール使用（本システム）", docs_only: "全員ドキュメントのみ" };
+      const cc = data.conditionCounts || { system: 0, docs_only: 0 };
+      $("pilotConditionNote").textContent = "いまの割り当て: " + (modeNames[data.conditionMode] || modeNames.auto) + "。これまでに始めた固定課題: ツール使用 " + cc.system + "人／ドキュメントのみ " + cc.docs_only + "人。"
+        + (data.conditionMode !== "auto" ? " まだ固定課題を始めていない人は、すべて同じ条件になります。" : "");
+      return true;
+    } catch (e) { showToast("回の状態を読み込めませんでした: " + e.message, "error"); return false; }
   }
   $("pilotRoundSave").addEventListener("click", async () => {
     const open = Number($("pilotRoundOpen").value) || 0;
     const label = (n) => $("pilotRoundLabel" + n).value.trim();
     const names = open === 0 ? "受付を止めます" : "第" + open + "回を受け付けます";
     if (!confirm(names + "。よろしいですか？（新しく参加する人が、この回に入ります。参加済みの人は、自分の回を続けられます）")) return;
-    await loadPilotRounds({ openRound: open, labels: { 1: label(1), 2: label(2) } });
-    showToast("保存しました: " + names, "success");
+    if (await loadPilotRounds({ openRound: open, labels: { 1: label(1), 2: label(2) } })) showToast("保存しました: " + names, "success");
+  });
+  $("pilotConditionSave").addEventListener("click", async () => {
+    const mode = $("pilotConditionMode").value;
+    const names = { auto: "自動（参加者番号から、半々）", system: "全員ツール使用（本システム）", docs_only: "全員ドキュメントのみ" };
+    if (!confirm("条件の割り当てを「" + names[mode] + "」にします。まだ固定課題を始めていない人に、すぐ効きます（すでに始めた課題は、そのまま続きます）。よろしいですか？")) return;
+    if (await loadPilotRounds({ conditionMode: mode })) {
+      showToast("保存しました: " + names[mode], "success");
+      loadPilotTasks();
+    }
   });
   // 課題の記録（/admin/pilot/tasks。期間では絞らない: 全部の回をまとめて見る）
   let lastPilotTaskRows = [];
+  let lastPilotProfiles = [];
+  // 日時（秒）を、見やすい形に。空なら空
+  function pilotTime(sec) {
+    if (!sec) return "";
+    const d = new Date(sec * 1000);
+    const z = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + z(d.getMonth() + 1) + "-" + z(d.getDate()) + " " + z(d.getHours()) + ":" + z(d.getMinutes());
+  }
+  // CSV に入れる文字列: 先頭（空白・タブ・改行を飛ばした先）が = + - @ のとき、表計算ソフトが式として実行しないよう、先頭に ' を付ける。
+  // 先頭がタブ・改行のものも、同じく付ける。数値は、そのまま（負の数を壊さない）。
+  function pilotCsvText(value) {
+    if (typeof value !== "string") return value;
+    let i = 0;
+    while (i < value.length && " \\t\\r\\n\\u3000".indexOf(value.charAt(i)) >= 0) i++;
+    const lead = value.charAt(0);
+    return (i < value.length && "=+-@".indexOf(value.charAt(i)) >= 0) || lead === "\\t" || lead === "\\r" ? "'" + value : value;
+  }
+  // 1行ぶんの、すべての列に式注入の対策をかける（自由記述だけでなく、題材・条件などの文字列の列にも）
+  function pilotCsvRow(cells) {
+    return cells.map(pilotCsvText);
+  }
   async function loadPilotTasks() {
     const num = (v, digits) => (v == null ? "-" : Number(v).toFixed(digits));
     const kinds = { fixed: "固定", free: "自由" };
@@ -3568,6 +3625,7 @@ ${ASCII_ART_JS}
       const data = await api("/admin/pilot/tasks", {});
       lastPilotTaskRows = data.rows;
       const f = data.mistakeFormula;
+      lastPilotProfiles = data.profiles || [];
       $("pilotTaskNote").textContent = "登録した参加者 " + data.registered + "人／終えた課題 " + data.sessions + "件。操作ミス = cookエラー（上限" + f.cookCap + "ノードで1）×" + f.cook + " ＋ 自己申告 ×" + f.self + "（0〜1。大きいほどミスが多い）。到達 = 課題の題材として、作品物ができていること。"
         + (data.contaminated.length > 0 ? " ⚠ 対照の回に質問が記録された参加者: " + data.contaminated.map((p) => "P" + String(p).padStart(2, "0")).join("、") + "（本システムを使った可能性。除外を検討）" : "");
       fillRows("pilotTaskGroups", data.byGroup.map((g) => [
@@ -3575,21 +3633,66 @@ ${ASCII_ART_JS}
         g.reachedRate == null ? "-" : Math.round(g.reachedRate * 100) + "%",
         num(g.median.difficulty, 1), num(g.median.clarity, 1), num(g.median.durationMin, 1), num(g.median.queries, 0), num(g.median.mistake, 2),
       ]), 10);
+      // 条件が混ざっていない（片方の群が 0 件）ときは、差を出さず、「比較できない」と表示する
+      const cmp = data.comparison || { comparable: true, reason: "" };
+      $("pilotCompareNote").textContent = cmp.comparable
+        ? "比較できます（固定課題: 本システム " + cmp.nSystem + "人／ドキュメントのみ " + cmp.nDocs + "人）。"
+        : "比較できない: " + cmp.reason;
       fillRows("pilotCompared", data.compared.map((p) => [
         p.label + (p.better === "lower" ? "（小さいほど良い）" : "（大きいほど良い）"), p.nSystem, p.nDocs,
-        num(p.medianSystem, 2), num(p.medianDocs, 2), num(p.medianDiff, 2), num(p.cliffsDelta, 2),
+        num(p.medianSystem, 2), num(p.medianDocs, 2),
+        p.comparable ? num(p.medianDiff, 2) : "比較できない", p.comparable ? num(p.cliffsDelta, 2) : "比較できない",
       ]), 7);
+      // 回答の一覧: 参加者ごと・課題ごとに1行。自由記述は textContent で入れる（HTML として解釈しない）
+      const reachedText = (v) => (v == null ? "-" : v === 1 ? "到達" : "未到達");
+      const answersBody = $("pilotAnswers").querySelector("tbody");
+      answersBody.innerHTML = "";
+      if (data.rows.length === 0) {
+        answersBody.innerHTML = "<tr><td colspan=21>終えた課題の記録はまだありません</td></tr>";
+      } else {
+        data.rows.forEach((r) => {
+          const tr = appendRow(answersBody, [
+            r.participant, "第" + r.round + "回", kinds[r.kind] || r.kind, r.taskId, conds[r.condition] || r.condition,
+            pilotTime(r.startedAt) || "-", pilotTime(r.endedAt) || "-", num(r.durationMin, 1), num(r.pausedMin, 1),
+            r.queryCount == null ? "-" : r.queryCount, r.cookErrorNodes == null ? "-" : r.cookErrorNodes, r.selfMistakes == null ? "-" : r.selfMistakes, reachedText(r.reached),
+            r.difficulty == null ? "-" : r.difficulty, r.clarity == null ? "-" : r.clarity, r.focus == null ? "-" : r.focus,
+            r.accuracyWorry == null ? "-" : r.accuracyWorry, r.sourceUseful == null ? "-" : r.sourceUseful, r.reuse == null ? "-" : r.reuse,
+            r.redoCount || 0, r.comment || "-",
+          ]);
+          tr.lastChild.className = "pilot-comment";
+        });
+      }
+      const profilesBody = $("pilotProfiles").querySelector("tbody");
+      profilesBody.innerHTML = "";
+      if (lastPilotProfiles.length === 0) {
+        profilesBody.innerHTML = "<tr><td colspan=6>事前アンケートの回答はまだありません</td></tr>";
+      } else {
+        lastPilotProfiles.forEach((p) => {
+          const tr = appendRow(profilesBody, [p.participant, p.experienceYears == null ? "-" : p.experienceYears, p.selfLevel || "-", p.background || "-", p.practice || "-", p.toolHistory || "-"]);
+          for (let i = 3; i < 6; i++) tr.children[i].className = "pilot-comment";
+        });
+      }
     } catch (e) { showToast("課題の記録を読み込めませんでした: " + e.message, "error"); }
   }
   $("pilotTasksCsv").addEventListener("click", () => {
     if (lastPilotTaskRows.length === 0) { showToast("エクスポートする課題の記録がありません", "error"); return; }
     downloadCsv(
       "pilot-tasks-" + new Date().toISOString().slice(0, 10) + ".csv",
-      ["参加者", "回", "種類", "題材", "条件", "所要(分)", "質問数", "cookエラーのノード数", "操作ミス自己申告", "操作ミス(合成)", "到達", "難しさ", "わかりやすさ", "集中を妨げた", "正確性の不安", "出典が役立った", "また使いたい", "自由記述", "やり直し回数"],
-      lastPilotTaskRows.map((r) => [r.participant, r.round, r.kind, r.taskId, r.condition, r.durationMin == null ? "" : r.durationMin, r.queryCount == null ? "" : r.queryCount,
+      ["参加者", "回", "種類", "題材", "条件", "開始", "終了", "所要(分)", "中断(分)", "質問数", "cookエラーのノード数", "操作ミス自己申告", "操作ミス(合成)", "到達", "難しさ", "わかりやすさ", "集中を妨げた", "正確性の不安", "出典が役立った", "また使いたい", "自由記述", "やり直し回数"],
+      lastPilotTaskRows.map((r) => pilotCsvRow([r.participant, r.round, r.kind, r.taskId, r.condition, pilotTime(r.startedAt), pilotTime(r.endedAt), r.durationMin == null ? "" : r.durationMin, r.pausedMin == null ? "" : r.pausedMin, r.queryCount == null ? "" : r.queryCount,
         r.cookErrorNodes == null ? "" : r.cookErrorNodes, r.selfMistakes == null ? "" : r.selfMistakes, r.mistake == null ? "" : r.mistake, r.reached == null ? "" : r.reached,
         r.difficulty == null ? "" : r.difficulty, r.clarity == null ? "" : r.clarity, r.focus == null ? "" : r.focus, r.accuracyWorry == null ? "" : r.accuracyWorry,
-        r.sourceUseful == null ? "" : r.sourceUseful, r.reuse == null ? "" : r.reuse, r.comment, r.redoCount || 0]),
+        r.sourceUseful == null ? "" : r.sourceUseful, r.reuse == null ? "" : r.reuse, r.comment, r.redoCount || 0])),
+    );
+  });
+  // 回答の一覧のCSV（課題ごとのCSVと同じ内容。画面の「回答の一覧」から出す）
+  $("pilotAnswersCsv").addEventListener("click", () => $("pilotTasksCsv").click());
+  $("pilotProfilesCsv").addEventListener("click", () => {
+    if (lastPilotProfiles.length === 0) { showToast("エクスポートする事前アンケートがありません", "error"); return; }
+    downloadCsv(
+      "pilot-profiles-" + new Date().toISOString().slice(0, 10) + ".csv",
+      ["参加者", "経験年数", "自己評価", "経歴", "練習", "使ったことのあるツール", "登録日時"],
+      lastPilotProfiles.map((p) => pilotCsvRow([p.participant, p.experienceYears == null ? "" : p.experienceYears, p.selfLevel, p.background, p.practice, p.toolHistory, pilotTime(p.createdAt)])),
     );
   });
   $("pilotRefresh").addEventListener("click", loadPilotSummary);

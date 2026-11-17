@@ -12,6 +12,10 @@ Houdini（hou）にも Qt にも依存しない純粋な関数だけを置く（
 from __future__ import annotations
 
 MAX_NODES = 60  # screen_capture._MAX_DIAGRAM_NODES と同じ。多すぎると読めない
+# 図に出す直下のノードが、これを超えたら、分岐・合流のない一本道（直列のチェーン）を1つの箱にまとめる（2026-11-17）。
+# 「ノード数が増えると、全体を1枚に収める都合で、名前が小さくて読めない」という指摘への対応。tutorial_graph_simplify.simplify_graph は、
+# これまでガイドの図（tutorial_view）と Mermaid にしか使われておらず、動画の図には効いていなかった。
+FOLD_ABOVE = 14
 
 
 def pick_container(graph: dict) -> str | None:
@@ -33,6 +37,24 @@ def pick_container(graph: dict) -> str | None:
     return None
 
 
+def _fold_chains(nodes: list[dict], edges: list[dict]) -> tuple[list[dict], list[dict]]:
+    """一本道のチェーンを、1つの箱（kind="chain"）にまとめる。箱の名前は「先頭 → 末尾（Nノード）」。折りたためなければ、そのまま。"""
+    try:
+        from tutorial_graph_simplify import simplify_graph
+    except Exception:  # noqa: BLE001 -- 折りたためなくても、図は出せる
+        return nodes, edges
+    folded, folded_edges = simplify_graph(nodes, edges)
+    out = []
+    for n in folded:
+        if n.get("kind") == "chain":
+            members = n.get("members") or []
+            first = str(members[0].get("label") or members[0].get("id")) if members else "?"
+            last = str(members[-1].get("label") or members[-1].get("id")) if members else "?"
+            n = {**n, "label": f"{first} → {last}（{len(members)}ノード）"}
+        out.append(n)
+    return out, folded_edges
+
+
 def graph_to_model(graph: dict) -> tuple[str, list[dict]]:
     """(図の上部に出すパス, モデル) を返す。ノードが無ければ ("", [])。"""
     nodes_all = [n for n in (graph.get("nodes") or []) if isinstance(n, dict) and n.get("id")]
@@ -43,9 +65,16 @@ def graph_to_model(graph: dict) -> tuple[str, list[dict]]:
     if not nodes:
         return "", []
     known = {n["id"] for n in nodes}
+    edges = [
+        e for e in (graph.get("edges") or [])
+        if e.get("source") in known and e.get("target") in known and e.get("source") != e.get("target")
+    ]
+    if len(nodes) > FOLD_ABOVE:
+        nodes, edges = _fold_chains(nodes, edges)
+        known = {n["id"] for n in nodes}
     inputs: dict[str, list[tuple[str, int]]] = {n["id"]: [] for n in nodes}
     has_output: set[str] = set()
-    for edge in graph.get("edges") or []:
+    for edge in edges:
         source, target = edge.get("source"), edge.get("target")
         if source in known and target in known and source != target:
             inputs[target].append((source, int(edge.get("targetInput") or 0)))

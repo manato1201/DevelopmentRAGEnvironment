@@ -12,6 +12,9 @@ import { requireAdmin } from "./auth";
 //   ・所要時間は、サーバーの時刻（開始・終了）から出す。質問回数は、その時間内の質問（memory）の数で、サーバーが数える
 //     （画面からの申告に頼らない。「公式ドキュメントのみ」の回に質問が混ざったかも、これで分かる）。
 //   ・集計は管理者だけ。氏名は出さず、P01 のような番号で出す。管理者の記録は、集計に入れない。
+//   ・条件の割り当ては、運営が管理画面で切り替えられる（2026-11-17。pilot_config の condition_mode）:
+//       auto = 参加者番号から決める（既定。半々）／ system = 全員ツール使用 ／ docs_only = 全員ドキュメントのみ。
+//     切り替えが効くのは、まだ始めていない固定課題だけ。始めた課題（終えたものを含む）は、始めたときの題材と条件のまま続ける。
 //   ・やり直し: 計測中の記録も、終えた記録も、本人が破棄できる（discarded_at。消さずに残し、集計と「次の課題」の判定からは外す）。
 //     ただし、次の回の課題を始めたあとは、前の回はやり直せない（回の順序と、対照の割り当てを崩さないため）。
 //   ・所要時間 = 終了の時刻 − 開始の時刻 − 中断（Houdini が閉じていた秒数）。終了の時刻は、振り返りの回答に使った時間（surveySec）を引く。
@@ -20,6 +23,12 @@ import { requireAdmin } from "./auth";
 export type TaskId = "pyro" | "rbd" | "cloud";
 export type Kind = "fixed" | "free";
 export type Condition = "system" | "docs_only";
+// 条件の割り当て方（運営が管理画面で切り替える）。auto = 参加者番号から決める（既定）。
+export type ConditionMode = "auto" | Condition;
+export const CONDITION_MODES: ConditionMode[] = ["auto", "system", "docs_only"];
+export function parseConditionMode(value: unknown): ConditionMode {
+  return CONDITION_MODES.includes(value as ConditionMode) ? (value as ConditionMode) : "auto";
+}
 
 export const ROUNDS = 2; // 回 = 募集期間の数。管理画面で、いま受け付ける回を切り替える（pilot_config の open_round）
 export const TASKS: Record<TaskId, string> = {
@@ -32,9 +41,12 @@ export const TASK_ORDER: TaskId[] = ["pyro", "rbd", "cloud"];
 export const SLOTS = 6;
 
 // slot から、固定課題の題材と条件を決める（登録順の6人ごとに、3題材 × 2条件が1度ずつ当たる）。
-export function assignmentForSlot(slot: number): { taskId: TaskId; condition: Condition } {
+// mode が system / docs_only のときは、題材は slot のまま、条件だけを全員そろえる。
+export function assignmentForSlot(slot: number, mode: ConditionMode = "auto"): { taskId: TaskId; condition: Condition } {
   const i = (((Math.trunc(slot) - 1) % SLOTS) + SLOTS) % SLOTS;
-  return { taskId: TASK_ORDER[i % TASK_ORDER.length], condition: i >= TASK_ORDER.length ? "docs_only" : "system" };
+  const forced = parseConditionMode(mode);
+  const condition: Condition = forced !== "auto" ? forced : i >= TASK_ORDER.length ? "docs_only" : "system";
+  return { taskId: TASK_ORDER[i % TASK_ORDER.length], condition };
 }
 export const CRITERION = "課題の題材として、作品物ができていること";
 
@@ -72,6 +84,7 @@ export interface PlanSession {
   ended_at: number | null;
   id?: string;
   task_id?: string;
+  condition?: string;
   duration_sec?: number | null;
 }
 
@@ -98,13 +111,17 @@ export interface TaskPlan {
   criterion: string;
 }
 
-export function buildPlan(slot: number, sessions: PlanSession[], openRound = 0): TaskPlan {
+export function buildPlan(slot: number, sessions: PlanSession[], openRound = 0, mode: ConditionMode = "auto"): TaskPlan {
   const joined = sessions.length ? Math.min(...sessions.map((s) => s.round)) : null; // 参加は1回だけ。最初に始めた回
   const accepting = openRound >= 1 && openRound <= ROUNDS;
   const round = joined ?? (accepting ? openRound : null);
   const done = (kind: Kind) => round != null && sessions.some((s) => s.round === round && s.kind === kind && s.ended_at != null);
   const active = (kind: Kind) => round != null && sessions.some((s) => s.round === round && s.kind === kind && s.ended_at == null);
-  const { taskId, condition } = assignmentForSlot(slot);
+  // 固定課題を始めている（終えたものを含む）なら、始めたときの題材と条件のまま。切り替えが効くのは、まだ始めていない人だけ。
+  const assigned = assignmentForSlot(slot, mode);
+  const startedFixed = round == null ? undefined : sessions.find((s) => s.round === round && s.kind === "fixed");
+  const taskId: TaskId = startedFixed?.task_id && startedFixed.task_id in TASKS ? (startedFixed.task_id as TaskId) : assigned.taskId;
+  const condition: Condition = startedFixed?.condition === "system" || startedFixed?.condition === "docs_only" ? startedFixed.condition : assigned.condition;
   return {
     slot,
     rounds: ROUNDS,
@@ -167,6 +184,9 @@ export interface TaskRow {
   reuse: number | null;
   comment: string;
   redoCount?: number; // やり直した回数（この課題を、破棄して取り直した数）
+  startedAt?: number; // 開始・終了の時刻（秒）。管理画面の「回答の一覧」用
+  endedAt?: number;
+  pausedSec?: number; // 中断（Houdini が閉じていた秒数。所要時間から引いた分）
 }
 
 export function median(values: Array<number | null | undefined>): number | null {
@@ -185,6 +205,7 @@ export function cliffsDelta(xs: number[], ys: number[]): number | null {
   return Math.round(((greater - less) / (xs.length * ys.length)) * 1000) / 1000;
 }
 
+const participantLabel = (pid: number) => "P" + String(pid).padStart(2, "0");
 const withMistake = (r: TaskRow) => mistakeScore(r.cookErrorNodes, r.selfMistakes);
 const minutes = (r: TaskRow) => (r.durationSec == null ? null : Math.round((r.durationSec / 60) * 10) / 10);
 
@@ -238,18 +259,31 @@ export function summarizeTasks(rows: TaskRow[]) {
     const docs = valuesOf("docs_only");
     const medianSystem = median(sys);
     const medianDocs = median(docs);
+    const comparable = sys.length > 0 && docs.length > 0; // 片方の群が空なら、比べない（0 件との差を出さない）
     return {
       key: metric.key,
       label: metric.label,
       better: metric.better,
+      comparable,
       nSystem: sys.length,
       nDocs: docs.length,
       medianSystem,
       medianDocs,
-      medianDiff: medianSystem != null && medianDocs != null ? medianSystem - medianDocs : null,
-      cliffsDelta: cliffsDelta(sys, docs),
+      medianDiff: comparable && medianSystem != null && medianDocs != null ? medianSystem - medianDocs : null,
+      cliffsDelta: comparable ? cliffsDelta(sys, docs) : null,
     };
   });
+  const nSystemFixed = fixed.filter((r) => r.condition === "system").length;
+  const nDocsFixed = fixed.filter((r) => r.condition === "docs_only").length;
+  const comparison = {
+    comparable: nSystemFixed > 0 && nDocsFixed > 0,
+    nSystem: nSystemFixed,
+    nDocs: nDocsFixed,
+    reason:
+      nSystemFixed > 0 && nDocsFixed > 0
+        ? ""
+        : `比較できません: ${nSystemFixed === 0 && nDocsFixed === 0 ? "終えた固定課題がまだありません" : nDocsFixed === 0 ? "固定課題がすべて「ツール使用」です（ドキュメントのみの記録が 0 件）" : "固定課題がすべて「ドキュメントのみ」です（ツール使用の記録が 0 件）"}。条件が混ざっていないため、群の間の差は出しません。`,
+  };
 
   // 「公式ドキュメントのみ」の回に、質問が混ざった（本システムを使った可能性）記録
   const contaminated = rows.filter((r) => r.kind === "fixed" && r.condition === "docs_only" && (r.queryCount ?? 0) > 0).map((r) => r.pid);
@@ -259,6 +293,7 @@ export function summarizeTasks(rows: TaskRow[]) {
     participants: new Set(rows.map((r) => r.pid)).size,
     byGroup,
     compared,
+    comparison,
     contaminated: [...new Set(contaminated)].sort((a, b) => a - b),
     comments: rows.filter((r) => r.comment).map((r) => ({ pid: r.pid, round: r.round, kind: r.kind, condition: r.condition, comment: r.comment })),
   };
@@ -308,6 +343,7 @@ async function loadSessions(env: Env, userId: string): Promise<SessionRow[]> {
 export interface PilotConfig {
   openRound: number; // 0 = 受付を止めている
   labels: Record<number, string>; // 回の表示（「11/16〜11/21」など）
+  conditionMode: ConditionMode; // 条件の割り当て（auto = 参加者番号から。既定）
 }
 
 const LABEL_MAX = 40;
@@ -318,7 +354,7 @@ export async function loadPilotConfig(env: Env): Promise<PilotConfig> {
   const open = Number(map.get("open_round") ?? 0);
   const labels: Record<number, string> = {};
   for (let r = 1; r <= ROUNDS; r++) labels[r] = map.get(`label_${r}`) ?? "";
-  return { openRound: Number.isInteger(open) && open >= 1 && open <= ROUNDS ? open : 0, labels };
+  return { openRound: Number.isInteger(open) && open >= 1 && open <= ROUNDS ? open : 0, labels, conditionMode: parseConditionMode(map.get("condition_mode")) };
 }
 
 async function saveConfigValue(env: Env, key: string, value: string): Promise<void> {
@@ -332,7 +368,7 @@ async function planResponse(env: Env, userId: string): Promise<Response> {
   if (!profile) return jsonResponse(200, { status: "ok", profile: false });
   const sessions = await loadSessions(env, userId);
   const config = await loadPilotConfig(env);
-  const plan = buildPlan(profile.slot, sessions, config.openRound);
+  const plan = buildPlan(profile.slot, sessions, config.openRound, config.conditionMode);
   const roundLabel = plan.round != null ? config.labels[plan.round] ?? "" : "";
   return jsonResponse(200, { status: "ok", profile: true, pid: profile.pid, ...plan, roundLabel, history: buildHistory(sessions) });
 }
@@ -386,7 +422,7 @@ export async function handlePilotSessionStart(req: Request, env: Env, user: Auth
   if (!profile) return jsonResponse(409, { error: "先に事前アンケートに答えてください" });
   const sessions = await loadSessions(env, user.userId);
   const config = await loadPilotConfig(env);
-  const plan = buildPlan(profile.slot, sessions, config.openRound);
+  const plan = buildPlan(profile.slot, sessions, config.openRound, config.conditionMode);
   if (plan.finished) return jsonResponse(409, { error: "課題は、すべて完了しています" });  // 自由課題は任意。固定課題だけを終えた人は、自由課題を始められる
   if (!plan.canStart || plan.round == null) return jsonResponse(409, { error: "いま、課題は受け付けていません。運営からの案内をお待ちください", code: "closed" });
   const item = kind === "fixed" ? plan.fixed : plan.free;
@@ -482,6 +518,7 @@ export async function handlePilotTasks(_req: Request, env: Env, user: AuthedUser
        s.duration_sec AS durationSec, s.query_count AS queryCount, s.cook_error_nodes AS cookErrorNodes, s.reached AS reached,
        s.self_mistakes AS selfMistakes, s.difficulty AS difficulty, s.clarity AS clarity, s.focus AS focus,
        s.accuracy_worry AS accuracyWorry, s.source_useful AS sourceUseful, s.reuse AS reuse, COALESCE(s.comment, '') AS comment,
+       s.started_at AS startedAt, s.ended_at AS endedAt, COALESCE(s.paused_sec, 0) AS pausedSec,
        (SELECT COUNT(*) FROM pilot_sessions d WHERE d.user_id = s.user_id AND d.round = s.round AND d.kind = s.kind AND d.discarded_at IS NOT NULL) AS redoCount
      FROM pilot_sessions s JOIN pilot_profile p ON p.user_id = s.user_id JOIN users u ON u.user_id = s.user_id
      WHERE s.ended_at IS NOT NULL AND s.discarded_at IS NULL AND p.pid IS NOT NULL AND u.role != 'admin'
@@ -491,24 +528,39 @@ export async function handlePilotTasks(_req: Request, env: Env, user: AuthedUser
   const registered = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM pilot_profile p JOIN users u ON u.user_id = p.user_id WHERE p.pid IS NOT NULL AND u.role != 'admin'",
   ).first<{ n: number }>();
+  // 事前アンケート（自由記述を含む）。個人情報が書かれているかもしれないので、管理者だけ。氏名・ユーザー ID は出さず、番号で出す。
+  const profileRes = await env.DB.prepare(
+    `SELECT p.pid AS pid, p.slot AS slot, p.experience_years AS experienceYears, COALESCE(p.self_level, '') AS selfLevel,
+       COALESCE(p.background, '') AS background, COALESCE(p.practice, '') AS practice, COALESCE(p.tool_history, '') AS toolHistory, p.created_at AS createdAt
+     FROM pilot_profile p JOIN users u ON u.user_id = p.user_id
+     WHERE p.pid IS NOT NULL AND u.role != 'admin'
+     ORDER BY p.pid`,
+  ).all<{ pid: number; slot: number; experienceYears: number | null; selfLevel: string; background: string; practice: string; toolHistory: string; createdAt: number }>();
+  const config = await loadPilotConfig(env);
   return jsonResponse(200, {
     status: "ok",
     registered: registered?.n ?? 0,
+    conditionMode: config.conditionMode,
+    profiles: (profileRes.results ?? []).map((p) => ({ ...p, participant: participantLabel(p.pid) })),
     mistakeFormula: { cook: MISTAKE_WEIGHT_COOK, self: MISTAKE_WEIGHT_SELF, cookCap: COOK_ERROR_CAP },
     ...summarizeTasks(rows),
-    rows: rows.map((r) => ({ ...r, participant: "P" + String(r.pid).padStart(2, "0"), mistake: withMistake(r), durationMin: minutes(r) })),
+    rows: rows.map((r) => ({ ...r, participant: participantLabel(r.pid), mistake: withMistake(r), durationMin: minutes(r), pausedMin: r.pausedSec == null ? null : Math.round((r.pausedSec / 60) * 10) / 10 })),
   });
 }
 
-// POST /admin/pilot/config { openRound?, labels? } — いま受け付ける回と、回の表示を切り替える（管理者だけ）。何も指定しなければ、いまの状態を返す。
+// POST /admin/pilot/config { openRound?, labels?, conditionMode? } — いま受け付ける回、回の表示、条件の割り当てを切り替える（管理者だけ）。何も指定しなければ、いまの状態を返す。
+// conditionMode: "auto"（参加者番号から。既定）／ "system"（全員ツール使用）／ "docs_only"（全員ドキュメントのみ）。まだ始めていない固定課題にだけ効く。
 export async function handlePilotConfig(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   requireAdmin(user);
   const body = await readBody(req);
-  if (body.openRound !== undefined) {
-    const open = Number(body.openRound);
-    if (!Number.isInteger(open) || open < 0 || open > ROUNDS) return jsonResponse(400, { error: `openRound は 0（受付停止）〜${ROUNDS} で指定してください` });
-    await saveConfigValue(env, "open_round", String(open));
+  // 先に、すべての値を検査する（片方だけ保存されて、400 が返る、という中途半端な状態を作らない）
+  const open = body.openRound !== undefined ? Number(body.openRound) : null;
+  if (open !== null && (!Number.isInteger(open) || open < 0 || open > ROUNDS)) return jsonResponse(400, { error: `openRound は 0（受付停止）〜${ROUNDS} で指定してください` });
+  if (body.conditionMode !== undefined && !CONDITION_MODES.includes(body.conditionMode as ConditionMode)) {
+    return jsonResponse(400, { error: `conditionMode は ${CONDITION_MODES.join("・")} のどれかで指定してください` });
   }
+  if (open !== null) await saveConfigValue(env, "open_round", String(open));
+  if (body.conditionMode !== undefined) await saveConfigValue(env, "condition_mode", String(body.conditionMode));
   if (body.labels && typeof body.labels === "object") {
     const labels = body.labels as Record<string, unknown>;
     for (let r = 1; r <= ROUNDS; r++) {
@@ -533,5 +585,13 @@ export async function handlePilotConfig(req: Request, env: Env, user: AuthedUser
   const registered = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM pilot_profile p JOIN users u ON u.user_id = p.user_id WHERE p.pid IS NOT NULL AND u.role != 'admin'",
   ).first<{ n: number }>();
-  return jsonResponse(200, { status: "ok", openRound: config.openRound, maxRound: ROUNDS, rounds, registered: registered?.n ?? 0 });
+  // 始めた固定課題の、条件ごとの数（切り替えたあと、混ざっているかの目安。破棄した記録・管理者の記録は数えない）
+  const conditionCounts = { system: 0, docs_only: 0 };
+  const condRes = await env.DB.prepare(
+    `SELECT s.condition AS condition, COUNT(*) AS n
+     FROM pilot_sessions s JOIN users u ON u.user_id = s.user_id
+     WHERE s.kind = 'fixed' AND s.discarded_at IS NULL AND u.role != 'admin' GROUP BY s.condition`,
+  ).all<{ condition: string; n: number }>();
+  for (const c of condRes.results ?? []) if (c.condition === "system" || c.condition === "docs_only") conditionCounts[c.condition] = c.n;
+  return jsonResponse(200, { status: "ok", openRound: config.openRound, maxRound: ROUNDS, rounds, registered: registered?.n ?? 0, conditionMode: config.conditionMode, conditionCounts });
 }

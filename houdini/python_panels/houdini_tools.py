@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import base64
 import datetime
+import difflib
 import json
+import os
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -56,6 +59,10 @@ HOUDINI_TOOLS: list[dict] = [
                 "parent": {
                     "type": "string",
                     "description": "親ノードのサンドボックス相対パス（省略時はサンドボックス直下）",
+                },
+                "purpose": {
+                    "type": "string",
+                    "description": "このノード・操作を使う目的（短い1文。例: 「渦の点を作る」「炎の元になる温度を出す」）。手順書・ガイド・動画に出る",
                 },
             },
             "required": ["node_type"],
@@ -106,6 +113,10 @@ HOUDINI_TOOLS: list[dict] = [
                         },
                         "required": ["frame", "value"],
                     },
+                },
+                "purpose": {
+                    "type": "string",
+                    "description": "このノード・操作を使う目的（短い1文。例: 「渦の点を作る」「炎の元になる温度を出す」）。手順書・ガイド・動画に出る",
                 },
                 "interpolation": {
                     "type": "string",
@@ -165,6 +176,10 @@ HOUDINI_TOOLS: list[dict] = [
                 "output_name": {
                     "type": "string",
                     "description": "接続元の出力名（output_index の代わり。例: 'P'）",
+                },
+                "purpose": {
+                    "type": "string",
+                    "description": "このノード・操作を使う目的（短い1文。例: 「渦の点を作る」「炎の元になる温度を出す」）。手順書・ガイド・動画に出る",
                 },
             },
             "required": ["from_node", "to_node"],
@@ -356,12 +371,26 @@ HOUDINI_TOOLS: list[dict] = [
         "description": (
             "ノードを見やすく整列する（ネットワークエディタの Layout）。サンドボックスの中だけが対象。"
             "finish_tutorial の前に1回呼ぶと、ネットワークの図・動画が読みやすくなる。node を省略するとサンドボックス全体。"
+            "つなぐたびに、そのコンテナは自動で整列される。ノードが8個以上のコンテナは、groups で役割ごとのまとまり（ネットワークボックス）を付けると、"
+            "どこで何をしているかが一目で分かる（groups を省くと、つながり合ったまとまりごとに自動で付く）。"
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "node": {"type": "string", "description": "整列するコンテナ（省略時はサンドボックス全体）"},
+                "node": {"type": "string", "description": "整列するコンテナ（省略時はサンドボックス全体）。groups を使うときは、まとめたいノードを直下に持つコンテナ"},
                 "recursive": {"type": "boolean", "description": "中のコンテナも整列するか（省略時 true）"},
+                "groups": {
+                    "type": "array",
+                    "description": "ネットワークボックスにまとめるノード群。例: [{\"label\": \"渦の点を作る\", \"nodes\": [\"vortex_points\", \"ctrl_seed\"]}]（nodes は node 直下のノード名）",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": {"type": "string", "description": "まとまりの役割（短く。例: 「ソースを作る」「シミュレーション」）"},
+                            "nodes": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["nodes"],
+                    },
+                },
             },
         },
     },
@@ -409,7 +438,11 @@ HOUDINI_TOOLS: list[dict] = [
                 },
                 "steps": {
                     "type": "string",
-                    "description": "手順の Markdown。実際に実行したノード作成・パラメータ設定を番号付きで解説",
+                    "description": (
+                        "手順の Markdown。実際に実行したノード作成・パラメータ設定を番号付きで解説。"
+                        "読者が、この文章だけで同じものを作れるように、省かずに書く: ノードのタイプと名前、パラメータ名と値、"
+                        "VEX・式の全文（「…」で省かない）、どのノードのどの出力を、どのノードのどの入力につなぐか。"
+                    ),
                 },
                 "pitfalls": {
                     "type": "string",
@@ -614,6 +647,9 @@ class HoudiniToolExecutor:
         self.last_screenshot_b64: str | None = None
         self.last_screenshot_frame: float | None = None  # 自己確認の画像を撮ったフレーム（エージェントが、画像に添えて伝える）
         self.step_log: list[dict] = []        # Markdown 組み立て用の全呼び出し履歴
+        # 題材と必須条件（tutorial_agent が生成の開始時に差し込む）。題材別の達成基準の確認（finish_tutorial）に使う。
+        self.topic: str = ""
+        self.requirements: str = ""
         # search_docs / get_doc の呼び先（doc_tools.DocClient）。tutorial_agent が生成の開始時に差し込む。
         # None のときは、この2つのツールは「使えない」と返す。
         self.doc_client = None
@@ -734,6 +770,7 @@ class HoudiniToolExecutor:
         SandboxViolation は監査ログに violation として記録する。
         """
         handler = getattr(self, f"_tool_{tool_name}", None)
+        started = time.monotonic()
         if tool_name in DOC_TOOL_NAMES:
             # ネットワーク呼び出しなので、Houdiniのメインスレッドには載せない（画面が固まる）。hou も触らない。
             result, is_error = self._run_doc_tool(tool_name, tool_input)
@@ -751,19 +788,46 @@ class HoudiniToolExecutor:
             except Exception as exc:
                 result, is_error = f"エラー: {exc}", True
 
+        tool_seconds = time.monotonic() - started
+        # 各段階の所要時間（2026-11-17）。以前は、監査ログの時刻の差から推測するしかなく、ツールのあとの画面の撮影
+        # （cook_node のクリップなど）の時間が、次のツール呼び出しの時間に混ざって見えていた。ツール本体と撮影を分けて測る。
         entry = {
             "tool": tool_name, "input": tool_input,
             "result": result, "is_error": is_error,
+            "elapsed_s": round(tool_seconds, 2),
         }
         self.step_log.append(entry)
         self._append_audit({"event": "tool_call", **entry})
 
+        capture_seconds = 0.0
+        capture_started = time.monotonic()
         if not is_error and tool_name in self._SCREENSHOT_WORTHY_TOOLS:
             self._capture_step_screenshot(tool_name, tool_input, result)
         if not is_error and tool_name == "finish_tutorial":
             self._capture_finish_screenshot()
+        capture_seconds = time.monotonic() - capture_started
+        self._record_timing(tool_name, tool_seconds, capture_seconds)
+        if capture_seconds >= 0.5:
+            self._append_audit({"event": "capture", "tool": tool_name, "elapsed_s": round(capture_seconds, 2)})
 
         return result, is_error
+
+    def _record_timing(self, tool_name: str, tool_seconds: float, capture_seconds: float) -> None:
+        """ツールごとの所要時間（本体・撮影）の合計と回数。生成の指標（timing_summary）に使う。"""
+        table = self.__dict__.setdefault("_timing", {})
+        row = table.setdefault(tool_name, {"calls": 0, "tool_s": 0.0, "capture_s": 0.0})
+        row["calls"] += 1
+        row["tool_s"] += tool_seconds
+        row["capture_s"] += capture_seconds
+
+    def timing_summary(self) -> dict:
+        """{"tool_seconds": ツール本体の合計, "capture_seconds": 撮影の合計, "slowest": "名前:秒, ..."（上位3つ）}。"""
+        table = self.__dict__.get("_timing", {})
+        tool_total = sum(r["tool_s"] for r in table.values())
+        capture_total = sum(r["capture_s"] for r in table.values())
+        ranked = sorted(table.items(), key=lambda kv: kv[1]["tool_s"] + kv[1]["capture_s"], reverse=True)[:3]
+        slowest = ", ".join(f"{name}:{row['tool_s'] + row['capture_s']:.0f}s" for name, row in ranked if row["tool_s"] + row["capture_s"] >= 1)
+        return {"tool_seconds": round(tool_total, 1), "capture_seconds": round(capture_total, 1), "slowest": slowest}
 
     def _run_doc_tool(self, tool_name: str, args: dict) -> tuple[str, bool]:
         """search_docs / get_doc。失敗はエラー文にして返す（モデルは手元の知識と他のツールで続けられる）。"""
@@ -915,6 +979,43 @@ class HoudiniToolExecutor:
         return (path or "").rstrip("/").rsplit("/", 1)[-1]
 
     _LONG_CLIP_MAX = 3  # 1回の生成で撮る、約10秒のクリップの数（撮影に時間がかかるので）
+    # True: 途中の cook_node では撮らず、最後の cook_node の1本だけを、最終の状態で撮る（export_step_screenshots）。
+    # False: 従来どおり、cook_node のたびに（上限まで）その場で撮る。
+    _DEFER_LONG_CLIP = True
+
+    def _capture_final_long_clip(self) -> None:
+        """最後の動く cook_node の手順に、約10秒のクリップを、最終の状態で撮って差し替える（無ければ何もしない）。"""
+        pending = self.__dict__.pop("_pending_long_clip", None)
+        if not pending or self._screenshot_dir is None or getattr(self, "_long_clips", 0) >= self._LONG_CLIP_MAX:
+            return
+        try:
+            import screen_capture as sc
+        except ImportError:
+            return
+        target = next((e for e in self.step_screenshots if e.get("step") == pending["step"] and e.get("tool") == "cook_node"), None)
+        if target is None:
+            return
+        plan, log_path = pending["plan"], self._screenshot_dir / "capture.log"
+
+        def _capture():
+            self._restore_final_display()  # 途中の cook で切り替えた表示を、最終の末端ノードへ戻す
+            self._long_clips = getattr(self, "_long_clips", 0) + 1
+            sc._log(f"final long clip: {plan['frames']} frames step {plan['step']} at {plan['fps']}fps (about {plan['seconds']}s)", log_path)
+            return sc.capture_viewport_clip(
+                self._screenshot_dir, f"step_{pending['step']:03d}_clip", frame_count=plan["frames"], fps=plan["fps"],
+                width=sc.LONG_CLIP_WIDTH, height=sc.LONG_CLIP_HEIGHT, log_path=log_path,
+                frame_path=self.sandbox_path, start_frame=plan["start"], frame_step=plan["step"],
+            )
+
+        started = time.monotonic()
+        try:
+            frames, fps = _run_in_main_thread(_capture)
+        except Exception:  # noqa: BLE001 -- 撮れなくても、短いクリップのまま続ける
+            return
+        if frames:
+            target["viewport_clip_frames"] = [str(p) for p in frames]
+            target["viewport_clip_fps"] = fps
+        self._record_timing("final_long_clip", 0.0, time.monotonic() - started)
 
     def _capture_cook_clip(self, sc, step_index: int, log_path) -> tuple[list, int]:
         """cook_node の手順のクリップ。動くシーンは約10秒（動画で、動く様子を再生する）。動かないシーンは撮らない（静止画のまま）。
@@ -937,6 +1038,12 @@ class HoudiniToolExecutor:
             if probe is not None and probe(self.sandbox_path, log_path) is None:
                 sc._log("clip skipped: nothing is displayed to film", log_path)
                 return [], 0
+        if plan is not None and animated and self._DEFER_LONG_CLIP and getattr(self, "_long_clips", 0) < self._LONG_CLIP_MAX:
+            # 約10秒のクリップは、組み立ての途中（まだ形が変わる）では撮らず、最後の1本だけを、最終の状態で撮る
+            # （2026-11-17）。実機の記録では、cook_node の直後のクリップ撮影が、次のツール呼び出しの所要時間として、
+            # 約100秒に見えていた（シミュレーションの全範囲を再生するため）。途中の cook は、従来の短いクリップにする。
+            self._pending_long_clip = {"step": step_index, "plan": plan}
+            return sc.capture_viewport_clip(self._screenshot_dir, base, log_path=log_path, frame_path=self.sandbox_path)
         if plan is not None and animated and getattr(self, "_long_clips", 0) < self._LONG_CLIP_MAX:
             self._long_clips = getattr(self, "_long_clips", 0) + 1
             sc._log(f"long clip: {plan['frames']} frames step {plan['step']} at {plan['fps']}fps (about {plan['seconds']}s)", log_path)
@@ -948,6 +1055,68 @@ class HoudiniToolExecutor:
             if frames:
                 return frames, fps
         return sc.capture_viewport_clip(self._screenshot_dir, base, log_path=log_path, frame_path=self.sandbox_path)
+
+    # ── ガイド・動画の元になる記録: 目的（purpose）・値の種類（kind）・メニューの表示名（menu_labels） ──────────
+    # 2026-11-17: 手順の記録に、目的と、メニュー・チェックボックスの値の言い換えに要る情報が無く、ガイド・動画は、数字のまま
+    # 「Run Over を 2 にする」と出していた。生成時（ノードが手元にあるとき）に、guide_mode.parm_value_info で取って、記録に入れる。
+    _RECORD_VALUE_CHARS = 300   # 記録（changes）に残す値の長さ（コード以外）。ガイドの parms は、従来どおり 60 文字・前の値 40 文字
+    _RECORD_CODE_CHARS = 4000   # コードの値は、全文に近く残す（動画の「コードの全文」用）
+    _PURPOSE_CHARS = 60
+
+    @staticmethod
+    def _menu_info(parm) -> dict:
+        """パラメータのテンプレートから、値の言い換えの情報（guide_mode.parm_value_info）。取れなければ {}。"""
+        try:
+            import guide_mode
+
+            return guide_mode.parm_value_info(parm.parmTemplate())
+        except Exception:  # noqa: BLE001 -- 取れなくても、生成は止めない
+            return {}
+
+    def _purpose_for(self, tool_name: str, tool_input: dict, node_name: str, node_type: str, node_path: str, node_label: str = "") -> str:
+        """手順の目的（短い1文）。モデルが purpose に書いたものを優先し、無ければ、同じノードの前の目的、レッスン設計の段取り（roadmap）の順。"""
+        remembered = self.__dict__.setdefault("_node_purposes", {})
+        text = " ".join(str(tool_input.get("purpose") or "").split())[: self._PURPOSE_CHARS]
+        if tool_name == "connect_nodes":
+            node_name = self._leaf(tool_input.get("to_node"))  # 接続は、つなぎ先ノードの目的を使う（node_path も、つなぎ先のもの）
+        if text:
+            if node_path and tool_name == "create_node":
+                remembered[node_path] = text
+            return text
+        if node_path and node_path in remembered:
+            return remembered[node_path]
+        squash = lambda t: re.sub(r"[\s_\-]+", "", (t or "").lower())  # noqa: E731
+        needle = {squash(node_name), squash((node_type or "").split("::")[0]), squash(node_label)} - {""}
+        for hint_node, does in self.__dict__.get("purpose_hints", []):
+            key = squash(hint_node)
+            if key and any(n in key or key in n for n in needle if len(n) >= 3):
+                return " ".join(does.split())[: self._PURPOSE_CHARS]
+        return ""
+
+    def _changes_record(self, node, changes: list[dict], where: dict[str, str]) -> list[dict]:
+        """動画・ガイドが読む changes: label / name / tab / old / new / code / kind（toggle・menu・other）/ menu_labels。
+        メニューは、動画が「番号 → 表示名」で引くので、トークンで持つメニューの値は、番号に直す（元の値は old_raw / new_raw に残す）。"""
+        out = []
+        for c in changes:
+            info = c.get("menu_info") or {}
+            kind = info.get("kind") or "other"
+            labels = list(info.get("labels") or []) if kind == "menu" else []
+            old, new = str(c.get("old") if c.get("old") is not None else ""), str(c.get("new") if c.get("new") is not None else "")
+            code = bool(c.get("code"))
+            limit = self._RECORD_CODE_CHARS if code else self._RECORD_VALUE_CHARS
+            row = {"old_raw": old[:limit], "new_raw": new[:limit]}  # 元の値も、同じ長さで切る（長いコードが、記録に二重に入らないように）
+            if kind == "menu":
+                items = list(info.get("items") or [])
+                # メニューの値は、番号で持つ（トークンで渡された値・読み出された値も、番号に直す）
+                old = str(items.index(old)) if old in items and not old.isdigit() else old
+                new = str(items.index(new)) if new in items and not new.isdigit() else new
+            out.append({
+                "label": c.get("label") or c.get("name"), "name": c.get("name"),
+                "tab": " › ".join(where.get(c.get("name"), "").split(" > ")) if where.get(c.get("name")) else "",
+                "old": old[:limit], "new": new[:limit], "code": code, "kind": kind, "menu_labels": labels,
+                "truncated": len(new) > limit or len(old) > limit, **row,
+            })
+        return out
 
     def _step_guide(self, tool_name: str, tool_input: dict, focus_path: str | None, changes: list[dict] | None,
                     connections: list[dict] | None = None) -> dict:
@@ -964,6 +1133,7 @@ class HoudiniToolExecutor:
                 guide["input"] = tool_input.get("input_name") or int(tool_input.get("input_index", 0) or 0)  # 省く手順の判定（trial_pruning）で使う
                 if connections and len(connections) > 1:
                     guide["connections"] = [{"from": c["from"], "to": c["to"], "input": c.get("input", 0)} for c in connections][:12]
+                    guide["connections_total"] = len(connections)  # 記録は12本まで。それより多いときに、画面が「ほか○本」と言えるように
         except Exception:  # noqa: BLE001 -- つなぎ先が取れなくても、生成は止めない
             return guide
         try:
@@ -974,6 +1144,9 @@ class HoudiniToolExecutor:
                     "node": node.name(), "node_path": self._rel(node),
                     "node_type": node_type.name(), "node_label": node_type.description(),
                 })
+                purpose = self._purpose_for(tool_name, tool_input, node.name(), node_type.name(), self._rel(node), node_type.description())
+                if purpose:
+                    guide["purpose"] = purpose
             elif tool_name == "delete_node":
                 guide["node"] = self._leaf(tool_input.get("node"))
             if changes and node is not None:
@@ -985,12 +1158,27 @@ class HoudiniToolExecutor:
                         "name": c["name"], "label": c["label"], "old": str(c.get("old") or "")[:40],
                         "new": "（コード。手順書を見る）" if c.get("code") else str(c["new"])[:60],
                         "where": where.get(c["name"], ""),
+                        **self._guide_value_info(c),
                     }
                     for c in changes
                 ]
             return guide
         except Exception:  # noqa: BLE001 -- 案内データが取れなくても、生成は止めない（取れた分だけ返す）
             return guide
+
+    @staticmethod
+    def _guide_value_info(change: dict) -> dict:
+        """ガイドの parms に足す、値の種類とメニューの表示名（guide_view が "_info" を読んで、「Detail (only once) にする」と言う）。"""
+        info = change.get("menu_info") or {}
+        if not info:
+            return {}
+        return {"kind": info.get("kind", "other"), "menu_labels": list(info.get("labels") or []), "_info": info}
+
+    def _parm_where(self, node) -> dict[str, str]:
+        """{パラメータ名: Parm パネルの場所（タブ > フォルダ）}。"""
+        rows: list = []
+        self._walk_parm_templates(node.parmTemplateGroup().entries(), (), rows)
+        return {template.name(): " > ".join(folders) for folders, template in rows}
 
     def _step_instruction(self, tool_name: str, tool_input: dict, tool_result: str, focus_path: str | None,
                           changes: list[dict] | None, connections: list[dict] | None = None) -> str:
@@ -1180,6 +1368,13 @@ class HoudiniToolExecutor:
                 "viewport_clip_fps": clip_fps,
                 "guide": self._step_guide(tool_name, tool_input, focus_path, changes, connections),
             }
+            entry["purpose"] = str((entry["guide"] or {}).get("purpose") or "")
+            if changes and tool_name == "set_parameter":
+                try:
+                    where_map = self._parm_where(self._hou.node(change["node_path"]))
+                    entry["changes"] = self._changes_record(None, changes, where_map)
+                except Exception:  # noqa: BLE001 -- 記録できなくても、手順は残す
+                    pass
             if replace_last:
                 self.step_screenshots[-1] = entry
             else:
@@ -1233,6 +1428,7 @@ class HoudiniToolExecutor:
             self._last_parm_change = {
                 "node_path": node.path(), "name": parm_name, "label": self._parm_label(parm),
                 "old": old_value, "new": str(value), "code": self._is_code_parm(parm, value),
+                "menu_info": self._menu_info(parm),
             }
             return f"{self._rel(node)}.{parm_name} = {value}"
 
@@ -1253,14 +1449,11 @@ class HoudiniToolExecutor:
             self._last_parm_change = {
                 "node_path": node.path(), "name": parm_name, "label": tuple_label,
                 "old": old_value, "new": " ".join(components), "code": False,
+                "menu_info": {},
             }
             return f"{self._rel(node)}.{parm_name} = ({', '.join(components)})"
 
-        available = ", ".join(p.name() for p in node.parms()[:40])
-        return (
-            f"パラメータ '{parm_name}' が見つかりません。"
-            f"利用可能なパラメータ（先頭40件）: {available}"
-        )
+        return self._parm_not_found(node, parm_name)
 
     def _set_parameter_animation(self, node, parm_name: str, args: dict) -> str:
         """
@@ -1276,8 +1469,7 @@ class HoudiniToolExecutor:
             if tuple_parm is not None:
                 names = ", ".join(p.name() for p in tuple_parm)
                 return f"{parm_name} はタプルです。式・キーフレームは成分ごとに設定してください（{names}）"
-            available = ", ".join(p.name() for p in node.parms()[:40])
-            return f"パラメータ '{parm_name}' が見つかりません。利用可能なパラメータ（先頭40件）: {available}"
+            return self._parm_not_found(node, parm_name)
 
         old_value = self._safe_eval(parm)
         expression = args.get("expression")
@@ -1692,6 +1884,7 @@ class HoudiniToolExecutor:
         if args.get("output_name"):
             output_index = self._port_index(out_names, str(args["output_name"]), "出力", src)
         dst.setInput(input_index, src, output_index)
+        self._auto_layout(dst.parent())  # 接続のたびに整列（交差・重なりを減らす）
         # 接続先が末端（出力先が無いノード）なら、それがこのグラフの「今の結果」なので
         # ビューポートに映す（_show_in_viewport参照）。
         if not dst.outputs():
@@ -1976,6 +2169,35 @@ class HoudiniToolExecutor:
             pass
         return "  " + " / ".join(parts)
 
+    @staticmethod
+    def _similar_parm_names(node, wanted: str, limit: int = 8) -> list[str]:
+        """wanted に近いパラメータ名（部分一致と、つづりの近さ）。名前の当て推量が外れたとき、1回で正しい名前に辿り着けるようにする
+        （実機の記録では、source_volume1 などの名前を探して get_parm_schema を連続で呼び、反復を消費していた）。"""
+        try:
+            names = [p.name() for p in node.parms()]
+        except Exception:  # noqa: BLE001
+            return []
+        key = (wanted or "").strip().lower()
+        if not key:
+            return []
+        picked = [n for n in names if key in n.lower() or (len(n) >= 3 and n.lower() in key)]
+        lowered = {n.lower(): n for n in names}
+        for close in difflib.get_close_matches(key, list(lowered), n=limit, cutoff=0.55):
+            if lowered[close] not in picked:
+                picked.append(lowered[close])
+        return picked[:limit]
+
+    def _parm_not_found(self, node, parm_name: str) -> str:
+        """パラメータ名が無いときの返答。近い名前を先に出す（全件ではなく、先頭40件だけ見せても、当てにならないため）。"""
+        available = ", ".join(p.name() for p in node.parms()[:40])
+        near = self._similar_parm_names(node, parm_name)
+        hint = f"近い名前: {', '.join(near)}。" if near else ""
+        return f"パラメータ '{parm_name}' が見つかりません。{hint}利用可能なパラメータ（先頭40件）: {available}"
+
+    def _near_hint(self, node, wanted: str) -> str:
+        near = self._similar_parm_names(node, wanted)
+        return f"。近い名前: {', '.join(near)}" if near else ""
+
     def _tool_get_parm_schema(self, args: dict) -> str:
         node = self._resolve(args["node"])
         keyword = (args.get("filter") or "").strip().lower()
@@ -1996,7 +2218,7 @@ class HoudiniToolExecutor:
         head = f"ノード: {self._rel(node)}（タイプ: {node.type().name()}）"
         if not rows:
             if keyword:
-                return head + f"\n'{args.get('filter')}' に一致するパラメータがありません（全 {total} 件）"
+                return head + f"\n'{args.get('filter')}' に一致するパラメータがありません（全 {total} 件）{self._near_hint(node, keyword)}"
             return head + "\nパラメータがありません"
         scope = f"（'{args.get('filter')}' に一致 {len(rows)} 件 / 全 {total} 件）" if keyword else f"（全 {total} 件）"
         lines = [head, f"パラメータの仕様{scope}:"]
@@ -2054,8 +2276,7 @@ class HoudiniToolExecutor:
         parm = node.parm(parm_name)
         tuple_parm = None if parm is not None else node.parmTuple(parm_name)
         if parm is None and tuple_parm is None:
-            available = ", ".join(p.name() for p in node.parms()[:40])
-            return f"パラメータ '{parm_name}' が見つかりません。利用可能なパラメータ（先頭40件）: {available}"
+            return self._parm_not_found(node, parm_name)
         targets = list(tuple_parm) if tuple_parm is not None else [parm]
         if parm is not None and self._is_ramp_parm(parm):
             return f"'{parm_name}' はランプです。try_parameter では扱えません（set_parameter の ramp 引数で設定してください）"
@@ -2203,8 +2424,7 @@ class HoudiniToolExecutor:
         if source is None and parm is not None:
             source = parm.tuple()
         if source is None:
-            available = ", ".join(p.name() for p in node.parms()[:40])
-            return f"パラメータ '{parm_name}' が見つかりません。利用可能なパラメータ（先頭40件）: {available}"
+            return self._parm_not_found(node, parm_name)
         members = list(source)
         template = source.parmTemplate()
         type_name = self._template_type_name(template)
@@ -2239,20 +2459,176 @@ class HoudiniToolExecutor:
             f"元は {fn}(\"{rel}/…\") で参照）"
         )
 
+    _AUTO_LAYOUT_MAX_CHILDREN = 60  # これより多いコンテナは、接続のたびの自動整列をしない（遅くなるため）
+
+    def _layout_targets(self, root, recursive: bool) -> list:
+        """整列するコンテナの一覧。ロックされたデジタルアセット（pyrosolver など）の中身は、部品なので対象にしない
+        （以前は allSubChildren で、アセットの内側の90か所まで整列していた。9秒かかり、書き換えられない場所でエラーにもなり得た）。"""
+        if self._is_locked_asset(root):
+            return []  # ロックされたアセットそのものを指定されても、中身は書き換えられない
+        targets = [root]
+        if recursive:
+            def walk(node) -> None:
+                for child in node.children():
+                    if self._is_locked_asset(child):
+                        continue
+                    if child.children():
+                        targets.append(child)
+                        walk(child)
+
+            walk(root)
+        return targets
+
+    def _auto_layout(self, container) -> None:
+        """接続のたびに、そのコンテナを整列する（ノードの重なり・線の交差を、組み立ての途中から減らす）。失敗しても生成は止めない。"""
+        if not getattr(self, "_auto_layout_enabled", True) or container is None:
+            return
+        try:
+            if self._is_locked_asset(container) or len(container.children()) > self._AUTO_LAYOUT_MAX_CHILDREN:
+                return
+            container.layoutChildren()
+        except Exception:  # noqa: BLE001
+            pass
+
+    @staticmethod
+    def _count_overlaps(container) -> int:
+        """ノードの四角が重なっている組の数（整列したあとの確認用。取れなければ0）。"""
+        try:
+            boxes = []
+            for node in container.children():
+                x, y = node.position()
+                w, h = node.size()
+                boxes.append((x, y, x + w, y + h))
+            count = 0
+            for i, a in enumerate(boxes):
+                for b in boxes[i + 1:]:
+                    if a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]:
+                        count += 1
+            return count
+        except Exception:  # noqa: BLE001
+            return 0
+
+    @staticmethod
+    def components_of(paths: list[str], edges: list[tuple[str, str]]) -> list[list[str]]:
+        """つながっているノードのまとまり（無向）。paths の順を保つ。ネットワークボックスの自動分けに使う。"""
+        parent = {p: p for p in paths}
+
+        def find(x: str) -> str:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for a, b in edges:
+            if a in parent and b in parent:
+                parent[find(a)] = find(b)
+        groups: dict[str, list[str]] = {}
+        for p in paths:
+            groups.setdefault(find(p), []).append(p)
+        return list(groups.values())
+
+    def _child_name_of(self, container, ref: str) -> str:
+        """ref（ノード名、またはパス）が container の直下のノードを指すなら、その名前。別の親のノードなら ""。
+        （以前は、パスの最後の名前だけを使っていたので、別の親にある同名のノードを、取り違えていた）"""
+        ref = ref.strip()
+        if "/" not in ref:
+            return ref
+        parent_part, leaf = ref.rstrip("/").rsplit("/", 1)
+        container_path = container.path().rstrip("/")
+        sandbox = self.sandbox_path.rstrip("/")
+        parent_part = parent_part.rstrip("/")
+        if parent_part in (container_path, self._rel(container)) or f"{sandbox}/{parent_part}" == container_path:
+            return leaf
+        return ""
+
+    _BOX_COLORS = ((0.45, 0.62, 0.85), (0.55, 0.78, 0.55), (0.9, 0.7, 0.4), (0.78, 0.55, 0.78), (0.85, 0.55, 0.55))
+
+    def _make_network_boxes(self, container, groups: list[dict] | None) -> int:
+        """ノードのまとまり（ネットワークボックス）を作る。groups は [{"label": 名前, "nodes": [コンテナ内のノード名, ...]}]。
+        groups が無いときは、つながり合ったまとまりが2つ以上あるときだけ、まとまりごとに作る。作った数を返す。"""
+        hou = self._hou
+        if not hasattr(container, "createNetworkBox"):
+            return 0
+        children = {c.name(): c for c in container.children()}
+        plan: list[tuple[str, list]] = []
+        if groups:
+            for group in groups:
+                if not isinstance(group, dict):
+                    continue
+                listed = group.get("nodes")
+                if not isinstance(listed, (list, tuple)):
+                    continue
+                names = [self._child_name_of(container, str(n)) for n in listed]
+                members = [children[n] for n in names if n in children]
+                if len(members) >= 2:
+                    plan.append((str(group.get("label") or "").strip()[:40], members))
+        elif len(children) >= 6:
+            edges = []
+            for child in container.children():
+                try:
+                    for src in child.inputs():
+                        if src is not None:
+                            edges.append((src.name(), child.name()))
+                except Exception:  # noqa: BLE001
+                    continue
+            comps = [c for c in self.components_of(list(children), edges) if len(c) >= 2]
+            if len(comps) >= 2:
+                for comp in comps:
+                    plan.append((f"{comp[0]} → {comp[-1]}", [children[n] for n in comp]))
+        if not plan:
+            return 0
+        try:
+            for old in list(container.networkBoxes()):
+                old.destroy()  # サンドボックスの中は、この生成のもの。作り直して、二重にしない
+        except Exception:  # noqa: BLE001
+            pass
+        made = 0
+        for index, (label, members) in enumerate(plan):
+            try:
+                box = container.createNetworkBox()
+                if label:
+                    box.setComment(label)
+                for member in members:
+                    box.addNode(member)
+                box.fitAroundContents()
+                try:
+                    box.setColor(hou.Color(self._BOX_COLORS[index % len(self._BOX_COLORS)]))
+                except Exception:  # noqa: BLE001
+                    pass
+                made += 1
+            except Exception:  # noqa: BLE001 -- 1つの失敗で、残りを止めない
+                continue
+        return made
+
     def _tool_layout_network(self, args: dict) -> str:
         target = self._resolve(args["node"]) if args.get("node") else self._hou.node(self.sandbox_path)
-        containers = [target]
-        if args.get("recursive", True):
-            containers += [n for n in target.allSubChildren() if n.children()]
+        containers = self._layout_targets(target, bool(args.get("recursive", True)))
         laid_out = []
         for container in containers:
             if not container.children():
                 continue
-            container.layoutChildren()
+            try:
+                container.layoutChildren()
+            except Exception:  # noqa: BLE001 -- 書き換えられない場所（ロックされたアセットなど）があっても、残りは整列する
+                continue
             laid_out.append(self._rel(container) if container.path() != self.sandbox_path else "（サンドボックス）")
         if not laid_out:
-            return "整列するノードがありません"
-        return f"整列しました: {len(laid_out)} か所（{', '.join(laid_out[:8])}{' ほか' if len(laid_out) > 8 else ''}）"
+            return "整列するノードがありません（ロックされたアセットの中は対象外です）"
+        boxes = 0
+        groups = args.get("groups")
+        if isinstance(groups, list) and groups:
+            boxes += self._make_network_boxes(target, groups)
+        elif args.get("boxes", True):
+            for container in containers:
+                if container.children():
+                    boxes += self._make_network_boxes(container, None)
+        overlaps = sum(self._count_overlaps(c) for c in containers if c.children())
+        text = f"整列しました: {len(laid_out)} か所（{', '.join(laid_out[:8])}{' ほか' if len(laid_out) > 8 else ''}）"
+        if boxes:
+            text += f" / ネットワークボックス {boxes} 個"
+        if overlaps:
+            text += f" / ノードの重なりが {overlaps} 組残っています（名前や位置を確かめてください）"
+        return text
 
     @staticmethod
     def _inside_dir(root: Path, value: str) -> bool:
@@ -2352,13 +2728,31 @@ class HoudiniToolExecutor:
         self._finish_drafts.append(draft)
         # 品質ゲート（2026-10-20）: レッスン用の項目（考え方・確認ポイント・実験・仕上げ・次のレッスン）が
         # 抜けていれば、書き足させる。最初の2回の提出だけ（無限ループ・予算の浪費を避ける）。
+        gap_messages: list[str] = []
         if len(self._finish_drafts) <= 2:
             gap = tutorial_review.finish_gap_message(draft)
             if gap:
-                return (
-                    "チュートリアル内容を受け付けましたが、まだ確定していません。\n" + gap
-                    + "\nこのあとビューポートの画像が送られます。書き足したうえで、もう一度 finish_tutorial を呼んでください。"
+                gap_messages.append(gap)
+        # 手順書の抜け・題材の達成基準（2026-11-17）。初回の提出だけで、まとめて1回だけ返す（反復と時間を増やしすぎないため）。
+        # 抜けが残ったまま提出されても、手順書には、記録から書き出した補足が自動で付く（tutorial_agent.generate）。
+        if len(self._finish_drafts) == 1:
+            try:
+                gaps = tutorial_review.fidelity_gaps(str(draft.get("steps") or ""), self.step_log)
+                # 既定は、書き間違い（作られていないノード）だけ書き直させる。抜けは、記録から自動で補足する（速さのため）。
+                # 環境変数 RAG_TUTORIAL_STRICT_STEPS=1 なら、抜けも書き直させる（モデルの文章で説明させたいとき。1回分、時間がかかる）。
+                strict = os.environ.get("RAG_TUTORIAL_STRICT_STEPS", "").strip().lower() in ("1", "true", "on", "yes")
+                fidelity = tutorial_review.fidelity_message(gaps) if strict else tutorial_review.phantom_message(gaps)
+                topic = tutorial_review.topic_gap_message(
+                    tutorial_review.topic_unmet(getattr(self, "topic", ""), getattr(self, "requirements", ""), self.step_log)
                 )
+            except Exception:  # noqa: BLE001 -- 点検の失敗で、提出を止めない
+                fidelity, topic = "", ""
+            gap_messages += [m for m in (fidelity, topic) if m]
+        if gap_messages:
+            return (
+                "チュートリアル内容を受け付けましたが、まだ確定していません。\n" + "\n\n".join(gap_messages)
+                + "\nこのあとビューポートの画像が送られます。書き足したうえで、もう一度 finish_tutorial を呼んでください。"
+            )
         return (
             "チュートリアル内容を受け付けました（まだ確定していません）。"
             "このあとビューポートの画像が送られるので、意図した見た目になっているか確認し、"
@@ -2399,6 +2793,9 @@ class HoudiniToolExecutor:
     _PROBLEM_NOTE_RE = re.compile(
         r"見えて(?:い)?(?:ま)?(?:せ)?ん|見えない|見えず|見えにくい|映って(?:い)?(?:ま)?(?:せ)?ん|映らない|"
         r"表示されて(?:い)?(?:ま)?(?:せ)?ん|表示されない|枠のみ|枠だけ|中身は?見え|何も(?:ない|見え|映)|空っぽ|崩れ|"
+        # 2026-11-17: 見えてはいるが、題材らしい形になっていない場合。炎の竜巻で、note に「細い柱状で、竜巻らしい広がりは弱い」と書きながら
+        # looks_correct=true で確定した。形の不足も、見えない問題と同じく、直してから確定する。
+        r"らしくな|らしさ.{0,6}(?:弱|足り|不足|乏)|広がり.{0,6}(?:弱|足り|不足|乏)|不十分|物足りな|貧弱|細すぎ|薄すぎ|小さすぎ|"
         r"not visible|nothing (?:is )?(?:visible|shown)|invisible|only the bounding"
         , re.IGNORECASE,
     )
@@ -2423,8 +2820,9 @@ class HoudiniToolExecutor:
             if contradictions < self._MAX_CONFIRM_CONTRADICTIONS and self.note_reports_problem(args.get("note")):
                 self._confirm_contradictions = contradictions + 1
                 return (
-                    "note には見た目の問題（見えない・映っていない等）が書かれていますが、looks_correct=true になっています。"
-                    "動画とチュートリアルの最初の画面になるので、見えない状態で確定しないでください。\n"
+                    "note には見た目の問題（見えない・映っていない・題材らしい形になっていない等）が書かれていますが、looks_correct=true になっています。"
+                    "動画とチュートリアルの最初の画面になるので、問題を残したまま確定しないでください。形が足りないとき（例: 竜巻が細い柱にしか見えない）は、"
+                    "題材別の達成基準（半径・回転の強さ・ソースの太さ・解像度）を直し、frame を進めて撮り直してください。\n"
                     "- 直せる場合: 見える形にしてから、finish_tutorial → confirm_tutorial をやり直す。"
                     "（例: ボリュームはビューポートで枠だけに見えることがある。メッシュにする（isooffset）、ポイントに変える、"
                     "可視化用のノードを足す、など。ノード名が不確かなら list_available_node_types で確認する）\n"
@@ -2537,4 +2935,5 @@ class HoudiniToolExecutor:
         返す（新しい順ではなく、実行順のまま）。動画側の --houdini-screenshots
         マニフェストはこれをそのままJSON化したもの。
         """
+        self._capture_final_long_clip()  # 最後の動く cook の約10秒クリップ（途中では撮らずに、ここで1本だけ撮る）
         return list(self.step_screenshots)

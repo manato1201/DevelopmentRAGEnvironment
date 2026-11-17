@@ -31,9 +31,12 @@ SCAN_BUDGET_SEC = 1.0  # 1回の採取に使う時間の上限
 PAUSE_MIN_SEC = 40  # 再開までの空きがこれ以上なら、Houdini が閉じていた（中断）とみなす（採取の間隔 20 秒の倍）
 MAX_SAVED_PATHS = 2000
 
+# 条件は、サーバーが決めて返す（運営が管理画面で、自動・全員ツール使用・全員ドキュメントのみ、を切り替える。2026-11-17）。
+# 画面は、返ってきた値に従って、どちらの条件かをはっきり出す（パネル側で、番号から決め直さない）。
+CONDITION_LABEL = {"system": "ツール使用", "docs_only": "ドキュメントのみ"}
 CONDITION_TEXT = {
-    "system": "本システム（チャット・チュートリアル生成）を使って構いません。",
-    "docs_only": "この回は「公式ドキュメント・Web検索のみ」で行ってください。このパネルのチャットとチュートリアル生成は使わないでください（使った記録は、集計で確認されます）。",
+    "system": "【条件: ツール使用】本システム（チャット・チュートリアル生成）を使って行ってください。",
+    "docs_only": "【条件: ドキュメントのみ】この課題は「公式ドキュメント・Web検索のみ」で行ってください。このパネルのチャットとチュートリアル生成は使わないでください（使った記録は、集計で確認されます）。",
 }
 KIND_TEXT = {"fixed": "固定課題", "free": "自由課題"}
 
@@ -171,6 +174,29 @@ def format_history_line(item: dict) -> str:
     seconds = item.get("durationSec")
     took = f"　{max(1, round(seconds / 60))}分" if isinstance(seconds, (int, float)) else ""
     return f"第{item.get('round')}回 {KIND_TEXT.get(item.get('kind'), '')}: {item.get('label', '')}{took}"
+
+
+def format_task_title(kind: str, item: dict) -> str:
+    """課題カードの見出し。条件（ツール使用／ドキュメントのみ）を、題材と並べてはっきり出す。自由課題は任意。"""
+    optional = "（任意）" if item.get("optional") else ""
+    label = CONDITION_LABEL.get(item.get("condition"))
+    return f"{KIND_TEXT.get(kind, kind)}{optional}: {item.get('label', '')}" + (f"［{label}］" if label else "")
+
+
+def apply_started(plan: dict | None, started: dict) -> dict | None:
+    """課題を始めたときにサーバーが返した題材・条件を、手元の plan に反映する。
+
+    運営が、受け付けの途中で条件の割り当てを切り替えたとき、画面に出ていた古い plan の条件ではなく、
+    実際に記録された条件（サーバーの値）を出すため。plan が無ければ、何もしない。"""
+    if not plan:
+        return plan
+    item = plan.get(started.get("kind"))
+    if isinstance(item, dict):
+        for key in ("taskId", "label", "condition"):
+            if started.get(key):
+                item[key] = started[key]
+        item["active"] = True
+    return plan
 
 
 def survey_questions(condition: str) -> list[tuple]:

@@ -75,12 +75,12 @@
 <header class="hero">
   <span class="badge">資料</span>
   <h1>別のPCへの導入手順（1枚）</h1>
-  <div class="meta">HTML生成: 2026-11-08（元: docs/guides/install-other-pc.md）</div>
+  <div class="meta">HTML生成: 2026-11-17（元: docs/guides/install-other-pc.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-用意するもの">1. 用意するもの</a></li><li><a href="#2-手順">2. 手順</a></li><li><a href="#3-動作の確認3分">3. 動作の確認（3分）</a></li><li><a href="#4-困ったとき">4. 困ったとき</a></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-用意するもの">1. 用意するもの</a></li><li><a href="#2-手順">2. 手順</a><ol><li><a href="#自己診断の読み方">自己診断の読み方</a></li><li><a href="#導入のときに選べること">導入のときに選べること</a></li></ol></li><li><a href="#3-動作の確認3分">3. 動作の確認（3分）</a><ol><li><a href="#動画の書き出しが遅いとき画質の設定">動画の書き出しが遅いとき（画質の設定）</a></li></ol></li><li><a href="#4-困ったとき">4. 困ったとき</a></li><li><a href="#5-パネルが開けないときの確認houdini-の-python-shell">5. パネルが開けないときの確認（Houdini の Python Shell）</a></li><li><a href="#6-版が違うときの確認のしかた220429-220459-220504">6. 版が違うときの確認のしかた（22.0.429 / 22.0.459 / 22.0.504）</a></li></ol></details></nav>
 <main>
 
-<p><strong>RAGReel Tutorial（Houdini パネル）＋ RAGReel（動画エンジン）</strong> ／ 所要時間: 約10分 ／ 管理者権限: 不要</p>
+<p><strong>RAGReel Tutorial（Houdini パネル）＋ RAGReel（動画エンジン）</strong> ／ 所要時間: 約10分 ／ 管理者権限: 不要 ／ 見直し: 2026-11-17（実証実験の結果を反映）</p>
 <h2 id="1-用意するもの">1. 用意するもの</h2>
 <div class="table-scroll"><table>
 <thead>
@@ -92,7 +92,7 @@
 <tbody>
 <tr>
 <td><code>RAGReelTutorial-&lt;版&gt;.zip</code></td>
-<td>Houdini のパネル本体（28 個の Python と <code>install.cmd</code>）</td>
+<td>Houdini のパネル本体（Python ファイルと <code>install.cmd</code>）</td>
 </tr>
 <tr>
 <td><code>RAGReel-Setup-1.1.0.exe</code></td>
@@ -108,7 +108,7 @@
 </tr>
 <tr>
 <td>Houdini</td>
-<td>21.0 または 22.0 ／ Windows 10・11（64ビット）／ インターネット接続</td>
+<td>21.0 以降（22.0 を含む）／ Windows 10・11（64ビット）／ インターネット接続</td>
 </tr>
 </tbody>
 </table></div>
@@ -118,39 +118,167 @@
 <h2 id="2-手順">2. 手順</h2>
 <ol>
 <li><strong>動画を作るなら、先に</strong> <code>RAGReel-Setup-1.1.0.exe</code> を実行する。ウィザードの指示どおりに進めるだけ（「自分だけ」へのインストールで可）。音声ソフト（VOICEVOX など）は要らない。</li>
-<li>Houdini を<strong>一度起動して、終了</strong>する（<code>Documents\houdini22.0</code> を作るため。使い込んでいる PC では不要）。</li>
-<li>zip を好きな場所に<strong>展開</strong>し、<strong><code>install.cmd</code> をダブルクリック</strong>する。</li>
-<li>聞かれたら <strong>URL</strong> と <strong>API キー</strong>を入れる（キーは画面に出ない）。空のまま Enter でもよい（あとで<strong>接続</strong>タブで入れられる）。</li>
-<li>「完了しました」と出たら <strong>Houdini を起動</strong>する。</li>
-<li>ペインのタブ「＋」→ <strong>New Pane Tab Type</strong> →「<strong>RAGReel Tutorial</strong>」を選ぶ。</li>
+<li>zip を好きな場所に<strong>すべて展開</strong>する（zip を右クリック →「すべて展開」）。<strong>zip の画面の中から <code>install.cmd</code> を開かない</strong>（他のファイルが無いため、失敗します）。</li>
+<li>展開したフォルダの <strong><code>install.cmd</code> をダブルクリック</strong>する。「Windows によって PC が保護されました」と出たら、「詳細情報」→「実行」。</li>
+<li>聞かれたら <strong>URL</strong> と <strong>API キー</strong>を入れる（キーは画面に出ない）。空のまま Enter でもよい（あとでパネルの「接続・アカウント」で入れられる）。</li>
+<li>最後に出る<strong>自己診断</strong>を見る（次の節）。<strong><code>[NG]</code> が無ければ</strong>、導入は成功。</li>
+<li><strong>Houdini を起動</strong>する（起動中だったときは、一度終了してから）。</li>
+<li><strong>Windows メニュー → Python Panel → RAGReel Tutorial</strong> を選ぶ。または、ペインのタブの「＋」→ <strong>New Pane Tab Type</strong> →（<strong>Misc</strong> の中の）「<strong>RAGReel Tutorial</strong>」。</li>
 </ol>
-<h2 id="3-動作の確認3分">3. 動作の確認（3分）</h2>
-<ol>
-<li><strong>接続</strong>タブで、接続が通ることを確認する。</li>
-<li><strong>Tutorial</strong> タブにトピック（例: <code>岩を地面に散らす</code>）を入れ、レベル <code>basic</code> で<strong>生成</strong>を押す（2〜4分）。</li>
-<li>プレビューが出たら<strong>保存</strong>する。RAGReel を入れていれば、続けて動画の生成が始まる。</li>
-<li><strong>動画</strong>タブから、できた動画を開く。</li>
-</ol>
-<h2 id="4-困ったとき">4. 困ったとき</h2>
+<blockquote>
+<p><strong>Houdini を先に起動しておく必要はありません。</strong> Houdini 本体が入っているのに <code>Documents\houdini22.0</code> がまだ無いときは、<code>install.cmd</code> がそのフォルダを作ります（以前は、ここで止まりました）。</p>
+</blockquote>
+<h3 id="自己診断の読み方">自己診断の読み方</h3>
+<p><code>install.cmd</code> の最後に、次のような一覧が出ます（同じ内容が <code>%LOCALAPPDATA%\RAGReelTutorial\install_report.txt</code> にも残ります）。<strong>API キーや URL の値は表示しません</strong>（「入っています」「空です」だけ）。</p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
-<th>症状</th>
-<th>対処</th>
+<th>行</th>
+<th>意味</th>
+<th><code>[NG]</code> のとき</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>RAGReel Tutorial</code> が一覧に出ない</td>
-<td>Windows → Python Panel も確認。それでも無ければ Houdini を一度終了して起動し直す</td>
+<td>パネルのファイル / <code>rag_chatbot.py</code> / パネル定義</td>
+<td>導入先（<code>%LOCALAPPDATA%\RAGReelTutorial</code>）に、ファイルが揃ったか</td>
+<td><code>install.cmd</code> をもう一度実行。ウイルス対策ソフトが書き込みを止めていないか確認</td>
+</tr>
+<tr>
+<td><strong>Houdini ○○.○ への登録</strong></td>
+<td><strong>どの Houdini の版に登録したか</strong>（<code>Documents\houdini21.0</code> / <code>houdini22.0</code> など、版ごと）。<code>packages\ragreel_tutorial.json</code> の場所も出る</td>
+<td>場所が違う可能性。「困ったとき」の「パネルが一覧に出ない」へ</td>
+</tr>
+<tr>
+<td>検出した Houdini 本体</td>
+<td><code>C:\Program Files\Side Effects Software\Houdini 22.0.504</code> などの、入っている版と、登録の有無。<strong>22.0.x は、ビルド番号が違っても、同じ <code>houdini22.0</code> を使う</strong>（1回の登録で、すべての 22.0.x が対象）</td>
+<td>登録されていない版が出たら、<code>install.cmd -HoudiniVersion 22.0</code> のように版を指定して実行</td>
+</tr>
+<tr>
+<td>設定ファイル</td>
+<td><code>~\.houdini\rag_chatbot_config.json</code> が、読める形で書けたか</td>
+<td>もう一度実行（壊れた元のファイルは、<code>.backup_日時</code> として退避されます）</td>
+</tr>
+<tr>
+<td>接続先の URL / API キー</td>
+<td><strong>入っている／空</strong>（値は出さない）。<code>[注意]</code> は、あとから入力すればよい</td>
+<td>パネルの「接続・アカウント」で入力して保存</td>
+</tr>
+<tr>
+<td>保存先（<code>local_bridge_dir</code>）</td>
+<td>チュートリアル・動画・記録の置き場所。書き込めるか。既定は <code>ドキュメント\RAGReelTutorial</code></td>
+<td>書き込めない場所なら、「接続・アカウント」の「保存先フォルダ」を変更</td>
+</tr>
+<tr>
+<td>動画エンジン</td>
+<td>RAGReel が見つかったか（動画を作らないなら、<code>[注意]</code> のままでよい）</td>
+<td>RAGReel を入れてから、もう一度実行</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>install.cmd</code> の終了コードは、<code>[NG]</code> があれば 1、無ければ 0 です。</p>
+<h3 id="導入のときに選べること">導入のときに選べること</h3>
+<pre><code>install.cmd -HoudiniVersion 22.0      # 登録する版を指定（22 や 22.0.504 と書いても 22.0 として扱う）
+install.cmd -DataDir D:\RAGReelData   # 保存先を指定（既定は ドキュメント\RAGReelTutorial）
+install.cmd -Uninstall                # 取り除く
+</code></pre>
+<h2 id="3-動作の確認3分">3. 動作の確認（3分）</h2>
+<ol>
+<li>パネルの右上の<strong>ランプ</strong>が「接続OK」になることを確認する（ならなければ、ランプをクリック → <strong>接続・アカウント</strong>で URL と API キーを確認）。</li>
+<li><strong>Tutorial</strong> タブにトピック（例: <code>岩を地面に散らす</code>）を入れ、レベル <code>basic</code> で<strong>生成</strong>を押す（2〜4分）。</li>
+<li>プレビューが出たら<strong>保存</strong>する。「保存先未設定」とは出ずに、保存される（<code>ドキュメント\RAGReelTutorial\localRAG\tutorials\</code>）。RAGReel を入れていれば、続けて動画の生成が始まる。</li>
+<li><strong>動画</strong>タブから、できた動画を開く。</li>
+</ol>
+<h3 id="動画の書き出しが遅いとき画質の設定">動画の書き出しが遅いとき（画質の設定）</h3>
+<p>動画エンジンの既定は、<strong>フル HD・30 fps</strong>（<code>1080p30</code>）です。以前の既定（1280x720・15 fps）より、書き出しに<strong>約 3〜4 倍</strong>かかります（実機の長い動画での時間は、未測定）。遅くて困るときは、画質を下げます。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>設定値</th>
+<th>大きさ・fps</th>
+<th>書き出しの目安</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1080p30</code>（既定）</td>
+<td>1920x1080・30 fps</td>
+<td>約 3〜4 倍</td>
+</tr>
+<tr>
+<td><code>1080p15</code></td>
+<td>1920x1080・15 fps</td>
+<td>約 2 倍</td>
+</tr>
+<tr>
+<td><code>720p30</code></td>
+<td>1280x720・30 fps</td>
+<td>約 2 倍</td>
+</tr>
+<tr>
+<td><code>720p15</code></td>
+<td>1280x720・15 fps</td>
+<td>以前と同じ</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>書き方:</strong> パネルの設定ファイルには、この項目がありません。Windows の<strong>ユーザー環境変数</strong>で渡します（管理者権限は不要）。コマンドプロンプトで、次を実行し、<strong>Houdini を終了して起動し直します</strong>（Houdini が環境変数を引き継ぎ、動画エンジンに渡します）。</p>
+<pre><code>setx RAGREEL_VIDEO_PROFILE 1080p15
+</code></pre>
+<p>元に戻す（既定に戻す）ときは、環境変数 <code>RAGREEL_VIDEO_PROFILE</code> を削除します（「システム環境変数の編集」→「環境変数」）。動画エンジンを手で動かすときは、<code>--video-profile 1080p15</code> でも指定できます（こちらが優先）。知らない名前を書くと、既定（<code>1080p30</code>）になり、ログに警告が出ます。</p>
+<h2 id="4-困ったとき">4. 困ったとき</h2>
+<p>実証実験（2026-11-17）で起きたものを含みます。上から順に、当てはまるものを探してください。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因と対処</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>保存すると「保存先未設定」と出る</td>
+<td><strong>以前の版の不具合</strong>です。いまの版は、保存先が空でも、<code>ドキュメント\RAGReelTutorial</code> を自動で使います。最新の zip で <code>install.cmd</code> をやり直してください。それでも出るときは、パネル右上の歯車 →「<strong>接続・アカウント</strong>」→「<strong>保存先フォルダ</strong>」に、書き込める場所（例: ドキュメント内のフォルダ）を入れて保存。（以前は、案内の「設定タブ」が一般の利用者には表示されず、直せませんでした）</td>
+</tr>
+<tr>
+<td><code>RAGReel Tutorial</code> が、New Pane Tab Type の Misc にも、Windows → Python Panel にも出ない</td>
+<td>次の <strong>A〜D を順に</strong>確認する。<strong>A</strong> Houdini を一度終了して、起動し直したか（起動中に導入しても、読み込まれません）。<strong>B</strong> <code>install.cmd</code> の自己診断に、使っている版の「Houdini ○○.○ への登録」が <strong>[OK]</strong> で出ていたか。<strong>C</strong> 次の場所にファイルがあるか: <code>Documents\houdini22.0\packages\ragreel_tutorial.json</code>（使っている版の <code>houdiniXX.X</code>）。<strong>D</strong> ドキュメントが OneDrive に移されている PC では、場所が <code>OneDrive\ドキュメント\houdini22.0</code> のことがある。Houdini の Python Shell で <code>hou.homeHoudiniDirectory()</code> を実行し、出た場所の <code>packages</code> に、ファイルがあるか確認。無ければ、その場所に <code>ragreel_tutorial.json</code> をコピーする（導入先 <code>%LOCALAPPDATA%\RAGReelTutorial</code> を指す内容。別の PC のものをコピーしてはいけません。<code>install.cmd -HoudiniVersion 22.0</code> をやり直すのが確実です）</td>
+</tr>
+<tr>
+<td><code>ragreel_tutorial.json</code> が見つからない</td>
+<td>Houdini の版のフォルダ名が違う（<code>houdini22.0</code> ではなく <code>houdini22.0.504</code> のようなフォルダは、使われません。Houdini は、<code>houdini</code> ＋ メジャー・マイナーだけの名前を使います）。または、ドキュメントの場所が違う（上の D）。<code>install.cmd -HoudiniVersion 22.0</code> で作り直す</td>
+</tr>
+<tr>
+<td>パネルを選ぶと、エラー表示（赤い文字や、英語の長い文）が出る</td>
+<td>開けないときの確認（次の節）で、原因を調べる。パネルが開けなかったときは、<strong>表示される画面に、原因（環境変数・探した場所・エラー）が出ます</strong>ので、その内容をお知らせください</td>
+</tr>
+<tr>
+<td><code>install.cmd</code> の窓が、すぐ消える／「install.ps1 が見つかりません」</td>
+<td>zip の中から開いています。<strong>すべて展開</strong>してから、展開先の <code>install.cmd</code> を実行する</td>
+</tr>
+<tr>
+<td>「導入先の Houdini（21.0 以降）が見つかりません」</td>
+<td>画面に、探した場所・見つかった <code>houdini*</code> フォルダ・見つかった Houdini 本体が出ます。Houdini を一度起動して終了するか、<code>install.cmd -HoudiniVersion 22.0</code> で版を指定する。Houdini 20.5 以前は対象外です（PySide6 が必要）</td>
+</tr>
+<tr>
+<td>「Windows によって PC が保護されました」</td>
+<td>「詳細情報」→「実行」。それでも止まるときは、zip のプロパティで「許可する」にチェック → もう一度展開</td>
 </tr>
 <tr>
 <td>「URL/APIキーが未設定です」・接続できない</td>
-<td><strong>接続</strong>タブの URL と API キーを入れて保存。誤りなら入れ直す（キーは再発行も可）</td>
+<td>パネルの右上の歯車 →「接続・アカウント」で、URL と API キーを入れて保存。誤りなら入れ直す（キーは再発行も可）</td>
+</tr>
+<tr>
+<td>設定ファイルが壊れた／空になった</td>
+<td><code>install.cmd</code> をやり直すと、作り直されます（元のファイルは、<code>.backup_日時</code> として残る）。パネルを開いたまま導入したときは、パネルを開き直す</td>
+</tr>
+<tr>
+<td>動画の書き出しが遅い</td>
+<td>上の「動画の書き出しが遅いとき（画質の設定）」で、<code>1080p15</code> や <code>720p15</code> にする</td>
 </tr>
 <tr>
 <td>動画が作られない</td>
-<td><strong>接続</strong>タブ「動画・ギャラリー」の <code>Video Factory exe</code> のパスを確認（RAGReel を入れると自動で入る）。入っていなければ RAGReel を入れ直す</td>
+<td>「接続・アカウント」→「動画・ギャラリー」の <code>Video Factory exe</code> のパスを確認（RAGReel を入れると自動で入る）。入っていなければ RAGReel を入れてから、<code>install.cmd</code> をもう一度実行</td>
 </tr>
 <tr>
 <td>ギャラリーに載せる（実証実験）</td>
@@ -158,7 +286,7 @@
 </tr>
 <tr>
 <td>更新したい</td>
-<td>新しい zip で、手順3〜5をやり直す（設定は残る）</td>
+<td>新しい zip で、手順2〜6をやり直す（設定は残る）</td>
 </tr>
 <tr>
 <td>取り除きたい</td>
@@ -166,6 +294,105 @@
 </tr>
 </tbody>
 </table></div>
+<h2 id="5-パネルが開けないときの確認houdini-の-python-shell">5. パネルが開けないときの確認（Houdini の Python Shell）</h2>
+<p>Houdini の <strong>Windows → Python Shell</strong> を開き、次を<strong>1行ずつ</strong>実行します（<code>hou</code> は最初から使えます）。</p>
+<pre><code class="language-python">import os, sys
+print(hou.applicationVersionString())                          # 使っている Houdini の版（例: 22.0.504）
+print(hou.homeHoudiniDirectory())                              # 設定フォルダ。packages\ragreel_tutorial.json は、この下にある必要がある
+print(os.environ.get(&quot;RAGREEL_TUTORIAL_HOME&quot;))                 # None なら、パッケージが読み込まれていない
+print([p for p in hou.houdiniPath() if &quot;RAGReel&quot; in p])        # 空なら、パッケージが読み込まれていない
+print([p for p in sys.path if &quot;RAGReelTutorial&quot; in p])         # 空なら、Python の探す場所に入っていない
+print(hou.pypanel.interfaceByName(&quot;RAGReelTutorial&quot;))          # None なら、パネル定義が見つかっていない
+import rag_chatbot                                             # ここで出るエラーが、開けない原因
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>結果</th>
+<th>意味と対処</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>homeHoudiniDirectory()</code> の場所に、<code>packages\ragreel_tutorial.json</code> が無い</td>
+<td>登録先が違う。<code>install.cmd -HoudiniVersion 22.0</code> をやり直すか、その場所の <code>packages</code> に、<code>ragreel_tutorial.json</code> を置く</td>
+</tr>
+<tr>
+<td><code>RAGREEL_TUTORIAL_HOME</code> が <code>None</code></td>
+<td>パッケージが読み込まれていない。Houdini を終了して起動し直す。それでも <code>None</code> なら、上の <code>packages</code> の場所を確認</td>
+</tr>
+<tr>
+<td><code>RAGREEL_TUTORIAL_HOME</code> はあるが、<code>sys.path</code> が空</td>
+<td>Houdini を起動し直す（<code>PYTHONPATH</code> は、起動時に決まる）</td>
+</tr>
+<tr>
+<td><code>import rag_chatbot</code> で <code>ModuleNotFoundError: No module named 'PySide6'</code></td>
+<td>Houdini 21 より前の版。対象外</td>
+</tr>
+<tr>
+<td><code>import rag_chatbot</code> で <code>ModuleNotFoundError</code>（別の名前、例: <code>panel_nav</code>）</td>
+<td>導入先のファイルが足りない。最新の zip で <code>install.cmd</code> をやり直す</td>
+</tr>
+<tr>
+<td><code>import rag_chatbot</code> がエラーなく終わる</td>
+<td>Python 側は正常。<code>hou.pypanel.interfaceByName(...)</code> が <code>None</code> なら、<code>houdini\python_panels\RAGReelTutorial.pypanel</code> が読まれていない（<code>houdini_path</code> に <code>RAGReel</code> が出ているか確認）。Houdini を起動し直す</td>
+</tr>
+</tbody>
+</table></div>
+<p>問い合わせるときは、<strong>この出力</strong>と、<code>%LOCALAPPDATA%\RAGReelTutorial\install_report.txt</code> を添えてください。どちらにも API キーは含まれません（<code>rag_chatbot_config.json</code> そのものは、送らないでください）。</p>
+<h2 id="6-版が違うときの確認のしかた220429-220459-220504">6. 版が違うときの確認のしかた（22.0.429 / 22.0.459 / 22.0.504）</h2>
+<blockquote>
+<p><strong>状態: 未対応（実機での確認が、まだできていません）。</strong> 開発側に実機が無いため、版ごとの動作比較は、実施していません。次の欄は、<strong>確認するときの手順と、記録の書式</strong>です。</p>
+</blockquote>
+<ul>
+<li>22.0.x は、ビルド番号が違っても、設定フォルダは同じ <code>Documents\houdini22.0</code> です。<strong>1 回の登録（<code>install.cmd</code>）で、すべての 22.0.x に効きます</strong>（自己診断の「検出した Houdini 本体」に、版ごとの登録の有無が出ます）。</li>
+<li>版ごとに、次をやって、結果を記録してください。</li>
+</ul>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>版</th>
+<th>開けるか（手順 7）</th>
+<th>Tutorial の生成</th>
+<th>Guide（ノードの強調）</th>
+<th>動画</th>
+<th>備考</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>22.0.429</td>
+<td>未確認</td>
+<td>未確認</td>
+<td>未確認</td>
+<td>未確認</td>
+<td></td>
+</tr>
+<tr>
+<td>22.0.459</td>
+<td>未確認</td>
+<td>未確認</td>
+<td>未確認</td>
+<td>未確認</td>
+<td></td>
+</tr>
+<tr>
+<td>22.0.504</td>
+<td>未確認</td>
+<td>未確認</td>
+<td>未確認</td>
+<td>未確認</td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<ol>
+<li><strong>Help → About Houdini</strong> で、版（ビルド番号）を確認する（Python Shell の <code>hou.applicationVersionString()</code> でも同じ）。</li>
+<li>手順7でパネルを開く。開けなければ、上の「パネルが開けないときの確認」の出力を記録する。</li>
+<li>Tutorial タブで、同じトピック・同じレベルで生成し、保存まで通るか確認する。</li>
+<li>Guide タブで「この手順を案内」を押し、ノードが選ばれて、画面に収まるか確認する。</li>
+<li>版によって違いがあったら、版・症状・Python Shell の出力を、運営に知らせる。</li>
+</ol>
 <p>詳しくは <a href="manual-houdini-tutorial.html">manual-houdini-tutorial.md</a> と <a href="manual-ragreel.html">manual-ragreel.md</a>。</p>
 </main>
 

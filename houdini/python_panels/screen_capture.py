@@ -56,6 +56,14 @@ hou.NetworkEditor.qtScreenGeometry()（公式ドキュメントにある「ペ�
 は実機でHoudini本体を返さないと判明済みのため廃止した。撮影対象も「サンドボックス直下」
 から「作業中のネットワーク（geoの中身）」に変更した。
 
+2026-11-17 実証実験を受けた変更（video-capture）:
+  - ノード図: 注目ノードと前後だけを、名前が読める大きさ（MIN_NAME_PT）で描く。全体図は 1 枚だけ（select_focus_nodes）
+  - 実画面のネットワークエディタ: 注目ノードと前後が映る範囲に合わせる（plan_focus_bounds / frame_network_on_focus）。
+    ペインが狭いときは、拡大してぼやけるので、描き直した図にする（prefer_diagram）
+  - 長いコード: 専用のカード（大きい等幅・折り返し・複数枚。render_code_cards）
+  - パラメータ画面: 変更した項目のタブを前面にし（reveal_parm_tabs）、タブ名をスライドに出す（with_tab_paths）
+  - 撮った画像のとなりに <画像>.meta.json を書く（品質チェッカーが、文字の大きさ・省略の有無を読む）
+
 2026-08-12 追加: IMPROVEMENT_PLAN.md Phase2（VLM対応）で、capture_viewport() の
 出力（PNG）を rag_chatbot.py のChatタブ添付画像・localRAG画像インデックス
 （scripts/image_embedding_generator.py）の両方の入力ソースとして流用している。
@@ -69,8 +77,10 @@ hou.NetworkEditor.qtScreenGeometry()（公式ドキュメントにある「ペ�
 from __future__ import annotations
 
 import datetime
+import glob
 import re
 import time
+import unicodedata
 from pathlib import Path
 
 import hou
@@ -113,8 +123,11 @@ def _flush_qt_events() -> None:
         pass
 
 
-def _frame_network_children(network_editor, network, log_path: Path | None) -> None:
-    """ネットワーク直下の全ノードが視野に収まるよう、ネットワークエディタの表示範囲を合わせる。"""
+def _frame_network_children(network_editor, network, log_path: Path | None, focus_path: str | None = None) -> None:
+    """ネットワークの表示範囲を合わせる。focus_path があれば、そのノードと前後を、読める大きさで映す（frame_network_on_focus）。
+    無ければ、直下の全ノードが視野に収まるようにする（ノードが多いと、名前は小さくなる）。"""
+    if focus_path and frame_network_on_focus(network_editor, network, focus_path, log_path):
+        return
     children = list(network.children())
     if children:
         try:
@@ -132,7 +145,39 @@ def _frame_network_children(network_editor, network, log_path: Path | None) -> N
         _log(f"homeToSelection() failed: {exc!r}", log_path)
 
 
-def focus_network_on(node_path: str, log_path: Path | None = None) -> None:
+def frame_network_on_focus(network_editor, network, focus_path: str, log_path: Path | None = None) -> bool:
+    """注目ノード（focus_path）と、その前後のノードが、読める大きさで映るよう、ネットワークエディタの表示範囲を合わせる。
+    範囲の決め方は plan_focus_bounds（幅の上限 MAX_VIEW_WIDTH）。合わせられたら True。"""
+    try:
+        children = list(network.children())
+        items = []
+        for c in children:
+            pos = c.position()
+            inputs = []
+            for conn in c.inputConnections():
+                source = conn.inputNode()
+                if source is not None:
+                    inputs.append(source.path())
+            items.append({"path": c.path(), "x": float(pos[0]), "y": float(pos[1]), "inputs": inputs})
+        if not any(i["path"] == focus_path for i in items):
+            return False
+        aspect = 16 / 9
+        try:
+            rect = network_editor.qtScreenGeometry()
+            if rect.height() > 0:
+                aspect = float(rect.width()) / float(rect.height())
+        except Exception:  # noqa: BLE001 -- 縦横比が読めなければ、16:9
+            pass
+        (x0, y0, x1, y1), shown, hidden = plan_focus_bounds(items, focus_path, aspect)
+        network_editor.setVisibleBounds(hou.BoundingRect(x0, y0, x1, y1))
+        _log(f"network framing: focus {focus_path}, {len(shown)} node(s) in view, {len(hidden)} outside", log_path)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _log(f"frame_network_on_focus failed: {exc!r}", log_path)
+        return False
+
+
+def focus_network_on(node_path: str, log_path: Path | None = None, focus_path: str | None = None) -> None:
     """
     ネットワークエディタのペインを、node_path（ネットワーク＝ノードを内包するコンテナ）の
     中身が全部見える状態にし、そのペインを「現在表示中のタブ」に切り替える。
@@ -146,6 +191,9 @@ def focus_network_on(node_path: str, log_path: Path | None = None) -> None:
     アクティブだと、Qt側はネットワークエディタの中身をそもそも描画していない。
     setIsCurrentTab() で前面に出し、_flush_qt_events() で再描画を完了させてから撮影する。
     失敗しても静かに諦める（ベストエフォート）。
+
+    2026-11-17: focus_path（注目ノード）を渡すと、そのノードと前後が読める大きさで映る範囲に合わせる（frame_network_on_focus）。
+    渡さなくても、capture_network_editor が、撮影の直前に、注目ノードに合わせ直す。
     """
     try:
         network = hou.node(node_path)
@@ -157,7 +205,7 @@ def focus_network_on(node_path: str, log_path: Path | None = None) -> None:
             _log("focus_network_on: no NetworkEditor pane found", log_path)
             return
         network_editor.setPwd(network)
-        _frame_network_children(network_editor, network, log_path)
+        _frame_network_children(network_editor, network, log_path, focus_path)
         if hasattr(network_editor, "setIsCurrentTab"):
             network_editor.setIsCurrentTab()
             _flush_qt_events()
@@ -207,6 +255,326 @@ def fit_pane_size(width: int, height: int, min_width: int = PANE_MIN_WIDTH, max_
     if target == width:
         return width, height
     return target, max(1, int(round(height * target / width)))
+
+
+# ─── 注目するノードを中心にした、読める大きさの撮り方（2026-11-17。副作用なし。Qt も hou も使わない） ───────────
+# 実験の結果、「ノード数が増えると、全体を 1 枚に収めるので、ノード名が小さくて読めない」が出た。
+# 前の動き: 描き直すネットワーク図は、全ノードを 1 枚に収め、拡大率の下限は 0.35 だった。40 ノードの一本道では、
+#   名前の文字は 3.85pt（読めない）になり、しかも図の高さ（1436）が画面の高さ（632）を超えて、画面の外にはみ出した。
+# 後の動き: 各手順の図は、注目するノードと、その前後（つながっているノード）だけを大きく描く。名前の大きさに下限（MIN_NAME_PT）
+#   を決め、下限を守れる数のノードだけを残す（ほかは、「ほか N 個は省略」と書く）。全体図は、章の冒頭などで 1 枚だけ使う。
+DIAGRAM_NAME_PT = 14.0
+DIAGRAM_TYPE_PT = 10.0
+MIN_NAME_PT = 12.0  # 注目ノードの図で、ノード名の最小の大きさ（pt。出力の論理座標 1280x720 での値。動画では約 1.3 倍の画素になる）
+MIN_FOCUS_SCALE = MIN_NAME_PT / DIAGRAM_NAME_PT
+OVERVIEW_MIN_SCALE = 0.05  # 全体図は、構成が分かればよい。名前が読めなくても、画面の外にははみ出させない（ほぼ無制限に縮める）
+DIAGRAM_MAX_SCALE = 1.6
+DIAGRAM_BOX_H, DIAGRAM_GAP_X, DIAGRAM_GAP_Y = 56.0, 36.0, 52.0
+DIAGRAM_BOX_MIN_W = 150.0
+DIAGRAM_BAR_H = 40.0
+DIAGRAM_MARGIN_W, DIAGRAM_MARGIN_H = 80.0, 48.0
+
+
+def diagram_node_width(name: str, advance: float | None = None) -> float:
+    """図の中のノードの箱の幅。advance は、名前の文字列の実際の幅（Qt の測定値）。無ければ、文字数からの見積もり。"""
+    text_w = advance if advance is not None else len(name) * DIAGRAM_NAME_PT * 0.62
+    return max(DIAGRAM_BOX_MIN_W, text_w + 40.0)
+
+
+def layout_extent(layers: list[list[dict]], width_of=None) -> tuple[float, float, list[float]]:
+    """段（レイヤー）に分けたノードを並べたときの、全体の幅・高さと、各段の幅。"""
+    width_of = width_of or (lambda n: diagram_node_width(n["name"]))
+    row_widths = []
+    for members in layers:
+        widths = [width_of(n) for n in members]
+        row_widths.append(sum(widths) + DIAGRAM_GAP_X * max(0, len(widths) - 1))
+    layout_w = max(row_widths, default=0.0)
+    layout_h = len(layers) * DIAGRAM_BOX_H + max(0, len(layers) - 1) * DIAGRAM_GAP_Y
+    return layout_w, layout_h, row_widths
+
+
+def diagram_scale(
+    layout_w: float, layout_h: float, width: int, height: int, min_scale: float
+) -> tuple[float, bool]:
+    """図を画面に収める拡大率。戻り値: (拡大率, min_scale を守って収まるか)。収まらないときの拡大率は min_scale。"""
+    if layout_w <= 0 or layout_h <= 0:
+        return 1.0, True
+    avail_w = width - DIAGRAM_MARGIN_W
+    avail_h = height - DIAGRAM_BAR_H - DIAGRAM_MARGIN_H
+    fit = min(avail_w / layout_w, avail_h / layout_h, DIAGRAM_MAX_SCALE)
+    return max(min_scale, fit), fit >= min_scale
+
+
+def _subset_model(model: list[dict], keep: set[str]) -> list[dict]:
+    """keep に含まれるノードだけの model。入力の接続は、残ったノード同士のものだけにする。"""
+    out = []
+    for n in model:
+        if n["path"] in keep:
+            copy = dict(n)
+            copy["inputs"] = [(p, i) for p, i in n["inputs"] if p in keep]
+            out.append(copy)
+    return out
+
+
+def select_focus_nodes(
+    model: list[dict], focus_path: str | None, width: int = LOGICAL_WIDTH, height: int = LOGICAL_HEIGHT,
+    width_of=None, min_scale: float = MIN_FOCUS_SCALE,
+) -> tuple[list[dict], int]:
+    """注目ノードと、その前後だけを残す。戻り値: (残した model, 省いたノード数)。
+    つながりの近さ（何本たどるか）が小さいノードから足し、名前の大きさの下限（min_scale）を守れる範囲で止める。
+    focus_path が無い・model に無いときは、全部を返す（全体図）。"""
+    by_path = {n["path"]: n for n in model}
+    if focus_path is None or focus_path not in by_path:
+        return list(model), 0
+
+    adjacent: dict[str, set[str]] = {p: set() for p in by_path}
+    for n in model:
+        for source, _idx in n["inputs"]:
+            if source in by_path:
+                adjacent[n["path"]].add(source)
+                adjacent[source].add(n["path"])
+    distance = {focus_path: 0}
+    queue = [focus_path]
+    for current in queue:
+        for neighbor in sorted(adjacent[current]):
+            if neighbor not in distance:
+                distance[neighbor] = distance[current] + 1
+                queue.append(neighbor)
+
+    def fits(keep: set[str]) -> bool:
+        sub = _subset_model(model, keep)
+        lw, lh, _ = layout_extent(_assign_layers(sub), width_of)
+        return diagram_scale(lw, lh, width, height, min_scale)[1]
+
+    keep = {focus_path}
+    rings: dict[int, list[str]] = {}
+    for path, d in distance.items():
+        if d > 0:
+            rings.setdefault(d, []).append(path)
+    for d in sorted(rings):
+        ring = sorted(rings[d], key=lambda p: by_path[p]["name"])
+        if fits(keep | set(ring)):
+            keep |= set(ring)
+            continue
+        for path in ring:  # 1 周は入りきらない。入るだけ足して、そこで止める
+            if fits(keep | {path}):
+                keep.add(path)
+        break
+    kept = _subset_model(model, keep)
+    return kept, len(model) - len(kept)
+
+
+# 実画面（ネットワークエディタ）の撮影範囲。ネットワークの座標は、ノード 1 個が約 1.0〜1.6 の幅（推測。実機で要確認）。
+MIN_VIEW_WIDTH, MAX_VIEW_WIDTH = 7.0, 14.0
+VIEW_PAD_X, VIEW_PAD_Y = 1.6, 1.2
+MIN_VIEW_ASPECT, MAX_VIEW_ASPECT = 0.25, 4.0
+
+
+def plan_focus_bounds(
+    items: list[dict], focus_path: str, aspect: float = 16 / 9,
+    min_width: float = MIN_VIEW_WIDTH, max_width: float = MAX_VIEW_WIDTH,
+) -> tuple[tuple[float, float, float, float], list[str], list[str]]:
+    """実画面のネットワークエディタで、注目ノードと、その前後を、読める大きさで映す範囲を決める。
+    items: [{"path", "x", "y", "inputs": [path...]}]。aspect: ペインの 幅/高さ。
+    戻り値: ((x0, y0, x1, y1), 映るノードの path, 範囲の外に出るノードの path)。
+    幅が max_width（これ以上広いと、名前が読めない）を超えるときは、注目ノードから遠いものを外す。min_width より狭いときは広げる。"""
+    by_path = {i["path"]: i for i in items}
+    focus = by_path.get(focus_path)
+    if focus is None:
+        raise ValueError(f"focus node not found: {focus_path}")
+    related = {focus_path}
+    for item in items:
+        if item["path"] == focus_path:
+            related.update(p for p in item["inputs"] if p in by_path)
+        elif focus_path in item["inputs"]:
+            related.add(item["path"])
+    # 注目ノードに近い順（横の距離＋縦の距離）に、幅の上限に収まるぶんだけ入れる
+    others = sorted(related - {focus_path}, key=lambda p: abs(by_path[p]["x"] - focus["x"]) + abs(by_path[p]["y"] - focus["y"]))
+    shown = [focus_path]
+    x0 = x1 = focus["x"]
+    y0 = y1 = focus["y"]
+    for path in others:
+        item = by_path[path]
+        nx0, nx1 = min(x0, item["x"]), max(x1, item["x"])
+        if (nx1 - nx0) + 2 * VIEW_PAD_X > max_width:
+            continue
+        x0, x1 = nx0, nx1
+        y0, y1 = min(y0, item["y"]), max(y1, item["y"])
+        shown.append(path)
+    x0, x1, y0, y1 = x0 - VIEW_PAD_X, x1 + VIEW_PAD_X, y0 - VIEW_PAD_Y, y1 + VIEW_PAD_Y
+    width, height = x1 - x0, y1 - y0
+    width = max(width, min_width)
+    # ペインが極端に細い・太い（幅 1px など）ときに、範囲が桁違いに大きくならないよう、縦横比を現実的な幅に収める
+    aspect = min(max(aspect, MIN_VIEW_ASPECT), MAX_VIEW_ASPECT) if aspect > 0 else 16 / 9  # 0 以下・NaN は 16:9
+    if width / height < aspect:  # ペインの縦横比に合わせる（縦が長いときは横を広げ、横が長いときは縦を広げる）
+        width = height * aspect
+    else:
+        height = width / aspect
+    cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    bounds = (cx - width / 2.0, cy - height / 2.0, cx + width / 2.0, cy + height / 2.0)
+    inside = [
+        i["path"] for i in items
+        if bounds[0] <= i["x"] <= bounds[2] and bounds[1] <= i["y"] <= bounds[3]
+    ]
+    hidden = [i["path"] for i in items if i["path"] not in inside]
+    return bounds, inside, hidden
+
+
+# 実画面が小さいとき（ペインの幅が足りないとき）は、拡大すると画素が粗くなる。この幅より狭いなら、描き直した図のほうが読める。
+PANE_PREFER_DIAGRAM_WIDTH = 1000
+
+
+def prefer_diagram(pane_width: int, node_count: int) -> bool:
+    """実画面の切り出しより、描き直した図を使うほうが読みやすいか。"""
+    return node_count > 0 and 0 < pane_width < PANE_PREFER_DIAGRAM_WIDTH
+
+
+# ─── 長いコード（VEX など）の読める出し方（2026-11-17。副作用なし） ─────────────────────────────────────────
+# 前の動き: パラメータ画面の右の列（幅 480 の論理座標）に、等幅 11pt で、1 行ずつ、はみ出す部分を「…」で切って出していた
+#   （長い 1 行は 1365 の幅 → 読める部分は 3 分の 1 だけ）。行数も、画面に収まる分だけで、残りは出ない。
+# 後の動き: コードは専用のカード（幅いっぱい・等幅 16pt）に出す。長い行は折り返し（続きの行は、行番号なしの印つき）、
+#   画面に収まらない行数は、複数枚に分ける（1 枚目は変更点の一覧と一緒、2 枚目からはコードだけ）。
+CODE_FONT_PT = 16.0
+CODE_LINE_H = 28.0
+CODE_MAX_PAGES = 4
+MAX_CODE_CHARS = 200_000  # これより長いコードは、ここで切る（表示できるのは CODE_MAX_PAGES 枚まで。巨大な入力で固まらないため）
+
+
+def _cols(ch: str) -> int:
+    """等幅フォントでの、1 文字の桁数。全角（日本語のコメントなど）は 2 桁。"""
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+
+def _split_cols(text: str, max_cols: int) -> tuple[str, str]:
+    """text の先頭から、max_cols 桁に収まる部分と、残りに分ける。"""
+    used = 0
+    for index, ch in enumerate(text):
+        used += _cols(ch)
+        if used > max_cols:
+            return text[:index], text[index:]
+    return text, ""
+
+
+def wrap_code_lines(code: str, max_cols: int) -> list[tuple[int | None, str]]:
+    """コードを、max_cols 桁で折り返した行の一覧にする。戻り値: [(元の行番号（1 始まり）。折り返しの続きは None, 文字列)]。
+    タブは 4 桁の空白にする。全角の文字は 2 桁で数える。続きの行は、元の行の字下げ＋2 桁にする。"""
+    rows: list[tuple[int | None, str]] = []
+    max_cols = max(10, int(max_cols))
+    for number, raw in enumerate(str(code)[:MAX_CODE_CHARS].replace("\r\n", "\n").split("\n"), start=1):
+        line = raw.replace("\t", "    ").rstrip()
+        head, rest = _split_cols(line, max_cols)
+        rows.append((number, head))
+        indent = " " * min(len(line) - len(line.lstrip()), max_cols // 3) + "  "
+        while rest:
+            part, rest = _split_cols(rest, max(8, max_cols - len(indent)))
+            rows.append((None, indent + part))
+    return rows
+
+
+def paginate_code(
+    rows: list[tuple[int | None, str]], first_capacity: int, other_capacity: int, max_pages: int = CODE_MAX_PAGES
+) -> tuple[list[list[tuple[int | None, str]]], int]:
+    """行を、ページに分ける。1 枚目は first_capacity 行、2 枚目からは other_capacity 行。
+    戻り値: (ページの一覧, 最後のページに入りきらなかった行数)。"""
+    first_capacity, other_capacity = max(1, first_capacity), max(1, other_capacity)
+    pages: list[list[tuple[int | None, str]]] = []
+    index = 0
+    while index < len(rows) and len(pages) < max_pages:
+        size = first_capacity if not pages else other_capacity
+        pages.append(rows[index:index + size])
+        index += size
+    return pages or [[]], max(0, len(rows) - index)
+
+
+def extra_page_path(base: Path, page: int) -> Path:
+    """複数枚に分けた画像の、2 枚目以降のパス（step_012_network.png → step_012_network_p2.png）。page は 1 始まり。"""
+    return base if page <= 1 else base.with_name(f"{base.stem}_p{page}{base.suffix}")
+
+
+def find_extra_pages(base: Path) -> list[Path]:
+    """base（1 枚目）と同じ手順の、2 枚目以降の画像（ページ順）。無ければ空。"""
+    found = []
+    for path in base.parent.glob(f"{glob.escape(base.stem)}_p*{glob.escape(base.suffix)}"):  # 名前に [ ] などがあっても探せる
+        match = re.fullmatch(rf"{re.escape(base.stem)}_p(\d+)", path.stem)
+        if match:
+            found.append((int(match.group(1)), path))
+    return [p for _n, p in sorted(found)]
+
+
+# ─── 撮影した画像の補足情報（品質チェッカー用。video_script.check_video_quality が読む） ─────────────────────────
+
+def meta_path(image_path: Path) -> Path:
+    return image_path.with_name(image_path.name + ".meta.json")
+
+
+def write_capture_meta(image_path: Path, meta: dict, log_path: Path | None = None) -> None:
+    """画像のとなりに、何を描いたかの情報（ノード数・名前の大きさ・コードが切れたか）を書く。失敗しても、撮影は止めない。"""
+    try:
+        import json
+
+        meta_path(image_path).write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    except OSError as exc:
+        _log(f"write_capture_meta failed: {exc!r}", log_path)
+
+
+def read_capture_meta(image_path: Path | str) -> dict:
+    try:
+        import json
+
+        data = json.loads(meta_path(Path(image_path)).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+# ─── パラメータの置き場所（タブ）を合わせる ──────────────────────────────────────────────────────────
+
+def pick_folder_index(folder_names: list[str], containing_labels: list[str]) -> int | None:
+    """フォルダ（タブ）の集まりの中で、対象のパラメータが入っているタブの番号。入っていなければ None。"""
+    for label in containing_labels:
+        for index, name in enumerate(folder_names):
+            if name == label:
+                return index
+    return None
+
+
+def tab_path_of(node, parm_name: str) -> str:
+    """パラメータが入っているタブ・フォルダの名前を、「A › B」の形で。タブが無い・読めないときは空文字。"""
+    try:
+        parm = node.parm(parm_name)
+        if parm is None:
+            tup = node.parmTuple(parm_name)
+            parm = tup[0] if tup else None
+        if parm is None:
+            return ""
+        return " › ".join(str(x) for x in parm.containingFolders())
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def reveal_parm_tabs(node, parm_names: list[str], log_path: Path | None = None) -> int:
+    """対象のパラメータが入っているタブを、前面にする（パラメータ画面が、別のタブを映していると、変更した項目が写らない）。
+    戻り値: 切り替えたタブの数。公式の API（Parm.containingFolderSetParmTuples / containingFolders）を使うが、
+    実機では未確認なので、失敗しても、何もせず、ログに残す。"""
+    switched = 0
+    for name in parm_names:
+        try:
+            parm = node.parm(name)
+            if parm is None:
+                tup = node.parmTuple(name)
+                parm = tup[0] if tup else None
+            if parm is None:
+                continue
+            labels = [str(x) for x in parm.containingFolders()]
+            for folder_set in parm.containingFolderSetParmTuples():
+                names = [str(x) for x in folder_set.parmTemplate().folderNames()]
+                index = pick_folder_index(names, labels)
+                if index is not None and int(folder_set.eval()[0]) != index:
+                    folder_set.set((index,))
+                    switched += 1
+        except Exception as exc:  # noqa: BLE001 -- タブを合わせられなくても、撮影は続ける
+            _log(f"reveal_parm_tabs({name}) failed: {exc!r}", log_path)
+    return switched
 
 
 def _displayed_bounds(container_path: str | None, log_path: Path | None):
@@ -627,6 +995,9 @@ def _grab_network_pane(network_editor, log_path: Path | None, label: str = "Netw
 # ─── 自前描画のネットワーク図（実画面が撮れない場合のフォールバック） ──────────────────
 
 _MAX_DIAGRAM_NODES = 60
+# 注目ノードの図は、ネットワークの全ノードから、注目ノードの前後だけを選ぶ（select_focus_nodes）。先頭の 60 個だけを読むと、
+# 61 個目以降のノードに注目する手順で、注目ノードが図に出ない。選ぶ前のノード数の上限（座標・接続を読む時間の上限）。
+_MAX_FOCUS_MODEL_NODES = 500
 
 
 def _safe(fn, default):
@@ -636,9 +1007,9 @@ def _safe(fn, default):
         return default
 
 
-def _collect_network_model(network) -> list[dict]:
-    """ネットワーク直下のノード（名前・タイプ・色・フラグ・入力接続・元の座標）を集める。"""
-    children = list(network.children())[:_MAX_DIAGRAM_NODES]
+def _collect_network_model(network, limit: int = _MAX_DIAGRAM_NODES) -> list[dict]:
+    """ネットワーク直下のノード（名前・タイプ・色・フラグ・入力接続・元の座標）を集める。limit 個まで。"""
+    children = list(network.children())[:limit]
     known = {c.path() for c in children}
     model = []
     for c in children:
@@ -712,8 +1083,14 @@ def _short_callout(text: str | None) -> str:
     return first[:40]
 
 
-def _paint_network_diagram(layers, container_path, focus_path, callout, width, height):
-    """Houdiniのネットワークエディタ風のダーク配色で、上→下の流れの図を QImage に描く。"""
+def _paint_network_diagram(
+    layers, container_path, focus_path, callout, width, height, hidden: int = 0, total: int = 0,
+    min_scale: float = MIN_FOCUS_SCALE, meta_out: dict | None = None,
+):
+    """Houdiniのネットワークエディタ風のダーク配色で、上→下の流れの図を QImage に描く。
+    hidden / total: 読める大きさを守るために省いたノードの数 / 元のノード数（上の帯に書く）。
+    min_scale: 拡大率の下限（注目ノードの図は MIN_FOCUS_SCALE。全体図は OVERVIEW_MIN_SCALE）。
+    meta_out: 渡すと、描いた内容（ノード数・名前の大きさ）を書き込む（品質チェッカー用）。"""
     from PySide6.QtCore import QPointF, QRectF, Qt
     from PySide6.QtGui import (
         QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen,
@@ -740,18 +1117,21 @@ def _paint_network_diagram(layers, container_path, focus_path, callout, width, h
     painter.setFont(bar_font)
     painter.drawText(QRectF(16, 0, width - 32, 40), Qt.AlignVCenter | Qt.AlignLeft, container_path)
 
-    name_font = QFont("Segoe UI", 11)
+    name_font = QFont("Segoe UI")
+    name_font.setPointSizeF(DIAGRAM_NAME_PT)
     name_font.setBold(True)
-    type_font = QFont("Segoe UI", 8)
-    tag_font = QFont("Segoe UI", 10)
+    type_font = QFont("Segoe UI")
+    type_font.setPointSizeF(DIAGRAM_TYPE_PT)
+    tag_font = QFont("Segoe UI", 12)
     tag_font.setBold(True)
     name_metrics = QFontMetricsF(name_font)
 
-    box_h, gap_x, gap_y = 48.0, 36.0, 56.0
-    rows = []
-    for members in layers:
-        widths = [max(140.0, name_metrics.horizontalAdvance(n["name"]) + 40.0) for n in members]
-        rows.append(widths)
+    box_h, gap_x, gap_y = DIAGRAM_BOX_H, DIAGRAM_GAP_X, DIAGRAM_GAP_Y
+
+    def width_of(n):
+        return diagram_node_width(n["name"], name_metrics.horizontalAdvance(n["name"]))
+
+    rows = [[width_of(n) for n in members] for members in layers]
 
     if not layers or not any(layers):
         painter.setPen(QColor("#8d8d92"))
@@ -760,13 +1140,24 @@ def _paint_network_diagram(layers, container_path, focus_path, callout, width, h
         painter.end()
         return image
 
-    row_widths = [sum(ws) + gap_x * (len(ws) - 1) for ws in rows]
-    layout_w = max(row_widths)
-    layout_h = len(rows) * box_h + (len(rows) - 1) * gap_y
-    avail_w, avail_h = width - 80.0, height - 40.0 - 48.0
-    scale = max(0.35, min(avail_w / layout_w, avail_h / layout_h, 1.6))
+    layout_w, layout_h, row_widths = layout_extent(layers, width_of)
+    # 以前は、拡大率の下限が 0.35 で、40 ノードの一本道だと、名前は 3.85pt になり、図が画面の高さを超えて、はみ出した。
+    scale, fits = diagram_scale(layout_w, layout_h, width, height, min_scale)
+    node_count = sum(len(members) for members in layers)
+    if meta_out is not None:
+        meta_out.update({
+            "kind": "node_diagram", "nodes_shown": node_count, "nodes_total": total or node_count,
+            "scale": round(scale, 3), "name_pt": round(DIAGRAM_NAME_PT * scale, 1), "fits": bool(fits),
+            "overview": focus_path is None, "readable": DIAGRAM_NAME_PT * scale >= MIN_NAME_PT,
+        })
     offset_x = (width - layout_w * scale) / 2.0
-    offset_y = 40.0 + (height - 40.0 - layout_h * scale) / 2.0
+    offset_y = DIAGRAM_BAR_H + (height - DIAGRAM_BAR_H - layout_h * scale) / 2.0
+    if hidden > 0:
+        painter.setPen(QColor("#ffb000"))
+        note_font = QFont("Segoe UI", 11)
+        painter.setFont(note_font)
+        painter.drawText(QRectF(width * 0.45, 0, width * 0.55 - 16, 40), Qt.AlignVCenter | Qt.AlignRight,
+                         f"表示 {node_count}/{total or node_count} ノード（ほか {hidden} 個は省略）")
     painter.translate(offset_x, offset_y)
     painter.scale(scale, scale)
 
@@ -822,11 +1213,12 @@ def _paint_network_diagram(layers, container_path, focus_path, callout, width, h
             dark_text = luminance > 0.55
             painter.setFont(name_font)
             painter.setPen(QColor("#1b1b1d") if dark_text else QColor("#f2f2f4"))
-            painter.drawText(QRectF(rect.left(), rect.top() + 4, rect.width(), 24), Qt.AlignCenter, n["name"])
+            painter.drawText(QRectF(rect.left(), rect.top() + 5, rect.width(), 28), Qt.AlignCenter, n["name"])
 
-            painter.setFont(type_font)
-            painter.setPen(QColor("#55555b") if dark_text else QColor("#b9b9bf"))
-            painter.drawText(QRectF(rect.left(), rect.top() + 27, rect.width(), 16), Qt.AlignCenter, n["type"])
+            if scale >= 0.5:  # 全体図で小さくなるときは、名前だけにする（タイプ名は、読めない大きさになる）
+                painter.setFont(type_font)
+                painter.setPen(QColor("#55555b") if dark_text else QColor("#b9b9bf"))
+                painter.drawText(QRectF(rect.left(), rect.top() + 33, rect.width(), 18), Qt.AlignCenter, n["type"])
 
             # フラグ（Houdiniは右側に表示: 青=display / 紫=render）
             flag_x = rect.right() + 8
@@ -881,12 +1273,25 @@ def render_network_diagram(
         if network is None:
             _log(f"render_network_diagram: network not found: {container_path}", log_path)
             return False
-        layers = _assign_layers(_collect_network_model(network))
-        image = _paint_network_diagram(layers, container_path, focus_path, callout, width, height)
+        model = _collect_network_model(network, _MAX_FOCUS_MODEL_NODES if focus_path else _MAX_DIAGRAM_NODES)
+        # 注目ノードと、その前後だけを、読める大きさで描く（ノードが多くても、名前の大きさの下限 MIN_NAME_PT を守る）。
+        # 注目ノードが分からないとき（None）は、全部を描く（全体図）。
+        shown, hidden = select_focus_nodes(model, focus_path, width, height)
+        layers = _assign_layers(shown)
+        meta: dict = {}
+        image = _paint_network_diagram(
+            layers, container_path, focus_path, callout, width, height, hidden=hidden, total=len(model),
+            min_scale=MIN_FOCUS_SCALE if focus_path else OVERVIEW_MIN_SCALE, meta_out=meta,
+        )
         if not image.save(str(output_path), "PNG"):
             _log(f"render_network_diagram: image.save() returned False for {output_path}", log_path)
             return False
-        _log(f"network capture method: synthetic diagram ({container_path})", log_path)
+        meta.update({"width": image.width(), "height": image.height()})
+        write_capture_meta(output_path, meta, log_path)
+        _log(
+            f"network capture method: synthetic diagram ({container_path}; {len(shown)}/{len(model)} nodes, "
+            f"name {meta.get('name_pt', '?')}pt)", log_path,
+        )
         return True
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
         _log(f"render_network_diagram failed: {exc!r}", log_path)
@@ -912,10 +1317,17 @@ def render_graph_diagram(
             _log("render_graph_diagram: the graph has no nodes", log_path)
             return False
         layers = _assign_layers(model)
-        image = _paint_network_diagram(layers, label or "ノードの関係図", None, None, width, height)
+        meta: dict = {}
+        # 全体図（章の冒頭・構成の説明に 1 枚だけ使う）。全ノードを入れる。多いと名前は小さくなるが、画面の外にははみ出さない。
+        image = _paint_network_diagram(
+            layers, label or "ノードの関係図", None, None, width, height, total=len(model),
+            min_scale=OVERVIEW_MIN_SCALE, meta_out=meta,
+        )
         if not image.save(str(output_path), "PNG"):
             _log(f"render_graph_diagram: image.save() returned False for {output_path}", log_path)
             return False
+        meta.update({"width": image.width(), "height": image.height()})
+        write_capture_meta(output_path, meta, log_path)
         _log(f"node diagram rendered from the saved graph ({len(model)} nodes)", log_path)
         return True
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
@@ -1020,7 +1432,8 @@ def render_parameter_card(
                        _fit_text(QFontMetricsF(label_font), c.get("label", c.get("name", "")), label_w - 20))
             p.setFont(name_font)
             p.setPen(QColor("#8d8d92"))
-            p.drawText(QRectF(56, y + 27, label_w - 20, 16), Qt.AlignVCenter | Qt.AlignLeft, f"({c.get('name', '')})")
+            p.drawText(QRectF(56, y + 27, label_w - 20, 16), Qt.AlignVCenter | Qt.AlignLeft,
+                       _fit_text(QFontMetricsF(name_font), (f"{c['tab']}  " if c.get("tab") else "") + f"({c.get('name', '')})", label_w - 20))
 
             old, new = str(c.get("old", "")), str(c.get("new", ""))
             cursor = value_x
@@ -1095,6 +1508,162 @@ def render_parameter_card(
         return False
 
 
+def code_card_capacity(plain_count: int, height: int = LOGICAL_HEIGHT) -> tuple[int, int]:
+    """コードのカードの 1 枚に入る行数。戻り値: (1 枚目, 2 枚目から)。1 枚目は、変更点の行（plain_count。最大 3）と一緒。"""
+    box_top_first = 100.0 + 30.0 + min(plain_count, 3) * 52.0 + 42.0
+    box_top_other = 100.0
+    usable = lambda top: max(1, int((height - top - 24.0 - 16.0) // CODE_LINE_H))  # noqa: E731 -- 箱の余白 24、下の余白 16
+    return usable(box_top_first), usable(box_top_other)
+
+
+def render_code_cards(
+    output_path: Path,
+    container_path: str,
+    node_name: str,
+    node_type_label: str,
+    plain_changes: list[dict],
+    code_change: dict,
+    width: int = 1280,
+    height: int = 720,
+    log_path: Path | None = None,
+) -> list[Path]:
+    """長いコード（VEX など）を、読める大きさで、複数枚のカードに出す。戻り値: 書いた画像のパス（1 枚目は output_path。
+    2 枚目以降は extra_page_path）。失敗は空のリスト。
+
+    等幅 CODE_FONT_PT（16pt）、行番号つき、長い行は折り返し。1 枚目は変更点の一覧と一緒、2 枚目からはコードだけ。
+    CODE_MAX_PAGES 枚に入りきらない行は、最後のカードに「ほか N 行」と書く。"""
+    try:
+        from PySide6.QtCore import QRectF, Qt
+        from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
+
+        code_font = QFont("Consolas")
+        code_font.setPointSizeF(CODE_FONT_PT)
+        metrics = QFontMetricsF(code_font)
+        gutter = 48.0
+        box_w = width - 80.0
+        char_w = max(1.0, metrics.horizontalAdvance("M"))
+        max_cols = int((box_w - 24.0 - gutter) // char_w)
+        rows = wrap_code_lines(str(code_change.get("new", "")), max_cols)
+        shown_plain = plain_changes[:3]
+        first_cap, other_cap = code_card_capacity(len(shown_plain), height)
+        pages, hidden_rows = paginate_code(rows, first_cap, other_cap)
+        total_lines = max((n for n, _t in rows if n), default=0)
+
+        for stale in find_extra_pages(output_path):  # 前の実行の、使われない続きの画像を消す
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+
+        paths: list[Path] = []
+        for page_no, page_rows in enumerate(pages, start=1):
+            image = QImage(width * RENDER_SCALE, height * RENDER_SCALE, QImage.Format_ARGB32)
+            image.fill(QColor("#2f2f31"))
+            p = QPainter(image)
+            p.setRenderHint(QPainter.Antialiasing, True)
+            p.setRenderHint(QPainter.TextAntialiasing, True)
+            p.scale(RENDER_SCALE, RENDER_SCALE)
+
+            bar_font = QFont("Segoe UI", 12)
+            bar_font.setBold(True)
+            p.fillRect(QRectF(0, 0, width, 40), QColor("#232325"))
+            p.setPen(QColor("#c9c9cc"))
+            p.setFont(bar_font)
+            p.drawText(QRectF(16, 0, width - 32, 40), Qt.AlignVCenter | Qt.AlignLeft, f"{container_path}  ›  {node_name}")
+            if len(pages) > 1 or hidden_rows:
+                p.setPen(QColor("#ffb000"))
+                p.drawText(QRectF(16, 0, width - 32, 40), Qt.AlignVCenter | Qt.AlignRight, f"{page_no} / {len(pages)}")
+
+            label_font = QFont("Segoe UI", 17)
+            label_font.setBold(True)
+            sub_font = QFont("Segoe UI", 12)
+            value_font = QFont("Segoe UI", 18)
+            value_font.setBold(True)
+            old_font = QFont("Segoe UI", 15)
+            y = 52.0
+            if page_no == 1:
+                p.setFont(sub_font)
+                p.setPen(QColor("#9a9aa0"))
+                p.drawText(QRectF(40, y, width - 80, 22), Qt.AlignVCenter | Qt.AlignLeft, node_type_label)
+                y = 100.0
+                p.setFont(QFont("Segoe UI", 11))
+                p.setPen(QColor("#ffb000"))
+                p.drawText(QRectF(40, y - 4, width - 80, 22), Qt.AlignVCenter | Qt.AlignLeft, "変更したパラメータ")
+                y += 30.0
+                for c in shown_plain:
+                    row = QRectF(40, y, width - 80, 44)
+                    p.setPen(QPen(QColor("#ffb000"), 1.6))
+                    p.setBrush(QColor(255, 176, 0, 34))
+                    p.drawRoundedRect(row, 8, 8)
+                    label = c.get("label", c.get("name", ""))
+                    tab = c.get("tab", "")
+                    p.setFont(label_font)
+                    p.setPen(QColor("#f2f2f4"))
+                    p.drawText(QRectF(56, y, 420, 44), Qt.AlignVCenter | Qt.AlignLeft,
+                               _fit_text(QFontMetricsF(label_font), (f"{tab} › " if tab else "") + label, 410))
+                    old, new = str(c.get("old", "")), str(c.get("new", ""))
+                    cursor = 500.0
+                    if old and old != new:
+                        p.setFont(old_font)
+                        p.setPen(QColor("#8d8d92"))
+                        text = _fit_text(QFontMetricsF(old_font), old, 220)
+                        ow = QFontMetricsF(old_font).horizontalAdvance(text)
+                        p.drawText(QRectF(cursor, y, ow + 4, 44), Qt.AlignVCenter | Qt.AlignLeft, text)
+                        cursor += ow + 16
+                        p.setFont(value_font)
+                        p.setPen(QColor("#ffb000"))
+                        p.drawText(QRectF(cursor, y, 40, 44), Qt.AlignVCenter | Qt.AlignLeft, "→")
+                        cursor += 40
+                    p.setFont(value_font)
+                    p.setPen(QColor("#ffd27a"))
+                    p.drawText(QRectF(cursor, y, width - 56 - cursor, 44), Qt.AlignVCenter | Qt.AlignLeft,
+                               _fit_text(QFontMetricsF(value_font), new, width - 60 - cursor))
+                    y += 52.0
+                y += 4.0
+            title = f"{code_change.get('tab', '') + ' › ' if code_change.get('tab') else ''}{code_change.get('label', '')}  （全 {total_lines} 行）"
+            if page_no > 1:
+                title += "  続き"
+            p.setFont(label_font)
+            p.setPen(QColor("#f2f2f4"))
+            p.drawText(QRectF(40, y, width - 80, 30), Qt.AlignVCenter | Qt.AlignLeft,
+                       _fit_text(QFontMetricsF(label_font), title, width - 80))
+            y += 38.0 if page_no == 1 else 34.0
+            box = QRectF(40, y, box_w, len(page_rows) * CODE_LINE_H + 24.0)
+            p.setPen(QPen(QColor("#ffb000"), 1.6))
+            p.setBrush(QColor("#1d1d1f"))
+            p.drawRoundedRect(box, 8, 8)
+            p.setFont(code_font)
+            ty = y + 12.0
+            for number, text in page_rows:
+                if number is not None:
+                    p.setPen(QColor("#6f6f76"))
+                    p.drawText(QRectF(52, ty, gutter - 8, CODE_LINE_H), Qt.AlignVCenter | Qt.AlignRight, str(number))
+                p.setPen(QColor("#7ec699") if text.lstrip().startswith("//") else QColor("#e6e6e8"))
+                p.drawText(QRectF(52 + gutter, ty, box_w - gutter - 24, CODE_LINE_H), Qt.AlignVCenter | Qt.AlignLeft, text)
+                ty += CODE_LINE_H
+            if hidden_rows and page_no == len(pages):
+                p.setFont(QFont("Segoe UI", 12))
+                p.setPen(QColor("#8d8d92"))
+                p.drawText(QRectF(40, box.bottom() + 4, width - 80, 20), Qt.AlignVCenter | Qt.AlignLeft,
+                           f"… ほか {hidden_rows} 行（全文はチュートリアルの本文にあります）")
+            p.end()
+            target = extra_page_path(output_path, page_no)
+            if not image.save(str(target), "PNG"):
+                _log(f"render_code_cards: image.save() returned False for {target}", log_path)
+                return []
+            paths.append(target)
+        write_capture_meta(output_path, {
+            "kind": "code_card", "pages": len(paths), "lines_total": total_lines, "lines_hidden": hidden_rows,
+            "font_pt": CODE_FONT_PT, "max_cols": max_cols, "wrapped": any(n is None for n, _t in rows),
+            "width": width * RENDER_SCALE, "height": height * RENDER_SCALE,
+        }, log_path)
+        _log(f"code card rendered ({node_name}: {total_lines} lines, {len(paths)} page(s), {hidden_rows} row(s) not shown)", log_path)
+        return paths
+    except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
+        _log(f"render_code_cards failed: {exc!r}", log_path)
+        return []
+
+
 def _compose_parameter_screen(
     output_path: Path,
     pane_image,
@@ -1165,7 +1734,7 @@ def _compose_parameter_screen(
             p.setFont(label_font)
             p.setPen(QColor("#f2f2f4"))
             p.drawText(QRectF(x0 + 12, y + 3, col_w - 24, 26), Qt.AlignVCenter | Qt.AlignLeft,
-                       _fit_text(QFontMetricsF(label_font), c.get("label", c.get("name", "")), col_w - 24))
+                       _fit_text(QFontMetricsF(label_font), (f"{c['tab']} › " if c.get("tab") else "") + c.get("label", c.get("name", "")), col_w - 24))
             old, new = str(c.get("old", "")), str(c.get("new", ""))
             cursor = x0 + 12
             if old and old != new:
@@ -1211,6 +1780,19 @@ def _compose_parameter_screen(
         return False
 
 
+def with_tab_paths(node, changes: list[dict]) -> list[dict]:
+    """changes の各項目に、パラメータが入っているタブ（"tab": "A › B"）を足した複製を返す。元は変えない。読めなければ、足さない。"""
+    out = []
+    for c in changes:
+        item = dict(c)
+        if node is not None and not item.get("tab") and item.get("name"):
+            tab = tab_path_of(node, str(item["name"]))
+            if tab:
+                item["tab"] = tab
+        out.append(item)
+    return out
+
+
 def capture_parameter_screen(
     output_path: Path,
     node_path: str,
@@ -1223,13 +1805,34 @@ def capture_parameter_screen(
     height: int = 720,
     log_path: Path | None = None,
 ) -> str:
-    """set_parameter のステップ用の画像を作る。戻り値: 使った方法（"pane" / "card" / ""=失敗）。
+    """set_parameter のステップ用の画像を作る。戻り値: 使った方法（"code_card" / "pane" / "card" / ""=失敗）。
 
+    0. "code_card"（2026-11-17）: 長いコード（VEX など）の変更があるとき。専用のカードに、大きく・折り返して・複数枚で出す
+       （render_code_cards。2 枚目以降は extra_page_path のファイル名で、同じ場所に書く）。実画面の小さな枠では読めないため。
+       変更した項目が入っているタブの名前を添える（with_tab_paths）。それ以外は、次の 1、2。
     1. "pane": 実際のパラメータ画面（Parmペイン）を切り出し、変更点の一覧を添える（2026-10-21）。
        どこに何があるかが、実画面のほうが分かりやすい。ノードを選択して、ペインに表示させる。
        ペインが無い・固定表示（ピン）・隠れている・他のウィンドウが重なっている等で撮れなければ、次へ。
     2. "card": 従来どおり、Houdiniのパラメータ画面風に描き直したカード（render_parameter_card）。
     どちらで撮れたかは、capture.log に「parameter capture method: ...」と残る。"""
+    # 変更した項目が入っているタブの名前を足し（スライドに「どのタブの、どの項目か」を出すため）、パラメータ画面のタブをそこに合わせる。
+    try:
+        target_node = hou.node(node_path)
+    except Exception:  # noqa: BLE001
+        target_node = None
+    changes = with_tab_paths(target_node, changes)
+    code_change = next((c for c in changes if c.get("code")), None)
+    if code_change is not None:
+        # 長いコード（VEX など）は、パラメータ画面の小さな枠では読めない。専用のカードに、大きく・折り返して・複数枚で出す。
+        pages = render_code_cards(
+            output_path, container_path, node_name, node_type_label, [c for c in changes if not c.get("code")],
+            code_change, width, height, log_path,
+        )
+        if pages:
+            _log("parameter capture method: code card", log_path)
+            return "code_card"
+    if target_node is not None:
+        reveal_parm_tabs(target_node, [c["name"] for c in changes if c.get("name")], log_path)
     pane_image = None
     try:
         pane = hou.ui.paneTabOfType(hou.paneTabType.Parm)
@@ -1299,9 +1902,22 @@ def capture_network_editor(
         network_editor = None
 
     if network_editor is not None:
+        # 注目ノードと前後を、読める大きさで映す（focus_network_on は、注目ノードを知らずに全体を映していた）。
+        if focus_path and container_path:
+            try:
+                network = hou.node(container_path)
+                if network is not None and frame_network_on_focus(network_editor, network, focus_path, log_path):
+                    _flush_qt_events()
+            except Exception as exc:  # noqa: BLE001
+                _log(f"re-framing on the focus node failed: {exc!r}", log_path)
         _flush_qt_events()
         try:
             image = _grab_network_pane(network_editor, log_path)
+            if image is not None and container_path and prefer_diagram(image.width(), 1):
+                # ペインが狭いと、切り出した画面を拡大することになり、文字がぼやける。描き直した図のほうが読める。
+                _log(f"network pane is narrow ({image.width()}px); using the drawn diagram for legibility", log_path)
+                if render_network_diagram(output_path, container_path, focus_path, callout, width, height, log_path):
+                    return True
             if image is not None:
                 # 以前は width x height（1280x720）に縮めていたため、高解像度の画面では文字がつぶれた。
                 # 切り出した画素数のまま保存し、狭すぎる／広すぎるときだけ調整する（fit_pane_size）。

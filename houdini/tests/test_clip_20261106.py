@@ -260,6 +260,7 @@ class CookClipDecisionTest(unittest.TestCase):
         self.ex.sandbox_path = "/obj/sb"
         self.ex._screenshot_dir = Path("shots")
         self.ex._long_clips = 0
+        self.ex._DEFER_LONG_CLIP = False  # その場で撮る従来の動き。最後の1本にまとめる動きは、DeferredLongClipTest で確かめる
         self.calls: list[dict] = []
         outer = self
 
@@ -317,6 +318,78 @@ class CookClipDecisionTest(unittest.TestCase):
         self.sc.capture_viewport_clip = lambda out, base, **k: ([], 0) if "frame_step" in k else original(out, base, **k)
         frames, _ = self.ex._capture_cook_clip(self.sc, 5, None)
         self.assertEqual(len(frames), 16)
+
+
+class DeferredLongClipTest(unittest.TestCase):
+    """2026-11-17: 約10秒のクリップは、途中の cook_node では撮らず、最後の1本だけを、最終の状態で撮る。
+    実機の記録（ai_tutorial_20261117_121301.jsonl）では、動く cook_node の直後の撮影が、次のツール呼び出しの所要時間として約100秒に見えていた。"""
+
+    def setUp(self):
+        self.ex = ht.HoudiniToolExecutor.__new__(ht.HoudiniToolExecutor)
+        self.ex.sandbox_path = "/obj/sb"
+        self.ex._screenshot_dir = Path("shots")
+        self.ex._long_clips = 0
+        self.ex._display_candidate_path = None
+        self.ex.step_screenshots = []
+        self.calls: list[dict] = []
+        outer = self
+
+        def clip(output_dir, base, **kwargs):
+            outer.calls.append({"base": base, **kwargs})
+            return [Path(f"{base}.{i:04d}.png") for i in range(kwargs.get("frame_count", 16))], kwargs.get("fps", 12)
+
+        self.sc = types.SimpleNamespace(
+            playback_range=lambda: (1.0, 240.0), plan_clip=sc.plan_clip, scene_is_animated=lambda *a, **k: True,
+            capture_viewport_clip=clip, _log=lambda *a, **k: None,
+            LONG_CLIP_WIDTH=640, LONG_CLIP_HEIGHT=360,
+        )
+        patcher = mock.patch.dict(sys.modules, {"screen_capture": self.sc})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_cooking_in_the_middle_gets_only_the_short_clip(self):
+        for step in (3, 7, 9):
+            frames, _ = self.ex._capture_cook_clip(self.sc, step, None)
+            self.assertEqual(len(frames), 16)
+        self.assertTrue(all("frame_step" not in c for c in self.calls), "no flipbook of the whole range yet")
+        self.assertEqual(self.ex._long_clips, 0)
+        self.assertEqual(self.ex._pending_long_clip["step"], 9, "only the latest animated cook is kept")
+
+    def test_the_last_cook_gets_one_ten_second_clip_at_export(self):
+        self.ex.step_screenshots = [
+            {"step": 3, "tool": "cook_node", "viewport_clip_frames": ["a"] * 16, "viewport_clip_fps": 12},
+            {"step": 9, "tool": "cook_node", "viewport_clip_frames": ["b"] * 16, "viewport_clip_fps": 12},
+        ]
+        self.ex._capture_cook_clip(self.sc, 3, None)
+        self.ex._capture_cook_clip(self.sc, 9, None)
+        self.calls.clear()
+        shown = []
+        self.ex._restore_final_display = lambda: shown.append(True)
+        out = self.ex.export_step_screenshots()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0]["base"], "step_009_clip")
+        self.assertEqual((self.calls[0]["frame_count"], self.calls[0]["frame_step"]), (120, 2))
+        self.assertEqual([len(e["viewport_clip_frames"]) for e in out], [16, 120], "the earlier cook keeps the short clip")
+        self.assertEqual(shown, [True], "the final node is shown before filming")
+        self.assertEqual(self.ex._long_clips, 1)
+        self.assertEqual(len(self.ex.export_step_screenshots()), 2)
+        self.assertEqual(len(self.calls), 1, "it is filmed once, not at every export")
+
+    def test_a_scene_that_never_moved_costs_nothing(self):
+        self.sc.scene_is_animated = lambda *a, **k: False
+        self.ex._capture_cook_clip(self.sc, 3, None)
+        self.assertEqual(self.calls, [])
+        self.ex.step_screenshots = [{"step": 3, "tool": "cook_node"}]
+        self.ex.export_step_screenshots()
+        self.assertEqual(self.calls, [])
+
+    def test_a_failed_final_clip_keeps_the_short_one(self):
+        self.ex.step_screenshots = [{"step": 4, "tool": "cook_node", "viewport_clip_frames": ["s"] * 16, "viewport_clip_fps": 12}]
+        self.ex._capture_cook_clip(self.sc, 4, None)
+        self.ex._restore_final_display = lambda: None
+        self.sc.capture_viewport_clip = lambda *a, **k: ([], 0)
+        out = self.ex.export_step_screenshots()
+        self.assertEqual(len(out[0]["viewport_clip_frames"]), 16)
 
 
 # ── 自己確認の画像は、動く題材では途中のフレームで撮る ──────────────────────────────

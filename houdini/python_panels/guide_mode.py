@@ -11,18 +11,32 @@ guide_mode.py — 案内モード: 手順ごとに「見るタブ・操作する
 
 ショートカットは、SideFX の公式ドキュメントで確かめたものだけを載せる（guide_shortcuts.py）。
 確かめていないもの（例: レイアウトの L）は載せない。
+
+2026-11-17（実証実験の指摘）:
+  ・「違うオブジェクトが出る」: 手順が指すノードを、名前だけで探して、ほかの生成のサンドボックスや、同じ種類の別のノードを
+    選んでいた。パス（サンドボックス相対 → 自分のネットワークの /obj、またはサンドボックス）で探し、名前・種類が合うものだけを示す
+    （resolve_step_target）。見つからないときは、理由を返す。同じ種類の別名のノードは、候補が1つだけのときに限り、そう断って示す。
+  ・ノードを選ぶ前にネットワークを切り替える／固定（ピン）されたパラメータ画面を外す、で、選んだノードに画面が追従する。
+  ・メニュー・チェックボックスの値を、表示名で言う（describe_parm_change）。取れないときは数字のまま。
+  ・手順ごとに、作業する場所・目的・消す操作を、はっきり文にする。
 """
 
 from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import guide_shortcuts
 
-GUIDE_VERSION = 1
+GUIDE_VERSION = 2
 GUIDE_SUFFIX = "_guide.json"
+
+# 生成が使うサンドボックス（houdini_tools.HoudiniToolExecutor.SANDBOX_PREFIX と同じ値。あちらを import すると hou が要るので写している。
+# 値が合っているかは、test_guide_target.py が確かめる）
+SANDBOX_PREFIX = "ai_tutorial_"
+OWN_ROOT = "/obj"  # 学習者が、手順どおりに作るネットワークの根。手順のパス（サンドボックス相対）は、ここからのパスに当たる
 
 TAB_LABELS: dict[str, str] = {
     "network": "ネットワークエディタ",
@@ -105,8 +119,30 @@ def _parse_instruction(tool: str, text: str) -> dict:
     return {}
 
 
+def own_path(rel: str) -> str:
+    """手順のパス（サンドボックス相対）を、学習者のネットワークでのパス（/obj から）にする。"""
+    rel = (rel or "").strip("/")
+    return f"{OWN_ROOT}/{rel}" if rel else OWN_ROOT
+
+
+def _parent_rel(rel: str) -> str:
+    rel = (rel or "").strip("/")
+    return rel.rsplit("/", 1)[0] if "/" in rel else ""
+
+
+def _step_container_rel(step: dict) -> str:
+    """手順が作業するネットワーク（ノードを入れている親）の、相対パス。分からなければ ""（Object レベル）。"""
+    return _parent_rel(step.get("node_path") or "")
+
+
+def parm_where_text(where: str) -> str:
+    """パラメータのタブの場所の文。where は「Sourcing > Emission」のような、フォルダ（タブ・折りたたみ）の道筋。"""
+    where = (where or "").strip()
+    return where if where else "タブの外（パラメータ画面のいちばん上）"
+
+
 def _hint(tool: str, g: dict) -> str:
-    """その手順で何をするかの、短い案内（画面に出す）。"""
+    """その手順で何をするかの、短い案内（画面に出す）。省略しない（2026-11-17: 「ほか」で切ると、わからない）。"""
     node = g.get("node") or ""
     if tool == "create_node":
         label = g.get("node_label") or g.get("node_type") or "ノード"
@@ -114,24 +150,49 @@ def _hint(tool: str, g: dict) -> str:
     if tool == "connect_nodes":
         pairs = [c for c in (g.get("connections") or []) if isinstance(c, dict)]
         if len(pairs) > 1:
-            return f"{len(pairs)}本つなぎます: " + "、".join(f"{c.get('from')} → {c.get('to')}" for c in pairs[:6]) + (" ほか" if len(pairs) > 6 else "")
+            return f"{len(pairs)}本つなぎます: " + "、".join(f"{c.get('from')} → {c.get('to')}" for c in pairs)
         return f"{g.get('from') or '上のノード'} の出力から、{g.get('to') or node} の入力へ線を引きます"
     if tool == "set_parameter":
         lines = []
         for p in g.get("parms") or []:
-            where = f"（場所: {p['where']}）" if p.get("where") else ""
+            where = f"（場所: {parm_where_text(p['where'])}）" if p.get("where") else ""
             old = f"{p['old']} → " if p.get("old") not in (None, "") else ""
             lines.append(f"{p.get('label') or p.get('name')}: {old}{p.get('new')}{where}")
         return f"{node} のパラメータを変えます。" + (" / ".join(lines) if lines else "")
     if tool == "cook_node":
         return f"{node} を表示して、ビューポートで形を確認します。点の数や属性の値は、Geometry Spreadsheet で見られます"
     if tool == "delete_node":
-        return f"{node} を選んで Delete キーで削除します"
+        return f"【消す】{node} を選んで、削除します（Delete キー）。残すノードと間違えないように、名前を確かめてから消します"
     return ""
 
 
-def build_guide(step_screenshots: list[dict], title: str = "", level: str = "", extras: dict | None = None) -> dict:
-    """手順の記録（result.step_screenshots）から案内データを作る。画像のパスなどは入れない。"""
+def work_headline(tool: str, g: dict) -> str:
+    """手順の冒頭に出す、「どの部分を作業するか」の1文。パスは、学習者のネットワーク（/obj から）の形で、省略しない。"""
+    node = g.get("node") or ""
+    node_path = g.get("node_path") or ""
+    container = own_path(_parent_rel(node_path)) if node_path else ""
+    full = own_path(node_path) if node_path else node
+    if tool == "create_node":
+        label = g.get("node_label") or g.get("node_type") or "ノード"
+        place = f"{container} の中に" if container else "いまのネットワークに"
+        return f"【作業する部分】{place}、新しいノード「{label}」（名前: {node}）を作る"
+    if tool == "connect_nodes":
+        place = f"{container} の中で" if container else "同じネットワークの中で"
+        return f"【作業する部分】{place}、ノードの線をつなぐ"
+    if tool == "set_parameter":
+        return f"【作業する部分】{full} のパラメータを変える"
+    if tool == "cook_node":
+        return f"【作業する部分】{full} の結果を、ビューポートで確かめる"
+    if tool == "delete_node":
+        return f"【消す】{full} を削除する"
+    return ""
+
+
+def build_guide(step_screenshots: list[dict], title: str = "", level: str = "", extras: dict | None = None,
+                purposes: dict | None = None) -> dict:
+    """手順の記録（result.step_screenshots）から案内データを作る。画像のパスなどは入れない。
+    purposes: {ノード名: 「何のために使うか」の1文}。手順書（.md）の「使うノード」から取る（purposes_from_markdown）。
+    記録（guide）に purpose があれば、そちらを優先する。"""
     steps: list[dict] = []
     for i, s in enumerate(step_screenshots or [], start=1):
         if not isinstance(s, dict):
@@ -145,28 +206,51 @@ def build_guide(step_screenshots: list[dict], title: str = "", level: str = "", 
         # コードを入れるパラメータの手順には、外部エディタのキーも足す
         has_code = any(isinstance(pm, dict) and str(pm.get("new") or "").startswith("（コード") for pm in (g.get("parms") or []))
         shortcuts = guide_shortcuts.for_step(tool, code=has_code)
+        connections = [c for c in (g.get("connections") or []) if isinstance(c, dict)][:12]
+        g_view = {**g, "connections": connections}
+        instruction = str(s.get("result") or "").split("\n", 1)[0]
+        if tool == "connect_nodes" and len(connections) > 1:
+            # 記録の文は「ほか○本」で切れていることがある。つなぐ線を、全部書く
+            instruction = f"{len(connections)}本のノードをつなぐ: " + "、".join(f"{c.get('from')} → {c.get('to')}" for c in connections)
+        node = str(g.get("node") or "")
+        purpose = str(g.get("purpose") or (purposes or {}).get(node) or "")
         steps.append({
             "step": s.get("step") if isinstance(s.get("step"), int) else i,
             "tool": tool,
-            "instruction": str(s.get("result") or "").split("\n", 1)[0][:200],
-            "node": str(g.get("node") or ""),
+            "instruction": instruction,
+            "node": node,
             "node_path": str(g.get("node_path") or ""),
             "node_type": str(g.get("node_type") or ""),
             "node_label": str(g.get("node_label") or ""),
             "parms": [p for p in (g.get("parms") or []) if isinstance(p, dict)][:12],
             "from": str(g.get("from") or ""),
             "to": str(g.get("to") or ""),
-            "connections": [c for c in (g.get("connections") or []) if isinstance(c, dict)][:12],
+            "connections": connections,
             "tab": tab,
             "tab_label": TAB_LABELS[tab],
             "shortcuts": shortcuts,
-            "hint": _hint(tool, g),
+            "hint": _hint(tool, g_view),
+            "work": work_headline(tool, g_view),
+            "purpose": purpose,
         })
     guide = {"version": GUIDE_VERSION, "title": title, "level": level, "steps": steps}
     for key, value in (extras or {}).items():
         if value:
             guide[key] = value
     return guide
+
+
+def guide_from_result(result) -> dict:
+    """生成の結果（TutorialResult）から、案内データを作る。保存前（生成直後）にも、保存時にも、同じものを作る。"""
+    markdown = getattr(result, "markdown", "") or ""
+    extras = dict(sections_from_markdown(markdown))
+    sandbox = str(getattr(result, "sandbox_path", "") or "")
+    if sandbox:
+        extras["sandbox_path"] = sandbox
+    return build_guide(
+        getattr(result, "step_screenshots", None) or [], getattr(result, "title", "") or "", getattr(result, "level", "") or "",
+        extras, purposes_from_markdown(markdown),
+    )
 
 
 # 手順書(.md)の節のうち、案内タブにも出すもの。キー → 見出しに含まれる語
@@ -194,12 +278,87 @@ def sections_from_markdown(md_text: str) -> dict[str, str]:
     return out
 
 
+_NODE_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_SANDBOX_IN_MD_RE = re.compile(r"サンドボックス:\s*`([^`]+)`")
+
+
+def _split_label_and_purpose(line: str) -> tuple[str, str] | None:
+    """「ctrl_seed / ctrl_temp（attribcreate）: 公開値を運ぶ入口」を、(左, 右) に分ける。括弧の中の「:」では分けない。"""
+    depth = 0
+    for i, ch in enumerate(line):
+        if ch in "（(":
+            depth += 1
+        elif ch in "）)":
+            depth = max(0, depth - 1)
+        elif ch in ":：" and depth == 0:
+            left, right = line[:i].strip(), line[i + 1:].strip()
+            return (left, right) if left and right else None
+    return None
+
+
+def purposes_from_markdown(md_text: str) -> dict[str, str]:
+    """手順書の「使うノードと、できること」の節から、{ノード名: 何のために使うか} を取る（案内の「目的」に出す）。
+    見つからない節・書式のときは空（目的は出さない。足りないことは、報告に書く）。"""
+    text = (md_text or "").replace("\r\n", "\n")
+    out: dict[str, str] = {}
+    for part in re.split(r"^#{2,3} ", text, flags=re.M)[1:]:
+        heading, _, body = part.partition("\n")
+        if "使うノード" not in heading:
+            continue
+        for raw in body.split("\n"):
+            line = re.sub(r"^\s*(?:\d+[.)]|[-*・])\s*", "", raw).strip()
+            if not line:
+                continue
+            split = _split_label_and_purpose(line)
+            if split is None:
+                continue
+            left, right = split
+            for chunk in re.split(r"[/、,]", re.sub(r"[（(][^）)]*[）)]", "", left)):
+                name = chunk.strip().strip("`")
+                if _NODE_NAME_RE.fullmatch(name):
+                    out.setdefault(name, right[:200])
+    return out
+
+
+def sandbox_from_markdown(md_text: str) -> str:
+    m = _SANDBOX_IN_MD_RE.search(md_text or "")
+    return m.group(1).strip() if m else ""
+
+
 def guide_path_for(md_path: Path) -> Path:
     return md_path.with_name(md_path.stem + GUIDE_SUFFIX)
 
 
 def write_guide(path: Path, guide: dict) -> None:
     path.write_text(json.dumps(guide, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def md_path_for(guide_path: Path) -> Path:
+    name = guide_path.name
+    stem = name[: -len(GUIDE_SUFFIX)] if name.endswith(GUIDE_SUFFIX) else guide_path.stem
+    return guide_path.with_name(stem + ".md")
+
+
+def _fill_from_markdown(data: dict, path: Path) -> None:
+    """以前の案内データ（サンドボックスのパス・目的が無い）に、同じ名前の手順書から足りないものを足す。"""
+    need_sandbox = not data.get("sandbox_path")
+    need_purpose = any(isinstance(s, dict) and not s.get("purpose") for s in data["steps"])
+    if not (need_sandbox or need_purpose):
+        return
+    try:
+        md = md_path_for(path).read_text(encoding="utf-8")
+    except OSError:
+        return
+    if need_sandbox:
+        sandbox = sandbox_from_markdown(md)
+        if sandbox:
+            data["sandbox_path"] = sandbox
+    if need_purpose:
+        purposes = purposes_from_markdown(md)
+        for s in data["steps"]:
+            if isinstance(s, dict) and not s.get("purpose") and s.get("node") in purposes:
+                s["purpose"] = purposes[s["node"]]
+                s["work"] = s.get("work") or ""
 
 
 def load_guide(path: Path) -> dict | None:
@@ -209,7 +368,14 @@ def load_guide(path: Path) -> dict | None:
         return None
     if not isinstance(data, dict) or not isinstance(data.get("steps"), list) or not data["steps"]:
         return None
+    _fill_from_markdown(data, Path(path))
     return data
+
+
+def guide_label(data: dict, path: Path | None = None) -> str:
+    level = f"［{data['level']}］" if data.get("level") else ""
+    fallback = path.name[: -len(GUIDE_SUFFIX)] if path is not None else ""
+    return f"{data.get('title') or fallback}{level}（{len(data['steps'])}手順）"
 
 
 def list_guides(tutorials_dir: Path | None) -> list[tuple[str, Path]]:
@@ -221,33 +387,163 @@ def list_guides(tutorials_dir: Path | None) -> list[tuple[str, Path]]:
         data = load_guide(path)
         if data is None:
             continue
-        level = f"［{data['level']}］" if data.get("level") else ""
-        name = f"{data.get('title') or path.name[: -len(GUIDE_SUFFIX)]}{level}（{len(data['steps'])}手順）"
         try:
             mtime = path.stat().st_mtime
         except OSError:
             mtime = 0.0
-        items.append((mtime, name, path))
+        items.append((mtime, guide_label(data, path), path))
     items.sort(key=lambda t: t[0], reverse=True)
     return [(name, path) for _m, name, path in items]
+
+
+# ── パラメータの値を、表示名で言う（メニュー・チェックボックス） ─────────────────────────
+
+_ON = {"1", "true", "on", "yes"}
+_OFF = {"0", "false", "off", "no"}
+
+
+def parm_value_info(template) -> dict:
+    """hou.ParmTemplate（またはそれに似たもの）から、値の言い換えに要る情報を取る。取れなければ {}。
+    戻り値: {"kind": "toggle" | "menu" | "other", "items": [...], "labels": [...], "int_menu": bool}。
+    生成時（ノードが手元にあるとき）に、houdini_tools から呼んで、案内データに入れてもよい。"""
+    if template is None:
+        return {}
+    try:
+        kind_obj = template.type()
+        kind = str(kind_obj.name() if hasattr(kind_obj, "name") else kind_obj).split(".")[-1]
+    except Exception:  # noqa: BLE001
+        return {}
+    info: dict = {"kind": "other", "items": [], "labels": [], "int_menu": False}
+    if kind == "Toggle":
+        info["kind"] = "toggle"
+        return info
+    try:
+        items = [str(i) for i in template.menuItems()]
+        labels = [str(i) for i in template.menuLabels()]
+    except Exception:  # noqa: BLE001 -- メニューを持たないテンプレートは、ここで例外になる
+        return info
+    if items:
+        info.update({"kind": "menu", "items": items, "labels": labels if len(labels) == len(items) else items,
+                     "int_menu": kind in ("Menu", "Int")})
+    return info
+
+
+def menu_label_for(info: dict, value) -> str:
+    """メニューの値（番号、またはトークン）の、表示名。分からなければ ""。"""
+    items, labels = info.get("items") or [], info.get("labels") or []
+    text = str(value).strip()
+    if not items:
+        return ""
+    if not info.get("int_menu") and text in items:  # 文字列のメニューは、トークンで持つ
+        return labels[items.index(text)]
+    try:
+        index = int(float(text))
+    except ValueError:
+        return labels[items.index(text)] if text in items else ""
+    if 0 <= index < len(items):
+        return labels[index]
+    return ""
+
+
+def _toggle_state(value) -> bool | None:
+    text = str(value).strip().lower()
+    if text in _ON:
+        return True
+    if text in _OFF:
+        return False
+    return None
+
+
+def describe_parm_change(parm: dict, info: dict | None = None) -> dict:
+    """パラメータ1件の変更を、画面に出す文にする。
+    戻り値: {"label", "name", "where_text", "action", "old_text", "new_text", "kind"}
+      action: 「Run Over を Detail (only once) にする」「X をオフにする（チェックを外す）」「X を空にする（消す）」など、動詞で言う文。
+    info（parm_value_info の結果）が無い・合わないときは、数字のまま「X を 2 にする」（メニューかどうかは言わない）。"""
+    info = info or {}
+    label = str(parm.get("label") or parm.get("name") or "")
+    old_raw = "" if parm.get("old") is None else str(parm.get("old"))
+    new_raw = "" if parm.get("new") is None else str(parm.get("new"))
+    kind = info.get("kind") or "other"
+    old_text, new_text = old_raw, new_raw
+    if new_raw.startswith("（コード"):
+        action = f"{label} の欄に、手順書のコードを入力する（コードは、手順書を見る）"
+        kind = "code"
+    elif new_raw.strip() == "":
+        action = f"{label} を空にする（入っている内容を消す）"
+        new_text = "（空）"
+    elif kind == "toggle" and _toggle_state(new_raw) is not None:
+        on = _toggle_state(new_raw)
+        action = f"{label} をオンにする（チェックを入れる）" if on else f"{label} をオフにする（チェックを外す。無効にする）"
+        new_text = "オン" if on else "オフ"
+        old_state = _toggle_state(old_raw)
+        old_text = old_raw if old_state is None else ("オン" if old_state else "オフ")
+    elif kind == "menu" and menu_label_for(info, new_raw):
+        shown = menu_label_for(info, new_raw)
+        action = f"{label} を {shown} にする"
+        new_text = f"{shown}（値: {new_raw}）" if shown != new_raw else shown
+        old_label = menu_label_for(info, old_raw) if old_raw else ""
+        old_text = f"{old_label}（値: {old_raw}）" if old_label and old_label != old_raw else old_raw
+    else:
+        action = f"{label} を {new_raw} にする"
+    if old_raw == "":
+        old_text = "（空）" if kind != "code" else ""
+    return {
+        "label": label, "name": str(parm.get("name") or ""), "where_text": parm_where_text(str(parm.get("where") or "")),
+        "action": action, "old_text": old_text, "new_text": new_text, "kind": kind,
+    }
+
+
+def location_status(current_path: str, expected_path: str) -> tuple[str, bool]:
+    """「いまのネットワーク」と「この手順の作業場所」を比べた、表示文と、同じかどうか。"""
+    if not expected_path:
+        return (f"いまのネットワーク: {current_path}" if current_path else "いまのネットワーク: 不明（ネットワークエディタが見つかりません）"), True
+    if not current_path:
+        return f"この手順の場所: {expected_path}（いまのネットワークは不明）", False
+    if current_path.rstrip("/") == expected_path.rstrip("/"):
+        return f"いまのネットワーク: {current_path}（この手順の場所と同じ）", True
+    return f"いまのネットワーク: {current_path}\nこの手順の場所: {expected_path}（違います）", False
 
 
 # ── Houdini の画面を動かす（hou は引数。画面を書き換えず、示すだけ） ───────────────
 
 _MAX_SEARCH = 3000
+_BASE_LABEL = {"own": "自分のネットワーク", "sandbox": "サンドボックス"}
+
+
+def _panes_of_type(hou, pane_type) -> list:
+    """その種類のペインタブを、順に（最大6つ）。index を受け取らない版・偽物は、最初の1つだけ。"""
+    found: list = []
+    for index in range(6):
+        try:
+            pane = hou.ui.paneTabOfType(pane_type, index) if index else hou.ui.paneTabOfType(pane_type)
+        except TypeError:
+            break
+        except Exception:  # noqa: BLE001
+            break
+        if pane is None or any(pane is f for f in found):
+            break
+        found.append(pane)
+    return found
 
 
 def _pane(hou, tab: str):
+    """指定の種類のペインタブ。複数あるときは、いま前面のものを選ぶ（無ければ最初のもの）。"""
     for name in _PANE_TYPE_NAMES.get(tab, ()):
-        pane_type = getattr(hou.paneTabType, name, None)
+        try:
+            pane_type = getattr(hou.paneTabType, name, None)
+        except Exception:  # noqa: BLE001 -- hou が、期待した形でないとき
+            return None
         if pane_type is None:
             continue
-        try:
-            pane = hou.ui.paneTabOfType(pane_type)
-        except Exception:  # noqa: BLE001
-            pane = None
-        if pane is not None:
-            return pane
+        found = _panes_of_type(hou, pane_type)
+        for pane in found:
+            try:
+                if pane.isCurrentTab():
+                    return pane
+            except Exception:  # noqa: BLE001 -- isCurrentTab が無い・失敗したら、最初のものにする
+                break
+        if found:
+            return found[0]
     return None
 
 
@@ -272,49 +568,284 @@ def _base_type_name(type_name: str) -> str:
     return parts[0] if parts else ""
 
 
-def find_node(hou, name: str, type_name: str = ""):
-    """学習者のネットワークから、名前（なければ種類）が合うノードを探す。戻り値: (ノード or None, "name"|"type"|"")。
-    探す範囲は、今開いているネットワークとその中身、次に /obj の中。重い探索にならないよう上限がある。"""
-    roots = []
-    editor = _pane(hou, "network")
+def _type_name_of(node) -> str:
     try:
-        if editor is not None:
-            roots.append(editor.pwd())
+        return str(node.type().name())
     except Exception:  # noqa: BLE001
-        pass
+        return ""
+
+
+def _type_ok(node, type_name: str) -> bool:
+    """手順の種類と、ノードの種類が合うか（種類が分からない手順は、合うとする）。バージョン・名前空間の違いは無視。"""
+    if not type_name:
+        return True
+    return _base_type_name(_type_name_of(node)) == _base_type_name(type_name)
+
+
+def _node_at(hou, path: str):
     try:
-        obj = hou.node("/obj")
-        if obj is not None:
-            roots.append(obj)
+        return hou.node(path)
     except Exception:  # noqa: BLE001
-        pass
-    base = _base_type_name(type_name)
-    by_type = None
-    seen = 0
-    for root in roots:
-        if root is None:
-            continue
+        return None
+
+
+def _is_sandbox_child(node) -> bool:
+    try:
+        return node.parent() is not None and node.parent().path() == OWN_ROOT and node.name().startswith(SANDBOX_PREFIX)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _children_of(node) -> list:
+    try:
+        if hasattr(node, "children"):
+            return list(node.children())
+        return [c for c in node.allSubChildren() if c.parent() is not None and c.parent().path() == node.path()]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _walk(root, skip_sandboxes: bool, budget: list[int]):
+    """root の中のノードを、順に返す（root 自身は含めない）。生成のサンドボックスは、自分のネットワークの探索から外す。上限あり。"""
+    stack = [root]
+    while stack and budget[0] > 0:
+        node = stack.pop()
         try:
-            candidates = [root] + list(root.allSubChildren())
+            children = list(node.children()) if hasattr(node, "children") else list(node.allSubChildren())
         except Exception:  # noqa: BLE001
             continue
-        for node in candidates:
-            seen += 1
-            if seen > _MAX_SEARCH:
-                break
-            try:
-                if name and node.name() == name:
-                    return node, "name"
-                if by_type is None and base and _base_type_name(node.type().name()) == base and node.path() != "/":
-                    by_type = node
-            except Exception:  # noqa: BLE001
+        for child in reversed(children):
+            if skip_sandboxes and _is_sandbox_child(child):
                 continue
-    return (by_type, "type") if by_type is not None else (None, "")
+            budget[0] -= 1
+            yield child
+            if hasattr(node, "children"):
+                stack.append(child)
+
+
+def _shared_prefix(a: str, b: str) -> int:
+    n = 0
+    for x, y in zip(a.strip("/").split("/"), b.strip("/").split("/")):
+        if x != y:
+            break
+        n += 1
+    return n
+
+
+@dataclass
+class Target:
+    """手順が指すノードの探索結果。"""
+    node: object = None
+    how: str = ""          # "path"（パスが一致）| "name"（名前が一致。場所は少し違う）| "type"（種類が同じ別名。候補が1つだけ）| ""
+    where: str = ""        # "own"（自分のネットワーク）| "sandbox"（生成したサンドボックス）| ""
+    note: str = ""         # 画面に出す、補足や、見つからない理由
+    container: object = None  # 見つからないとき、代わりに開くネットワーク
+    expected: str = ""     # 手順が指す、自分のネットワークでのパス
+
+
+def _bases(mode: str, sandbox_path: str, create: bool) -> list[tuple[str, str]]:
+    own = ("own", OWN_ROOT)
+    box = ("sandbox", sandbox_path) if sandbox_path else None
+    if mode == "own":
+        return [own]
+    if mode == "sandbox":
+        return [box] if box else []
+    # 自動: まず学習者のネットワーク。無ければ、サンドボックスの実物（作る手順は、サンドボックスへ飛ばない）
+    return [own] + ([box] if box and not create else [])
+
+
+def _deepest_existing(hou, path: str):
+    path = path.rstrip("/")
+    while path:
+        node = _node_at(hou, path)
+        if node is not None:
+            return node
+        path = path.rsplit("/", 1)[0] if "/" in path.strip("/") else ""
+    return _node_at(hou, "/")
+
+
+def _search_base(hou, root_path: str, label: str, name: str, rel: str, type_name: str, create: bool, default_container=None):
+    """1つの根（自分のネットワーク、またはサンドボックス）の中で、手順のノードを探す。戻り値: (Target, 理由の文の一覧)。"""
+    notes: list[str] = []
+    root = _node_at(hou, root_path)
+    if root is None:
+        return Target(), [f"{_BASE_LABEL[label]}（{root_path}）が見つかりません"]
+    exact_path = ""
+    # 1. パスが一致（サンドボックス相対のパスを、根につなぐ）
+    if rel:
+        exact_path = f"{root_path.rstrip('/')}/{rel}"
+        exact = _node_at(hou, exact_path)
+        if exact is not None:
+            if _type_ok(exact, type_name):
+                return Target(node=exact, how="path", where=label), notes
+            notes.append(f"{exact_path} はありますが、ノードの種類が違います（いまは {_type_name_of(exact)}、手順は {type_name}）")
+    parent_rel = _parent_rel(rel)
+    parent_path = f"{root_path.rstrip('/')}/{parent_rel}" if parent_rel else root_path
+    if create:  # 作る手順: すでにあるほかのノードを示さない。作る場所（ネットワーク）だけ開く
+        return Target(container=_deepest_existing(hou, parent_path), where=label), notes
+    # 2. 名前（と種類）が一致するものが、ほかの場所に1つだけある
+    budget = [_MAX_SEARCH]
+    if name:
+        cands = [n for n in _walk(root, label == "own", budget)
+                 if n.name() == name and _type_ok(n, type_name) and n.path() != exact_path]
+        if budget[0] <= 0 and cands:  # 探索を打ち切ったので、見つかったものが唯一かどうか、言えない
+            notes.append(f"ノードが多く、探索の上限（{_MAX_SEARCH} 個）に達しました。同じ名前のノードがほかにもあるかもしれないため、決められません"
+                         "（手順のパスのとおりにノードを作ると、案内できます）")
+        elif len(cands) == 1:
+            return Target(node=cands[0], how="name", where=label,
+                          note=f"{exact_path or name} ではなく、{cands[0].path()} にある同じ名前のノードを示しました"), notes
+        elif len(cands) > 1:
+            scored = sorted(cands, key=lambda n: -_shared_prefix(n.path()[len(root_path):], rel))
+            best = _shared_prefix(scored[0].path()[len(root_path):], rel)
+            if best > 0 and _shared_prefix(scored[1].path()[len(root_path):], rel) < best:
+                return Target(node=scored[0], how="name", where=label,
+                              note=f"同じ名前のノードが複数あります。手順のパスに最も近い {scored[0].path()} を示しました"), notes
+            notes.append("同じ名前のノードが複数あるため、どれか決められません: " + "、".join(n.path() for n in cands[:5]))
+    # 3. 手順のネットワークに、同じ種類のノードが1つだけある（名前だけが違う）
+    if type_name:
+        container = _node_at(hou, parent_path) if rel else default_container
+        if container is not None:
+            same = [c for c in _children_of(container) if _type_ok(c, type_name) and not _is_sandbox_child(c)]
+            if len(same) == 1 and name:
+                return Target(node=same[0], how="type", where=label,
+                              note=f"名前が違う同じ種類のノードを示しました: {same[0].path()}（手順の名前は {name}）"), notes
+            if len(same) > 1:
+                notes.append(f"{container.path()} に同じ種類のノードが複数あります（{'、'.join(c.name() for c in same[:6])}）。名前を {name} にすると、案内できます")
+    return Target(container=_deepest_existing(hou, parent_path), where=label), notes
+
+
+def resolve_step_target(hou, step: dict, sandbox_path: str = "", mode: str = "auto") -> Target:
+    """手順が指すノードを探す。
+      mode: "auto"（まず自分のネットワーク、無ければサンドボックスの実物）/ "own"（自分のネットワークだけ）/ "sandbox"（サンドボックスだけ）
+    探し方: パスが一致 → 名前と種類が一致（1つだけ）→ 種類が同じ別名（手順のネットワークに1つだけ）。当て推量の選択はしない。
+    見つからないとき node は None で、note に理由が入る。"""
+    tool = str(step.get("tool") or "")
+    name = str(step.get("node") or "")
+    rel = str(step.get("node_path") or "").strip("/")
+    type_name = str(step.get("node_type") or "")
+    create = tool == "create_node"
+    expected = own_path(rel) if rel else ""
+    default_container = None
+    if not rel:  # 古い記録: パスが分からない。いま開いているネットワークを、探す場所の目安にする
+        editor = _pane(hou, "network")
+        try:
+            default_container = editor.pwd() if editor is not None else None
+        except Exception:  # noqa: BLE001
+            default_container = None
+    bases = _bases(mode, sandbox_path, create)
+    notes: list[str] = []
+    container = None
+    if mode == "sandbox" and not sandbox_path:
+        notes.append("この案内データには、サンドボックスのパスがありません（以前の保存）。「自分のネットワーク」で案内します")
+        bases = _bases("own", sandbox_path, create)
+    for label, root_path in bases:
+        found, why = _search_base(hou, root_path, label, name, rel, type_name, create, default_container)
+        notes += why
+        if container is None and found.container is not None:
+            container = found.container
+        if found.node is not None:
+            if label == "sandbox" and mode == "auto":
+                found.note = (f"自分のネットワークには見つからないので、サンドボックスの実物 {found.node.path()} を示しました（見本です）"
+                              + (f"。{found.note}" if found.note else ""))
+            elif found.note == "" and label == "sandbox":
+                found.note = "サンドボックスの実物を示しました（見本です）"
+            found.expected = expected
+            return found
+    reason = f"「{name or step.get('node_label') or '？'}」" + (f"（{expected}）" if expected else "") + "は見つかりません"
+    if create:
+        reason = f"「{step.get('node_label') or step.get('node_type') or name}」" + (f"（{expected}）" if expected else "") + "は、まだありません"
+    return Target(container=container, expected=expected, note=reason + ("。" + "。".join(notes) if notes else ""))
+
+
+def find_node(hou, name: str, type_name: str = ""):
+    """（以前の関数。互換のため残す）名前（なければ種類）が合うノードを探す。戻り値: (ノード or None, "name"|"type"|"")。
+    以前は、同じ種類のノードを、どこからでも拾っていた。いまは、自分のネットワークの中で、名前と種類が合うもの（1つだけ）、
+    または、いま開いているネットワークに同じ種類が1つだけあるときに限る。"""
+    hit = resolve_step_target(hou, {"tool": "x", "node": name, "node_type": type_name}, mode="own")
+    if hit.node is None:
+        return None, ""
+    return hit.node, ("name" if hit.how in ("path", "name") else "type")
+
+
+def focus_nodes(hou, nodes: list) -> bool:
+    """ノードを選び、ネットワークエディタをそこへ寄せる。順序が大事: ネットワークの切り替え → 選択 → エディタの現在ノード → 追加の選択。
+    （以前は、先に選んでから切り替えていたため、パラメータ画面が別のノードのままになることがあった）"""
+    if not nodes:
+        return False
+    first = nodes[0]
+    editor = _pane(hou, "network")
+    parent = None
+    try:
+        parent = first.parent()
+    except Exception:  # noqa: BLE001
+        parent = None
+    if editor is not None and parent is not None:
+        try:
+            if editor.pwd().path() != parent.path():
+                editor.setPwd(parent)
+        except Exception:  # noqa: BLE001 -- 切り替えられなくても、選択はできる
+            pass
+    try:
+        first.setCurrent(True, clear_all_selected=True)  # 選択 + パラメータ画面がこのノードに追従する
+    except Exception:  # noqa: BLE001
+        return False
+    if editor is not None:
+        setter = getattr(editor, "setCurrentNode", None)
+        if callable(setter):
+            try:
+                setter(first)
+            except Exception:  # noqa: BLE001
+                pass
+    try:
+        for extra in nodes[1:]:
+            if extra.parent() is not None and parent is not None and extra.parent().path() == parent.path():
+                extra.setSelected(True)
+    except Exception:  # noqa: BLE001
+        pass
+    if editor is not None:
+        try:
+            editor.homeToSelection()
+            if hasattr(editor, "flashMessage"):
+                editor.flashMessage(None, "ここを操作します: " + "、".join(n.name() for n in nodes), 3.0)
+        except Exception:  # noqa: BLE001 -- 示せなくても、選択はできている
+            pass
+    return True
+
+
+def verify_shown(hou, node) -> str | None:
+    """示したノードが、実際に選ばれ、ネットワークエディタもその階層になっているか。合っていれば None、違えば理由の文。"""
+    try:
+        selected = [n.path() for n in hou.selectedNodes()]
+    except Exception:  # noqa: BLE001
+        selected = None
+    if selected is not None and node.path() not in selected:
+        return f"{node.path()} が選ばれていません（いま選んでいるのは: {'、'.join(selected) or 'なし'}）"
+    editor = _pane(hou, "network")
+    try:
+        parent = node.parent()
+        if editor is not None and parent is not None and editor.pwd().path() != parent.path():
+            return f"ネットワークエディタが {editor.pwd().path()} のままです（{parent.path()} へ切り替えられませんでした）"
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def release_parm_pin(hou) -> str:
+    """パラメータ画面が、ピンで固定されていると、選んだノードに追従しない。固定されていたら外す。外したら、その旨の文を返す。"""
+    pane = _pane(hou, "parm")
+    if pane is None:
+        return ""
+    try:
+        if hasattr(pane, "isPin") and pane.isPin():
+            pane.setPin(False)
+            return "パラメータ画面の固定（ピン）を外しました（選んだノードに追従させるため）"
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
 
 
 def show_nodes(hou, wanted: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
-    """ノードを選び、ネットワークエディタをそこへ寄せて、短い表示を出す。
-    wanted: [(名前, タイプ名)]。戻り値: (見つけたノード名, 見つからなかった名前)。"""
+    """（以前の関数。互換のため残す）名前とタイプ名で探して、選ぶ。戻り値: (見つけたノード名, 見つからなかった名前)。"""
     found = []
     missing = []
     for name, type_name in wanted:
@@ -323,56 +854,123 @@ def show_nodes(hou, wanted: list[tuple[str, str]]) -> tuple[list[str], list[str]
             missing.append(name)
         else:
             found.append(node)
-    if not found:
+    if not found or not focus_nodes(hou, found):
         return [], missing
-    try:
-        found[0].setCurrent(True, clear_all_selected=True)  # 選択 + パラメータ画面がこのノードに追従する
-        for extra in found[1:]:
-            extra.setSelected(True)
-    except Exception:  # noqa: BLE001
-        return [], missing
-    editor = _pane(hou, "network")
-    if editor is not None:
-        try:
-            parent = found[0].parent()
-            if parent is not None and editor.pwd().path() != parent.path():
-                editor.setPwd(parent)
-            editor.homeToSelection()
-            if hasattr(editor, "flashMessage"):
-                editor.flashMessage(None, "ここを操作します: " + "、".join(n.name() for n in found), 3.0)
-        except Exception:  # noqa: BLE001 -- 示せなくても、選択はできている
-            pass
     return [n.name() for n in found], missing
 
 
-def apply_step(hou, step: dict) -> list[str]:
-    """1つの手順を案内する: ノードを示し、見るタブを前面に出す。戻り値: 画面に出すメッセージ。"""
+def _endpoints(step: dict) -> list[dict]:
+    """つなぐ手順の、両端のノード（同じネットワークの中にあるとして、パスを作る）。"""
+    parent = _step_container_rel(step)
+    names: list[str] = []
+    for n in [step.get("from"), step.get("to") or step.get("node")] + [x for pair in (step.get("connections") or []) for x in (pair.get("from"), pair.get("to"))]:
+        if n and n not in names:
+            names.append(n)
+    return [{"tool": "connect_nodes", "node": n, "node_path": f"{parent}/{n}" if parent else n, "node_type": ""} for n in names]
+
+
+def apply_step(hou, step: dict, sandbox_path: str = "", mode: str = "auto") -> list[str]:
+    """1つの手順を案内する: ノードを示し、見るタブを前面に出す。戻り値: 画面に出すメッセージ（1行ずつ）。"""
     messages: list[str] = []
     tool = step.get("tool")
-    wanted: list[tuple[str, str]] = []
-    if tool == "connect_nodes":
-        wanted = [(step.get("from") or "", ""), (step.get("to") or step.get("node") or "", "")]
-        for pair in step.get("connections") or []:
-            wanted += [(pair.get("from") or "", ""), (pair.get("to") or "", "")]
-        unique: list[tuple[str, str]] = []
-        for pair_item in wanted:  # 同じノードは1回だけ
-            if pair_item[0] not in [u[0] for u in unique]:
-                unique.append(pair_item)
-        wanted = unique
-    elif step.get("node"):
-        wanted = [(step["node"], step.get("node_type") or "")]
-    wanted = [(n, t) for n, t in wanted if n]
-    if wanted:
-        found, missing = show_nodes(hou, wanted)
-        if found:
-            messages.append("示したノード: " + "、".join(found))
-        if missing and tool == "create_node":
-            messages.append(f"「{step.get('node_label') or step.get('node_type') or missing[0]}」はまだありません。Tab で作ります")
-        elif missing:
-            messages.append("見つからないノード: " + "、".join(missing) + "（前の手順で作ります）")
+    wanted = _endpoints(step) if tool == "connect_nodes" else ([step] if step.get("node") else [])
+    hits = [resolve_step_target(hou, w, sandbox_path, mode) for w in wanted]
+    found = [h for h in hits if h.node is not None]
+    if found:
+        if focus_nodes(hou, [h.node for h in found]):
+            for h in found:
+                messages.append(f"示したノード: {h.node.path()}（{_BASE_LABEL.get(h.where, '')}）")
+            problem = verify_shown(hou, found[0].node)
+            if problem:
+                messages.append("確認: " + problem)
+        else:
+            messages.append("ノードを選べませんでした: " + "、".join(h.node.path() for h in found))
+    for h in hits:
+        if h.note:
+            messages.append(h.note)
+        if h.node is None and h.container is not None and not found:
+            editor = _pane(hou, "network")
+            try:
+                if editor is not None and editor.pwd().path() != h.container.path():
+                    editor.setPwd(h.container)
+                if tool == "create_node":
+                    messages.append(f"{h.container.path()} を開きました。ここで Tab を押して作ります")
+            except Exception:  # noqa: BLE001
+                pass
+    if found:
+        editor = _pane(hou, "network")
+        try:
+            if editor is not None:
+                messages.append(f"いまのネットワーク: {editor.pwd().path()}")
+        except Exception:  # noqa: BLE001
+            pass
+    if tool == "set_parameter":
+        pin = release_parm_pin(hou)
+        if pin:
+            messages.append(pin)
+        for p in step.get("parms") or []:
+            if isinstance(p, dict):
+                messages.append(f"パラメータのタブ: {parm_where_text(str(p.get('where') or ''))}、項目: {p.get('label') or p.get('name')}")
     ok, message = show_tab(hou, step.get("tab") or "network")
     messages.append(message)
     return messages
+
+
+# ── パラメータの値の言い換えに要る、テンプレートの取得 ──────────────────────────────
+
+_type_cache: dict = {}
+
+
+def _find_node_type(hou, type_name: str):
+    """タイプ名（例: scatter::2.0）から hou.NodeType を探す。カテゴリを順に引く（無ければ None）。"""
+    if not type_name:
+        return None
+    try:
+        categories = hou.nodeTypeCategories()
+        for category in categories.values():
+            found = category.nodeTypes().get(type_name)
+            if found is not None:
+                return found
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def parm_template_for(hou, step: dict, parm_name: str, sandbox_path: str = "", mode: str = "auto"):
+    """手順のノード（無ければ種類）から、パラメータのテンプレートを取る。取れなければ None。"""
+    if not parm_name:
+        return None
+    try:
+        target = resolve_step_target(hou, step, sandbox_path, mode)
+        node = target.node
+        if node is not None:
+            parm = node.parm(parm_name)
+            if parm is not None:
+                return parm.parmTemplate()
+            pt = node.parmTuple(parm_name) if hasattr(node, "parmTuple") else None
+            if pt is not None:
+                return pt.parmTemplate()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        node_type = _find_node_type(hou, str(step.get("node_type") or ""))
+        if node_type is not None:
+            return node_type.parmTemplateGroup().find(parm_name)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def attach_parm_info(hou, step: dict, sandbox_path: str = "", mode: str = "auto") -> dict:
+    """手順のコピーを返す。パラメータごとに、値の言い換えに要る情報（_info）を付ける。hou が無い・取れないときは、そのまま。"""
+    out = {**step, "parms": [dict(p) for p in (step.get("parms") or []) if isinstance(p, dict)]}
+    if hou is None:
+        return out
+    for p in out["parms"]:
+        info = parm_value_info(parm_template_for(hou, step, str(p.get("name") or ""), sandbox_path, mode))
+        if info:
+            p["_info"] = info
+    return out
 
 
 # ── 選んでいるノードの説明（Docs タブから使う） ──────────────────────────────
@@ -417,3 +1015,26 @@ def open_node_help(hou, info: dict) -> tuple[bool, str]:
     except Exception as exc:  # noqa: BLE001
         return False, f"ヘルプを開けませんでした（{exc}）"
     return True, "Houdini のヘルプを開きました"
+
+
+def current_network_path(hou) -> str:
+    """ネットワークエディタが、いま開いている階層のパス。取れなければ ""。"""
+    editor = _pane(hou, "network")
+    try:
+        return editor.pwd().path() if editor is not None else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def step_places(step: dict, sandbox_path: str = "") -> dict:
+    """手順が指す場所を、省略せずに（画面に出す用）。
+    {"network": 手順のネットワーク, "node": ノード, "sandbox_node": サンドボックスでのノード（あれば）}"""
+    rel = str(step.get("node_path") or "")
+    node = str(step.get("node") or "")
+    parent_rel = _parent_rel(rel)
+    sandbox_path = sandbox_path.rstrip("/")
+    return {
+        "network": own_path(parent_rel) if rel else "",
+        "node": own_path(rel) if rel else node,
+        "sandbox_node": f"{sandbox_path}/{rel}" if sandbox_path and rel else "",
+    }

@@ -27,6 +27,7 @@ Anthropic SDK には依存せず urllib のみで API を呼ぶ
 from __future__ import annotations
 
 import datetime
+import http.client
 import json
 import os
 import re
@@ -59,6 +60,15 @@ COST_LIMIT_USD = 5.00         # ローカル側の実測コスト打ち切り上
                                # クライアント側のフェイルセーフに過ぎない
 GRACE_ITERATIONS = 5          # 反復上限までこの回数以内になったら仕上げを促す（§2.6打ち切り改善。3→5: 上限を上げたので余裕を持たせる）
 GRACE_COST_FRACTION = 0.85    # 累積コストがCOST_LIMIT_USDのこの割合を超えたら仕上げを促す
+# 仕上げの促しを3段階にした（2026-11-17）。以前は「残り5回」で1回だけ促していたため、実験の記録（76/80手で促した）では、
+# 仕上げ（finish_tutorial の提出 → ビューポート確認 → confirm_tutorial。書き直しがあれば、さらに数回）に回数が足りず、
+# 作業が終わっていても打ち切りになりやすかった。反復の6割で「進捗と、仕上げに要る回数」を伝え、8割で「新しい要素を足さない」、
+# 残り5回で「今すぐ提出」と段階を踏む。さらに、上限に達しても、ノードを作った後で未確定なら、仕上げ専用の予備を数回だけ足す。
+WRAPUP_SOFT_FRACTION = 0.6
+WRAPUP_FIRM_FRACTION = 0.8
+WRAPUP_SOFT_COST_FRACTION = 0.4
+WRAPUP_FIRM_COST_FRACTION = 0.6
+FINISH_RESERVE_ITERATIONS = 4  # 反復上限のあとの、仕上げ専用の予備（finish_tutorial と confirm_tutorial の分）。ノードの追加・修正には使わせない
 # 1ターンの出力上限。Sonnet 5.5 / Opus 5.5 はthinking（思考）も max_tokens に数えられ、常に有効なため、
 # 以前の4096だと思考だけで使い切って、ツール呼び出し（VEXコード等を含む入力）が途中で切れる恐れがある
 # （2026-10-05に16000へ。非ストリーミングで使える現実的な上限）。
@@ -155,6 +165,27 @@ _MODEL_EFFORT: dict[str, str] = {
     "claude-sonnet-5-5": "medium",
     "claude-opus-5-5": "medium",
 }
+# 環境変数 RAG_TUTORIAL_EFFORT（low / medium / high）で、effort を上書きできる（2026-11-17。速度を優先して試すときは low。
+# effort を受け付けるモデルだけに送る。品質への影響は、生成の指標（lesson_score・cook_errors・confirm_rejections）で比べる）。
+_EFFORT_CHOICES = ("low", "medium", "high")
+
+
+def effort_for(model: str) -> str:
+    """このモデルに送る effort。受け付けないモデルは空。環境変数があれば、それを優先する。"""
+    base = _MODEL_EFFORT.get(model, "")
+    if not base:
+        return ""
+    override = os.environ.get("RAG_TUTORIAL_EFFORT", "").strip().lower()
+    return override if override in _EFFORT_CHOICES else base
+
+
+class TransientApiError(RuntimeError):
+    """リトライしても、API が応答しなかった（5xx・過負荷・通信断・タイムアウト）。生成は、ここまでの途中経過で終わらせる。"""
+
+
+_API_RETRY_STATUS = frozenset({408, 500, 502, 503, 504, 529})
+_API_RETRY_BACKOFF_SEC = (3.0, 8.0)  # HTTP の一時エラーは最大2回、通信断・タイムアウトは1回だけ（サーバーで処理が進んでいる場合の二重消費を抑える）
+
 # UI（Settingsタブ）のモデル選択プルダウンに出す順序・選択肢
 AVAILABLE_MODELS: tuple[str, ...] = tuple(_MODEL_PRICES.keys())
 
@@ -259,6 +290,22 @@ _UNFINISHED_WORK_NUDGE_TEXT = (
 )
 _UNFINISHED_WORK_MAX_RESCUES = 1
 
+# 2026-11-17: confirm_tutorial(looks_correct=false) のあと、直さずに、テキストだけで終わってしまう打ち切り。
+# 実験より前の記録（2026-10-21・2026-10-23）の、10月5日以降の反復上限が80回になってからの未確定2件は、どちらも、反復の途中（25回・36回の時点。
+# 上限ではない）で、「ビューポートが真っ白（ボリュームが見えない）」「白黒のノイズだけが映っている（COP）」と書いて、修正に着手せずに止まっていた。
+# 以前の救済（_UNFINISHED_WORK_NUDGE_TEXT）は「finish_tutorial をまだ呼んでいません」と言うので、状況と合わず、効かなかった。
+_REJECTED_STOP_NUDGE_TEXT = (
+    "[システム通知] confirm_tutorial(looks_correct=false) のあと、修正せずに終わろうとしています。見た目の問題は、続けて直してください。"
+    "切り分け: ①inspect_geometry で、点・ボリュームの値の範囲が0でないか。②view_viewport の node に、見せたいノードを指定して撮り直す（SOP）。"
+    "③ボリューム（煙・炎）が枠だけ・真っ白に見えるときは、メッシュ化（isooffset）・ポイント化・可視化のノードを足して見せる。"
+    "④時間で動く題材は、frame を進めて（例: 12・40）撮る。直したら finish_tutorial → confirm_tutorial をやり直す。"
+)
+_REJECTED_STOP_NUDGE_TEXT_2 = (
+    "[システム通知] まだ修正に着手していません。これ以上直せない場合は、見えない理由と、確かめられたこと（数値）を finish_tutorial の pitfalls に具体的に書き、"
+    "もう一度 finish_tutorial を呼んでから confirm_tutorial(looks_correct=true, note に理由) を呼んで、確定してください（何も提出しないより良い結果になります）。"
+)
+_REJECTED_STOP_MAX_RESCUES = 2
+
 # 打ち切り時のグレースフル終了（§2.6）: 反復/コスト上限が近づいた際に一度だけ差し込む
 # ユーザー役テキスト。今の状態のまま仕上げるよう促し、未完成のままハード打ち切りになる
 # 事態を減らす。
@@ -274,6 +321,41 @@ _GRACE_NUDGE_TEXT = (
     "finish_tutorial の直後に見せられるビューポート画像を確認し、"
     "必ず confirm_tutorial も呼んでください（confirm_tutorialまで呼ばないと生成は完了しません）。"
 )
+
+_WRAPUP_SOFT_TEXT = (
+    "[システム通知] 進捗: {iteration}/{limit} 回目（残り {remaining} 回）。仕上げ（finish_tutorial → 画像の確認 → confirm_tutorial。"
+    "書き直しがあれば、さらに数回）の分を見込んで進めてください。新しいノードを足す前に、題材の達成に本当に必要かを考えてください。"
+    "同じ種類の調べもの（get_parm_schema・get_node_info など）を続けず、独立した操作は1回の応答でまとめて呼んでください。"
+)
+_WRAPUP_FIRM_TEXT = (
+    "[システム通知] 進捗: {iteration}/{limit} 回目（残り {remaining} 回）。新しい要素は足さず、今のグラフを仕上げる段階に入ってください。"
+    "cook_node で最終ノードのエラーが無いことと、inspect_geometry で中身（点・属性・サイズ）を確かめ、layout_network と validate_network を呼び、"
+    "そのあと finish_tutorial に進みます。実験は、まだなら1個に絞ってかまいません。"
+)
+_WRAPUP_CONFIRM_TEXT = (
+    "[システム通知] 残り {remaining} 回です。finish_tutorial は提出済みです。ビューポート画像を確認し、今すぐ confirm_tutorial を呼んでください"
+    "（意図どおりなら looks_correct=true。明らかな問題があるときだけ false）。"
+)
+_RESERVE_TEXT = (
+    "[システム通知] 反復上限（{limit} 回）に達しました。仕上げのためだけに、予備の {reserve} 回を使えます。"
+    "ノードの追加・修正はせず、今の状態で finish_tutorial → confirm_tutorial を呼んでください。"
+    "finish_tutorial の内容は、足りない所があっても、今ある情報で提出してください。"
+)
+
+
+def wrapup_stage(iteration: int, max_iterations: int, cost_usd: float, cost_limit: float) -> int:
+    """仕上げを促す段階（0=なし / 1=進捗を伝える / 2=新しい要素を足さない / 3=今すぐ提出）。反復とコストの、進んでいるほうで決める。
+    純粋な関数（Claude・Houdini不要）。"""
+    remaining = max_iterations - iteration
+    cost_ratio = (cost_usd / cost_limit) if cost_limit else 0.0
+    if remaining <= GRACE_ITERATIONS or cost_ratio >= GRACE_COST_FRACTION:
+        return 3
+    if iteration >= max_iterations * WRAPUP_FIRM_FRACTION or cost_ratio >= WRAPUP_FIRM_COST_FRACTION:
+        return 2
+    if iteration >= max_iterations * WRAPUP_SOFT_FRACTION or cost_ratio >= WRAPUP_SOFT_COST_FRACTION:
+        return 1
+    return 0
+
 
 # Phase1レベリング（IMPROVEMENT_PLAN.md §Phase1）: 同一トピックを basic→applied→advanced の
 # 順で生成する際、各段のシステムプロンプトに差し込む指示文。「どのレベルを生成するか」の決定
@@ -317,6 +399,10 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、チ
 - レッスン3（設計の判断）では、別の構成を同じサンドボックスの別の geo に組み、同じ検査（inspect_geometry・try_parameter）の数値を並べて比べてかまいません。比べ終えたら、採用しなかった側は delete_node で消し、末端が1本になるようにします。規模（密度・数）を変えて測るときは、測ったあと元の値に戻します。
 - 時間で動く題材（爆発・煙・炎・水・パーティクル・布・アニメーション・リグ）は、結果が時間で動くように組む（シミュレーション、または $F・time を使った式。再生範囲は 1〜240 の既定のままでよい）。cook_node のあと、動く様子が約10秒の映像として動画に入る。動かない結果（静止した形）は、静止画のまま。「爆発のEffect」を、止まった形だけで済ませない。
 - finish_tutorial を呼ぶ前に、layout_network でノードを整列し、validate_network を1回呼び、エラー・警告・末端の複数（つなぎ忘れ）が無いことを確かめます。
+- 速く終えるために、互いに依存しない操作（複数ノードの create_node、同じノードの複数パラメータの set_parameter、複数の connect_nodes、複数ノードの get_parm_schema など）は、1回の応答でまとめて呼びます。1回の応答に1つずつ呼ぶと、そのたびに待ち時間がかかり、反復の上限も消費します。ただし、結果を見ないと決められない操作（cook_node のあとの修正など）は、結果を見てから呼びます。
+- ノードには、役割が分かる名前を付けます（create_node の name。例: `vortex_points`、`pyro_source`。`attribwrangle1` のままにしない）。ノードは、データの流れの順（上流 → 下流）に作り、接続は、作った順に、上から下へ流れる形にします（線が交差・逆流しない）。つなぎ方の組み立てが複雑なら、先に流れを決めてから作ります。ノードが8個以上のコンテナは、layout_network の groups で、役割ごとのまとまり（例: 「渦の点を作る」「ソース」「シミュレーション」）を付けます。
+- create_node・set_parameter・connect_nodes には、purpose（このノード・操作を使う目的。短い1文。例: 「渦の点を作る」）を付けます。ガイドと動画で、「どんな目的でこのノードを使うか」として表示されます（特に create_node では必ず書く）。
+- steps には、再現に必要な情報を、省かずに書きます: 作ったノードのタイプと名前、設定したパラメータ名と値（実際の値）、VEX・式は全文（「…」で省かない）、どのノードのどの出力を、どのノードのどの入力につなぐか。省いた部分があると、読者が同じ手順をしても再現できません。finish_tutorial のあと、記録と照らして抜けがあれば、書き足すよう返されます。
 
 ## よく使うノードタイプ（このリストにあれば list_available_node_types は不要）
 {common_node_types}
@@ -631,6 +717,8 @@ class TutorialResult:
         # レッスン設計（lesson_design.design_lesson。作れなければNone）と、生成物の採点（tutorial_review）。
         self.lesson_plan: dict | None = None
         self.lesson_review: dict = {}
+        self.api_turns: int = 0              # Claude に送った回数（iterations はツール呼び出しの数で、1回に複数呼ばれる）
+        self.steps_appendix: bool = False    # 手順書に、記録から書き出した補足を足したか
 
     def file_basename(self) -> str:
         date = datetime.datetime.now().strftime("%Y%m%d")
@@ -726,6 +814,8 @@ class TutorialAgent:
         if level not in _LEVEL_INSTRUCTIONS:
             level = _DEFAULT_LEVEL
         start_time = time.monotonic()
+        for key in ("_api_seconds", "_api_calls", "_api_max_seconds", "_reserve_used", "_wrapup_stage", "_phase_seconds"):
+            self.__dict__.pop(key, None)  # 生成ごとの計測を、前の生成から引き継がない
         result = TutorialResult()
         result.level = level
         result.rag_name = self._rag_name
@@ -759,7 +849,9 @@ class TutorialAgent:
 
         # ① RAG検索（houdini<バージョン> namespace のみ）
         self._progress(f"RAG検索中（{self._rag_name} ナレッジベース / {self._rag_mode} / レベル={level}）...")
+        phase_started = time.monotonic()
         rag_texts, result.sources = self._rag_search(topic, level)
+        self._note_phase("rag_seconds", time.monotonic() - phase_started)
         # Cloudflare/ローカルブリッジの /search は file / namespace キーで返すが、Markdownの参考欄は
         # title / db を読むため、そのままだと「[1] ⬜ 未引用 （）」と題名が空になっていた。
         for s in result.sources:
@@ -780,6 +872,7 @@ class TutorialAgent:
         )
         self.executor = self._executor_factory(log_dir=log_dir, screenshot_dir=screenshot_dir)
         result.sandbox_path = self.executor.sandbox_path
+        self.executor.topic, self.executor.requirements = topic, self._requirements  # 題材別の達成基準の確認に使う
         self._progress(f"サンドボックス作成: {result.sandbox_path}")
         # 生成の途中でドキュメントを引くツール。検索先は最初の検索と同じナレッジに固定する。
         self._doc_client = None
@@ -796,6 +889,7 @@ class TutorialAgent:
         if prior_level_summary:
             self._progress(f"前段の要約をプロンプトに引き継ぎました（{len(prior_level_summary)} 文字）")
         # ③-0 レッスン設計（ノードを組む前に、章立て・確認・実験を決める）。失敗しても設計なしで続ける。
+        phase_started = time.monotonic()
         try:
             result.lesson_plan, plan_message, plan_usage = lesson_design.design_lesson(
                 self.complete_text, topic, level, self._requirements, rag_texts, prior_level_summary,
@@ -803,17 +897,26 @@ class TutorialAgent:
             )
         except Exception as exc:  # noqa: BLE001 -- 設計は付加価値。例外で生成を止めない
             result.lesson_plan, plan_message, plan_usage = None, f"レッスン設計: 失敗したため設計なしで続けます（{str(exc)[:60]}）", {}
+        self._note_phase("design_seconds", time.monotonic() - phase_started)
         result.cost_usd += self._usage_cost(plan_usage)
         result.input_tokens += plan_usage.get("input_tokens", 0)
         result.output_tokens += plan_usage.get("output_tokens", 0)
         self._progress(plan_message)
+        # レッスン設計の「段取り（使うノードと、できること）」を、手順の目的（purpose）の予備にする。モデルが purpose を書かなかったノードに使う。
+        if result.lesson_plan:
+            self.executor.purpose_hints = [
+                (str(r.get("node") or ""), str(r.get("does") or "")) for r in (result.lesson_plan.get("roadmap") or [])
+            ]
         system_blocks, tools, messages = self._build_initial_prompt(
             topic, rag_texts, level, prior_level_summary, result.lesson_plan
         )
+        loop_started = time.monotonic()
         try:
             self._run_loop(system_blocks, tools, messages, result)
         finally:
+            self._note_phase("loop_seconds", time.monotonic() - loop_started)
             result.iterations = self._count_iterations()
+            result.api_turns = self.__dict__.get("_api_calls", 0)
             if self._doc_client is not None:
                 result.doc_searches = self._doc_client.searches
                 result.doc_reads = self._doc_client.reads
@@ -847,10 +950,19 @@ class TutorialAgent:
         for key, value in lesson_design.fallback_fields(result.lesson_plan).items():
             if len(str(finish.get(key) or "").strip()) < 12:
                 finish[key] = value
-        result.lesson_review = tutorial_review.review_finish(
-            finish, list(self.executor.step_log) if self.executor else []
-        )
+        step_log = list(self.executor.step_log) if self.executor else []
+        result.lesson_review = tutorial_review.review_finish(finish, step_log, topic, self._requirements)
         self._progress(tutorial_review.summarize(result.lesson_review))
+        # 手順書で省かれていた操作（ノード・値・コード全文・接続）を、実際の記録から書き足す（2026-11-17。
+        # 「省いている箇所に抜け漏れがあり、同じ手順でやってもできない」への対応）。モデルが書いた分は、そのまま残す。
+        try:
+            appendix = tutorial_review.operation_appendix(tutorial_review.fidelity_gaps(str(finish.get("steps") or ""), step_log))
+        except Exception:  # noqa: BLE001 -- 補足を作れなくても、手順書はそのまま使う
+            appendix = ""
+        if appendix and tutorial_review.APPENDIX_TITLE not in str(finish.get("steps") or ""):  # すでに入っていれば、足さない（二重の補足を防ぐ）
+            finish["steps"] = (str(finish.get("steps") or "").rstrip() + "\n\n" + appendix)
+            result.steps_appendix = True
+            self._progress("手順書で省かれていた操作を、記録から書き足しました（再現に必要な情報）")
         result.title = finish.get("title") or f"Houdiniチュートリアル: {topic}"
         result.slug = self._sanitize_slug(finish.get("slug", ""), topic)
         result.next_steps = finish.get("next_steps", "")
@@ -1073,6 +1185,7 @@ class TutorialAgent:
             requirements_section=build_requirements_section(self._requirements),
             domain_sections=build_target_model_section(self._target_model)
             + build_domain_sections(topic, self._requirements, self._target_model)
+            + tutorial_review.topic_hint_section(topic, self._requirements)
             + build_houdini22_section(self._rag_name)
             + (DOC_TOOLS_SECTION if self._doc_client is not None else "")
             + self._cache_section()
@@ -1132,13 +1245,28 @@ class TutorialAgent:
         messages: list[dict],
         result: TutorialResult,
     ) -> None:
-        grace_warned = False        # GRACE_NUDGE_TEXTは1生成につき1回だけ出す
+        warned_stage = 0            # 仕上げの促しは、段階ごとに1回だけ出す（wrapup_stage 参照）
+        reserve_started = False     # 反復上限のあとの、仕上げ専用の予備に入ったか
         search_nudge_active = False  # 現在の検索連打ストリークで既に促したか（create_nodeで解除）
         empty_handed_rescues = 0    # 何も作らずテキストのみで終了しようとした際の救済回数
         unconfirmed_finish_rescues = 0  # finish_tutorial下書き未確定のまま終了しようとした際の救済回数
         unfinished_work_rescues = 0  # ノードは作成済みだがfinish_tutorial自体を未呼び出しのまま終了しようとした際の救済回数
+        rejected_stop_rescues = 0   # confirm_tutorial(false) のあと、直さずに終了しようとした際の救済回数
         cache_marked_content: list | None = None  # ローリングキャッシュ用（下記コメント参照）
-        for iteration in range(1, MAX_ITERATIONS + 1):
+        for iteration in range(1, MAX_ITERATIONS + FINISH_RESERVE_ITERATIONS + 1):
+            if iteration > MAX_ITERATIONS and not reserve_started:
+                # 反復上限に達した。ノードを作ってあって、まだ確定していなければ、仕上げ専用の予備を数回だけ足す
+                # （作業は終わっているのに、finish_tutorial → confirm_tutorial の分の回数が無くて打ち切られるのを減らす）。
+                if not self._can_use_finish_reserve():
+                    break
+                reserve_started = True
+                self.__dict__["_reserve_used"] = True
+                self._progress(f"反復上限に達しました。仕上げのための予備 {FINISH_RESERVE_ITERATIONS} 回に入ります")
+            if result.cost_usd > COST_LIMIT_USD:
+                # 救済の催促（continue）は、ターン末尾の費用の確認を通らない。上限を超えたまま、続けて呼ばないように、呼ぶ前にも確かめる
+                result.abort_reason = f"コスト上限 ${COST_LIMIT_USD:.2f} 超過"
+                self._progress(f"コスト上限に達したため打ち切ります（${result.cost_usd:.3f}）")
+                return
             # ローリングプロンプトキャッシュ: messages は反復のたびに増え続けるが、
             # cache_control は system_blocks / tools（固定部分）にしか付けていなかった
             # ため、会話履歴そのもの（tool_result・アシスタント応答の蓄積）は毎ターン
@@ -1160,7 +1288,18 @@ class TutorialAgent:
                         }
                     cache_marked_content = last_content
 
-            response = self._call_api(system_blocks, tools, messages)
+            api_started = time.monotonic()
+            try:
+                response = self._call_api(system_blocks, tools, messages)
+            except TransientApiError as exc:
+                # 再試行しても応答が無い。例外で終わらせず、ここまでの途中経過で打ち切る（下書きがあれば、それを使う）
+                result.abort_reason = f"Claudeが応答しませんでした（{str(exc)[:80]}）"
+                self._progress(f"Claudeが応答しないため打ち切ります（途中経過は保存されます）: {exc}")
+                log_event = getattr(self.executor, "log_event", None)
+                if callable(log_event):
+                    log_event({"event": "api_unavailable", "error": str(exc)[:300], "iteration": iteration})
+                return
+            self._note_api_call(time.monotonic() - api_started, response.get("usage", {}), iteration)
             usage = response.get("usage", {})
             result.cost_usd += self._usage_cost(usage)
             result.input_tokens += usage.get("input_tokens", 0)
@@ -1235,6 +1374,24 @@ class TutorialAgent:
                     if (
                         has_created_any_node
                         and self.executor.pending_finish is None
+                        and rejected_stop_rescues < _REJECTED_STOP_MAX_RESCUES
+                        and self._last_confirm_rejected()
+                    ):
+                        rejected_stop_rescues += 1
+                        messages.append({
+                            "role": "user",
+                            "content": [{"type": "text", "text": (
+                                _REJECTED_STOP_NUDGE_TEXT if rejected_stop_rescues == 1 else _REJECTED_STOP_NUDGE_TEXT_2
+                            )}],
+                        })
+                        self._progress(
+                            f"見た目の問題を直さずに終了しようとしたため、修正を促しました"
+                            f"（{rejected_stop_rescues}/{_REJECTED_STOP_MAX_RESCUES}）"
+                        )
+                        continue
+                    if (
+                        has_created_any_node
+                        and self.executor.pending_finish is None
                         and unfinished_work_rescues < _UNFINISHED_WORK_MAX_RESCUES
                     ):
                         # ノードは作成済みだが finish_tutorial 自体を一度も呼んでいない
@@ -1271,7 +1428,8 @@ class TutorialAgent:
             tool_results = []
             for block in tool_uses:
                 name, args = block["name"], block.get("input", {})
-                self._progress(f"[{iteration}/{MAX_ITERATIONS}] {name}({self._short(args)})")
+                label = f"{iteration}/{MAX_ITERATIONS}" if iteration <= MAX_ITERATIONS else f"{iteration}/{MAX_ITERATIONS}+予備"
+                self._progress(f"[{label}] {name}({self._short(args)})")
                 output, is_error = self.executor.execute(name, args)
                 # 視覚的自己検証ステップ: finish_tutorial実行直後に撮られたビューポート画像が
                 # あれば、その回のtool_resultにテキストと一緒に画像として添付する。Claude自身が
@@ -1318,18 +1476,31 @@ class TutorialAgent:
                 search_nudge_active = True
                 self._progress("検索が続いているため、作成を促しました")
 
-            # 打ち切り時のグレースフル終了: 残り反復数またはコストが少なくなった時点で、
-            # まだ確定していなければ「今の状態で仕上げてください」と一度だけ促す。
-            # これにより、ハード打ち切りで未完成のまま終わる代わりに、多少粗くても
-            # 完結したチュートリアルになる可能性を上げる。
-            remaining_iterations = MAX_ITERATIONS - iteration
-            near_iteration_limit = remaining_iterations <= GRACE_ITERATIONS
-            near_cost_limit = result.cost_usd >= COST_LIMIT_USD * GRACE_COST_FRACTION
-            still_in_progress = self.executor.finish_data is None and self.executor.pending_finish is None
-            if not grace_warned and still_in_progress and (near_iteration_limit or near_cost_limit):
-                content_blocks.append({"type": "text", "text": _GRACE_NUDGE_TEXT})
-                grace_warned = True
-                self._progress("残り予算が少ないため、仕上げを促しました")
+            # 打ち切りの前の、段階式の「仕上げの促し」（wrapup_stage 参照）。進捗を伝える → 新しい要素を足さない → 今すぐ提出、の順に、
+            # 段階が上がったときだけ、1回ずつ出す。ハード打ち切りで未完成のまま終わる代わりに、多少粗くても完結したチュートリアルにする。
+            stage = wrapup_stage(iteration, MAX_ITERATIONS, result.cost_usd, COST_LIMIT_USD)
+            remaining_iterations = max(0, MAX_ITERATIONS - iteration)
+            drafted = self.executor.pending_finish is not None
+            still_in_progress = self.executor.finish_data is None and not drafted
+            if iteration <= MAX_ITERATIONS and stage > warned_stage and self.executor.finish_data is None:
+                if drafted and stage >= 2:
+                    content_blocks.append({"type": "text", "text": _WRAPUP_CONFIRM_TEXT.format(remaining=remaining_iterations)})
+                    self._progress("下書きが未確定のため、confirm_tutorial を促しました")
+                elif still_in_progress and stage == 1:
+                    content_blocks.append({"type": "text", "text": _WRAPUP_SOFT_TEXT.format(
+                        iteration=iteration, limit=MAX_ITERATIONS, remaining=remaining_iterations)})
+                    self._progress(f"進捗を伝えました（{iteration}/{MAX_ITERATIONS}）")
+                elif still_in_progress and stage == 2:
+                    content_blocks.append({"type": "text", "text": _WRAPUP_FIRM_TEXT.format(
+                        iteration=iteration, limit=MAX_ITERATIONS, remaining=remaining_iterations)})
+                    self._progress("新しい要素を足さず、仕上げに入るよう促しました")
+                elif still_in_progress and stage == 3:
+                    content_blocks.append({"type": "text", "text": _GRACE_NUDGE_TEXT})
+                    self._progress("残り予算が少ないため、仕上げを促しました")
+                warned_stage = max(warned_stage, stage)
+            elif still_in_progress and iteration >= MAX_ITERATIONS and (reserve_started or self._can_use_finish_reserve()):
+                content_blocks.append({"type": "text", "text": _RESERVE_TEXT.format(limit=MAX_ITERATIONS, reserve=FINISH_RESERVE_ITERATIONS)})
+            self.__dict__["_wrapup_stage"] = max(self.__dict__.get("_wrapup_stage", 0), warned_stage)
             messages.append({"role": "user", "content": content_blocks})
 
             if self.executor.finish_data is not None:
@@ -1340,7 +1511,7 @@ class TutorialAgent:
                 self._progress(f"コスト上限に達したため打ち切ります（${result.cost_usd:.3f}）")
                 return
 
-        result.abort_reason = f"反復上限 {MAX_ITERATIONS} 回到達"
+        result.abort_reason = f"反復上限 {MAX_ITERATIONS} 回到達" + ("（仕上げ用の予備も使い切り）" if reserve_started else "")
         self._progress("反復上限に達したため打ち切ります")
 
     def _call_api(
@@ -1349,6 +1520,49 @@ class TutorialAgent:
     ) -> dict:
         """Cloudflare経由でClaude Messages APIを呼ぶ。"""
         return self._call_api_cloudflare(system_blocks, tools, messages)
+
+    def _last_confirm_rejected(self) -> bool:
+        """直近の finish_tutorial / confirm_tutorial が、confirm_tutorial(looks_correct=false) か（そのあと何も直していなくてもよい）。"""
+        log = getattr(self.executor, "step_log", None)
+        if not isinstance(log, list):
+            return False
+        for e in reversed(log):
+            if e.get("tool") == "finish_tutorial":
+                return False
+            if e.get("tool") == "confirm_tutorial":
+                return (e.get("input") or {}).get("looks_correct") is False
+        return False
+
+    def _can_use_finish_reserve(self) -> bool:
+        """反復上限のあとの予備を使ってよいか: ノードを1つ以上作ってあり、まだ確定していない。"""
+        executor = self.executor
+        if executor is None or getattr(executor, "finish_data", None) is not None:
+            return False
+        log = getattr(executor, "step_log", None)
+        if not isinstance(log, list):
+            return False
+        return any(e.get("tool") == "create_node" and not e.get("is_error") for e in log)
+
+    def _note_phase(self, key: str, seconds: float) -> None:
+        phases = self.__dict__.setdefault("_phase_seconds", {})
+        phases[key] = phases.get(key, 0.0) + seconds
+
+    def _note_api_call(self, seconds: float, usage: dict, iteration: int) -> None:
+        """API 呼び出し1回の所要時間を、合計と監査ログに残す（時間の内訳を後から見られるように）。"""
+        state = self.__dict__
+        state["_api_seconds"] = state.get("_api_seconds", 0.0) + seconds
+        state["_api_calls"] = state.get("_api_calls", 0) + 1
+        state["_api_max_seconds"] = max(state.get("_api_max_seconds", 0.0), seconds)
+        log_event = getattr(getattr(self, "executor", None), "log_event", None)
+        if callable(log_event):
+            try:
+                log_event({
+                    "event": "api_call", "iteration": iteration, "elapsed_s": round(seconds, 2),
+                    "output_tokens": usage.get("output_tokens", 0), "input_tokens": usage.get("input_tokens", 0),
+                    "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
+                })
+            except Exception:  # noqa: BLE001 -- ログで生成を止めない
+                pass
 
     def complete_text(self, system: str, user: str) -> tuple[str, dict]:
         """
@@ -1387,12 +1601,13 @@ class TutorialAgent:
         }
         if not tools:
             request_body.pop("tools")  # 教訓の要約など、ツールを使わない呼び出しではtoolsを送らない
-        effort = _MODEL_EFFORT.get(self._model)
+        effort = effort_for(self._model)
         if effort:
             request_body["output_config"] = {"effort": effort}
         payload = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
 
         attempt = 0
+        transient_attempts = 0
         while True:
             req = urllib.request.Request(
                 f"{self._cf_url.rstrip('/')}/claude/messages",
@@ -1449,7 +1664,24 @@ class TutorialAgent:
                         "Cloudflareダッシュボードのセキュリティイベントを確認してください。"
                         f" 応答本文の先頭: {message[:200]}"
                     ) from exc
+                if exc.code in _API_RETRY_STATUS:
+                    # 5xx・過負荷（529）は、少し待てば通ることが多い。以前は1回の失敗で、生成全体が例外で終わり、
+                    # それまでの途中経過（ノード・手順）も失われていた（2026-11-17）。
+                    if transient_attempts < len(_API_RETRY_BACKOFF_SEC):
+                        wait_sec = _API_RETRY_BACKOFF_SEC[transient_attempts]
+                        transient_attempts += 1
+                        self._progress(f"Claudeが一時的に応答しません（{exc.code}）。{wait_sec:.0f}秒後にリトライします（{transient_attempts}回目）")
+                        time.sleep(wait_sec)
+                        continue
+                    raise TransientApiError(f"Cloudflare Claudeプロキシエラー {exc.code}: {str(message)[:160]}") from exc
                 raise RuntimeError(f"Cloudflare Claudeプロキシエラー {exc.code}: {message}") from exc
+            except (OSError, http.client.HTTPException) as exc:  # HTTPError は上で処理済み。通信断・タイムアウト（urlopen の timeout=180）
+                if transient_attempts < 1:
+                    transient_attempts += 1
+                    self._progress(f"Claudeとの通信が途切れました（{type(exc).__name__}）。{_API_RETRY_BACKOFF_SEC[0]:.0f}秒後にリトライします")
+                    time.sleep(_API_RETRY_BACKOFF_SEC[0])
+                    continue
+                raise TransientApiError(f"Claudeに接続できませんでした（{type(exc).__name__}: {str(exc)[:120]}）") from exc
 
     def _usage_cost(self, usage: dict) -> float:
         price = _MODEL_PRICES[self._model]
@@ -1546,6 +1778,31 @@ class TutorialAgent:
             "lesson_missing": "、".join(result.lesson_review.get("missing", []))[:160],
             "lessons_used": getattr(self, "_lessons_used", 0),
             "examples_used": getattr(self, "_examples_used", 0),
+            **self._timing_metrics(result),
+        }
+
+    def _timing_metrics(self, result: "TutorialResult") -> dict:
+        """時間の内訳（2026-11-17）。api_*: Claude の応答待ち / tool_*: Houdini のツール本体 / capture_*: 画面の撮影（動画の素材）。
+        design_seconds: レッスン設計 / rag_seconds: 最初の検索。api_seconds + tool_seconds + capture_seconds + design + rag が、elapsed_seconds にほぼ一致する。"""
+        phases = self.__dict__.get("_phase_seconds", {})
+        timing = self.executor.timing_summary() if self.executor is not None and hasattr(self.executor, "timing_summary") else {}
+        if not isinstance(timing, dict):
+            timing = {}
+        gaps = (result.lesson_review or {}).get("reproducibility") or {}
+        return {
+            "api_turns": self.__dict__.get("_api_calls", 0),
+            "api_seconds": round(self.__dict__.get("_api_seconds", 0.0), 1),
+            "api_max_seconds": round(self.__dict__.get("_api_max_seconds", 0.0), 1),
+            "tool_seconds": timing.get("tool_seconds", 0),
+            "capture_seconds": timing.get("capture_seconds", 0),
+            "slowest_steps": str(timing.get("slowest", ""))[:120],
+            "design_seconds": round(phases.get("design_seconds", 0.0), 1),
+            "rag_seconds": round(phases.get("rag_seconds", 0.0), 1),
+            "wrapup_stage": self.__dict__.get("_wrapup_stage", 0),
+            "reserve_used": bool(self.__dict__.get("_reserve_used", False)),
+            "repro_gaps": sum(gaps.values()) if gaps else 0,
+            "steps_appendix": bool(result.steps_appendix),
+            "topic_unmet": "、".join((result.lesson_review or {}).get("topic_unmet", []))[:120],
         }
 
     def _count_iterations(self) -> int:

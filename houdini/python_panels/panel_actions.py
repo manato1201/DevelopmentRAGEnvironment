@@ -38,11 +38,14 @@ ICON_PATHS: dict[str, str] = {
     "docSearch": "M3.5 2h5l2.5 2.5V7M3.5 2v11h4M9.5 12a2 2 0 100-4 2 2 0 000 4zM11 11.5l2 2",
     # 全体を表示(四隅の枠)。Houdini パネルのノードグラフ用。Web 側では使っていない。
     "fit": "M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4",
+    # 歯車(パネルの右上のメニュー。ふだん使わない画面と、別ウィンドウで開く操作をまとめる)
+    "gear": "M8 5.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4",
+    "back": "M9.5 3.5L5 8l4.5 4.5M5 8h8",
 }
 # SVG が使えないときの代用文字（絵文字は使わない）
 _FALLBACK_TEXT = {
     "copy": "⧉", "thumbUp": "+", "thumbDown": "−", "share": "⇪", "speaker": "♪",
-    "refresh": "↻", "bookmark": "★", "docSearch": "≡", "fit": "⛶",
+    "refresh": "↻", "bookmark": "★", "docSearch": "≡", "fit": "⛶", "gear": "…", "back": "←",
 }
 
 COLOR_NORMAL = "#cbd5e1"

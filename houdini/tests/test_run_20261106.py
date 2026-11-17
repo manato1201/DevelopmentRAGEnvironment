@@ -274,7 +274,7 @@ class VideoScriptFixesTest(unittest.TestCase):
             steps = vs.usable_steps(make_steps(Path(d)))
             connect = next(s for s in steps if s["tool"] == "connect_nodes")
             cook = next(s for s in steps if s["tool"] == "cook_node")
-            short = "emitの出力を、blastの入力につなぎます。"  # 20文字台。英字が多い（ノード名）が、識別子の文なので通る
+            short = "emitの出力を、merge1の入力につなぎます。"  # 20文字台。英字が多い（ノード名）が、識別子の文なので通る。対象（emit・merge1）を言っているので、足されない
             self.assertGreaterEqual(len(short), vs.SHORT_STEP_MIN)
             self.assertLess(len(short), vs.STEP_NARRATION_MIN)
             model = {"steps": [{"step": connect["step"], "narration": short}, {"step": cook["step"], "narration": short}]}

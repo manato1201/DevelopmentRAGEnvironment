@@ -7,6 +7,14 @@ Houdini の画面の部品を消したり、色や設定を書き換えたりは
 
 案内データは、チュートリアルの保存時に `<名前>_guide.json` として書かれる（tutorial_view.py / guide_mode.py）。
 Houdini の外（hou が無い環境）では、手順の表示だけできる。
+
+2026-11-17（実証実験の指摘）:
+  ・ショートカットは、最初の手順だけ出し、あとは折りたたむ（ボタンで開く。設定は覚える）。
+  ・パスは省略しない（長いときは折り返す）。いまのネットワークの階層を、常に表示する。
+  ・チェックボックス・メニューは、表示名で言う（「Run Over を Detail (only once) にする」）。変えるパラメータは、タブ・項目・前の値つき。
+  ・手順の冒頭に、作業する部分と、そのノードの目的を出す。消す手順は「消す」と言う。
+  ・チュートリアルの生成が終わったら、このタブへ自動で切り替えて、最新の手順を読み込む（announce_generated / announce_saved）。
+  ・手順だけの小さな別ウィンドウ（ほかのタブと並べて見るため）。
 """
 
 from __future__ import annotations
@@ -17,7 +25,9 @@ from typing import Callable
 
 import guide_mode
 import guide_shortcuts
-from PySide6.QtCore import Qt
+import panel_paths
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QTextOption
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -26,6 +36,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSplitter,
+    QStackedWidget,
+    QTabWidget,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -39,32 +51,88 @@ except ImportError:  # Houdini の外（テスト・単体確認）
 _SECTION_TITLES = (("prerequisites", "前提条件"), ("tips", "TIPS"), ("challenge", "自分でやってみよう"))
 
 
-def render_step_html(guide: dict, index: int) -> str:
-    """手順 index（0始まり）の案内を、表示用の HTML にする。"""
+_WORK_STYLE = "background-color:#1e3a5f;color:#e0f2fe;padding:4px"
+_DELETE_STYLE = "background-color:#5f1e1e;color:#fee2e2;padding:4px"
+_TAB_BASE_TEXT = "Guide"
+_TAB_NEW_TEXT = "Guide ●"
+_AUTO_SWITCH_KEY = "guide_auto_switch"
+_SHORTCUTS_KEY = "guide_shortcuts_open"
+_MODE_KEY = "guide_target_mode"
+
+
+def _connection_lines(step: dict) -> list[str]:
+    """つなぐ線を、全部（省略しない）。入力の番号・名前があれば添える。"""
+    pairs = [c for c in (step.get("connections") or []) if isinstance(c, dict)]
+    if not pairs and step.get("from") and step.get("to"):
+        pairs = [{"from": step["from"], "to": step["to"]}]
+    lines = []
+    for c in pairs:
+        extra = ""
+        port = c.get("input")
+        if isinstance(port, int) and port > 0:
+            extra = f"（{port + 1}番目の入力）"
+        elif isinstance(port, str) and port:
+            extra = f"（入力: {port}）"
+        lines.append(f"{c.get('from')} → {c.get('to')}{extra}")
+    return lines
+
+
+def render_step_html(guide: dict, index: int, step_override: dict | None = None, show_shortcuts: bool = True) -> str:
+    """手順 index（0始まり）の案内を、表示用の HTML にする。
+    step_override: 値の言い換えの情報（guide_mode.attach_parm_info）を付けた、その手順のコピー。
+    show_shortcuts: False のとき、ショートカットの一覧は出さない（折りたたみ。ボタンで開く）。"""
     steps = guide.get("steps") or []
     if not steps:
         return ""
-    step = steps[max(0, min(index, len(steps) - 1))]
+    step = step_override or steps[max(0, min(index, len(steps) - 1))]
     esc = html.escape
-    rows = [f"<p style='font-size:13px'><b>{esc(step.get('instruction') or step.get('hint') or '')}</b></p>"]
-    if step.get("hint"):
+    sandbox = str(guide.get("sandbox_path") or "")
+    places = guide_mode.step_places(step, sandbox)
+    rows = []
+    work = str(step.get("work") or "")
+    if work:
+        style = _DELETE_STYLE if work.startswith("【消す】") else _WORK_STYLE
+        rows.append(f"<p style='{style}'><b>{esc(work)}</b></p>")
+    elif step.get("tool") == "delete_node" and step.get("node"):
+        rows.append(f"<p style='{_DELETE_STYLE}'><b>【消す】{esc(step['node'])} を削除する</b></p>")
+    rows.append(f"<p style='font-size:13px'><b>{esc(step.get('instruction') or step.get('hint') or '')}</b></p>")
+    if step.get("purpose"):
+        rows.append(f"<p>このノードの目的: {esc(step['purpose'])}</p>")
+    lines = _connection_lines(step) if step.get("tool") == "connect_nodes" else []
+    if step.get("hint") and not (lines and len(lines) > 1):  # 複数の線は、下に1本ずつ出すので、まとめた文は出さない
         rows.append(f"<p>{esc(step['hint'])}</p>")
     node_bits = []
     if step.get("node"):
         label = step.get("node_label") or step.get("node_type") or ""
-        node_bits.append(f"操作するノード: <b>{esc(step['node'])}</b>" + (f"（{esc(label)}）" if label else ""))
+        node_bits.append(f"操作するノード: <b>{esc(places['node'])}</b>" + (f"（{esc(label)}）" if label else ""))
+    if places["network"]:
+        node_bits.append(f"作業するネットワーク（階層）: <b>{esc(places['network'])}</b>")
+    elif step.get("tool") == "create_node" and step.get("node"):
+        node_bits.append(f"作業するネットワーク（階層）: <b>{esc(guide_mode.OWN_ROOT)}</b>（Object レベル）")
+    if places["sandbox_node"]:
+        node_bits.append(f"<span style='color:#94a3b8'>生成したサンドボックスの実物（見本）: {esc(places['sandbox_node'])}</span>")
     node_bits.append(f"見るタブ: <b>{esc(step.get('tab_label') or '')}</b>")
     rows.append("<p>" + "<br>".join(node_bits) + "</p>")
+    if lines:
+        rows.append(f"<p>つなぐ線（{len(lines)}本）:</p><ul>" + "".join(f"<li>{esc(line)}</li>" for line in lines) + "</ul>")
     parms = step.get("parms") or []
     if parms:
         items = []
         for p in parms:
-            old = f"{esc(str(p['old']))} → " if p.get("old") not in (None, "") else ""
-            where = f"<br><span style='color:#94a3b8'>場所: {esc(p['where'])}</span>" if p.get("where") else ""
-            items.append(f"<li><b>{esc(str(p.get('label') or p.get('name') or ''))}</b>: {old}<b>{esc(str(p.get('new') or ''))}</b>{where}</li>")
+            d = guide_mode.describe_parm_change(p, p.get("_info"))
+            old = f"前の値: {esc(d['old_text'])} → " if d["old_text"] != "" else ""
+            name = f"（内部名: <code>{esc(d['name'])}</code>）" if d["name"] else ""
+            cut = ""
+            if d["kind"] != "code" and len(str(p.get("new") or "")) >= 60:
+                cut = "<br><span style='color:#f59e0b'>値が長いため、記録は60文字までです。続きは手順書で確かめてください</span>"
+            items.append(
+                f"<li><b>{esc(d['action'])}</b><br>"
+                f"パラメータのタブ: <b>{esc(d['where_text'])}</b>、項目: <b>{esc(d['label'])}</b>{name}<br>"
+                f"{old}新しい値: <b>{esc(d['new_text'])}</b>{cut}</li>"
+            )
         rows.append("<p>変えるパラメータ:</p><ul>" + "".join(items) + "</ul>")
     shortcuts = step.get("shortcuts") or []
-    if shortcuts:
+    if shortcuts and show_shortcuts:
         rows.append("<p>使うショートカット（Houdini の標準のキー）:</p>")
         groups: dict[str, list[dict]] = {}
         for s in shortcuts:
@@ -73,7 +141,14 @@ def render_step_html(guide: dict, index: int) -> str:
             if group:
                 rows.append(f"<p style='margin:.5em 0 0'><b>{esc(group)}</b></p>")
             rows.append("<ul>" + "".join(f"<li><code>{esc(s['keys'])}</code> … {esc(s['what'])}</li>" for s in items) + "</ul>")
+    elif shortcuts:
+        rows.append("<p style='color:#94a3b8'>ショートカットは、下の「ショートカットを表示」で開けます（最初の手順だけ、自動で出します）</p>")
     return "".join(rows)
+
+
+def shortcuts_visible(index: int, user_open: bool) -> bool:
+    """ショートカットの一覧を出すか。最初の手順は必ず出す。あとは、利用者が開いているときだけ。"""
+    return index == 0 or bool(user_open)
 
 
 def render_cheatsheet_html(query: str = "") -> str:
@@ -106,6 +181,112 @@ def render_sections_html(guide: dict) -> str:
     return "".join(parts)
 
 
+def _state_get(key: str, default=None):
+    try:
+        from panel_widgets import ui_state_get
+
+        return ui_state_get(key, default)
+    except Exception:  # noqa: BLE001 -- 設定が読めなくても、画面は動く
+        return default
+
+
+def _state_set(key: str, value) -> None:
+    try:
+        from panel_widgets import ui_state_set
+
+        ui_state_set(key, value)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def locate_in_tabs(widget: QWidget):
+    """widget を中に含む、タブ（QTabWidget）とそのページの番号。見つからなければ None。"""
+    node = widget
+    while node is not None:
+        stack = node.parentWidget()
+        if isinstance(stack, QStackedWidget) and isinstance(stack.parentWidget(), QTabWidget):
+            tabs = stack.parentWidget()
+            index = tabs.indexOf(node)
+            if index >= 0:
+                return tabs, index
+        node = node.parentWidget()
+    return None
+
+
+def _guide_in(tabs: QTabWidget):
+    return tabs.findChild(GuideWidget)
+
+
+def announce_generated(source: QWidget, guide: dict, label: str, switch: bool | None = None) -> str:
+    """生成が終わった直後に、Guide タブへ最新の手順を読み込み、切り替える（または、タブに印を付ける）。
+    source: 生成した側の画面部品（同じタブの中にあるもの）。戻り値: 画面に出す1文（Guide タブが見つからなければ ""）。"""
+    host = locate_in_tabs(source)
+    if host is None:
+        return ""
+    tabs, source_index = host
+    widget = _guide_in(tabs)
+    if widget is None:
+        return ""
+    widget.load_generated(guide, label)
+    return widget.announce(switch, from_index=source_index)
+
+
+def announce_saved(source: QWidget, guide_path, switch: bool | None = None) -> str:
+    """保存で案内データが書かれたとき: 一覧を更新して、保存したものを選ぶ（生成直後の仮の手順は、これに置き換わる）。"""
+    host = locate_in_tabs(source)
+    if host is None:
+        return ""
+    tabs, source_index = host
+    widget = _guide_in(tabs)
+    if widget is None:
+        return ""
+    widget.select_saved(Path(guide_path))
+    return widget.announce(switch, saved=True, from_index=source_index)
+
+
+class GuideStepWindow(QWidget):
+    """手順だけの、小さな別ウィンドウ。Houdini の主ウィンドウの上に重なり、ほかのタブ（Chat・Docs など）を見ながら手順を読める。"""
+
+    def __init__(self, owner: "GuideWidget") -> None:
+        super().__init__(owner.window(), Qt.Tool)
+        self._owner = owner
+        self.setWindowTitle("Guide — 手順")
+        self.resize(420, 520)
+        root = QVBoxLayout(self)
+        nav = QHBoxLayout()
+        self._prev = QPushButton("◀ 前へ")
+        self._next = QPushButton("次へ ▶")
+        self._pos = QLabel("")
+        self._pos.setAlignment(Qt.AlignCenter)
+        self._prev.clicked.connect(lambda: owner._go(-1))
+        self._next.clicked.connect(lambda: owner._go(1))
+        nav.addWidget(self._prev)
+        nav.addWidget(self._pos, stretch=1)
+        nav.addWidget(self._next)
+        root.addLayout(nav)
+        self._where = QLabel("")
+        self._where.setWordWrap(True)
+        self._where.setStyleSheet("color:#94a3b8;font-size:11px;")
+        root.addWidget(self._where)
+        self.view = QTextBrowser()
+        _wrap_anywhere(self.view)
+        root.addWidget(self.view, stretch=1)
+
+    def update_step(self, html_text: str, pos: str, can_prev: bool, can_next: bool, where: str) -> None:
+        self.view.setHtml(html_text)
+        self._pos.setText(pos)
+        self._prev.setEnabled(can_prev)
+        self._next.setEnabled(can_next)
+        self._where.setText(where)
+
+
+def _wrap_anywhere(view: QTextBrowser) -> None:
+    """長いパスを、途中で切らず、折り返して全部見せる。"""
+    option = view.document().defaultTextOption()
+    option.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+    view.document().setDefaultTextOption(option)
+
+
 class GuideWidget(QWidget):
     """Guide タブに埋め込む完成ウィジェット。rag_chatbot.py の _build_guide_tab() から作られる。"""
 
@@ -114,7 +295,10 @@ class GuideWidget(QWidget):
         self._cfg_getter = cfg_getter
         self._guide: dict | None = None
         self._index = 0
-        self._paths: list[Path] = []
+        self._paths: list[Path | None] = []  # 保存済みのパス。生成直後の仮の手順（未保存）は None
+        self._transient: tuple[str, dict] | None = None  # 生成直後の手順（保存すると、保存したものに置き換わる）
+        self._popup: GuideStepWindow | None = None
+        self._where_text = ""
         self._build_ui()
 
     # ── 画面 ─────────────────────────────────────────────────────────────────
@@ -126,7 +310,7 @@ class GuideWidget(QWidget):
 
         bar = QHBoxLayout()
         self._combo = QComboBox()
-        self._combo.setToolTip("保存したチュートリアル。保存したときに、案内データも一緒に作られます")
+        self._combo.setToolTip("保存したチュートリアル。保存したときに、案内データも一緒に作られます。生成した直後のものは、保存前でも、先頭に出ます")
         self._combo.currentIndexChanged.connect(self._on_pick)
         self._refresh_btn = QPushButton("更新")
         self._refresh_btn.clicked.connect(self.refresh)
@@ -138,6 +322,31 @@ class GuideWidget(QWidget):
         self._status.setStyleSheet("color:#94a3b8;font-size:11px;")
         self._status.setWordWrap(True)
         root.addWidget(self._status)
+
+        # どの階層にいるか（いまのネットワークと、この手順の作業場所）。常に出す
+        self._where = QLabel("")
+        self._where.setWordWrap(True)
+        self._where.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._where.setStyleSheet("font-size:11px;")
+        root.addWidget(self._where)
+
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("案内する場所:"))
+        self._mode = QComboBox()
+        for label, key in (("自動（自分のネットワーク → 無ければ、生成したサンドボックス）", "auto"),
+                           ("自分のネットワークだけ", "own"), ("生成したサンドボックス（実物）だけ", "sandbox")):
+            self._mode.addItem(label, key)
+        saved_mode = str(_state_get(_MODE_KEY, "auto") or "auto")
+        self._mode.setCurrentIndex(max(0, self._mode.findData(saved_mode)))
+        self._mode.setToolTip("手順が指すノードを、どこから探すか。自動は、まず /obj の自分のネットワーク。無ければ、生成時のサンドボックスの実物を示します")
+        self._mode.currentIndexChanged.connect(self._on_mode_changed)
+        mode_row.addWidget(self._mode, stretch=1)
+        root.addLayout(mode_row)
+
+        self._auto_switch = QCheckBox("生成が終わったら、自動でこのタブに切り替える")
+        self._auto_switch.setChecked(bool(_state_get(_AUTO_SWITCH_KEY, True)))
+        self._auto_switch.toggled.connect(lambda on: _state_set(_AUTO_SWITCH_KEY, bool(on)))
+        root.addWidget(self._auto_switch)
 
         nav = QHBoxLayout()
         self._prev_btn = QPushButton("◀ 前へ")
@@ -154,8 +363,10 @@ class GuideWidget(QWidget):
         split = QSplitter(Qt.Vertical)
         self._step_view = QTextBrowser()
         self._step_view.setOpenLinks(False)
+        _wrap_anywhere(self._step_view)
         self._extra_view = QTextBrowser()
         self._extra_view.setOpenLinks(False)
+        _wrap_anywhere(self._extra_view)
         split.addWidget(self._step_view)
         split.addWidget(self._extra_view)
         split.setStretchFactor(0, 3)
@@ -167,10 +378,18 @@ class GuideWidget(QWidget):
         self._apply_btn.setToolTip("見るタブを前面に出し、操作するノードを選んで画面に収めます（画面の部品は消しません）")
         self._apply_btn.clicked.connect(self._apply)
         self._auto = QCheckBox("手順を移るたびに自動で案内")
+        self._sc_btn = QPushButton("ショートカットを表示")
+        self._sc_btn.setCheckable(True)
+        self._sc_btn.setChecked(bool(_state_get(_SHORTCUTS_KEY, False)))
+        self._sc_btn.setToolTip("手順ごとのショートカットの一覧を、開く・たたむ。最初の手順は、自動で開きます。選んだ状態は、覚えておきます")
+        self._sc_btn.toggled.connect(self._on_shortcuts_toggled)
         self._sheet_btn = QPushButton("ショートカット一覧")
         self._sheet_btn.setCheckable(True)
         self._sheet_btn.setToolTip("Houdini の標準のショートカットを、全部見る（キーや操作で絞れます）。もう一度押すと、手順書の前提・TIPS に戻ります")
         self._sheet_btn.toggled.connect(self._on_sheet_toggled)
+        self._popup_btn = QPushButton("手順だけ別ウィンドウ")
+        self._popup_btn.setToolTip("手順だけの小さなウィンドウを出します。Chat・Docs など、ほかのタブを見ながら手順を読めます")
+        self._popup_btn.clicked.connect(self._open_popup)
         self._sheet_filter = QLineEdit()
         self._sheet_filter.setPlaceholderText("キーや操作で絞る（例: Space・パラメータ・タイムライン）")
         self._sheet_filter.setClearButtonEnabled(True)
@@ -178,14 +397,27 @@ class GuideWidget(QWidget):
         self._sheet_filter.textChanged.connect(self._render_sheet)
         actions.addWidget(self._apply_btn)
         actions.addWidget(self._auto)
-        actions.addWidget(self._sheet_btn)
-        actions.addWidget(self._sheet_filter, stretch=1)
         actions.addStretch()
         root.addLayout(actions)
+        more = QHBoxLayout()
+        more.addWidget(self._sc_btn)
+        more.addWidget(self._sheet_btn)
+        more.addWidget(self._popup_btn)
+        more.addWidget(self._sheet_filter, stretch=1)
+        more.addStretch()
+        root.addLayout(more)
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(1500)
+        self._timer.timeout.connect(self._update_where)
 
         self._set_enabled(False)
 
-    # ── ショートカット一覧 ────────────────────────────────────────────────────
+    # ── ショートカット ────────────────────────────────────────────────────────
+
+    def _on_shortcuts_toggled(self, on: bool) -> None:
+        _state_set(_SHORTCUTS_KEY, bool(on))
+        self._render()
 
     def _on_sheet_toggled(self, on: bool) -> None:
         self._sheet_filter.setVisible(on)
@@ -209,6 +441,14 @@ class GuideWidget(QWidget):
         super().showEvent(event)
         if not self._paths:
             self.refresh()
+        self._set_tab_mark(False)
+        if hou is not None:
+            self._timer.start()
+        self._update_where()
+
+    def hideEvent(self, event) -> None:  # noqa: N802 -- Qt
+        super().hideEvent(event)
+        self._timer.stop()
 
     # ── 読み込み ─────────────────────────────────────────────────────────────
 
@@ -216,16 +456,26 @@ class GuideWidget(QWidget):
         bridge_dir = (self._cfg_getter() or {}).get("local_bridge_dir", "")
         return Path(bridge_dir) / "localRAG" / "tutorials" if bridge_dir else None
 
+    def _fill_combo(self, found: list[tuple[str, Path]], select: int = 0) -> None:
+        self._combo.blockSignals(True)
+        self._combo.clear()
+        self._paths = []
+        if self._transient is not None:
+            self._combo.addItem("（生成直後・未保存）" + self._transient[0])
+            self._paths.append(None)
+        for name, path in found:
+            self._combo.addItem(name)
+            self._paths.append(path)
+        self._combo.blockSignals(False)
+        self._combo.setCurrentIndex(select if 0 <= select < len(self._paths) else 0)
+
     def refresh(self) -> None:
         directory = self._tutorials_dir()
         found = guide_mode.list_guides(directory)
-        self._combo.blockSignals(True)
-        self._combo.clear()
-        self._paths = [path for _name, path in found]
-        for name, _path in found:
-            self._combo.addItem(name)
-        self._combo.blockSignals(False)
-        if not found:
+        if self._transient is not None and any(name == self._transient[0] for name, _p in found):
+            self._transient = None  # 同じ手順が保存されたので、保存したものに置き換える
+        self._fill_combo(found)
+        if not self._paths:
             self._guide = None
             self._step_view.setHtml("")
             self._extra_view.setHtml("")
@@ -233,7 +483,7 @@ class GuideWidget(QWidget):
             self._set_enabled(False)
             self._status.setText(
                 "案内できるチュートリアルがありません。Tutorial タブで生成して保存すると、ここに出ます"
-                if directory is not None else "設定タブ（Local RAG）で Bridge Directory を設定してください"
+                if directory is not None else panel_paths.SAVE_DIR_MISSING
             )
             return
         self._load(0)
@@ -243,7 +493,11 @@ class GuideWidget(QWidget):
             self._load(index)
 
     def _load(self, index: int) -> None:
-        guide = guide_mode.load_guide(self._paths[index])
+        path = self._paths[index]
+        if path is None and self._transient is not None:
+            guide = self._transient[1]
+        else:
+            guide = guide_mode.load_guide(path) if path is not None else None
         if guide is None:
             self._guide = None
             self._set_enabled(False)
@@ -258,22 +512,129 @@ class GuideWidget(QWidget):
         else:
             self._extra_view.setHtml(render_sections_html(guide))
         self._set_enabled(True)
-        self._status.setText(
-            "手順を1つずつ示します。「この手順を案内」で、Houdini の画面を動かします"
-            if hou is not None else "Houdini の外なので、手順の表示だけできます"
-        )
+        if path is None:
+            note = "生成した直後の手順です（まだ保存していません）。保存は Tutorial タブの「保存」から"
+        else:
+            note = "手順を1つずつ示します。「この手順を案内」で、Houdini の画面を動かします" if hou is not None else "Houdini の外なので、手順の表示だけできます"
+        self._status.setText(note)
         self._render()
 
+    # ── 生成が終わったときの通知（tutorial_view から） ─────────────────────────────
+
+    def load_generated(self, guide: dict, label: str) -> None:
+        """生成した直後の手順（保存前）を、先頭に読み込む。"""
+        self._transient = (label, guide)
+        found = guide_mode.list_guides(self._tutorials_dir())
+        self._fill_combo(found)
+        self._load(0)
+
+    def select_saved(self, path: Path) -> None:
+        """保存した案内データを選ぶ（一覧を更新する）。生成直後の手順を、保存したものに置き換えたときは、見ていた手順の位置を保つ。"""
+        found = guide_mode.list_guides(self._tutorials_dir())
+        data = guide_mode.load_guide(path)
+        replaced_transient = False
+        if data is not None and self._transient is not None and guide_mode.guide_label(data, path) == self._transient[0]:
+            self._transient = None
+            replaced_transient = True
+        keep_index = self._index if replaced_transient and self._guide is not None else 0
+        self._fill_combo(found)
+        for i, p in enumerate(self._paths):
+            if p is not None and Path(p) == Path(path):
+                self._load(i)
+                self._restore_index(keep_index)
+                return
+        if self._paths:
+            self._load(0)
+
+    def _restore_index(self, index: int) -> None:
+        """読み込み直したあとで、見ていた手順の位置へ戻す（手順の数が変わっていれば、範囲に収める）。"""
+        if self._guide is None or not index:
+            return
+        self._index = max(0, min(index, len(self._guide["steps"]) - 1))
+        self._render()
+
+    def auto_switch_enabled(self) -> bool:
+        return self._auto_switch.isChecked()
+
+    def announce(self, switch: bool | None = None, saved: bool = False, from_index: int | None = None) -> str:
+        """Guide タブへ切り替える（設定がオンのとき）。切り替えないときは、タブの名前に印を付ける。画面に出す1文を返す。
+        自動（switch を渡さない）のとき、利用者が、生成したタブ（from_index）ではなく別のタブにいるなら、切り替えない
+        （Chat で入力している途中などを、壊さないため）。印だけ付ける。"""
+        host = locate_in_tabs(self)
+        do_switch = self.auto_switch_enabled() if switch is None else switch
+        if host is None:
+            return ""
+        tabs, index = host
+        elsewhere = switch is None and from_index is not None and tabs.currentIndex() not in (from_index, index)
+        if do_switch and elsewhere:
+            self._set_tab_mark(True)
+            return "Guide タブに最新の手順を読み込みました（別のタブを開いていたので、切り替えていません。タブの「" + _TAB_NEW_TEXT + "」が目印です）"
+        if do_switch:
+            tabs.setCurrentIndex(index)
+            self._set_tab_mark(False)
+            return "Guide タブに切り替えて、最新の手順を読み込みました" if not saved else "Guide タブの手順を、保存したものに更新しました"
+        self._set_tab_mark(True)
+        return f"Guide タブに最新の手順を読み込みました（タブの「{_TAB_NEW_TEXT}」が目印です）" if not saved else "Guide タブの手順を、保存したものに更新しました"
+
+    def _set_tab_mark(self, new: bool) -> None:
+        host = locate_in_tabs(self)
+        if host is None:
+            return
+        tabs, index = host
+        text = _TAB_NEW_TEXT if new else _TAB_BASE_TEXT
+        if tabs.tabText(index) in (_TAB_BASE_TEXT, _TAB_NEW_TEXT):
+            tabs.setTabText(index, text)
+            tabs.setTabToolTip(index, "新しい手順が読み込まれました" if new else "")
+
     # ── 手順の移動と案内 ─────────────────────────────────────────────────────
+
+    def _sandbox_path(self) -> str:
+        return str((self._guide or {}).get("sandbox_path") or "")
+
+    def _mode_key(self) -> str:
+        return str(self._mode.currentData() or "auto")
+
+    def _on_mode_changed(self, _i: int) -> None:
+        _state_set(_MODE_KEY, self._mode_key())
+        self._render()
+
+    def _current_step(self) -> dict:
+        step = self._guide["steps"][self._index]
+        try:
+            return guide_mode.attach_parm_info(hou, step, self._sandbox_path(), self._mode_key())
+        except Exception:  # noqa: BLE001 -- 値の言い換えができなくても、数字のまま出す
+            return step
 
     def _render(self) -> None:
         if self._guide is None:
             return
         steps = self._guide["steps"]
         self._pos.setText(f"手順 {self._index + 1} / {len(steps)}")
-        self._step_view.setHtml(render_step_html(self._guide, self._index))
+        page = render_step_html(self._guide, self._index, self._current_step(), shortcuts_visible(self._index, self._sc_btn.isChecked()))
+        self._step_view.setHtml(page)
         self._prev_btn.setEnabled(self._index > 0)
         self._next_btn.setEnabled(self._index < len(steps) - 1)
+        self._update_where()
+        if self._popup is not None and self._popup.isVisible():
+            self._popup.update_step(page, self._pos.text(), self._index > 0, self._index < len(steps) - 1, self._where_text)
+
+    def _update_where(self) -> None:
+        """どの階層にいるか。いまのネットワークと、この手順の作業場所を並べて出す（Houdini の外では、手順の場所だけ）。"""
+        expected = ""
+        if self._guide is not None:
+            expected = guide_mode.step_places(self._guide["steps"][self._index], self._sandbox_path())["network"]
+        text = ""
+        if hou is not None:
+            try:
+                text, _same = guide_mode.location_status(guide_mode.current_network_path(hou), expected)
+            except Exception:  # noqa: BLE001 -- 階層が読めなくても、手順の表示は止めない
+                text = ""
+        if not text:
+            text = f"この手順の作業場所: {expected}" if expected else "Houdini の外なので、いまの階層は分かりません"
+        self._where_text = text
+        self._where.setText(text)
+        if self._popup is not None and self._popup.isVisible():
+            self._popup._where.setText(text)
 
     def _go(self, delta: int) -> None:
         if self._guide is None:
@@ -288,7 +649,15 @@ class GuideWidget(QWidget):
             return
         step = self._guide["steps"][self._index]
         try:
-            messages = guide_mode.apply_step(hou, step)
+            messages = guide_mode.apply_step(hou, step, self._sandbox_path(), self._mode_key())
         except Exception as exc:  # noqa: BLE001 -- 案内に失敗しても、パネルは止めない
             messages = [f"案内に失敗しました（{exc}）"]
-        self._status.setText(" / ".join(messages))
+        self._status.setText("\n".join(messages))
+        self._update_where()
+
+    def _open_popup(self) -> None:
+        if self._popup is None:
+            self._popup = GuideStepWindow(self)
+        self._popup.show()
+        self._popup.raise_()
+        self._render()
