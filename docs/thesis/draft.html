@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>卒業論文 仮組み</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">資料</span>
+  <h1>卒業論文 仮組み</h1>
+  <div class="meta">HTML生成: 2026-11-17（元: docs/thesis/draft.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#この文書の読み方">この文書の読み方</a></li><li><a href="#章ごとの進み具合">章ごとの進み具合</a></li><li><a href="#要旨chapter-0">要旨（chapter 0）</a><ol><li><a href="#論文要旨日本語骨子">論文要旨（日本語・骨子）</a></li><li><a href="#abstract英語骨子">Abstract（英語・骨子）</a></li></ol></li><li><a href="#chapter-1-研究の背景課題を選んだ個人的なきっかけ">Chapter 1 研究の背景（課題を選んだ個人的なきっかけ）</a><ol><li><a href="#構成案">構成案</a></li><li><a href="#11-個人的なきっかけ要記入">1.1 個人的なきっかけ【要記入】</a></li><li><a href="#12-houdini-の学習の難しさ">1.2 Houdini の学習の難しさ</a></li><li><a href="#13-生成-ai-の広がり">1.3 生成 AI の広がり</a></li><li><a href="#14-本論文の構成">1.4 本論文の構成</a></li></ol></li><li><a href="#chapter-2-先行研究過去にどんな事例があるか調査結果">Chapter 2 先行研究（過去にどんな事例があるか調査結果）</a><ol><li><a href="#構成案_1">構成案</a></li><li><a href="#21-houdini-ai-の道具調査済み2026-10-23">2.1 Houdini × AI の道具（調査済み・2026-10-23）</a></li><li><a href="#22-rag-とハイブリッド検索">2.2 RAG とハイブリッド検索</a></li><li><a href="#23-llm-のツール利用エージェント">2.3 LLM のツール利用エージェント</a></li><li><a href="#24-dcc-ツールの学習支援教材の自動生成">2.4 DCC ツールの学習支援・教材の自動生成</a></li><li><a href="#25-学習の評価">2.5 学習の評価</a></li><li><a href="#26-本研究の位置づけ新規性の整理">2.6 本研究の位置づけ（新規性の整理）</a></li></ol></li><li><a href="#chapter-3-課題この研究制作の意義到達目標">Chapter 3 課題（この研究・制作の意義、到達目標）</a><ol><li><a href="#構成案_2">構成案</a></li><li><a href="#31-解決したい課題">3.1 解決したい課題</a></li><li><a href="#32-研究の問いrq要確認-指導教員と確定">3.2 研究の問い（RQ）【要確認: 指導教員と確定】</a></li><li><a href="#33-到達目標">3.3 到達目標</a></li><li><a href="#34-意義とスコープ">3.4 意義とスコープ</a></li></ol></li><li><a href="#chapter-4-解決のアプローチと方法いくつかの解決手法を比較検討">Chapter 4 解決のアプローチと方法（いくつかの解決手法を比較・検討）</a><ol><li><a href="#構成案_3">構成案</a></li><li><a href="#41-解決手法の候補と比較">4.1 解決手法の候補と比較</a></li><li><a href="#42-採用した方針">4.2 採用した方針</a></li><li><a href="#43-設計上の判断比較検討したもの">4.3 設計上の判断（比較・検討したもの）</a></li></ol></li><li><a href="#chapter-5-実装実際に作ったもの行ったこと">Chapter 5 実装（実際に作ったもの、行ったこと）</a><ol><li><a href="#構成案_4">構成案</a></li><li><a href="#51-全体構成">5.1 全体構成</a></li><li><a href="#52-houdini-パネル">5.2 Houdini パネル</a></li><li><a href="#53-チュートリアル生成エージェント">5.3 チュートリアル生成エージェント</a></li><li><a href="#54-解説動画の生成ragreel">5.4 解説動画の生成（RAGReel）</a></li><li><a href="#55-検索認証集計の基盤">5.5 検索・認証・集計の基盤</a></li><li><a href="#56-実証実験のための機能">5.6 実証実験のための機能</a></li><li><a href="#57-配布と運用">5.7 配布と運用</a></li><li><a href="#58-開発の進め方">5.8 開発の進め方</a></li></ol></li><li><a href="#chapter-6-評価考察計測ログアンケートインタビューなどの結果と分析">Chapter 6 評価・考察（計測ログ、アンケート、インタビューなどの結果と分析）</a><ol><li><a href="#構成案_5">構成案</a></li><li><a href="#61-実験の設計">6.1 実験の設計</a></li><li><a href="#62-参加者要記入">6.2 参加者【要記入】</a></li><li><a href="#63-計測の項目と方法">6.3 計測の項目と方法</a></li><li><a href="#64-結果定量要記入">6.4 結果（定量）【要記入】</a></li><li><a href="#65-結果定性自由記述感想">6.5 結果（定性：自由記述・感想）</a></li><li><a href="#66-生成エージェントの動作の記録">6.6 生成エージェントの動作の記録</a></li><li><a href="#67-考察要記入">6.7 考察【要記入】</a></li><li><a href="#68-限界必ず書く">6.8 限界（必ず書く）</a></li></ol></li><li><a href="#chapter-7-結語短いまとめ今回何ができて何ができなかったか">Chapter 7 結語（短いまとめ、今回何ができて何ができなかったか）</a><ol><li><a href="#構成案_6">構成案</a></li><li><a href="#71-本研究のまとめ要記入-結果が入ってから">7.1 本研究のまとめ【要記入: 結果が入ってから】</a></li><li><a href="#72-できたこと">7.2 できたこと</a></li><li><a href="#73-できなかったこと要確認">7.3 できなかったこと【要確認】</a></li></ol></li><li><a href="#chapter-8-課題と展望残された課題とその解決への見通し">Chapter 8 課題と展望（残された課題とその解決への見通し）</a></li><li><a href="#chapter-9-謝辞要記入">Chapter 9 謝辞【要記入】</a></li><li><a href="#chapter-10-参照文献要確認-大学指定のフォーマットに合わせる">Chapter 10 参照文献【要確認: 大学指定のフォーマットに合わせる】</a><ol><li><a href="#学術文献候補">学術文献（候補）</a></li><li><a href="#web-資料候補閲覧日を付ける">Web 資料（候補。閲覧日を付ける）</a></li><li><a href="#付録の候補">付録の候補</a></li></ol></li><li><a href="#次にやること優先順">次にやること（優先順）</a></li></ol></details></nav>
+<main>
+
+<p><strong>仮題:</strong> 生成 AI と RAG を用いた Houdini 学習支援システムの開発と実証評価 ― チュートリアルと解説動画の自動生成 ―　【要確認: 題は、指導教員と相談して決める】</p>
+<p><strong>作成:</strong> 2026-11-17（仮組み）　<strong>状態:</strong> 構成と、リポジトリ内の材料から書ける部分の下書き。実験の結果の数値・個人的なきっかけ・参考文献の書誌は、<strong>まだ入れていない</strong>。</p>
+<h2 id="この文書の読み方">この文書の読み方</h2>
+<ul>
+<li>本文の下書きは「だ・である」調。<strong>事実は、リポジトリの文書・コード・実験の記録にあるものだけ</strong>を使い、各章の最後に「材料」として出どころを付けた。</li>
+<li><strong>【要記入】</strong> = あなた（筆者）が、書く・数値を入れるところ。<strong>【要確認】</strong> = 書いたが、原典・記録で、確かめてから使うところ。</li>
+<li>数値で、まだ測っていないもの・集計していないものは、<strong>入れていない</strong>（作文で埋めない）。</li>
+<li>参考文献は、章 10 に、候補を挙げた。<strong>書誌は、原典で確認し、大学指定のフォーマットに整える</strong>こと。</li>
+</ul>
+<h2 id="章ごとの進み具合">章ごとの進み具合</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>章</th>
+<th>材料</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>要旨・Abstract</td>
+<td>結果が入るまで、骨子のみ</td>
+<td>骨子</td>
+</tr>
+<tr>
+<td>1 背景</td>
+<td>技術的な背景はある。<strong>個人的なきっかけは、筆者にしか書けない</strong></td>
+<td>要記入が多い</td>
+</tr>
+<tr>
+<td>2 先行研究</td>
+<td>MCP 型の道具との比較（2026-10-23 調査）、新規性の整理（2026-09-22）がある。<strong>学術文献の調査は、これから</strong></td>
+<td>半分</td>
+</tr>
+<tr>
+<td>3 課題</td>
+<td>研究の問いと到達目標は、設計書から書ける</td>
+<td>下書きあり</td>
+</tr>
+<tr>
+<td>4 アプローチ</td>
+<td>比較検討の材料は、設計書にある</td>
+<td>下書きあり</td>
+</tr>
+<tr>
+<td>5 実装</td>
+<td>最も材料が多い</td>
+<td>下書きあり</td>
+</tr>
+<tr>
+<td>6 評価・考察</td>
+<td>設計・指標・感想はある。<strong>集計結果（数値）が、まだ無い</strong></td>
+<td>骨子＋所見</td>
+</tr>
+<tr>
+<td>7 結語</td>
+<td>6 の結果が入ってから</td>
+<td>骨子</td>
+</tr>
+<tr>
+<td>8 課題と展望</td>
+<td>改善の記録から書ける</td>
+<td>下書きあり</td>
+</tr>
+<tr>
+<td>9 謝辞</td>
+<td>筆者が書く</td>
+<td>空欄</td>
+</tr>
+<tr>
+<td>10 参考文献</td>
+<td>候補のみ。書誌は要確認</td>
+<td>候補</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="要旨chapter-0">要旨（chapter 0）</h2>
+<h3 id="論文要旨日本語骨子">論文要旨（日本語・骨子）</h3>
+<p>Houdini は、ノードを組み合わせて形を作る手続き型の 3DCG ツールであり、表現の幅が広い一方で、ノード・パラメータが多く、初学者が学習の入り口でつまずきやすい。本研究では、【要記入: 一文で、何を作ったか】として、<strong>Houdini の公式ドキュメントを検索（RAG）して、実際に Houdini の中でノードを組み立てて検証し、その過程を、手順書と音声つきの解説動画に自動で書き出すシステム</strong>を開発した。システムは、Houdini 内のパネル、Cloudflare Workers 上の検索・認証・集計基盤、動画の生成エンジンからなる。</p>
+<p>評価として、【要記入: 人数】名の学生を対象に、固定課題（Pyro・RBD・雲のいずれか）を、本システムを使う群と、公式ドキュメント・Web 検索のみで行う群に分けて行う実証実験を行った。主観評価（難しさ・わかりやすさ。5 段階）、所要時間、操作ミス、到達を、群の間で比べた結果、【要記入: 主な結果。<strong>数値と人数を併記</strong>】。一方で、【要記入: できなかったこと・限界】。</p>
+<p><strong>キーワード:</strong> Houdini、RAG、LLM、教材の自動生成、学習支援　【要確認: 大学の指定する個数・形式】</p>
+<h3 id="abstract英語骨子">Abstract（英語・骨子）</h3>
+<p>Houdini is a node-based procedural 3DCG tool whose breadth makes it hard for beginners to learn. We developed a system that retrieves the official documentation (RAG), builds and verifies node networks inside Houdini with an LLM agent, and automatically exports the process as a written tutorial and a narrated video. We evaluated it with 【N】 students in a between-group experiment (system vs. official documentation only) on a fixed task (Pyro, RBD, or cloud). 【Results: effect sizes with sample sizes.】 【Limitations.】</p>
+<p><strong>Keywords:</strong> Houdini, retrieval-augmented generation, large language models, automatic tutorial generation, learning support</p>
+<hr />
+<h2 id="chapter-1-研究の背景課題を選んだ個人的なきっかけ">Chapter 1　研究の背景（課題を選んだ個人的なきっかけ）</h2>
+<h3 id="構成案">構成案</h3>
+<ul>
+<li>1.1 個人的なきっかけ　【要記入】</li>
+<li>1.2 Houdini の学習の難しさ</li>
+<li>1.3 生成 AI の広がりと、ツール操作への応用</li>
+<li>1.4 本論文の構成</li>
+</ul>
+<h3 id="11-個人的なきっかけ要記入">1.1 個人的なきっかけ【要記入】</h3>
+<p>ここは、<strong>筆者の言葉で書く</strong>章である。次の問いに答える形で、書き出すとよい（答えをそのまま文章にする）。</p>
+<ul>
+<li>Houdini を、いつ・何のために使い始めたか。最初に、つまずいたのは、何だったか。</li>
+<li>「ノードが多くて、どこから触ればよいか分からない」を、どんな場面で感じたか。誰かが同じことで困っていたか。</li>
+<li>公式ドキュメント・動画・書籍で学んだとき、<strong>何が足りなかったか</strong>（自分の題材に合う例が無い、版が違う、手順が飛んでいる、など）。</li>
+<li>なぜ「教材を、都度、自動で作る」という発想に至ったか。ゲーム開発（Unity・DirectX12）の経験は、どう関係したか。</li>
+<li>ゼミ・チームで、知識が共有されない・探せない、という困りごとはあったか（クラウドとローカルの 2 層構成の動機にもなっている）。</li>
+</ul>
+<p>【要確認】筆者の経歴（ゲームエンジニアとして、Unity・Houdini・DirectX12 を使う）は、リポジトリのメモにあるが、<strong>きっかけの経緯は、記録に無い</strong>。</p>
+<h3 id="12-houdini-の学習の難しさ">1.2 Houdini の学習の難しさ</h3>
+<p>Houdini は、ジオメトリ・シミュレーション・レンダリングなどを、ノードのネットワークとして組み立てるツールである。手続き型であることが強みである一方、学習の面では、次の困難がある。【要確認: 各点に、出典（公式ドキュメント・文献）か、筆者の実体験・実験の観察を付ける】</p>
+<ul>
+<li>ノードの種類とパラメータが多く、<strong>目的のパラメータの場所</strong>が分かりにくい（実験でも、「パラメータ先が出ていない」という感想が出た）。</li>
+<li>版（20・21・22）ごとに機能・名称が変わり、手元の版と、解説の版が合わないことがある。</li>
+<li>解説が、完成した結果の説明にとどまり、<strong>同じ手順でやっても再現できない</strong>ことがある（省略された手順・値）。</li>
+</ul>
+<h3 id="13-生成-ai-の広がり">1.3 生成 AI の広がり</h3>
+<p>大規模言語モデル（LLM）が、文書の検索と組み合わせた回答（RAG）や、ツールを呼び出して作業を進めるエージェントとして使われるようになった。DCC ツールでも、外部の AI から操作する仕組み（MCP サーバー）が、複数公開されている（章 2）。【要確認: 一般的な動向の記述には、文献を付ける】</p>
+<h3 id="14-本論文の構成">1.4 本論文の構成</h3>
+<p>第 2 章で先行研究、第 3 章で課題、第 4 章で解決のアプローチ、第 5 章で実装、第 6 章で評価と考察、第 7 章で結語、第 8 章で課題と展望を述べる。</p>
+<p><strong>材料:</strong> <a href="../design/project-overview.html">project-overview.md</a>（設計思想）、<a href="../reports/graduation-research-novelty-and-insights.md">graduation-research-novelty-and-insights.md</a> §1（全体像）、<a href="../reports/pilot-feedback-2026-11-17.html">pilot-feedback-2026-11-17.md</a>（実験で出た困りごと）。</p>
+<hr />
+<h2 id="chapter-2-先行研究過去にどんな事例があるか調査結果">Chapter 2　先行研究（過去にどんな事例があるか調査結果）</h2>
+<h3 id="構成案_1">構成案</h3>
+<ul>
+<li>2.1 Houdini × AI の道具（MCP サーバー型・パネル型）</li>
+<li>2.2 RAG（検索拡張生成）とハイブリッド検索</li>
+<li>2.3 LLM のツール利用エージェント</li>
+<li>2.4 DCC ツールの学習支援・教材の自動生成</li>
+<li>2.5 学習の評価（認知負荷・使いやすさ）</li>
+<li>2.6 既存事例との比較と、本研究の位置づけ</li>
+</ul>
+<h3 id="21-houdini-ai-の道具調査済み2026-10-23">2.1 Houdini × AI の道具（調査済み・2026-10-23）</h3>
+<p>公開されている近い道具として、fxhoudinimcp・capoomgit/houdini-mcp・oculairmedia/houdini-mcp・Houdini21MCP・Synapse・dcc-mcp-core を比較した（調査方法：各リポジトリの公開ページ（README）と GitHub の検索 API を読んだ。<strong>どの道具も、実際には、インストール・実行していない</strong>）。</p>
+<ul>
+<li>これらは主に、<strong>外部の AI（Claude・Cursor など）から Houdini を操作する</strong>ための橋（MCP サーバー）である。ノード・USD・シミュレーション・レンダリングなどを、広く操作できる。ツール数は、公開された説明で、215（fxhoudinimcp）・43（oculairmedia）・12（Houdini21MCP）・139（Synapse）などである。</li>
+<li>ドキュメント検索を持つものもある（fxhoudinimcp は同梱マニュアルの全文検索、Houdini21MCP は BM25 のオフライン検索）。</li>
+<li><strong>教材（手順書・動画）を生成するものは、調べた範囲では見当たらなかった</strong>（公開された説明に記載がない。「無い」と断定はできない）。</li>
+</ul>
+<p>【要記入】学術論文・技術報告での、DCC・3DCG ツールと LLM の関連研究。調べ方の案: Google Scholar・CiNii・ACM DL・arXiv で、「LLM」「3D modeling」「procedural」「Blender」「Houdini」「node graph generation」「text-to-3D scene」。</p>
+<h3 id="22-rag-とハイブリッド検索">2.2 RAG とハイブリッド検索</h3>
+<p>RAG は、外部の文書を検索して、LLM の回答の根拠にする枠組みである（Lewis et al., 2020）。本システムは、ベクトル検索と全文検索（BM25 系）を、順位の統合（RRF）で組み合わせるハイブリッド検索を用いる（Cormack et al., 2009）。【要確認: 原典で、引用の内容・書誌を確認】</p>
+<h3 id="23-llm-のツール利用エージェント">2.3 LLM のツール利用エージェント</h3>
+<p>推論と行動を交互に行うエージェントの枠組み（ReAct。Yao et al., 2023）や、ツール呼び出しによるエージェントが、広く使われている。コード生成では、コンパイル・テストの成否という明確な成功指標がある。一方、Houdini のノードグラフは、「cook エラーが出ない」ことと「意図した見た目になっている」ことの両方が必要で、後者はテキストだけでは検証できない（章 4・5 で扱う）。【要確認】</p>
+<h3 id="24-dcc-ツールの学習支援教材の自動生成">2.4 DCC ツールの学習支援・教材の自動生成</h3>
+<p>【要記入】Houdini・Blender などの学習支援（チュートリアル・インタラクティブな教材・学習システム）の先行事例。調べ方の案: 「tutorial generation」「learning support for 3D modeling software」「intelligent tutoring system」「procedural content」。SideFX 公式のチュートリアル・Entagma などの解説は、<strong>静的な教材</strong>であり、学習者の題材・レベルに応じて、都度、変わらない点を、比較の軸にできる。</p>
+<h3 id="25-学習の評価">2.5 学習の評価</h3>
+<p>学習の負担は、認知負荷理論で議論される（Sweller, 1988）。本研究では、「学習コスト」を、課題シートの定義どおり、<strong>主観評価（難しさ・わかりやすさの 5 段階）を主指標</strong>にし、所要時間・操作ミス・到達を補助とした（章 6）。使いやすさの評価には、SUS（Brooke, 1996）などの尺度があるが、本研究は、課題の項目に合わせた独自の設問を用いた。【要確認: 設問の妥当性の扱い】</p>
+<h3 id="26-本研究の位置づけ新規性の整理">2.6 本研究の位置づけ（新規性の整理）</h3>
+<p>2026-09-22 のメモで、新規性を、次のように整理した。</p>
+<ul>
+<li><strong>要素技術としての新規性は、低い。</strong> ハイブリッド検索・LLM のツール利用・OAuth などは、既存の手法・標準である。</li>
+<li><strong>統合としての新規性</strong>: 「知識を検索（RAG）→ 実際にツール（Houdini）の中で試す → その過程を教材にする → 動画にする → 教材が、知識として、また検索の対象になる」という流れを、1 つのシステムとして、Houdini に特化して統合した。調べた範囲で、同じ構成の公開事例は見当たらなかった。【要確認: 2.1・2.4 の調査を、最新にして断言を避ける】</li>
+</ul>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>観点</th>
+<th>従来型の知識管理</th>
+<th>AI アシスタント</th>
+<th>ツール操作エージェント</th>
+<th>Houdini の学習資料</th>
+<th>本システム</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>複数データの横断検索</td>
+<td>△</td>
+<td>○</td>
+<td>✕</td>
+<td>✕</td>
+<td>○</td>
+</tr>
+<tr>
+<td>DCC の内部の実操作と自己検証</td>
+<td>✕</td>
+<td>✕</td>
+<td>○（汎用コード向け）</td>
+<td>✕</td>
+<td>○（Houdini 特化・視覚的自己検証あり）</td>
+</tr>
+<tr>
+<td>教材（文章＋動画）の自動生成</td>
+<td>✕</td>
+<td>△（要約止まり）</td>
+<td>✕</td>
+<td>✕（静的）</td>
+<td>○</td>
+</tr>
+<tr>
+<td>商用の成熟度・スケール</td>
+<td>○</td>
+<td>○</td>
+<td>○</td>
+<td>○</td>
+<td>✕（検証環境）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>材料:</strong> <a href="../reports/comparison-houdini-mcp.html">comparison-houdini-mcp.md</a>（比較表・調べ方と限界）、<a href="../reports/graduation-research-novelty-and-insights.md">graduation-research-novelty-and-insights.md</a> §2・§3、<a href="../reports/tutorial-quality-analysis-2026-10-31.html">tutorial-quality-analysis-2026-10-31.md</a>（HLS との対応）。</p>
+<hr />
+<h2 id="chapter-3-課題この研究制作の意義到達目標">Chapter 3　課題（この研究・制作の意義、到達目標）</h2>
+<h3 id="構成案_2">構成案</h3>
+<ul>
+<li>3.1 解決したい課題</li>
+<li>3.2 研究の問い（RQ）</li>
+<li>3.3 到達目標</li>
+<li>3.4 本研究の意義とスコープ</li>
+</ul>
+<h3 id="31-解決したい課題">3.1 解決したい課題</h3>
+<ol>
+<li><strong>学習の入り口の負担</strong>: ノード・パラメータが多く、初学者が、どこを触ればよいか分からない。</li>
+<li><strong>教材の用意の負担</strong>: 題材・版・レベルごとに、教材を作るコストが高く、少人数のチームや個人では、継続的に整備しにくい。</li>
+<li><strong>再現性</strong>: 解説が、省略された手順・値を含み、同じ手順でやっても同じ結果にならないことがある。</li>
+</ol>
+<h3 id="32-研究の問いrq要確認-指導教員と確定">3.2 研究の問い（RQ）【要確認: 指導教員と確定】</h3>
+<ul>
+<li><strong>RQ1:</strong> 本システムの手順書・動画は、<strong>公式ドキュメント・Web 検索のみ</strong>と比べて、初学者の学習コスト（難しさ・わかりやすさの主観評価）を下げるか。</li>
+<li><strong>RQ2:</strong> 所要時間・操作ミス・到達に、違いは見られるか。</li>
+<li><strong>RQ3:</strong> 生成される教材は、<strong>実務の観点</strong>から、どの程度の品質・導入価値があるか（専門家評価）。【要確認: 実施できた場合のみ】</li>
+<li><strong>RQ4:</strong> 実験を通じて、どのような課題（生成の失敗・遅さ・UI）が見つかり、どう改善できたか。</li>
+</ul>
+<h3 id="33-到達目標">3.3 到達目標</h3>
+<ul>
+<li>依頼文から、Houdini 上で動くノードグラフと、手順書・解説動画を、自動で生成できること。</li>
+<li>生成した教材で、初学者が、固定課題（Pyro・RBD・雲）を、時間内に、完了できること。【要記入: 成功基準の数値。分析設計 §8 の「決めること」を確定】</li>
+<li>実験の結果を、人数と限界を併記して、報告できること。</li>
+</ul>
+<h3 id="34-意義とスコープ">3.4 意義とスコープ</h3>
+<p>意義は、<strong>教材そのものを都度生成する</strong>点にある。スコープは、Houdini 21・22、固定課題 3 題材、学生（ビギナー）を対象とした実験である。<strong>一般化は、しない</strong>（少人数・自己選択・自己評価）。</p>
+<p><strong>材料:</strong> <a href="../pilot/pilot-analysis-design.md">pilot-analysis-design.md</a> §0・§2・§8、<a href="../pilot/houdini21-learning-effect-study.md">houdini21-learning-effect-study.md</a>。</p>
+<hr />
+<h2 id="chapter-4-解決のアプローチと方法いくつかの解決手法を比較検討">Chapter 4　解決のアプローチと方法（いくつかの解決手法を比較・検討）</h2>
+<h3 id="構成案_3">構成案</h3>
+<ul>
+<li>4.1 解決手法の候補と比較</li>
+<li>4.2 採用した方針</li>
+<li>4.3 設計上の判断（比較・検討したもの）</li>
+</ul>
+<h3 id="41-解決手法の候補と比較">4.1 解決手法の候補と比較</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>手法</th>
+<th>内容</th>
+<th>利点</th>
+<th>課題</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A. 公式ドキュメント・動画</td>
+<td>既存の資料で、学習者が自力で探す</td>
+<td>正確・無料</td>
+<td>題材・版・レベルに合わせにくい。探す負担</td>
+</tr>
+<tr>
+<td>B. 汎用 LLM チャット</td>
+<td>質問に、LLM が、自由に答える</td>
+<td>手軽</td>
+<td>最新の版・資料の根拠が弱い。出典が無い。実際に動くかの検証が無い</td>
+</tr>
+<tr>
+<td>C. 外部 AI が Houdini を操作（MCP 型）</td>
+<td>AI が、Houdini を直接、広く操作する</td>
+<td>操作の幅が広い</td>
+<td>目的は「操作」で、教材ではない。任意のコード実行を持つ道具もあり、安全面の配慮が要る</td>
+</tr>
+<tr>
+<td>D. RAG ＋ 操作の検証 ＋ 教材の自動生成（本システム）</td>
+<td>公式資料を検索し、サンドボックスで組み立てて検証し、手順書・動画に書き出す</td>
+<td>根拠（出典）つき・動作の検証つき・教材として届く</td>
+<td>実装が大きい。LLM の出力が揺れる。生成に時間がかかる</td>
+</tr>
+</tbody>
+</table></div>
+<p>【要確認: B・C は、一般的な特徴で、本研究で実測したものではない。C は、公開された説明による（章 2.1）】</p>
+<h3 id="42-採用した方針">4.2 採用した方針</h3>
+<p>D を採用した。理由は、課題 1〜3（3.1）に、それぞれ、次で対応するためである。</p>
+<ul>
+<li>入り口の負担 → <strong>作業中の Houdini の中で、質問・手順の案内ができる</strong>パネル。</li>
+<li>教材の用意の負担 → <strong>依頼から、手順書・動画を自動で生成</strong>。</li>
+<li>再現性 → <strong>実際に Houdini で組み立てて、cook エラーと見た目を確かめてから</strong>、書き出す。さらに、手順の抜けを検出して補う。</li>
+</ul>
+<h3 id="43-設計上の判断比較検討したもの">4.3 設計上の判断（比較・検討したもの）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>判断</th>
+<th>検討した案</th>
+<th>採用と理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>検索の基盤</td>
+<td>ローカル RAG（pgvector）／クラウド（Notion＋GAS＋Gemini）／Cloudflare Workers（D1＋Vectorize）</td>
+<td>公開してよい情報と、個人情報の<strong>物理的な分離</strong>を目的に、2 層構成で始めた。のちに、Cloudflare Workers に統合した。【要確認: 統合した理由と経緯の年月。cloud-local-unification-plan.md で確かめる】</td>
+</tr>
+<tr>
+<td>検索の方式</td>
+<td>ベクトル検索のみ／全文のみ／ハイブリッド</td>
+<td>両方の順位を統合（RRF）。固有名詞（ノード名）と意味の両方に強くするため</td>
+</tr>
+<tr>
+<td>認可</td>
+<td>共有の鍵／ユーザーごとの鍵</td>
+<td>ユーザーごとの鍵（ロール・ナレッジの範囲・予算つき）。配布した後の失効・費用の管理のため</td>
+</tr>
+<tr>
+<td>操作の安全性</td>
+<td>任意のコード実行を許す／許さない</td>
+<td><strong>許さない</strong>。操作は、サンドボックスの中の決まったツールだけ</td>
+</tr>
+<tr>
+<td>検証の方法</td>
+<td>テキストのログのみ／<strong>ビューポートの画像でも自己検証</strong></td>
+<td>画像でも検証する。Houdini の結果の妥当性は、ログだけでは分からないため</td>
+</tr>
+<tr>
+<td>動画の形式</td>
+<td>H.264/AAC／<strong>VP9/Opus（WebM）</strong></td>
+<td>Houdini の埋め込みブラウザが、特許ライセンスの都合で H.264/AAC を再生できないため、VP9/Opus を採用</td>
+</tr>
+<tr>
+<td>評価の設計</td>
+<td>参加者内の対照（3 回）／<strong>参加者の間の対照（1 人 1 回）</strong></td>
+<td>募集の条件（1 コマ・2 期間）に合わせ、群間の比較に変更（2026-11-11）</td>
+</tr>
+</tbody>
+</table></div>
+<p>【要確認】上の表の「検討した案」と「理由」は、設計書の記述から、私（下書き）が整理したもので、<strong>実際に比較・検討した経緯と合っているとは限らない</strong>。筆者の記憶・議事録（ゼミの資料）と照らして、書き直すこと。「評価の設計」と「動画の形式」の行は、設計書に明記がある。</p>
+<p><strong>材料:</strong> <a href="../design/project-overview.html">project-overview.md</a>「設計思想」、<a href="../design/cloud-local-unification-plan.html">cloud-local-unification-plan.md</a>、<a href="../design/cloudflare-rag-technical-report.html">cloudflare-rag-technical-report.md</a>、<a href="../reports/model-strategy-report.html">model-strategy-report.md</a>、<a href="../pilot/pilot-analysis-design.md">pilot-analysis-design.md</a> §11。</p>
+<hr />
+<h2 id="chapter-5-実装実際に作ったもの行ったこと">Chapter 5　実装（実際に作ったもの、行ったこと）</h2>
+<h3 id="構成案_4">構成案</h3>
+<ul>
+<li>5.1 全体構成</li>
+<li>5.2 Houdini パネル（Chat・Docs・Guide・Tutorial・動画・課題）</li>
+<li>5.3 チュートリアル生成エージェント</li>
+<li>5.4 解説動画の生成（RAGReel）</li>
+<li>5.5 検索・認証・集計の基盤（Cloudflare Worker）</li>
+<li>5.6 実証実験のための機能</li>
+<li>5.7 配布と運用</li>
+<li>5.8 開発の進め方（検証・ドキュメント）</li>
+</ul>
+<p>【図】全体構成図は、既存の <a href="../images/01-system-overview.svg">01-system-overview.svg</a>、チュートリアルの流れは <a href="../images/02-tutorial-flow.svg">02-tutorial-flow.svg</a>、動画は <a href="../images/05-video-flow.svg">05-video-flow.svg</a>、パネルは <a href="../images/15-houdini-panel.svg">15-houdini-panel.svg</a> が使える。【要確認: 論文の体裁（白黒印刷・サイズ）に合わせて作り直す】</p>
+<h3 id="51-全体構成">5.1 全体構成</h3>
+<p>システムは、3 つからなる。(1) Houdini の中で動く Python パネル（PySide）、(2) Cloudflare Workers 上の基盤（検索・認証・予算・実験の集計。D1・Vectorize・R2）、(3) 動画の生成エンジン（C++・Qt6・FFmpeg）と、公開用のギャラリー。AI の呼び出し（Claude など）と鍵は、Worker だけが持ち、パネルは、利用者ごとの API キーで、Worker にだけ接続する。</p>
+<h3 id="52-houdini-パネル">5.2 Houdini パネル</h3>
+<p>作業中の Houdini の中で、質問（Chat）、ドキュメント検索（Docs）、手順の案内（Guide）、チュートリアル生成（Tutorial）、動画（動画）、実験の課題（課題）を行う。Guide は、手順が指すノードを、ネットワークエディタで選び・表示して追従する。実験での指摘（「違うオブジェクトが表示される」「ショートカットが毎回出て邪魔」「パスが省略される」など）を受けて、改善した（5.8）。</p>
+<h3 id="53-チュートリアル生成エージェント">5.3 チュートリアル生成エージェント</h3>
+<p>LLM が、<strong>19 個のツール</strong>（Houdini の操作 15、文書の検索 2、完了の申告 2）を呼びながら、サンドボックスの中で、ノードを組み立てる。</p>
+<ul>
+<li><strong>検証</strong>: cook エラーの有無と、ビューポートの画像による見た目の確認（<code>confirm_tutorial</code>）。</li>
+<li><strong>終了の救済</strong>: 「ノードを作らずに終わる」「下書きを出したが確定しない」「ノードを作ったが提出しない」の失敗を個別に検出し、救済の文を送る。反復の上限（80 回）と費用の上限（$5）に近づいたら、仕上げを促す。</li>
+<li><strong>題材別の達成基準・手がかり</strong>（炎・煙・竜巻・雲・RBD・リグ）と、<strong>手順の抜けの検出</strong>（ノード・値・コード・接続）。</li>
+<li><strong>出力</strong>: Markdown の手順書、ノードグラフの JSON、画面の画像。</li>
+</ul>
+<h3 id="54-解説動画の生成ragreel">5.4 解説動画の生成（RAGReel）</h3>
+<p>手順書と画面から、台本を作り、音声（SAPI・VOICEVOX・クラウド TTS）つきの動画を書き出す（QML で描画し、FFmpeg で VP9/Opus の WebM に）。既定は 1920×1080・30 fps。字幕は、読み上げ用のカタカナとは別の表記を持てる。ギャラリー（Cloudflare Worker＋R2）で、一覧・再生・出典の表示・削除ができる。</p>
+<h3 id="55-検索認証集計の基盤">5.5 検索・認証・集計の基盤</h3>
+<p>ハイブリッド検索（ベクトル＋全文、RRF）、出典つきの回答、ユーザーごとの API キー（ロール・ナレッジの範囲・予算・有効期限）、使用量の追跡、管理画面。D1 にスキーマ（マイグレーション 0001〜0037）を持つ。</p>
+<h3 id="56-実証実験のための機能">5.6 実証実験のための機能</h3>
+<p>「課題」タブ（開始・終了・アンケート・中断からの再開）、課題の割り当て（登録順の番号から、3 題材 × 2 条件の 6 通り）、受け付ける回の管理画面での切り替え、条件の割り当ての切り替え、回答の一覧（自由記述・計測値）と CSV、群間の比較の集計。cook エラーのノード数を、20 秒ごとに採取する。</p>
+<h3 id="57-配布と運用">5.7 配布と運用</h3>
+<p>zip（<code>install.cmd</code>）と動画エンジンのインストーラーで、別の PC に配布する。管理者権限は不要。導入の自己診断を出力する。Worker は <code>wrangler</code> でデプロイし、D1 のマイグレーションは、先に適用する（表を先、Worker を後）。</p>
+<h3 id="58-開発の進め方">5.8 開発の進め方</h3>
+<p>実装・検証・ドキュメント化を、1 つの反復として回した。テストは、Houdini 側 806 件、Worker 側 34 件（2026-11-17 時点）。【要確認: 最終の数値に更新】実験の結果を受けた改善（2026-11-17）は、6 つの担当に分けて並行で実装し、さらに、リファクタリングと不備の確認を行った。その過程で、<strong>費用の上限の確認漏れ</strong>（救済の経路を通らない）や、<strong>CSV の式注入の対策漏れ</strong>などの不備を見つけて直した。【要確認: 事例として書くか、筆者が判断】</p>
+<p>【要記入】開発期間・工数・リポジトリの規模（行数・コミット数）を書く場合は、<code>git log</code>・<code>cloc</code> などで測る。</p>
+<p><strong>材料:</strong> <a href="../design/cloudflare-rag-technical-report.html">cloudflare-rag-technical-report.md</a>、<a href="../design/houdini-tutorial-technical-report.html">houdini-tutorial-technical-report.md</a>、<a href="../design/houdini-lesson-design.html">houdini-lesson-design.md</a>、<a href="../design/houdini-video-script.html">houdini-video-script.md</a>、<a href="../design/content-generation.md">content-generation.md</a>、<a href="../reports/houdini21-tutorial-gen-report.html">houdini21-tutorial-gen-report.md</a>、<a href="../pilot/operator-runbook.html">operator-runbook.md</a>、<a href="../reports/pilot-feedback-2026-11-17.html">pilot-feedback-2026-11-17.md</a>。</p>
+<hr />
+<h2 id="chapter-6-評価考察計測ログアンケートインタビューなどの結果と分析">Chapter 6　評価・考察（計測ログ、アンケート、インタビューなどの結果と分析）</h2>
+<h3 id="構成案_5">構成案</h3>
+<ul>
+<li>6.1 実験の設計</li>
+<li>6.2 参加者</li>
+<li>6.3 計測の項目と方法</li>
+<li>6.4 結果（定量）</li>
+<li>6.5 結果（定性：自由記述・感想）</li>
+<li>6.6 生成エージェントの動作の記録</li>
+<li>6.7 考察</li>
+<li>6.8 限界</li>
+</ul>
+<h3 id="61-実験の設計">6.1 実験の設計</h3>
+<ul>
+<li><strong>対象:</strong> Houdini に興味のある学生（経験は問わない）。募集は、2 つの期間（第 1 回 11/16〜11/21、第 2 回 11/23〜11/28）。参加者は、どちらか 1 回だけ参加し、所要時間は約 90 分（1 コマ）。</li>
+<li><strong>課題:</strong> <strong>固定課題</strong>（Pyro・RBD・雲のいずれか。必須）と、<strong>自由課題</strong>（任意。時間が余った人のみ）。</li>
+<li><strong>条件:</strong> 固定課題を、<strong>本システムを使う群</strong>と、<strong>公式ドキュメント・Web 検索のみの群</strong>で行う。登録順の番号から、3 題材 × 2 条件の 6 通りを回して割り当てる。【要記入: 実際に、条件を切り替えた期間があれば、その経緯（今回はツール使用で行う、という判断）を書く】</li>
+<li><strong>評価:</strong> ビギナー評価（定量）と、プロの評価（専門家のレビュー）。【要記入: プロ評価を実施できたか】</li>
+</ul>
+<h3 id="62-参加者要記入">6.2 参加者【要記入】</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>値</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>登録した人数</td>
+<td>【要記入】</td>
+</tr>
+<tr>
+<td>固定課題を終えた人数（条件・題材ごと）</td>
+<td>【要記入: 管理画面の集計から】</td>
+</tr>
+<tr>
+<td>経験年数・自己評価（事前アンケート）</td>
+<td>【要記入】</td>
+</tr>
+<tr>
+<td>募集の経路（自発的／授業での告知）</td>
+<td>【要記入】</td>
+</tr>
+</tbody>
+</table></div>
+<p>群の偏り（経験年数など）を、事前アンケートで確認し、書く。</p>
+<h3 id="63-計測の項目と方法">6.3 計測の項目と方法</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主観評価</td>
+<td>難しさ・わかりやすさ（5 段階）、集中を妨げたか、回答の正確性への不安、出典は役立ったか、また使いたいか</td>
+</tr>
+<tr>
+<td>所要時間</td>
+<td>終了 − 開始 − 中断（サーバーの時刻と、画面が測った秒数）</td>
+</tr>
+<tr>
+<td>操作ミス</td>
+<td>0.7 × min(cook エラーのノード数, 10) ÷ 10 ＋ 0.3 × (自己申告 − 1) ÷ 4（本研究で定めた合成の指標）</td>
+</tr>
+<tr>
+<td>到達</td>
+<td>課題の題材として、作品物ができたか</td>
+</tr>
+<tr>
+<td>質問回数</td>
+<td>サーバーが、課題の時間内の質問を数える</td>
+</tr>
+<tr>
+<td>自由記述</td>
+<td>困ったこと・良かったこと</td>
+</tr>
+</tbody>
+</table></div>
+<p>【要確認】cook エラーの採取は、20 秒ごとで、間に起きてすぐ直したエラーは数えられない（実際より少なめ）。上限 10 ノードは、重みを合わせるための仮の値。</p>
+<h3 id="64-結果定量要記入">6.4 結果（定量）【要記入】</h3>
+<p><strong>使うもの:</strong> 管理画面「実証実験」の「回答の一覧」と CSV（課題ごと）。群間の比較は、<strong>Mann-Whitney U 検定</strong>（Mann &amp; Whitney, 1947）と、効果量（<strong>Cliff の delta</strong>。Cliff, 1993）。人数が少ないため、<strong>p 値より、効果量・中央値・分布</strong>を主に示し、<strong>人数を必ず併記</strong>する（分析設計 §5）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>指標</th>
+<th>本システム（n=【】）</th>
+<th>公式ドキュメントのみ（n=【】）</th>
+<th>差（中央値）</th>
+<th>Cliff の delta</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>難しさ（1〜5）</td>
+<td>【】</td>
+<td>【】</td>
+<td>【】</td>
+<td>【】</td>
+</tr>
+<tr>
+<td>わかりやすさ（1〜5）</td>
+<td>【】</td>
+<td>【】</td>
+<td>【】</td>
+<td>【】</td>
+</tr>
+<tr>
+<td>所要時間（分）</td>
+<td>【】</td>
+<td>【】</td>
+<td>【】</td>
+<td>【】</td>
+</tr>
+<tr>
+<td>操作ミス（0〜1）</td>
+<td>【】</td>
+<td>【】</td>
+<td>【】</td>
+<td>【】</td>
+</tr>
+<tr>
+<td>到達率</td>
+<td>【】</td>
+<td>【】</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p>【図】群ごとの分布（箱ひげ図・点の重ね描き）を、CSV から作る。【要記入】</p>
+<p>注意: <strong>片方の群が 0 件のときは、比較できない</strong>（管理画面でも、そう表示する）。条件を、全員、同じにした期間があれば、その期間は、群間の比較に使えない。</p>
+<h3 id="65-結果定性自由記述感想">6.5 結果（定性：自由記述・感想）</h3>
+<p>実験で得られた感想（記録のまま。<strong>発言者の人数・属性は、整理して書く</strong>【要記入】）:</p>
+<p><strong>良かった点</strong><br />
+- 操作・見るものが、Houdini の中でほぼ完結していて、他の画面に思考が散らず、集中できた。<br />
+- 「段取りを決めてからリファレンスを集めて作る」流れだと時間がかかるが、今回は、お題が設定され、実物があり、それを見ながら作って学習できたので、時間が短く済んだ。</p>
+<p><strong>改善の要望</strong><br />
+- ガイドに、違うオブジェクトが表示されることがある。対応するオブジェクトの表示・追従と、UI の強調表示がほしい。<br />
+- ショートカットキーは、最初だけ出して、その後は非表示か折りたたみに。パスが省略されていて分からない。どの階層にいるかを表示してほしい。<br />
+- チェックボックスやメニューが数字で指定されている。パラメータの場所が出ていない。消す手順は「消す」と指示してほしい。ノードを、どんな目的で使っているかの説明がほしい。<br />
+- 省かれている箇所に抜け漏れがあり、同じ手順でやってもできない場合がある。<br />
+- タブを切り替えると、別のタブを並行して見られない。接続などの設定のタブが、他のタブと同じ比重に感じる（アイコンやメニューにするべき）。<br />
+- 動画: ノード数が増えると見づらい。文字（VEX など）がつぶれる。解像度・fps が低い。出典が出ない（「出典なし」）。まとめて消す機能がほしい。<br />
+- 生成: 打ち切りになる割合が高い。時間がかかる。ノードのつなぎ方がきれいでない。竜巻ができていない。</p>
+<p>【要記入】アンケートの自由記述の件数・カテゴリ分け（自由記述を、改善の要望／良かった点などに分類し、件数を示す）。インタビューを行った場合は、その結果。</p>
+<h3 id="66-生成エージェントの動作の記録">6.6 生成エージェントの動作の記録</h3>
+<p>手元の生成ログ（<code>localRAG/tutorials/*_metrics.json</code>）から、次が分かっている。【要確認: 集計元・日付・件数。いずれも件数が少なく、傾向として読む】</p>
+<ul>
+<li>出典の引用率は、10 件の平均が <strong>15%</strong>（2026-10-31 の分析）。資料は、生成の最初の 1 回しか、検索されていなかった → 生成の途中で引けるツールを足した。</li>
+<li>打ち切りは、記録のある 46 件のうち 13 件（28%）。10 月は 25 件中 3 件（12%）、11 月は 3 件中 0 件。【要確認: 2026-11-17 の調査による。実験の期間の記録を足して、集計し直す】</li>
+<li>打ち切りの理由は、コード上で 5 種類（反復の上限・費用の上限・ツールを呼ばずに終了・拒否・例外）。</li>
+<li>長い動画の書き出し時間は、フル HD・30 fps で、720p15 の約 3〜4 倍（短い動画での実測）。【要確認】</li>
+</ul>
+<h3 id="67-考察要記入">6.7 考察【要記入】</h3>
+<p>次の観点で、結果を解釈する。<strong>結果が出てから書く</strong>。結果が出なかった・差がなかったことも、書く。</p>
+<ul>
+<li>RQ1・RQ2 への答え（効果量と人数を併記。「傾向」にとどめ、断定しない）。</li>
+<li>群の差に、<strong>個人差</strong>（Houdini の経験）が混ざっていないか（事前アンケートで確認）。</li>
+<li>システムの<strong>改善</strong>（実験の途中・直前の修正）が、結果に、どう影響したか。</li>
+<li>実験で見つかった課題の、<strong>共通点</strong>（Guide の追従・表記・生成の安定・動画の見やすさ）と、それが、学習の負担に、どうつながるか。</li>
+<li>「Houdini の中で完結する」ことの意味（集中を妨げない）。</li>
+</ul>
+<h3 id="68-限界必ず書く">6.8 限界（必ず書く）</h3>
+<ul>
+<li>少人数・自己選択・自己評価で、結果は、一般化できない。</li>
+<li><strong>実験者と開発者が同じ</strong>で、参加者の評価が甘くなる可能性がある。</li>
+<li>LLM の出力は、毎回変わる。同じ課題でも、結果は揺れる。</li>
+<li>回（期間）の間で、システムを改善しているため、<strong>期間の差には、使い慣れと改善が混ざる</strong>。</li>
+<li>1 人 1 回・群間の比較のため、<strong>個人差が群に混ざる</strong>。人数が少ないと、差が出にくい。</li>
+<li>1 コマ（約 90 分）で、固定課題が収まらない人が出うる。所要時間（約 3 時間）の実測は、ない。</li>
+<li>授業での告知で集めた参加者は、自発的な参加者と違う層になりうる。</li>
+<li>評価率が低いと、評価した人だけの偏りになる（評価率を併記する）。</li>
+</ul>
+<p><strong>材料:</strong> <a href="../pilot/pilot-analysis-design.md">pilot-analysis-design.md</a>（§2 指標・§5 集計・§6 アンケート・§10・§11 限界）、<a href="../pilot/operator-runbook.html">operator-runbook.md</a>、<a href="../reports/pilot-feedback-2026-11-17.html">pilot-feedback-2026-11-17.md</a>、<a href="../reports/tutorial-quality-analysis-2026-10-31.html">tutorial-quality-analysis-2026-10-31.md</a>。<strong>データ:</strong> Cloudflare 管理画面の CSV（課題ごと・事前アンケート）。個人を特定する情報は、論文に載せない（P01 などの番号）。</p>
+<hr />
+<h2 id="chapter-7-結語短いまとめ今回何ができて何ができなかったか">Chapter 7　結語（短いまとめ、今回何ができて何ができなかったか）</h2>
+<h3 id="構成案_6">構成案</h3>
+<ul>
+<li>7.1 本研究のまとめ</li>
+<li>7.2 できたこと</li>
+<li>7.3 できなかったこと</li>
+</ul>
+<h3 id="71-本研究のまとめ要記入-結果が入ってから">7.1 本研究のまとめ【要記入: 結果が入ってから】</h3>
+<p>本研究では、Houdini の公式ドキュメントの検索（RAG）と、Houdini 内での実際の組み立て・検証を組み合わせて、手順書と解説動画を自動で生成するシステムを開発し、【N】名の学生による実証実験で評価した。結果は、【要記入】。</p>
+<h3 id="72-できたこと">7.2 できたこと</h3>
+<ul>
+<li>依頼文から、Houdini 上で動くノードグラフと、手順書・音声つき動画を、自動で生成できる一気通貫のシステムを作った。</li>
+<li>認証・予算・集計を備えた基盤で、実際の学生に配布して、実証実験を行った。</li>
+<li>実験で見つかった課題を、短い反復で改善した（2026-11-17）。</li>
+</ul>
+<h3 id="73-できなかったこと要確認">7.3 できなかったこと【要確認】</h3>
+<ul>
+<li>生成の打ち切り率・所要時間の十分な改善（実機での測定が必要）。</li>
+<li>竜巻・APEX・リギングの品質の確認（実機での確認が必要）。</li>
+<li>Houdini の版ごとの動作比較（22.0.429・22.0.459・22.0.504）。</li>
+<li>専門家による評価（【要記入: 実施できたか】）。</li>
+</ul>
+<hr />
+<h2 id="chapter-8-課題と展望残された課題とその解決への見通し">Chapter 8　課題と展望（残された課題とその解決への見通し）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>課題</th>
+<th>見通し</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>生成の打ち切り・遅さ</td>
+<td>計測の指標を足したので、実機で、どの段階が重いかを測る。effort・3 段階の連続生成・シミュレーション解像度の見直し（品質との兼ね合い）</td>
+</tr>
+<tr>
+<td>書き出しの遅さ（フル HD・30 fps で 3〜4 倍）</td>
+<td>同じ見た目のフレームの使い回し、描画とエンコードの並列化（パイプライン）、エンコーダの設定、用途別のプロファイル</td>
+</tr>
+<tr>
+<td>竜巻・APEX・リギングの品質</td>
+<td>題材別の達成基準を足した。実機で、生成して確かめる</td>
+</tr>
+<tr>
+<td>動画の品質差</td>
+<td>品質チェッカーを足した。書き出しの前の判定への組み込み（まだ未接続）</td>
+</tr>
+<tr>
+<td>ガイド・動画の「ノードの目的」「パラメータの単位」</td>
+<td>生成側が記録する <code>purpose</code>・<code>changes</code> で、取れる形にした。単位は、データが無く、未対応</td>
+</tr>
+<tr>
+<td>実験の限界（少人数・個人差・開発者が実験者）</td>
+<td>期間と人数を増やす。参加者内の対照（使い慣れの効果の分離）。第三者による評価</td>
+</tr>
+<tr>
+<td>配布・導入</td>
+<td>他 PC での導入の自己診断を足した。版の違い・OneDrive の PC での確認</td>
+</tr>
+<tr>
+<td>一般化</td>
+<td>Houdini 以外の DCC（Blender・Unity）への展開。MCP との併用（外部 AI からの操作）【要確認: 筆者の展望として書くか】</td>
+</tr>
+<tr>
+<td>運用</td>
+<td>費用（API・音声）の見通し、データの保存期間・匿名化の方針の確定</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>材料:</strong> <a href="../reports/pilot-feedback-2026-11-17.html">pilot-feedback-2026-11-17.md</a> §3（残っていること）、<a href="../reports/improvement-report-2026-10.md">improvement-report-2026-10.md</a>、<a href="../reports/new-project-ideas-borrowed-tech-2026-10.md">new-project-ideas-borrowed-tech-2026-10.md</a>、<a href="../../IMPROVEMENT_DESIGN_2026-10.md">IMPROVEMENT_DESIGN_2026-10.md</a>。</p>
+<hr />
+<h2 id="chapter-9-謝辞要記入">Chapter 9　謝辞【要記入】</h2>
+<p>お世話になった人への御礼を、筆者が書く。次の方々を、書き漏らさない。【要確認: 実名・所属の表記と、掲載の許可】</p>
+<ul>
+<li>指導教員、卒論担当の先生（実験の設計・募集文について、助言をいただいた）</li>
+<li>実証実験に参加した学生</li>
+<li>ゼミの仲間（【要記入】）</li>
+<li>専門家のレビューを引き受けた方・企業（【要記入: 社名を出してよいか、確認が要る。分析設計 §9】）</li>
+<li>家族・友人（【要記入】）</li>
+</ul>
+<hr />
+<h2 id="chapter-10-参照文献要確認-大学指定のフォーマットに合わせる">Chapter 10　参照文献【要確認: 大学指定のフォーマットに合わせる】</h2>
+<p>以下は、本文で触れた<strong>候補</strong>である。<strong>書誌（巻・号・ページ・年）は、原典で確認し、大学指定の書式（引用の方式・並び順・言語ごとの書き方）に整える</strong>。確認していないものを、そのまま載せない。</p>
+<h3 id="学術文献候補">学術文献（候補）</h3>
+<ol>
+<li>Lewis, P., et al. (2020). Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. <em>Advances in Neural Information Processing Systems 33</em> (NeurIPS 2020).</li>
+<li>Yao, S., et al. (2023). ReAct: Synergizing Reasoning and Acting in Language Models. <em>ICLR 2023</em>. （arXiv:2210.03629）</li>
+<li>Cormack, G. V., Clarke, C. L. A., &amp; Büttcher, S. (2009). Reciprocal Rank Fusion outperforms Condorcet and individual Rank Learning Methods. <em>SIGIR 2009</em>.</li>
+<li>Robertson, S., &amp; Zaragoza, H. (2009). The Probabilistic Relevance Framework: BM25 and Beyond. <em>Foundations and Trends in Information Retrieval</em>, 3(4), 333–389.</li>
+<li>Sweller, J. (1988). Cognitive load during problem solving: Effects on learning. <em>Cognitive Science</em>, 12(2), 257–285.</li>
+<li>Mann, H. B., &amp; Whitney, D. R. (1947). On a test of whether one of two random variables is stochastically larger than the other. <em>The Annals of Mathematical Statistics</em>, 18(1), 50–60.</li>
+<li>Cliff, N. (1993). Dominance statistics: Ordinal analyses to answer ordinal questions. <em>Psychological Bulletin</em>, 114(3), 494–509.</li>
+<li>Brooke, J. (1996). SUS: A "quick and dirty" usability scale. In <em>Usability Evaluation in Industry</em>. Taylor &amp; Francis.</li>
+</ol>
+<p>【要記入】2.1・2.4 で調べた、DCC・3DCG と LLM・学習支援に関する論文。</p>
+<h3 id="web-資料候補閲覧日を付ける">Web 資料（候補。閲覧日を付ける）</h3>
+<ul>
+<li>SideFX. Houdini ドキュメント（https://www.sidefx.com/docs/houdini/）【閲覧日】</li>
+<li>Model Context Protocol の仕様【閲覧日・URL を確認】</li>
+<li>比較した道具（2026-10-23 閲覧）: fxhoudinimcp（https://github.com/healkeiser/fxhoudinimcp）、capoomgit/houdini-mcp（https://github.com/capoomgit/houdini-mcp）、oculairmedia/houdini-mcp（https://github.com/oculairmedia/houdini-mcp）、Houdini21MCP（https://github.com/orrzxz/Houdini21MCP）、Synapse（https://github.com/JosephOIbrahim/Synapse）、dcc-mcp-core（https://github.com/dcc-mcp/dcc-mcp-core）</li>
+<li>Cloudflare Workers・D1・Vectorize・R2 のドキュメント【閲覧日】</li>
+<li>Anthropic（Claude）のドキュメント【閲覧日・使ったモデルの名前と版を、記録から確認】</li>
+<li>Inside The Mind（Houdini Learning System）の解説【出典の URL・閲覧日を、記録から確認。tutorial-quality-analysis-2026-10-31.md】</li>
+</ul>
+<h3 id="付録の候補">付録の候補</h3>
+<ul>
+<li>A. 課題シート（固定課題 3 題材・到達の基準）</li>
+<li>B. 課題後アンケートの設問（分析設計 §6）</li>
+<li>C. 募集文・同意の取り扱い（pilot-announcement.md・recruit-slack.md。個人情報は、載せない）</li>
+<li>D. システムの画面（Chat・Guide・Tutorial・管理画面の実証実験）【要記入: 画面を撮る】</li>
+<li>E. 生成された手順書・動画の例（炎・煙・竜巻など）</li>
+</ul>
+<hr />
+<h2 id="次にやること優先順">次にやること（優先順）</h2>
+<ol>
+<li><strong>指導教員に、題（仮題）と、RQ（3.2）、成功基準（分析設計 §8）を、確認する。</strong></li>
+<li><strong>実験のデータを集計する</strong>（管理画面の CSV）→ 6.2・6.4 を埋める。<strong>人数が、群の間の比較に足りるかを、先に確認する</strong>。</li>
+<li><strong>1.1（個人的なきっかけ）を、書く</strong>。</li>
+<li><strong>学術文献を調べる</strong>（2.1・2.4）。参考文献の書誌を、原典で確認する。</li>
+<li>大学指定のフォーマットに合わせる（章・節の番号、図表の体裁、引用の方式）。</li>
+<li>5 章の図を、論文の体裁に作り直す。</li>
+</ol>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>
