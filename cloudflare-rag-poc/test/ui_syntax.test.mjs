@@ -95,3 +95,17 @@ assert.match(code, /async function loadPilotSummary\(/);
 assert.match(code, /api\("\/admin\/pilot\/summary"/);
 assert.match(code, /btn\.dataset\.subtab === "pilot"/);
 assert.match(code, /pilot-participants-/);
+
+// ヘッダーの整理(2026-11-17): 使用頻度の低い操作は「設定」メニューの中。ID は変えない。動きは 1 回きり・動きを減らす設定では止める。
+const menuHtml = html.match(/<div id="settingsMenu"[\s\S]*?<nav class="tabs">/);
+assert.ok(menuHtml, "the settings menu exists in the header");
+for (const id of ["myConnBtn", "themeToggle", "wallpaperSelect", "glassToggle"]) {
+  assert.match(menuHtml[0], new RegExp(`id="${id}"`), `${id} lives in the settings menu`);
+}
+assert.match(html, /id="settingsBtn"[^>]*aria-expanded="false"[^>]*aria-controls="settingsMenu"/);
+assert.match(html, /event\.key === "Escape" && menu\.classList\.contains\("open"\)/);
+const settingsMotion = html.match(/@media \(prefers-reduced-motion: no-preference\) \{\s*\.settings-menu \{ transition:[^\n]*/);
+assert.ok(settingsMotion, "the settings menu transition is inside prefers-reduced-motion: no-preference");
+assert.ok(!/infinite/.test(settingsMotion[0]), "no infinite loop is added");
+// 管理の鍵一覧は 6 列
+assert.equal((html.match(/<table class="admin-table" id="keysTable"><thead><tr>([\s\S]*?)<\/tr>/)[1].match(/<th/g) || []).length, 6);

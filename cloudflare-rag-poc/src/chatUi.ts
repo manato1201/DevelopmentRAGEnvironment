@@ -134,6 +134,30 @@ export function chatUiHtml(): string {
   }
   #themeToggle, #myConnBtn { white-space: nowrap; }
   #myConnBtn.hidden { display: none; }
+  /* ヘッダーの混み対策（2026-11-17）: 使用頻度の低い操作（自分用の連携・キー一覧・テーマ・背景・曇りガラス）を「設定」メニューにまとめる。
+     ボタンで開閉・Tab で中に入れる・Esc か外のクリックで閉じる。ID は変えていない。 */
+  .settings-wrap { position: relative; margin-left: auto; }
+  header .settings-btn { border: 1px solid var(--border); }
+  .settings-btn::after { content: "▾"; margin-left: .35rem; font-size: .75em; display: inline-block; }
+  .settings-btn[aria-expanded="true"] { color: var(--text); border-color: var(--accent); }
+  .settings-menu {
+    position: absolute; right: 0; top: calc(100% + .4rem); z-index: 30; box-sizing: border-box;
+    min-width: 14rem; max-width: calc(100vw - 2rem); display: flex; flex-direction: column; gap: .25rem; padding: .45rem;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.14);
+    visibility: hidden; opacity: 0; transform: translateY(-6px); pointer-events: none;
+  }
+  .settings-menu.open { visibility: visible; opacity: 1; transform: none; pointer-events: auto; }
+  .settings-menu button, .settings-menu select { width: 100%; text-align: left; }
+  header .settings-menu button { border-radius: 8px; }
+  header .settings-menu button:hover { background: var(--panel); }
+  .settings-btn:focus-visible, .settings-menu :focus-visible { outline: 2px solid var(--teal-text); outline-offset: 1px; }
+  /* 動き（1 回きり）: 開くときは少し下りて現れ、閉じるときは先に透明になる。動きを減らす設定では、すぐ出る・すぐ消える。 */
+  @media (prefers-reduced-motion: no-preference) {
+    .settings-menu { transition: opacity var(--dur-instant) var(--ease-out), transform var(--dur-open) var(--ease-out), visibility 0s linear var(--dur-open); }
+    .settings-menu.open { transition-delay: 0s; }
+    .settings-btn::after { transition: transform var(--dur-instant) var(--ease-move); }
+    .settings-btn[aria-expanded="true"]::after { transform: rotate(180deg); }
+  }
   * { box-sizing: border-box; }
   html, body { overflow-x: hidden; max-width: 100%; }
   body {
@@ -141,7 +165,7 @@ export function chatUiHtml(): string {
     font-family: "Inter", -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
     display: flex; flex-direction: column; height: 100vh;
   }
-  header { border-bottom: 1px solid var(--border); padding: .7rem 1.2rem; }
+  header { border-bottom: 1px solid var(--border); padding: .7rem 1.2rem; position: relative; z-index: 20; /* 設定メニューが、下のタブの面（曇りガラスの面を含む）より前に出る */ }
   .header-row { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; margin-bottom: .5rem; }
   header h1 {
     font-size: 1.05rem; font-weight: 600; margin: 0; white-space: nowrap; letter-spacing: -.01em;
@@ -155,7 +179,7 @@ export function chatUiHtml(): string {
     background: var(--panel); border: 1px solid var(--border); color: var(--text);
     border-radius: 10px; padding: .45rem .7rem; font-size: .85rem; font-family: inherit;
   }
-  header input[type="password"] { flex: 1; min-width: 160px; }
+  header input[type="password"] { flex: 1; min-width: 110px; }
   header input:focus, header select:focus { outline: none; border-color: var(--accent); }
   header button, .btn {
     background: none; border: none; color: var(--muted);
@@ -298,7 +322,31 @@ export function chatUiHtml(): string {
   table.admin-table { width: 100%; border-collapse: collapse; font-size: .82rem; table-layout: fixed; }
   table.admin-table th, table.admin-table td { text-align: left; padding: .5rem .5rem; border-bottom: 1px solid var(--border); word-break: break-all; }
   /* 発行済みキー一覧は列が多い。均等割り(fixed)だと見出しが隣の列に重なるので、中身に合わせて幅を取り、足りなければ横にスクロールする */
-  table.admin-table#keysTable { table-layout: auto; min-width: 820px; }
+  table.admin-table#keysTable { table-layout: auto; min-width: 780px; }
+  /* 6 列に整理（2026-11-17）: 最終利用は名前の下、使用率（ドーナツ）は RAG 予算の横へ。作成日と予算の自動リセットは、行を開くと出る（消してはいない）。 */
+  #keysTable .key-name { display: flex; align-items: flex-start; gap: .3rem; }
+  #keysTable .key-name .sub, #keysTable td .sub { display: block; font-size: .72rem; color: var(--row-sub); font-weight: 400; margin-top: .15rem; word-break: normal; }
+  #keysTable .key-expand { background: none; border: none; color: var(--muted); cursor: pointer; padding: .1rem .25rem; font: inherit; line-height: 1; border-radius: 6px; flex-shrink: 0; }
+  #keysTable .key-expand:hover { color: var(--text); background: var(--panel); }
+  #keysTable .key-expand:focus-visible, #keysTable .reset-link:focus-visible { outline: 2px solid var(--teal-text); outline-offset: 1px; }
+  #keysTable .key-expand .chev { display: inline-block; font-size: .95rem; }
+  #keysTable th:nth-child(1) { width: 27%; }
+  #keysTable td:nth-child(5) { min-width: 16rem; }
+  #keysTable td:nth-child(6) { white-space: nowrap; width: 1%; word-break: normal; }
+  #keysTable td:nth-child(2), #keysTable td:nth-child(3), #keysTable td:nth-child(4) { word-break: normal; }
+  #keysTable .btn { white-space: nowrap; }
+  #keysTable .key-expand[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  #keysTable .budget-line { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  #keysTable .reset-link { background: none; border: none; padding: 0; margin-top: .15rem; font: inherit; font-size: .72rem; color: var(--accent-text); cursor: pointer; text-decoration: underline; text-align: left; }
+  #keysTable tr.key-detail-row > td { background: var(--panel); border-bottom: 1px solid var(--border); }
+  #keysTable .key-detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: .8rem 1.5rem; word-break: normal; }
+  #keysTable .key-detail h4 { margin: 0 0 .2rem; font-size: .74rem; color: var(--muted); font-weight: 600; }
+  #keysTable .key-detail .reset-controls { margin-top: 0; }
+  @keyframes detail-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: no-preference) {
+    #keysTable .key-expand .chev { transition: transform var(--dur-instant) var(--ease-move); }
+    #keysTable .key-detail.opening { animation: detail-in var(--dur-open) var(--ease-out) 1; }
+  }
   .reset-controls { margin-top: .35rem; display: flex; flex-direction: column; gap: .25rem; }
   .reset-controls .hint { font-size: .72rem; color: var(--muted); }
   .reset-controls .reset-row { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
@@ -702,20 +750,25 @@ export function chatUiHtml(): string {
       <option value="advanced">レベル: advanced（専門的に）</option>
     </select>
     <span id="myBudget" class="hint" title="自分のAPIキーのトークン予算残量"></span>
-    <button type="button" id="myConnBtn" class="hidden" title="自分専用の連携（Gmail・Drive・カレンダー・Jira・Backlog・公式MCP）。他の人からは見えません">自分用の連携</button>
-    <button type="button" id="themeToggle" title="テーマ切替（自動 / ライト / ダーク）">テーマ: 自動</button>
-    <select id="wallpaperSelect" aria-label="背景の壁紙" title="背景に、文字で描いた絵を薄く出す（既定はなし。動きを減らす設定のときは静止。狭い画面では出ない）">
-      <option value="off" selected>背景: なし</option>
-      <option value="critter">背景: クラゲ（右下）</option>
-      <option value="wave">背景: 波</option>
-      <option value="stars">背景: 星空</option>
-      <option value="rain">背景: 雨</option>
-      <option value="swirl">背景: 渦</option>
-      <option value="school">背景: 魚群</option>
-      <option value="dunes">背景: 砂丘</option>
-      <option value="grid">背景: 格子</option>
-    </select>
-    <button type="button" id="glassToggle" title="見出し・タブ・本文の面を半透明にして、背後の壁紙をぼかす（既定はなし）">曇りガラス: なし</button>
+    <div class="settings-wrap">
+      <button type="button" id="settingsBtn" class="settings-btn" aria-haspopup="true" aria-expanded="false" aria-controls="settingsMenu" title="自分用の連携・キー一覧・テーマ・背景・曇りガラス（Esc で閉じる）">設定</button>
+      <div id="settingsMenu" class="settings-menu" role="group" aria-label="設定">
+      <button type="button" id="myConnBtn" class="hidden" title="自分専用の連携（Gmail・Drive・カレンダー・Jira・Backlog・公式MCP）。他の人からは見えません">自分用の連携</button>
+      <button type="button" id="themeToggle" title="テーマ切替（自動 / ライト / ダーク）">テーマ: 自動</button>
+      <select id="wallpaperSelect" aria-label="背景の壁紙" title="背景に、文字で描いた絵を薄く出す（既定はなし。動きを減らす設定のときは静止。狭い画面では出ない）">
+        <option value="off" selected>背景: なし</option>
+        <option value="critter">背景: クラゲ（右下）</option>
+        <option value="wave">背景: 波</option>
+        <option value="stars">背景: 星空</option>
+        <option value="rain">背景: 雨</option>
+        <option value="swirl">背景: 渦</option>
+        <option value="school">背景: 魚群</option>
+        <option value="dunes">背景: 砂丘</option>
+        <option value="grid">背景: 格子</option>
+      </select>
+      <button type="button" id="glassToggle" title="見出し・タブ・本文の面を半透明にして、背後の壁紙をぼかす（既定はなし）">曇りガラス: なし</button>
+      </div>
+    </div>
   </div>
   <nav class="tabs">
     <button data-tab="chat" class="active">チャット</button>
@@ -1197,7 +1250,7 @@ export function chatUiHtml(): string {
           </select>
           <button class="btn" id="refreshKeys">再読み込み</button>
         </div>
-        <div class="table-scroll"><table class="admin-table" id="keysTable"><thead><tr><th>名前</th><th>ロール</th><th>RAG予算</th><th>使用率</th><th title="チュートリアル生成などで使うClaudeの予算">Claude予算</th><th>最終利用</th><th>有効期限</th><th>作成日</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table" id="keysTable"><thead><tr><th>名前 / 最終利用</th><th>ロール</th><th>有効期限</th><th title="使用量 / 上限と、使用率（ドーナツ）">RAG予算（使用率）</th><th title="チュートリアル生成などで使うClaudeの予算">Claude予算</th><th></th></tr></thead><tbody></tbody></table></div>
       </div>
     </div>
 
@@ -2169,6 +2222,35 @@ export function chatUiHtml(): string {
       const next = cur === "auto" ? "light" : cur === "light" ? "dark" : "auto";
       applyTheme(next);
       try { localStorage.setItem("ragPocTheme", next); } catch { /* noop */ }
+    });
+  })();
+
+  // 「設定」メニュー（2026-11-17）: ボタンで開閉。Esc・外側のクリック・フォーカスが外へ出たときに閉じる（Esc では、ボタンへフォーカスを戻す）。
+  // 開閉の動きは CSS（.settings-menu の transition）。動きを減らす設定のときは、CSS 側で動かさない。
+  (function initSettingsMenu() {
+    const btn = document.getElementById("settingsBtn");
+    const menu = document.getElementById("settingsMenu");
+    if (!btn || !menu) return;
+    const wrap = btn.parentElement;
+    function setOpen(open, returnFocus) {
+      menu.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (!open && returnFocus) btn.focus();
+    }
+    btn.addEventListener("click", () => setOpen(!menu.classList.contains("open")));
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && menu.classList.contains("open") && !document.querySelector(".modal-backdrop")) { setOpen(false, true); }
+    });
+    document.addEventListener("click", (event) => {
+      if (menu.classList.contains("open") && !wrap.contains(event.target)) setOpen(false);
+    });
+    wrap.addEventListener("focusout", (event) => {
+      if (menu.classList.contains("open") && event.relatedTarget && !wrap.contains(event.relatedTarget)) setOpen(false);
+    });
+    // 別の画面（連携・キー一覧のポップアップ）を開く項目は、開いたらメニューを閉じる。
+    menu.addEventListener("click", (event) => {
+      const t = event.target;
+      if (t && t.closest && t.closest("#myConnBtn, #shortcutBtn")) setOpen(false);
     });
   })();
 
@@ -3162,7 +3244,7 @@ ${ASCII_ART_JS}
     ["Ctrl + K / ⌘ + K", "同じ。入力欄の中でも使えます"],
     ["?", "このキー一覧を開く"],
     ["Enter", "質問を送る（Shift + Enter は改行）"],
-    ["Esc", "出典のドロワー・ポップアップを閉じる"],
+    ["Esc", "出典のドロワー・ポップアップ・設定メニューを閉じる"],
   ];
   function openShortcutList() {
     const modal = openModal({ title: "キーボード操作", subtitle: "入力欄の外で使えるキーです" });
@@ -4459,12 +4541,60 @@ ${ASCII_ART_JS}
     const tbody = $("keysTable").querySelector("tbody");
     tbody.innerHTML = "";
     if (keys.length === 0) {
-      tbody.innerHTML = '<tr><td colspan=9>該当するキーがありません</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=6>該当するキーがありません</td></tr>';
       return;
     }
     keys.forEach((k) => {
       const created = new Date(k.created_at * 1000).toLocaleString();
-      const tr = appendRow(tbody, [k.display_name]);
+      const tr = document.createElement("tr");
+      tbody.appendChild(tr);
+      // 行の展開（2026-11-17）: 作成日と、予算の自動リセットは、行の下に開く。開く動きは 1 回きり（動きを減らす設定では出さない）。
+      const detailTr = document.createElement("tr");
+      detailTr.className = "key-detail-row";
+      detailTr.hidden = true;
+      tbody.appendChild(detailTr);
+      const toggleDetail = (open) => {
+        const willOpen = open === undefined ? detailTr.hidden : open;
+        detailTr.hidden = !willOpen;
+        expandBtn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        expandBtn.title = willOpen ? "詳細を閉じる" : "詳細を開く（作成日・予算の自動リセット）";
+        const box = detailTr.querySelector(".key-detail");
+        if (box) {
+          box.classList.remove("opening");
+          if (willOpen && !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) { void box.offsetWidth; box.classList.add("opening"); }
+        }
+      };
+
+      // 名前 / 最終利用: 名前の下に最終利用を小さく出す。
+      // 最終利用日時（2026-09-10追加、別プロジェクト Usersページの"Last Login"に相当）。
+      // audit_log全体のMAX(created_at)なのでClaudeプロキシ利用も含む（keyAdmin.ts参照）。
+      const nameCell = document.createElement("td");
+      const nameWrap = document.createElement("div");
+      nameWrap.className = "key-name";
+      const expandBtn = document.createElement("button");
+      expandBtn.type = "button";
+      expandBtn.className = "key-expand";
+      expandBtn.setAttribute("aria-expanded", "false");
+      expandBtn.setAttribute("aria-label", k.display_name + " の詳細");
+      expandBtn.title = "詳細を開く（作成日・予算の自動リセット）";
+      const chev = document.createElement("span");
+      chev.className = "chev";
+      chev.setAttribute("aria-hidden", "true");
+      chev.textContent = "▸";
+      expandBtn.appendChild(chev);
+      expandBtn.addEventListener("click", () => toggleDetail());
+      const nameText = document.createElement("div");
+      const nameMain = document.createElement("span");
+      nameMain.textContent = k.display_name;
+      const lastSub = document.createElement("span");
+      lastSub.className = "sub";
+      lastSub.textContent = "最終利用: " + (k.last_active ? new Date(k.last_active * 1000).toLocaleString() : "利用履歴なし");
+      nameText.appendChild(nameMain);
+      nameText.appendChild(lastSub);
+      nameWrap.appendChild(expandBtn);
+      nameWrap.appendChild(nameText);
+      nameCell.appendChild(nameWrap);
+      tr.appendChild(nameCell);
 
       // ロール列: バッジ表示＋インライン変更用select（権限の詳細化、2026-09-10追加）。
       // 従来は作成時にしかロールを指定できなかった（/admin/keys/update-role新設）。
@@ -4498,60 +4628,6 @@ ${ASCII_ART_JS}
       });
       roleCell.appendChild(roleSelect);
       tr.appendChild(roleCell);
-
-      const budgetCell = document.createElement("td");
-      budgetCell.textContent = k.rag_limit != null ? (k.rag_used + '/' + k.rag_limit) : '無制限';
-      budgetCell.appendChild(budgetResetControls(k, "rag", "RAG予算"));
-      tr.appendChild(budgetCell);
-
-      const donutCell = document.createElement("td");
-      tr.appendChild(donutCell);
-      if (k.rag_limit != null) {
-        const donutCanvas = document.createElement("canvas");
-        donutCell.appendChild(donutCanvas);
-        drawDonut(donutCanvas, k.rag_used, k.rag_limit);
-      }
-
-      // Claude予算（houdiniチュートリアル生成等が/claude/messagesを叩く際のサーバー側強制上限、
-      // budget.tsのreserveBudget参照。2026-09-23追加）。RAGと違い未設定＝無制限がデフォルトの
-      // ため、入力欄を空にして「設定」を押すと limitTokens: null を送って無制限に戻す。
-      const claudeCell = document.createElement("td");
-      tr.appendChild(claudeCell);
-      const claudeText = document.createElement("span");
-      claudeText.textContent = k.claude_limit != null ? (k.claude_used + '/' + k.claude_limit) : '無制限';
-      claudeCell.appendChild(claudeText);
-      const claudeInput = document.createElement("input");
-      claudeInput.type = "number";
-      claudeInput.min = "0";
-      claudeInput.style.width = "100%";
-      claudeInput.style.maxWidth = "7rem";
-      claudeInput.style.marginLeft = ".4rem";
-      claudeInput.placeholder = "空欄=無制限";
-      if (k.claude_limit != null) claudeInput.value = k.claude_limit;
-      const claudeSetBtn = document.createElement("button");
-      claudeSetBtn.className = "btn"; claudeSetBtn.textContent = "設定";
-      claudeSetBtn.style.marginLeft = ".3rem";
-      claudeSetBtn.onclick = async () => {
-        const v = claudeInput.value.trim();
-        try {
-          await api("/admin/keys/set-capacity", {
-            userId: k.user_id,
-            budgetType: "claude",
-            limitTokens: v === "" ? null : Number(v),
-          });
-          showToast(k.display_name + " のClaude予算を更新しました", "success");
-          loadKeys();
-        } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
-      };
-      claudeCell.appendChild(claudeInput);
-      claudeCell.appendChild(claudeSetBtn);
-      claudeCell.appendChild(budgetResetControls(k, "claude", "Claude予算"));
-
-      // 最終利用日時（2026-09-10追加、別プロジェクト Usersページの"Last Login"に相当）。
-      // audit_log全体のMAX(created_at)なのでClaudeプロキシ利用も含む（keyAdmin.ts参照）。
-      const lastActiveCell = document.createElement("td");
-      lastActiveCell.textContent = k.last_active ? new Date(k.last_active * 1000).toLocaleString() : "利用履歴なし";
-      tr.appendChild(lastActiveCell);
 
       // 有効期限列: 表示＋インライン変更用select（2026-09-12追加）。期限切れ・
       // 期限間近（7日以内）は警告バッジで目立たせる（healthCheck.tsの日次アラートと
@@ -4599,9 +4675,76 @@ ${ASCII_ART_JS}
       expiryCell.appendChild(expirySelect);
       tr.appendChild(expiryCell);
 
-      const createdCell = document.createElement("td");
-      createdCell.textContent = created;
-      tr.appendChild(createdCell);
+      // 予算の自動リセットの 1 行要約（細かい操作は、行を開いた先）。
+      const resetSummary = (type) => {
+        if (k[type + "_limit"] == null) return null;
+        const hours = k[type + "_reset_hours"];
+        const choice = RESET_CHOICES.find((c) => c[0] === hours);
+        const link = document.createElement("button");
+        link.type = "button";
+        link.className = "reset-link";
+        link.textContent = "自動リセット: " + (hours ? (choice ? choice[1] : hours + "時間ごと") : "なし") + "（変更）";
+        link.addEventListener("click", () => { toggleDetail(true); });
+        return link;
+      };
+
+      // RAG予算 + 使用率（ドーナツ）。
+      const budgetCell = document.createElement("td");
+      const budgetLine = document.createElement("div");
+      budgetLine.className = "budget-line";
+      const budgetText = document.createElement("span");
+      budgetText.textContent = k.rag_limit != null ? (k.rag_used + '/' + k.rag_limit) : '無制限';
+      budgetLine.appendChild(budgetText);
+      if (k.rag_limit != null) {
+        const donutCanvas = document.createElement("canvas");
+        donutCanvas.setAttribute("role", "img");
+        donutCanvas.setAttribute("aria-label", "使用率 " + Math.round(Math.min(k.rag_used / k.rag_limit, 1) * 100) + "%");
+        budgetLine.appendChild(donutCanvas);
+        drawDonut(donutCanvas, k.rag_used, k.rag_limit);
+      }
+      budgetCell.appendChild(budgetLine);
+      const ragLink = resetSummary("rag");
+      if (ragLink) budgetCell.appendChild(ragLink);
+      tr.appendChild(budgetCell);
+
+      // Claude予算（houdiniチュートリアル生成等が/claude/messagesを叩く際のサーバー側強制上限、
+      // budget.tsのreserveBudget参照。2026-09-23追加）。RAGと違い未設定＝無制限がデフォルトの
+      // ため、入力欄を空にして「設定」を押すと limitTokens: null を送って無制限に戻す。
+      const claudeCell = document.createElement("td");
+      tr.appendChild(claudeCell);
+      const claudeLine = document.createElement("div");
+      claudeLine.className = "budget-line";
+      const claudeText = document.createElement("span");
+      claudeText.textContent = k.claude_limit != null ? (k.claude_used + '/' + k.claude_limit) : '無制限';
+      claudeLine.appendChild(claudeText);
+      const claudeInput = document.createElement("input");
+      claudeInput.type = "number";
+      claudeInput.min = "0";
+      claudeInput.style.width = "100%";
+      claudeInput.style.maxWidth = "7rem";
+      claudeInput.setAttribute("aria-label", k.display_name + " のClaude予算（空欄=無制限）");
+      claudeInput.placeholder = "空欄=無制限";
+      if (k.claude_limit != null) claudeInput.value = k.claude_limit;
+      const claudeSetBtn = document.createElement("button");
+      claudeSetBtn.className = "btn"; claudeSetBtn.textContent = "設定";
+      claudeSetBtn.onclick = async () => {
+        const v = claudeInput.value.trim();
+        try {
+          await api("/admin/keys/set-capacity", {
+            userId: k.user_id,
+            budgetType: "claude",
+            limitTokens: v === "" ? null : Number(v),
+          });
+          showToast(k.display_name + " のClaude予算を更新しました", "success");
+          loadKeys();
+        } catch (e) { showToast("設定に失敗しました: " + e.message, "error"); }
+      };
+      claudeLine.appendChild(claudeInput);
+      claudeLine.appendChild(claudeSetBtn);
+      claudeCell.appendChild(claudeLine);
+      const claudeLink = resetSummary("claude");
+      if (claudeLink) claudeCell.appendChild(claudeLink);
+
       const actionsCell = document.createElement("td");
       tr.appendChild(actionsCell);
       const delBtn = document.createElement("button");
@@ -4612,6 +4755,37 @@ ${ASCII_ART_JS}
         catch (e) { showToast("削除に失敗しました: " + e.message, "error"); }
       };
       actionsCell.appendChild(delBtn);
+
+      // 開いた先: 作成日と、RAG・Claude それぞれの予算の自動リセット（次に戻る日時・今すぐ 0 に戻す・周期の変更）。
+      const detailCell = document.createElement("td");
+      detailCell.colSpan = 6;
+      const detail = document.createElement("div");
+      detail.className = "key-detail";
+      const createdBox = document.createElement("div");
+      const createdHead = document.createElement("h4");
+      createdHead.textContent = "作成日";
+      const createdText = document.createElement("div");
+      createdText.textContent = created;
+      createdBox.appendChild(createdHead);
+      createdBox.appendChild(createdText);
+      detail.appendChild(createdBox);
+      [["rag", "RAG予算"], ["claude", "Claude予算"]].forEach(([type, label]) => {
+        const box = document.createElement("div");
+        const head = document.createElement("h4");
+        head.textContent = label + "の自動リセット";
+        box.appendChild(head);
+        if (k[type + "_limit"] == null) {
+          const none = document.createElement("div");
+          none.className = "hint";
+          none.textContent = "無制限のため、戻す対象はありません";
+          box.appendChild(none);
+        } else {
+          box.appendChild(budgetResetControls(k, type, label));
+        }
+        detail.appendChild(box);
+      });
+      detailCell.appendChild(detail);
+      detailTr.appendChild(detailCell);
     });
   }
 
@@ -4696,14 +4870,14 @@ ${ASCII_ART_JS}
 
   async function loadKeys() {
     const tbody = $("keysTable").querySelector("tbody");
-    tbody.innerHTML = "<tr><td colspan=9>読み込み中…</td></tr>";
+    tbody.innerHTML = "<tr><td colspan=6>読み込み中…</td></tr>";
     try {
       const data = await api("/admin/keys/list", {});
       allKeysCache = data.keys;
       renderUsersOverviewKpis(data.keys);
       applyKeysFilter();
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan=8>取得に失敗しました: ' + esc(e.message) + '</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=6>取得に失敗しました: ' + esc(e.message) + '</td></tr>';
     }
   }
   $("refreshKeys").addEventListener("click", loadKeys);

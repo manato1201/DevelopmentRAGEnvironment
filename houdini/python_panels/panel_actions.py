@@ -36,11 +36,13 @@ ICON_PATHS: dict[str, str] = {
     "refresh": "M13 8a5 5 0 10-1.6 3.7M13 3v3.5h-3.5",
     "bookmark": "M4 2.5h8v11L8 10.5l-4 3z",
     "docSearch": "M3.5 2h5l2.5 2.5V7M3.5 2v11h4M9.5 12a2 2 0 100-4 2 2 0 000 4zM11 11.5l2 2",
+    # 全体を表示(四隅の枠)。Houdini パネルのノードグラフ用。Web 側では使っていない。
+    "fit": "M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4",
 }
 # SVG が使えないときの代用文字（絵文字は使わない）
 _FALLBACK_TEXT = {
     "copy": "⧉", "thumbUp": "+", "thumbDown": "−", "share": "⇪", "speaker": "♪",
-    "refresh": "↻", "bookmark": "★", "docSearch": "≡",
+    "refresh": "↻", "bookmark": "★", "docSearch": "≡", "fit": "⛶",
 }
 
 COLOR_NORMAL = "#cbd5e1"

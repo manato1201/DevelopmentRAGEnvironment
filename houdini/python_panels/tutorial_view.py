@@ -1962,6 +1962,16 @@ class _NodeGraphView(QGraphicsView):
         factor = 1.15 if event.angleDelta().y() > 0 else 1.0 / 1.15
         self.scale(factor, factor)
 
+    def fit_all(self) -> None:
+        """シーン全体を表示に収める(拡大・パンで見失ったときの「全体を表示」)。ノードが 0 件のときは何もしない。"""
+        scene = self.scene()
+        if scene is None:
+            return
+        rect = scene.itemsBoundingRect()
+        if rect.isNull() or rect.isEmpty():
+            return
+        self.fitInView(rect.adjusted(-30, -30, 30, 30), Qt.KeepAspectRatio)
+
 
 # ─── 過去のチュートリアルタブ ────────────────────────────────────────────────────
 
@@ -2046,6 +2056,11 @@ class TutorialHistoryPanel(QWidget):
         self._copy_mermaid_btn = action_button("share", "ノードグラフを Mermaid 記法でコピー(共有用。貼り付け先で図になります)")
         self._copy_mermaid_btn.clicked.connect(self._on_copy_mermaid)
         toolbar.addWidget(self._copy_mermaid_btn)
+
+        # ホイールで拡大したりドラッグで動かして見失ったときに、グラフ全体を表示に収め直す。
+        self._fit_graph_btn = action_button("fit", "ノードグラフ全体を表示")
+        self._fit_graph_btn.clicked.connect(lambda: self._graph_view.fit_all())
+        toolbar.addWidget(self._fit_graph_btn)
 
         # 選択中のチュートリアルに動画（<名前>.video.txtサイドカー）が見つかった場合のみ
         # 有効化する（2026-09-12追加）。押すと「動画」タブへ切り替えて再生する。
@@ -2652,10 +2667,7 @@ class TutorialHistoryPanel(QWidget):
         ]
 
         self._graph_scene.build({**graph, "nodes": laid_out_nodes, "edges": view_edges})
-        self._graph_view.fitInView(
-            self._graph_scene.itemsBoundingRect().adjusted(-30, -30, 30, 30),
-            Qt.KeepAspectRatio,
-        )
+        self._graph_view.fit_all()
         mode_label = "簡易" if self._simple_mode else "詳細"
         # 「簡易/詳細で何が違うか分からない」という報告への対策として、ノード数が
         # たまたま変わらない場合でも常にモードの意味を明示する（差分が出たときだけ
