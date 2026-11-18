@@ -52,6 +52,7 @@
 3. 無限ループは 3 つ: `pulse-soft`(処理中のスケルトン・no-preference の中)・`progress-slide`(終わりが読めない処理の帯)・ヒーローのパーティクル(canvas)。**新しい無限ループは足さない**(読み込み中を除く)。
 4. **2026-11-11 に直したもの**: ① `progress-slide` は reduced-motion の対象外で、`margin-left`(レイアウト)を動かしていた → `transform` に直し、reduce では止める。② ヒーローのパーティクルは reduced-motion を見ていなかった → reduce では 1 フレームだけ描いて止める(`heroCalm`。ブラウザでの実行は未確認。構文とコードの形をテストで確認)。
 5. 未使用の `@keyframes drift` が残っている(使われていない)。
+6. **2026-11-18 の監査**: 動きの候補(トースト・エンプティステート・エラーの揺れ・タブの押し出し・アイコンの弾み・詳細の展開・ドロワー)は既に揃っているので、**新しい動きは足していない**。直したのは 2 つだけ: ① `scrollIntoView({behavior:"smooth"})` が 5 か所で reduce を見ていなかった → `scrollMode()` を通して reduce では即移動。② トーストの下からの移動(`transform`)が reduce でも動いていた → reduce では `transform: none`(`transitionend` で片付けるので transition は止めない)。
 
 ## 4. アイコン
 

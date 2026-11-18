@@ -272,6 +272,8 @@ export function chatUiHtml(): string {
   .toast.show { opacity: 1; transform: translateY(0); }
   .toast.error { border-color: var(--bad); color: var(--bad); }
   .toast.success { border-color: var(--teal); color: var(--teal-text); }
+  /* 動きを減らす設定: 下からの移動だけやめる(薄い→はっきり、は残す。JS が transitionend で片付けるので transition 自体は止めない)。 */
+  @media (prefers-reduced-motion: reduce) { .toast, .toast.show { transform: none; } }
   /* ヘルスチェック結果の視覚化（2026-09-09追加）: セクション左端に健全度バーを出す。 */
   .section.health-ok { border-left: 3px solid var(--teal); padding-left: 1rem; }
   .section.health-warn { border-left: 3px solid var(--highlight); padding-left: 1rem; }
@@ -1540,6 +1542,10 @@ export function chatUiHtml(): string {
     document.body.appendChild(stack);
     return stack;
   }
+  // 動きを減らす設定のときは、スクロールも滑らせずにその場で移る(明示した smooth は OS の設定に従わないため)。
+  function scrollMode() {
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  }
   function showToast(message, kind) {
     const stack = $("toastStack") || createToastStack();
     const toast = document.createElement("div");
@@ -2503,7 +2509,7 @@ export function chatUiHtml(): string {
       const panelEl = $("sourcePanel");
       if (panelEl && panelEl.offsetParent !== null && panelState && panelState.sources === sources && panelState.rowRefs[n - 1]) {
         const row = panelState.rowRefs[n - 1];
-        row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        row.scrollIntoView({ behavior: scrollMode(), block: "nearest" });
         row.classList.add("citation-highlight");
         setTimeout(() => row.classList.remove("citation-highlight"), 1500);
         return;
@@ -2511,7 +2517,7 @@ export function chatUiHtml(): string {
       const li = sourceLiRefs[n - 1];
       if (!li) return;
       if (sourcesDetailsEl) sourcesDetailsEl.open = true;
-      li.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      li.scrollIntoView({ behavior: scrollMode(), block: "nearest" });
       li.classList.add("citation-highlight");
       setTimeout(() => li.classList.remove("citation-highlight"), 1500);
     }
@@ -2638,11 +2644,11 @@ export function chatUiHtml(): string {
     // 参照元(根拠)。出典があるときだけ、出典の一覧を開いて、そこへ移動する。
     if (sources && sources.length > 0) {
       const srcBtn = actionBtn("docSearch", "参照した情報源と根拠を開く", () => {
-        if (sourcesDetailsEl) { sourcesDetailsEl.open = true; sourcesDetailsEl.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
+        if (sourcesDetailsEl) { sourcesDetailsEl.open = true; sourcesDetailsEl.scrollIntoView({ behavior: scrollMode(), block: "nearest" }); }
         const panelEl = $("sourcePanel");
         if (panelEl && panelEl.offsetParent !== null) {
           if (container === messagesEl) showSourcePanel(sources);
-          panelEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          panelEl.scrollIntoView({ behavior: scrollMode(), block: "nearest" });
         }
         popAction(srcBtn);
       });
@@ -7497,7 +7503,7 @@ ${ASCII_ART_JS}
         const panel = mk("div", "sys-panel");
         panel.appendChild(mk("h4", "", "同期の設定"));
         panel.appendChild(mk("p", "modal-note", def.kind === "key" ? "場所の登録は、ナレッジ登録タブの「同期・通知の設定」にある「Googleマップ」で行います。" : "同期するプロジェクト・カレンダー・通知先などは、ナレッジ登録タブの「同期・通知の設定」で設定します。"));
-        panel.appendChild(modalButton("同期・通知の設定を開く", "", () => { modal.close(); const tab = document.querySelector('button[data-subtab="knowledge"]'); if (tab) tab.click(); const d = $("syncSettings"); if (d) { d.open = true; d.scrollIntoView({ behavior: "smooth", block: "start" }); } }));
+        panel.appendChild(modalButton("同期・通知の設定を開く", "", () => { modal.close(); const tab = document.querySelector('button[data-subtab="knowledge"]'); if (tab) tab.click(); const d = $("syncSettings"); if (d) { d.open = true; d.scrollIntoView({ behavior: scrollMode(), block: "start" }); } }));
         modal.body.appendChild(panel);
       }
 

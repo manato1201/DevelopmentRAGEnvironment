@@ -68,3 +68,9 @@ assert.match(html, /const heroCalm = !!\(window\.matchMedia && window\.matchMedi
 assert.match(html, /if \(!heroCalm\) heroAnimId = requestAnimationFrame\(frame\);/);
 assert.match(html, /if \(heroCalm\) \{ frame\(0\); heroAnimId = 0; \} else heroAnimId = requestAnimationFrame\(frame\);/);
 console.log("ui hero motion: ok");
+
+// --- 動きを減らす設定: スムーススクロールは滑らせず(scrollMode)、トーストは下からの移動をやめる(薄い→はっきりは残す)
+assert.ok(!/behavior: "smooth"/.test(html.replace(/return window\.matchMedia[^\r\n]*"auto" : "smooth";/, "")), "scrollIntoView に smooth を直書きしない(scrollMode を通す)");
+assert.match(html, /return window\.matchMedia && window\.matchMedia\("\(prefers-reduced-motion: reduce\)"\)\.matches \? "auto" : "smooth";/);
+assert.match(html, /@media \(prefers-reduced-motion: reduce\) \{ \.toast, \.toast\.show \{ transform: none; \} \}/);
+console.log("ui reduced-motion scroll/toast: ok");
