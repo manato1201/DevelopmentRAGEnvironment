@@ -29,7 +29,9 @@ from typing import Optional
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+
+from panel_actions import COLOR_MUTED, px, type_qss
 
 _LOG_RELATIVE_PATH = Path("logs") / "houdini_token_usage.jsonl"
 _QUOTA_CACHE_RELATIVE_PATH = Path("logs") / "houdini_claude_quota_cache.json"
@@ -212,10 +214,10 @@ class DonutGauge(QWidget):
     used/budget が大きいほど円弧が減っていく（budgetを使い切ると0%）。
     """
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: Optional[QWidget] = None, size: int = 120) -> None:
         super().__init__(parent)
         self._percent = 100.0
-        self.setMinimumSize(120, 120)
+        self.setMinimumSize(px(size), px(size))  # 96dpi での大きさ。いまの拡大率に直す
 
     def set_percent(self, percent: float) -> None:
         self._percent = max(0.0, min(100.0, percent))
@@ -225,17 +227,17 @@ class DonutGauge(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        side = min(self.width(), self.height()) - 12
+        side = int(min(self.width(), self.height()) * 0.9)
         rect = QRectF(
             (self.width() - side) / 2, (self.height() - side) / 2, side, side
         )
 
-        track_pen = QPen(QColor("#3a3f4a"), max(6, side // 10))
+        track_pen = QPen(QColor("#3a3f4a"), max(4, side // 10))
         track_pen.setCapStyle(Qt.FlatCap)
         painter.setPen(track_pen)
         painter.drawArc(rect, 0, 360 * 16)
 
-        fill_pen = QPen(QColor("#4a90e2"), max(6, side // 10))
+        fill_pen = QPen(QColor("#4a90e2"), max(4, side // 10))
         fill_pen.setCapStyle(Qt.RoundCap)
         painter.setPen(fill_pen)
         span = int(360 * 16 * (self._percent / 100.0))
@@ -243,7 +245,7 @@ class DonutGauge(QWidget):
 
         painter.setPen(QColor("#e6e8ee"))
         font = QFont()
-        font.setPointSize(max(10, side // 6))
+        font.setPixelSize(max(8, int(side * 0.24)))  # ゲージの大きさに比例させる(拡大率が変わっても比率が同じ)
         font.setBold(True)
         painter.setFont(font)
         painter.drawText(rect, Qt.AlignCenter, f"{self._percent:.0f}%")
@@ -258,48 +260,76 @@ class TokenUsageWidget(QWidget):
     ゲージ本体はCloudflareが報告する「Claudeトークン残高（サーバー管理・実際の上限）」を
     表示する。生成のたびに tutorial_view.py が set_server_quota() を呼んで更新する。
     その下の小さいテキストは、このHoudiniからの累積送信量（ローカル記録・参考値）。
+
+    compact=True のときは、ゲージを小さくして左に置き、文字を右に並べる（縦に場所を取らない）。
+    文字の大きさは panel_actions.type_qss の 4 段階（pt）。
     """
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: Optional[QWidget] = None, compact: bool = False) -> None:
         super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 4)
-        layout.setSpacing(2)
+        self._compact = compact
+        align = Qt.AlignLeft | Qt.AlignVCenter if compact else Qt.AlignCenter
+        self._sub_color = COLOR_MUTED
 
-        self._gauge = DonutGauge()
-        layout.addWidget(self._gauge, alignment=Qt.AlignHCenter)
+        self._gauge = DonutGauge(size=52 if compact else 120)
 
         self._label = QLabel("Claudeトークン残量（サーバー管理）")
-        self._label.setAlignment(Qt.AlignCenter)
-        self._label.setStyleSheet("color:#aaa;font-size:11px;")
+        self._label.setAlignment(align)
+        self._label.setStyleSheet(type_qss("caption", COLOR_MUTED))
         fit_label(self._label)
-        layout.addWidget(self._label)
 
         self._detail = QLabel("")
-        self._detail.setAlignment(Qt.AlignCenter)
-        self._detail.setStyleSheet("font-size:13px;font-weight:bold;")
+        self._detail.setAlignment(align)
+        self._detail.setStyleSheet(type_qss("body") + "font-weight:bold;")
         fit_label(self._detail)
-        layout.addWidget(self._detail)
 
         self._sub = QLabel("")
-        self._sub.setAlignment(Qt.AlignCenter)
-        self._sub.setStyleSheet("color:#888;font-size:10px;")
+        self._sub.setAlignment(align)
+        self._sub.setStyleSheet(type_qss("caption", self._sub_color))
         fit_label(self._sub)
-        layout.addWidget(self._sub)
 
         self._local_sub = QLabel("")
-        self._local_sub.setAlignment(Qt.AlignCenter)
-        self._local_sub.setStyleSheet("color:#666;font-size:9px;")
+        self._local_sub.setAlignment(align)
+        self._local_sub.setStyleSheet(type_qss("caption", "#64748b"))
         fit_label(self._local_sub)
-        layout.addWidget(self._local_sub)
 
         # 2026-09-20追加: トピック入力前に「だいたいこれくらいかかる」の目安が分かるように
         # する（実機フィードバック「生成コストの事前見積もりがあると助かる」への対応）。
         self._estimate_label = QLabel("")
-        self._estimate_label.setAlignment(Qt.AlignCenter)
-        self._estimate_label.setStyleSheet("color:#7dd3fc;font-size:10px;")
+        self._estimate_label.setAlignment(align)
+        self._estimate_label.setStyleSheet(type_qss("caption", "#7dd3fc"))
         fit_label(self._estimate_label)
-        layout.addWidget(self._estimate_label)
+
+        texts = (self._label, self._detail, self._sub, self._local_sub, self._estimate_label)
+        if compact:
+            layout = QHBoxLayout(self)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(px(10))
+            layout.addWidget(self._gauge, alignment=Qt.AlignTop)
+            column = QVBoxLayout()
+            column.setSpacing(px(1))
+            head = QHBoxLayout()  # 「残量」と「残高 / 上限」は 1 行に並べる(縦に場所を取らない)
+            head.setSpacing(px(8))
+            self._detail.setWordWrap(False)
+            self._detail.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)  # 数字は切らずに、残りを説明に回す
+            head.addWidget(self._detail)
+            head.addWidget(self._label, stretch=1)
+            column.addLayout(head)
+            for label in texts[2:]:
+                column.addWidget(label)
+            column.addStretch()
+            layout.addLayout(column, stretch=1)
+        else:
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(0, 0, 0, px(4))
+            layout.setSpacing(px(2))
+            layout.addWidget(self._gauge, alignment=Qt.AlignHCenter)
+            for label in texts:
+                layout.addWidget(label)
+
+    def _set_sub(self, text: str, color: str) -> None:
+        self._sub.setText(text)
+        self._sub.setStyleSheet(type_qss("caption", color))
 
     def set_server_quota(
         self,
@@ -312,25 +342,21 @@ class TokenUsageWidget(QWidget):
         if capacity is None:
             self._gauge.set_percent(100.0)
             self._detail.setText("無制限")
-            self._sub.setText("このAPIキーにはClaudeトークン上限が設定されていません")
-            self._sub.setStyleSheet("color:#888;font-size:10px;")
+            self._set_sub("このAPIキーにはClaudeトークン上限が設定されていません", COLOR_MUTED)
             return
         percent = (balance / capacity * 100.0) if capacity > 0 else 0.0
         self._gauge.set_percent(percent)
         self._detail.setText(f"{balance:,} / {capacity:,}")
         recovery_note = _format_recovery_note(reset_interval_hours, reset_at)
         if percent <= 15:
-            self._sub.setText(f"残量が少なくなっています。{recovery_note}")
-            self._sub.setStyleSheet("color:#e07a5f;font-size:10px;")
+            self._set_sub(f"残量が少なくなっています。{recovery_note}", "#e07a5f")
         else:
-            self._sub.setText(recovery_note)
-            self._sub.setStyleSheet("color:#888;font-size:10px;")
+            self._set_sub(recovery_note, COLOR_MUTED)
 
     def _set_unknown(self) -> None:
         self._gauge.set_percent(100.0)
         self._detail.setText("未取得")
-        self._sub.setText("チュートリアルを1回生成すると表示されます")
-        self._sub.setStyleSheet("color:#888;font-size:10px;")
+        self._set_sub("チュートリアルを1回生成すると表示されます", COLOR_MUTED)
 
     def refresh(self, bridge_dir: str) -> None:
         """

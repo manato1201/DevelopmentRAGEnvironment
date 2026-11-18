@@ -5,6 +5,9 @@ panel_actions.py — パネルで共通に使う「アイコン 1 つ = 操作 1
   px(n)               … 96dpi での n ピクセルを、いまの拡大率に直した整数。
   pt_qss(qss)         … スタイルシートの font-size:Npx を、font-size:Mpt に直す（pt は OS の拡大に追従する）。
   normalize_fonts(w)  … ウィジェット以下のスタイルシートの px フォントを pt に揃える（パネルを作ったあとに 1 回呼ぶ）。
+  type_qss(role)      … 文字の大きさの 4 段階（heading / body / caption / code）を、pt のスタイルシートにする。
+  type_font(role)     … 同じ 4 段階の QFont（パネルの本文のフォントを決めるのに使う）。
+  button_qss(kind)    … ボタンの役割（primary = 主 / secondary = 副 / danger = 危険）ごとのスタイルシート。
   make_icon(name)     … 線画アイコン（QIcon）。Web のチャット画面と同じ 1 セット。
   action_button(...)  … アイコンだけのボタン（QToolButton）。名前はツールチップと読み上げ用の名前に出す。
   Speaker             … 読み上げ（QtTextToSpeech）。無い環境では available=False で、ボタンを出さない。
@@ -18,7 +21,7 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QByteArray, QSize, Qt
-from PySide6.QtGui import QGuiApplication, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QFont, QGuiApplication, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QToolButton, QWidget
 
 try:  # Houdini 同梱の PySide に QtSvg が無い場合は、文字のアイコンで代用する
@@ -84,6 +87,60 @@ def normalize_fonts(root: QWidget) -> int:
             widget.setStyleSheet(pt_qss(qss))
             changed += 1
     return changed
+
+
+# ─── 文字の大きさ（タイプスケール）─────────────────────────────────────────────────
+# チュートリアル生成の画面は、文字の大きさをこの 4 段階だけにする（個別に font-size を書かない）。
+# 単位は pt。pt は OS の拡大に追従するので、4K・拡大表示でも 4 段階の比率が崩れない。
+TYPE_SCALE: dict[str, float] = {"heading": 11.0, "body": 10.0, "caption": 9.0, "code": 9.0}
+_TYPE_EXTRA: dict[str, str] = {
+    "heading": "font-weight:bold;",
+    "code": "font-family:Consolas,'Cascadia Mono',monospace;",
+}
+COLOR_TEXT = "#e2e8f0"      # 見出し・状態の読み出し
+COLOR_MUTED = "#94a3b8"     # 補足
+COLOR_ACCENT = "#7dd3fc"    # 選んだもの・進行中の案内
+
+
+def type_qss(role: str, color: str = "") -> str:
+    """役割（heading / body / caption / code）の文字の大きさを、スタイルシートの断片にする。color を渡せば文字色も付ける。"""
+    if role not in TYPE_SCALE:
+        raise KeyError(f"unknown type role: {role}")
+    qss = f"font-size:{TYPE_SCALE[role]:.1f}pt;{_TYPE_EXTRA.get(role, '')}"
+    return qss + (f"color:{color};" if color else "")
+
+
+def type_font(role: str) -> QFont:
+    """役割の QFont（point サイズ指定）。"""
+    if role not in TYPE_SCALE:
+        raise KeyError(f"unknown type role: {role}")
+    font = QFont()
+    font.setPointSizeF(TYPE_SCALE[role])
+    if role == "heading":
+        font.setBold(True)
+    if role == "code":
+        font.setFamilies(["Consolas", "Cascadia Mono", "monospace"])
+    return font
+
+
+def button_qss(kind: str = "secondary") -> str:
+    """ボタンの役割ごとの見た目。primary = 主（生成・保存）、secondary = 副（OS 標準の見た目のまま）、danger = 危険（破棄・削除）。
+    余白・角丸は px(n) なので、拡大率に追従する（文字の pt と比率が変わらない）。"""
+    pad = f"padding:{px(5)}px {px(14)}px;border-radius:{px(4)}px;min-height:{px(18)}px;"
+    if kind == "primary":
+        return (
+            f"QPushButton{{background:#2563eb;color:#fff;border:none;font-weight:bold;{pad}}}"
+            "QPushButton:hover{background:#3b82f6;}"
+            "QPushButton:pressed{background:#1d4ed8;}"
+            "QPushButton:disabled{background:#1e293b;color:#64748b;}"
+        )
+    if kind == "danger":
+        return (
+            f"QPushButton{{background:transparent;color:#fca5a5;border:1px solid #7f1d1d;{pad}}}"
+            "QPushButton:hover{background:#450a0a;border-color:#b91c1c;}"
+            "QPushButton:disabled{color:#64748b;border-color:#334155;}"
+        )
+    return ""
 
 
 def make_icon(name: str, color: str = COLOR_NORMAL, size: int = 16) -> QIcon:

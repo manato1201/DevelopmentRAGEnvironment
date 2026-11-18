@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFrame, QSizePolicy, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
 _STATE_PATH = Path.home() / ".houdini" / "rag_chatbot_ui.json"
 
@@ -48,6 +48,9 @@ class CollapsibleBox(QWidget):
 
     state_key を渡すと、開閉の状態を覚える（次に開いたときも同じ状態）。渡さなければ、覚えない
     （回答ごとの出典など、数が増えるものは覚えない）。
+
+    left_align=True のときは、見出しを左寄せにする（QToolButton は text-align が効かず、中央寄せになるため、
+    見出しだけ平らな QPushButton にする）。既定は従来どおり（他の画面の見た目は変わらない）。
     """
 
     toggled = Signal(bool)  # True = 開いた
@@ -59,6 +62,7 @@ class CollapsibleBox(QWidget):
         collapsed: bool = True,
         state_key: str = "",
         parent: QWidget | None = None,
+        left_align: bool = False,
     ) -> None:
         super().__init__(parent)
         self._title = title
@@ -67,12 +71,20 @@ class CollapsibleBox(QWidget):
             saved = _load_state().get("collapsed", {}).get(state_key)
             if isinstance(saved, bool):
                 collapsed = saved
-        self._header = QToolButton()
+        if left_align:
+            self._header = QPushButton()
+            self._header.setFlat(True)
+            self._header.setCursor(Qt.PointingHandCursor)
+            self._header.setStyleSheet(
+                "QPushButton{border:none;text-align:left;color:#cbd5e1;padding:2px 0;}QPushButton:hover{color:#fff;}"
+            )
+        else:
+            self._header = QToolButton()
+            self._header.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            self._header.setStyleSheet(
+                "QToolButton{border:none;text-align:left;color:#cbd5e1;padding:2px 0;}QToolButton:hover{color:#fff;}"
+            )
         self._header.setCheckable(True)
-        self._header.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        self._header.setStyleSheet(
-            "QToolButton{border:none;text-align:left;color:#cbd5e1;padding:2px 0;}QToolButton:hover{color:#fff;}"
-        )
         self._header.setSizePolicy(
             QSizePolicy.Ignored, QSizePolicy.Fixed
         )  # タイトルが長くても、ペインを広げない

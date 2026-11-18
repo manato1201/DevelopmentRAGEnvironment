@@ -36,6 +36,40 @@ class PtQssTest(unittest.TestCase):
         self.assertNotIn("px", label.styleSheet().split("font-size")[1].split(";")[0])
 
 
+class TypeScaleTest(unittest.TestCase):
+    """チュートリアル生成の画面の文字の大きさ(タイプスケール)。pt で、4 段階だけ。"""
+
+    def test_four_roles_in_pt_and_ordered(self) -> None:
+        self.assertEqual(set(pa.TYPE_SCALE), {"heading", "body", "caption", "code"})
+        self.assertGreater(pa.TYPE_SCALE["heading"], pa.TYPE_SCALE["body"])
+        self.assertGreater(pa.TYPE_SCALE["body"], pa.TYPE_SCALE["caption"])
+        for role in pa.TYPE_SCALE:
+            qss = pa.type_qss(role, "#fff")
+            self.assertIn("pt;", qss)
+            self.assertNotIn("px", qss.split("font-size")[1].split(";")[0])
+            self.assertAlmostEqual(pa.type_font(role).pointSizeF(), pa.TYPE_SCALE[role])
+
+    def test_unknown_role_is_rejected(self) -> None:
+        with self.assertRaises(KeyError):
+            pa.type_qss("huge")
+
+    def test_button_kinds(self) -> None:
+        self.assertEqual(pa.button_qss("secondary"), "")  # 副は OS 標準の見た目のまま
+        self.assertIn("background:#2563eb", pa.button_qss("primary"))
+        self.assertIn("#7f1d1d", pa.button_qss("danger"))
+
+    def test_generate_panel_has_no_px_fonts(self) -> None:
+        """生成画面は、拡大率で文字がずれないよう、スタイルシートに px のフォントを書かない(動的に当てるものも含む)。"""
+        import tempfile
+
+        import tutorial_view as tv
+
+        panel = tv.TutorialGeneratePanel(lambda: {"local_bridge_dir": tempfile.mkdtemp()})
+        panel._set_video_bar(30, "描画")
+        for widget in [panel, *panel.findChildren(QWidget)]:
+            self.assertNotRegex(widget.styleSheet(), r"font-size\s*:\s*[\d.]+px", type(widget).__name__)
+
+
 class ScaleTest(unittest.TestCase):
     def test_px_is_at_least_one_and_scales_up(self) -> None:
         self.assertGreaterEqual(pa.px(0), 1)

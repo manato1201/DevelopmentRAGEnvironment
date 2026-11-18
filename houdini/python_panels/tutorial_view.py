@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
+    QFrame,
     QGraphicsItem,
     QGraphicsPathItem,
     QGraphicsRectItem,
@@ -47,6 +48,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTextEdit,
     QToolButton,
@@ -58,13 +60,38 @@ import gallery_upload
 import panel_paths
 import token_usage
 import video_progress
-from panel_actions import Speaker, action_button, normalize_fonts, px
+from panel_actions import (
+    COLOR_ACCENT,
+    COLOR_MUTED,
+    COLOR_TEXT,
+    Speaker,
+    action_button,
+    button_qss,
+    normalize_fonts,
+    px,
+    type_font,
+    type_qss,
+)
+from panel_widgets import CollapsibleBox, make_separator
 from report_dialog import ReportDialog
 from tutorial_graph_simplify import graph_to_mermaid, layered_positions, simplify_graph
 
 # ノード数がこれを超えるチュートリアルを開いたときは既定で「簡易表示」にする
 # （197ノード級の生成物をそのまま全表示すると判読不能になるため）。
 _SIMPLIFY_THRESHOLD = 30
+
+class _HideWhenEmptyLabel(QLabel):
+    """文字が空のあいだは、場所も取らない(折り返しあり・横幅はレイアウト任せ。token_usage.fit_label と同じ)。"""
+
+    def __init__(self, text: str = "") -> None:
+        super().__init__(text)
+        token_usage.fit_label(self)
+        self.setVisible(bool(text))
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt の名前
+        super().setText(text)
+        self.setVisible(bool(text))
+
 
 # ─── 生成ワーカー ────────────────────────────────────────────────────────────────
 
@@ -532,51 +559,81 @@ class TutorialGeneratePanel(QWidget):
         normalize_fonts(self)  # px のフォントを pt に揃える(4K・拡大表示で文字と部品の大きさがずれないように)
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setSpacing(4)
+        # 画面の構成（2026-11-18 整理）。上から「何を作るか（トピック・条件・レベル）→ 生成」「詳細設定（折りたたみ）」
+        # →「状態（いま何をしているか・動画の進み・コスト）」→「進行ログ / プレビュー」→「結果の操作（保存・動画・評価）」。
+        # 全体を 1 つのスクロール領域に入れ、ペインが低いときは縦に詰めずにスクロールさせる。文字の大きさは
+        # panel_actions のタイプスケール（heading / body / caption / code）、部品の寸法は px(n)。
+        self.setFont(type_font("body"))
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        outer.addWidget(self._scroll)
+        body = QWidget()
+        self._scroll.setWidget(body)
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(px(8), px(8), px(8), px(8))
+        layout.setSpacing(px(8))
 
-        # 累積トークン消費量ゲージ
-        self._usage_widget = token_usage.TokenUsageWidget()
-        layout.addWidget(self._usage_widget)
-        self._refresh_usage()
-
-        # トピック入力行
+        # ── 1. 何を作るか: トピック → 生成 ─────────────────────────────────────
+        topic_box = QVBoxLayout()
+        topic_box.setSpacing(px(4))
+        topic_caption = QLabel("トピック")
+        topic_caption.setStyleSheet(type_qss("heading", COLOR_TEXT))
+        topic_box.addWidget(topic_caption)
         input_row = QHBoxLayout()
+        input_row.setSpacing(px(6))
         self._topic_edit = QLineEdit()
+        self._topic_edit.setMinimumHeight(px(32))
         self._topic_edit.setPlaceholderText("例: 岩を地形に散布するプロシージャルセットアップ")
         self._topic_edit.returnPressed.connect(self._on_generate)
         self._generate_btn = QPushButton("生成")
+        self._generate_btn.setStyleSheet(button_qss("primary"))
+        self._generate_btn.setMinimumSize(px(72), px(32))
+        self._generate_btn.setCursor(Qt.PointingHandCursor)
+        self._generate_btn.setToolTip("トピックと生成条件からチュートリアルを生成します（トピック欄で Enter でも始まります）")
         self._generate_btn.clicked.connect(self._on_generate)
-        input_row.addWidget(QLabel("トピック:"))
         input_row.addWidget(self._topic_edit, stretch=1)
         input_row.addWidget(self._generate_btn)
-        layout.addLayout(input_row)
+        topic_box.addLayout(input_row)
+        layout.addLayout(topic_box)
 
         # 生成条件（自由記述、2026-10-05追加）。トピックだけだと「ガウシアンスプラット」のような
         # 指定が「それ風」の代用で済まされることがあったため、必ず守らせたい条件を別欄で渡す。
         # 条件はトピックより優先され、満たせなかった場合は pitfalls に理由が書かれる。
-        cond_row = QHBoxLayout()
-        cond_label = QLabel("生成条件:")
-        cond_label.setAlignment(Qt.AlignTop)
+        cond_box = QVBoxLayout()
+        cond_box.setSpacing(px(4))
+        cond_head = QHBoxLayout()
+        cond_head.setSpacing(px(8))
+        cond_label = QLabel("生成条件")
+        cond_label.setStyleSheet(type_qss("heading", COLOR_TEXT))
+        cond_hint = token_usage.fit_label(QLabel("任意。必ず守ってほしい条件（トピックより優先）"))
+        cond_hint.setStyleSheet(type_qss("caption", COLOR_MUTED))
+        cond_head.addWidget(cond_label)
+        cond_head.addWidget(cond_hint, stretch=1)
+        cond_box.addLayout(cond_head)
         self._requirements_edit = QTextEdit()
         self._requirements_edit.setAcceptRichText(False)
-        self._requirements_edit.setFixedHeight(px(54))
+        self._requirements_edit.setFixedHeight(px(58))
         self._requirements_edit.setPlaceholderText(
-            "（任意）必ず守ってほしい条件。例: ガウシアンスプラットを実際に使う / SOPだけで作る / Karmaは使わない"
+            "例: ガウシアンスプラットを実際に使う / SOPだけで作る / Karmaは使わない"
         )
         self._requirements_edit.setToolTip(
             "ここに書いた条件はトピックより優先されます。条件にある技法は「それ風」の代用ではなく実際に使わせます。\n"
             "満たせなかった場合は、チュートリアルの「ハマりポイント」に理由が書かれます。"
         )
-        cond_row.addWidget(cond_label)
-        cond_row.addWidget(self._requirements_edit, stretch=1)
-        layout.addLayout(cond_row)
+        cond_box.addWidget(self._requirements_edit)
+        layout.addLayout(cond_box)
 
         # レベル選択行（IMPROVEMENT_PLAN.md Phase1: RAGレベリング）。
         # 「3段階連続生成」がオンのときはレベル選択は無視され、常に
         # basic→applied→advanced の順で3本まとめて生成・自動保存する。
         level_row = QHBoxLayout()
-        level_row.addWidget(QLabel("レベル:"))
+        level_row.setSpacing(px(8))
+        level_label = QLabel("レベル")
+        level_label.setStyleSheet(type_qss("heading", COLOR_TEXT))
+        level_row.addWidget(level_label)
         self._level_combo = QComboBox()
         self._level_combo.addItems(["basic", "applied", "advanced"])
         self._level_combo.setToolTip(
@@ -586,96 +643,174 @@ class TutorialGeneratePanel(QWidget):
             "説明の言葉の難しさと深さ、解説動画のナレーションも、段階に合わせて変わります"
         )
         level_row.addWidget(self._level_combo)
-        self._chain_checkbox = QCheckBox("3段階連続生成（basic→applied→advanced、自動保存）")
-        self._chain_checkbox.setToolTip(
-            "オンにすると同一トピックでbasic/applied/advancedを順に生成し、"
-            "前段の内容を次段のプロンプトへ引き継ぎます。生成時間・コストは単発の最大3倍。\n"
-            "各レベルはプレビュー確認なしで自動的にlocalRAG/tutorials/へ保存されます。"
-        )
-        self._chain_checkbox.toggled.connect(self._on_chain_toggled)
-        level_row.addWidget(self._chain_checkbox)
         level_row.addStretch()
         layout.addLayout(level_row)
+        self._chain_checkbox = QCheckBox("3段階まとめて生成（自動保存）")
+        self._chain_checkbox.setToolTip(
+            "オンにすると同一トピックでbasic→applied→advancedを順に生成し、"
+            "前段の内容を次段のプロンプトへ引き継ぎます。生成時間・コストは単発の最大3倍。\n"
+            "各レベルはプレビュー確認なしで自動的にlocalRAG/tutorials/へ保存されます。\n"
+            "オンの間は、左のレベル選択は使われません。"
+        )
+        self._chain_checkbox.toggled.connect(self._on_chain_toggled)
+        layout.addWidget(self._chain_checkbox)  # 狭いペインでも折れ曲がらないよう、レベルの下に独立した行で置く
 
+        # ── 2. 詳細設定（めったに触らないものは折りたたむ）──────────────────────
         # 参考画像（テキスト＋画像での生成、2026-10-05追加）。テキストのトピックだけだと
         # 求める完成イメージからズレることがあるため、スクショ・写真・ラフ等を添えられる。
         # 添付は生成を開始してもクリアされない（同じ画像で作り直せる）。ラベルは長いファイル名で
         # パネルが横に広がらないよう fit_label で折り返す。
+        # 対象モデル（アニメーション・リギング用、2026-10-05追加）。選んだモデルファイルを
+        # 読み込んで、その上でリグ・アニメーションを作らせる。読み取り専用で、サンドボックス内に
+        # File SOP / KineFXのインポートノードとして読み込まれる（元ファイルは変更しない）。
+        advanced = QWidget()
+        adv_layout = QVBoxLayout(advanced)
+        adv_layout.setContentsMargins(px(14), px(2), 0, px(4))
+        adv_layout.setSpacing(px(4))
+
         self._reference_paths: list[str] = []
+        ref_caption = QLabel("参考画像")
+        ref_caption.setStyleSheet(type_qss("caption", COLOR_MUTED))
+        adv_layout.addWidget(ref_caption)
         ref_row = QHBoxLayout()
-        self._ref_add_btn = QPushButton("参考画像を追加…")
+        ref_row.setSpacing(px(6))
+        self._ref_add_btn = QPushButton("画像を選ぶ…")
         self._ref_add_btn.setToolTip("完成イメージの参考になる画像（png/jpg/webp等）を選びます。最大4枚。")
         self._ref_add_btn.clicked.connect(self._on_add_reference_images)
-        self._ref_paste_btn = QPushButton("クリップボードの画像")
+        self._ref_paste_btn = QPushButton("貼り付け")
         self._ref_paste_btn.setToolTip("コピーしてある画像（スクリーンショット等）を参考画像として追加します。")
         self._ref_paste_btn.clicked.connect(self._on_paste_reference_image)
         self._ref_clear_btn = QPushButton("クリア")
+        self._ref_clear_btn.setToolTip("選んだ参考画像をすべて外します。")
         self._ref_clear_btn.clicked.connect(self._on_clear_reference_images)
         ref_row.addWidget(self._ref_add_btn)
         ref_row.addWidget(self._ref_paste_btn)
         ref_row.addWidget(self._ref_clear_btn)
         ref_row.addStretch()
-        layout.addLayout(ref_row)
+        adv_layout.addLayout(ref_row)
         self._ref_label = token_usage.fit_label(QLabel(""))
-        self._ref_label.setStyleSheet("color:#7dd3fc;font-size:11px;")
-        layout.addWidget(self._ref_label)
-        self._refresh_reference_label()
+        self._ref_label.setStyleSheet(type_qss("caption", COLOR_ACCENT))
+        adv_layout.addWidget(self._ref_label)
 
-        # 対象モデル（アニメーション・リギング用、2026-10-05追加）。選んだモデルファイルを
-        # 読み込んで、その上でリグ・アニメーションを作らせる。読み取り専用で、サンドボックス内に
-        # File SOP / KineFXのインポートノードとして読み込まれる（元ファイルは変更しない）。
         self._target_model_path: str = ""
+        model_caption = QLabel("対象モデル")
+        model_caption.setStyleSheet(type_qss("caption", COLOR_MUTED))
+        adv_layout.addWidget(model_caption)
         model_row = QHBoxLayout()
-        self._model_pick_btn = QPushButton("対象モデルを選択…")
+        model_row.setSpacing(px(6))
+        self._model_pick_btn = QPushButton("モデルを選ぶ…")
         self._model_pick_btn.setToolTip(
             "アニメーション・リギングのチュートリアルで使うモデル（fbx / glb / gltf / usd / obj / bgeo / abc）を選びます。\n"
             "ファイルは読み取り専用で、書き換えません。"
         )
         self._model_pick_btn.clicked.connect(self._on_pick_target_model)
         self._model_clear_btn = QPushButton("クリア")
+        self._model_clear_btn.setToolTip("選んだ対象モデルを外します。")
         self._model_clear_btn.clicked.connect(self._on_clear_target_model)
         model_row.addWidget(self._model_pick_btn)
         model_row.addWidget(self._model_clear_btn)
         model_row.addStretch()
-        layout.addLayout(model_row)
+        adv_layout.addLayout(model_row)
         self._model_label = token_usage.fit_label(QLabel(""))
-        self._model_label.setStyleSheet("color:#7dd3fc;font-size:11px;")
-        layout.addWidget(self._model_label)
+        self._model_label.setStyleSheet(type_qss("caption", COLOR_ACCENT))
+        adv_layout.addWidget(self._model_label)
+
+        self._advanced_box = CollapsibleBox(
+            self._ADVANCED_TITLE, advanced, collapsed=True, state_key="tutorial_generate_advanced", left_align=True
+        )
+        layout.addWidget(self._advanced_box)
+        self._refresh_reference_label()
         self._refresh_model_label()
 
-        # 進行ログとプレビューを縦分割
-        splitter = QSplitter(Qt.Vertical)
+        # ── 3. 状態（いま何をしているか・動画の進み・コスト）を 1 か所に ───────────
+        card = QFrame()
+        card.setObjectName("tgCard")
+        card.setStyleSheet("QFrame#tgCard{border:1px solid #334155;border-radius:%dpx;}" % px(6))
+        self._state_card = card
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(px(10), px(8), px(10), px(8))
+        card_layout.setSpacing(px(6))
+        state_caption = QLabel("状態")
+        state_caption.setStyleSheet(type_qss("heading", COLOR_TEXT))
+        card_layout.addWidget(state_caption)
+        self._status = token_usage.fit_label(QLabel("トピックを入力して「生成」を押してください"))
+        self._status.setStyleSheet(type_qss("body", COLOR_TEXT))
+        card_layout.addWidget(self._status)
 
+        # 動画生成の進捗表示（2026-08-31追加）。
+        # 2026-10-21: プログレスバー（台本 → 音声 → 描画 → 完了の全体の％。video_progress.py）。動画を作っていない間は隠す。
+        self._video_bar = QProgressBar()
+        self._video_bar.setRange(0, 100)
+        self._video_bar.setTextVisible(True)
+        self._video_bar.setFixedHeight(px(20))
+        self._video_bar.setVisible(False)
+        card_layout.addWidget(self._video_bar)
+        self._script_timer = QTimer(self)
+        self._script_timer.setInterval(1000)
+        self._script_timer.timeout.connect(self._on_script_tick)
+        self._script_elapsed = 0.0
+        self._video_progress = _HideWhenEmptyLabel()
+        self._video_progress.setStyleSheet(type_qss("caption", COLOR_ACCENT))
+        card_layout.addWidget(self._video_progress)
+
+        card_layout.addWidget(make_separator())
+        # 累積トークン消費量ゲージ（小さく左に置き、文字を右に並べる）
+        self._usage_widget = token_usage.TokenUsageWidget(compact=True)
+        card_layout.addWidget(self._usage_widget)
+        self._refresh_usage()
+        layout.addWidget(card)
+
+        # ── 4. 進行ログとプレビューを縦分割（ペインが低いときは、全体のスクロールで見る）─
+        splitter = QSplitter(Qt.Vertical)
+        splitter.setChildrenCollapsible(False)
+        splitter.setMinimumHeight(px(250))
+
+        log_box = QWidget()
+        log_layout = QVBoxLayout(log_box)
+        log_layout.setContentsMargins(0, 0, 0, 0)
+        log_layout.setSpacing(px(3))
+        log_caption = QLabel("進行ログ")
+        log_caption.setStyleSheet(type_qss("caption", COLOR_MUTED))
+        log_layout.addWidget(log_caption)
         self._progress_log = QTextEdit()
         self._progress_log.setReadOnly(True)
-        self._progress_log.setPlaceholderText("進行状況（どのツールを呼んでいるか）がここに表示されます")
-        self._progress_log.setStyleSheet("font-family:Consolas,monospace;font-size:11px;")
-        splitter.addWidget(self._progress_log)
+        self._progress_log.setPlaceholderText("どのツールを呼んでいるかがここに表示されます")
+        self._progress_log.setStyleSheet(type_qss("code"))
+        self._progress_log.setMinimumHeight(px(70))
+        log_layout.addWidget(self._progress_log)
+        splitter.addWidget(log_box)
 
+        preview_box = QWidget()
+        preview_layout = QVBoxLayout(preview_box)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        preview_layout.setSpacing(px(3))
+        preview_caption = token_usage.fit_label(QLabel("プレビュー（「保存」を押すまで、ファイルは書き込まれません）"))
+        preview_caption.setStyleSheet(type_qss("caption", COLOR_MUTED))
+        preview_layout.addWidget(preview_caption)
         self._preview = QTextEdit()
         self._preview.setReadOnly(True)
         self._preview.setPlaceholderText("生成が完了すると Markdown プレビューがここに表示されます")
-        splitter.addWidget(self._preview)
-        splitter.setSizes([160, 400])
+        self._preview.setMinimumHeight(px(130))
+        preview_layout.addWidget(self._preview)
+        splitter.addWidget(preview_box)
+        splitter.setSizes([px(130), px(340)])
         layout.addWidget(splitter, stretch=1)
 
-        # 保存確認行（プレビュー後にのみ有効化）
+        # ── 5. 結果の操作: 保存（主）・破棄（危険）→ 評価 → 動画 → 後片付け（危険）────
         btn_row = QHBoxLayout()
-        self._save_btn = QPushButton("保存（localRAG/tutorials/）")
+        btn_row.setSpacing(px(6))
+        self._save_btn = QPushButton("保存")
+        self._save_btn.setToolTip("localRAG/tutorials/ に保存します（保存するまでファイルは書き込まれません）")
+        self._save_btn.setStyleSheet(button_qss("primary"))
+        self._save_btn.setMinimumSize(px(96), px(32))
         self._save_btn.clicked.connect(self._on_save)
         self._discard_btn = QPushButton("破棄")
+        self._discard_btn.setToolTip("保存せずに、このプレビューを捨てます（サンドボックスは残ります）")
+        self._discard_btn.setStyleSheet(button_qss("danger"))
+        self._discard_btn.setMinimumHeight(px(32))
         self._discard_btn.clicked.connect(self._on_discard)
-        self._delete_sandbox_btn = QPushButton("サンドボックス削除")
-        self._delete_sandbox_btn.clicked.connect(self._on_delete_sandbox)
-        # 3段階連続生成（チェーンモード）は確認なしで自動保存するため、結果が
-        # 気に入らなかった場合に保存済みファイル一式を手動で探さず消せるように
-        # する（2026-09-20追加）。単発生成の「破棄」（保存前の内容をメモリ上で
-        # 破棄するだけ）とは意味が異なるため別ボタンにしている。
-        self._discard_chain_btn = QPushButton("生成した3件を削除")
-        self._discard_chain_btn.clicked.connect(self._on_discard_chain_saves)
-        for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn, self._discard_chain_btn):
-            btn.setEnabled(False)
-            btn_row.addWidget(btn)
+        btn_row.addWidget(self._save_btn)
+        btn_row.addWidget(self._discard_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
@@ -684,55 +819,74 @@ class TutorialGeneratePanel(QWidget):
         self._rate_row = QWidget()
         rate_layout = QHBoxLayout(self._rate_row)
         rate_layout.setContentsMargins(0, 0, 0, 0)
-        rate_hint = QLabel("保存しました。よければ評価を（任意。履歴タブでもあとから付けられます）")
-        rate_hint.setStyleSheet("color:#94a3b8;font-size:11px;")
+        rate_hint = token_usage.fit_label(QLabel("評価（任意）"))
+        rate_hint.setStyleSheet(type_qss("caption", COLOR_MUTED))
+        rate_hint.setToolTip("履歴タブでも、あとから付けられます")
         self._rate_good_btn = action_button("thumbUp", "良い(このチュートリアルを「良い」と評価して保存)")
         self._rate_bad_btn = action_button("thumbDown", "悪い(このチュートリアルを「悪い」と評価して保存)")
         for btn, rating in ((self._rate_good_btn, 1), (self._rate_bad_btn, -1)):
             btn.clicked.connect(lambda _checked=False, r=rating: self._on_quick_rate(r))
-        rate_layout.addWidget(rate_hint)
+        rate_layout.addWidget(rate_hint, stretch=1)
         rate_layout.addWidget(self._rate_good_btn)
         rate_layout.addWidget(self._rate_bad_btn)
-        rate_layout.addStretch()
         self._rate_row.setVisible(False)
         layout.addWidget(self._rate_row)
         self._rate_md_path: Path | None = None
         self._rate_worker: FeedbackUploadWorker | None = None
 
-        self._status = token_usage.fit_label(QLabel(""))
-        self._status.setStyleSheet("color:#aaa;font-size:11px;")
-        layout.addWidget(self._status)
-
-        # 動画生成の進捗表示・完了後のプレビュー再生（2026-08-31追加）。
-        # 2026-10-21: プログレスバー（台本 → 音声 → 描画 → 完了の全体の％。video_progress.py）。動画を作っていない間は隠す。
-        self._video_bar = QProgressBar()
-        self._video_bar.setRange(0, 100)
-        self._video_bar.setTextVisible(True)
-        self._video_bar.setFixedHeight(px(16))
-        self._video_bar.setVisible(False)
-        layout.addWidget(self._video_bar)
-        self._script_timer = QTimer(self)
-        self._script_timer.setInterval(1000)
-        self._script_timer.timeout.connect(self._on_script_tick)
-        self._script_elapsed = 0.0
-        video_row = QHBoxLayout()
-        self._video_progress = token_usage.fit_label(QLabel(""))
-        self._video_progress.setStyleSheet("color:#7dd3fc;font-size:11px;")
-        video_row.addWidget(self._video_progress, stretch=1)
-        self._preview_btn = QPushButton("▶ プレビュー再生")
-        self._preview_btn.setEnabled(False)
-        self._preview_btn.clicked.connect(self._on_preview_video)
-        video_row.addWidget(self._preview_btn)
-        # 2026-09-13追加: Houdini埋め込みのQtWebEngineプレイヤーが「再生中のまま0:00から
+        # 動画の再生。2026-09-13追加: Houdini埋め込みのQtWebEngineプレイヤーが「再生中のまま0:00から
         # 進まない」事例が報告された（ffmpegでの単体デコードは正常なため、ファイル破損では
         # なくHoudini本体とのGPUコンテキスト競合が濃厚）。埋め込み再生に問題があっても
         # 動画自体は見られるよう、OS標準プレイヤー（Houdiniと別プロセス）で開く手段を
         # 常に用意しておく。
-        self._external_player_btn = QPushButton("外部プレイヤーで開く")
+        video_row = QHBoxLayout()
+        video_row.setSpacing(px(6))
+        self._preview_btn = QPushButton("▶ プレビュー再生")
+        self._preview_btn.setToolTip("生成した解説動画を、パネルの中で再生します")
+        self._preview_btn.setEnabled(False)
+        self._preview_btn.clicked.connect(self._on_preview_video)
+        video_row.addWidget(self._preview_btn)
+        self._external_player_btn = QPushButton("外部で開く")
+        self._external_player_btn.setToolTip("OS標準の動画プレイヤー（Houdiniとは別のプロセス）で開きます")
         self._external_player_btn.setEnabled(False)
         self._external_player_btn.clicked.connect(self._on_open_in_external_player)
         video_row.addWidget(self._external_player_btn)
+        video_row.addStretch()
         layout.addLayout(video_row)
+
+        # 後片付け（危険）。3段階連続生成（チェーンモード）は確認なしで自動保存するため、結果が
+        # 気に入らなかった場合に保存済みファイル一式を手動で探さず消せるようにする（2026-09-20追加）。
+        # 単発生成の「破棄」（保存前の内容をメモリ上で破棄するだけ）とは意味が異なるため別ボタンにしている。
+        cleanup_row = QHBoxLayout()
+        cleanup_row.setSpacing(px(6))
+        self._delete_sandbox_btn = QPushButton("サンドボックス削除")
+        self._delete_sandbox_btn.setToolTip("この生成で作った Houdini のサンドボックス（作業用の一時シーン）を削除します")
+        self._delete_sandbox_btn.clicked.connect(self._on_delete_sandbox)
+        self._discard_chain_btn = QPushButton("3件を削除")
+        self._discard_chain_btn.setToolTip("直近の「3段階まとめて生成」で自動保存した3件（.md / .json など）を削除します")
+        self._discard_chain_btn.clicked.connect(self._on_discard_chain_saves)
+        for btn in (self._delete_sandbox_btn, self._discard_chain_btn):
+            btn.setStyleSheet(button_qss("danger"))
+        cleanup_row.addWidget(self._delete_sandbox_btn)
+        cleanup_row.addWidget(self._discard_chain_btn)
+        cleanup_row.addStretch()
+        layout.addLayout(cleanup_row)
+        for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn, self._discard_chain_btn):
+            btn.setEnabled(False)
+
+    _ADVANCED_TITLE = "詳細設定（参考画像・対象モデル）"
+
+    def _refresh_advanced_title(self) -> None:
+        """折りたたんだままでも、選んだものが分かるように、見出しに要約を出す。"""
+        box = getattr(self, "_advanced_box", None)
+        if box is None:
+            return
+        parts: list[str] = []
+        if self._reference_paths:
+            parts.append(f"参考画像 {len(self._reference_paths)}枚")
+        if self._target_model_path:
+            parts.append(f"モデル {Path(self._target_model_path).name}")
+        box.set_title(self._ADVANCED_TITLE + (" — " + " / ".join(parts) if parts else ""))
 
     # ── 外部 API（/tutorial コマンド用） ────────────────────────────────────────
 
@@ -757,10 +911,11 @@ class TutorialGeneratePanel(QWidget):
         if not self._reference_paths:
             self._ref_label.setText("参考画像: なし（テキストだけで生成します）")
             self._ref_label.setToolTip("")
-            return
-        names = ", ".join(Path(p).name for p in self._reference_paths)
-        self._ref_label.setText(f"参考画像 {len(self._reference_paths)}枚: {names}（テキスト＋画像で生成します）")
-        self._ref_label.setToolTip("\n".join(self._reference_paths))
+        else:
+            names = ", ".join(Path(p).name for p in self._reference_paths)
+            self._ref_label.setText(f"参考画像 {len(self._reference_paths)}枚: {names}（テキスト＋画像で生成します）")
+            self._ref_label.setToolTip("\n".join(self._reference_paths))
+        self._refresh_advanced_title()
 
     def _add_reference_paths(self, paths: list[str]) -> None:
         from tutorial_agent import MAX_REFERENCE_IMAGES
@@ -778,9 +933,10 @@ class TutorialGeneratePanel(QWidget):
         if not self._target_model_path:
             self._model_label.setText("対象モデル: なし（アニメーション・リギングで使うモデルを選べます）")
             self._model_label.setToolTip("")
-            return
-        self._model_label.setText(f"対象モデル: {Path(self._target_model_path).name}（このモデルを使って生成します）")
-        self._model_label.setToolTip(self._target_model_path)
+        else:
+            self._model_label.setText(f"対象モデル: {Path(self._target_model_path).name}（このモデルを使って生成します）")
+            self._model_label.setToolTip(self._target_model_path)
+        self._refresh_advanced_title()
 
     def _on_pick_target_model(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -1142,7 +1298,7 @@ class TutorialGeneratePanel(QWidget):
 
     _VIDEO_BAR_STYLE = (
         "QProgressBar{border:1px solid #334155;border-radius:4px;background:#0f172a;color:#e2e8f0;"
-        "text-align:center;font-size:10px;}"
+        "text-align:center;" + type_qss("caption") + "}"
         "QProgressBar::chunk{background:%s;border-radius:3px;}"
     )
 
