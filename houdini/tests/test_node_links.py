@@ -181,7 +181,7 @@ class FindNodeLinksTest(unittest.TestCase):
 
     def test_unknown_node_becomes_a_search_link_not_a_guessed_page(self) -> None:
         links = nl.find_node_links("Tornado Maker ノードで竜巻を作る")
-        self.assertEqual([l["kind"] for l in links], ["search"])
+        self.assertEqual([link["kind"] for link in links], ["search"])
         self.assertEqual(links[0]["url"], "https://www.sidefx.com/search/?q=Tornado%20Maker")
         self.assertNotIn("nodes/", links[0]["url"])
 
@@ -196,7 +196,7 @@ class FindNodeLinksTest(unittest.TestCase):
     def test_limits(self) -> None:
         names = [line.split("|", 1)[1] for line in data.NODES["sop"].splitlines() if line.count(" ") == 1 and "|" in line][:40]
         text = "、".join(names)
-        self.assertLessEqual(len([l for l in nl.find_node_links(text) if l["kind"] == "doc"]), nl.MAX_DOC_LINKS)
+        self.assertLessEqual(len([link for link in nl.find_node_links(text) if link["kind"] == "doc"]), nl.MAX_DOC_LINKS)
         searches = nl.find_node_links("Aaa Bbb ノード、Ccc Ddd ノード、Eee Fff ノード、Ggg Hhh ノード、Iii Jjj ノード")
         self.assertLessEqual(len(searches), nl.MAX_SEARCH_LINKS)
 

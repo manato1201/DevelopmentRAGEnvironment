@@ -1009,7 +1009,9 @@ class LayoutNode(Node):
         return box
     def networkBoxes(self): return [b for b in self.boxes if not b.destroyed]
     def inputs(self): return tuple(self.ins)
-    def setInput(self, index, src, out=0): self.ins = [src]; src.out.append(self)
+    def setInput(self, index, src, out=0):
+        self.ins = [src]
+        src.out.append(self)
     def inputNames(self): return ()
     def outputNames(self): return ()
     def position(self): return getattr(self, "pos", (0.0, 0.0))
@@ -1039,8 +1041,8 @@ class LayoutTest(unittest.TestCase):
         self.assertIn("2 か所", out)
 
     def test_every_connection_tidies_its_container(self):
-        a = self._node("geo1/a", "null", "Sop", self.geo)
-        b = self._node("geo1/b", "null", "Sop", self.geo)
+        self._node("geo1/a", "null", "Sop", self.geo)
+        self._node("geo1/b", "null", "Sop", self.geo)
         self.ex._tool_connect_nodes({"from_node": "geo1/a", "to_node": "geo1/b"})
         self.assertEqual(self.geo.laid_out, 1)
         self.ex._auto_layout_enabled = False

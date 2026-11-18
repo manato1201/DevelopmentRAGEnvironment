@@ -13,7 +13,10 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python_panels"))
 
-from PySide6.QtWidgets import QApplication, QLabel, QWidget  # noqa: E402
+try:
+    from PySide6.QtWidgets import QApplication, QLabel, QWidget  # noqa: E402
+except ImportError as exc:  # CI など PySide6 が入っていない環境では、このモジュール全体をスキップする
+    raise unittest.SkipTest("PySide6 がありません") from exc
 
 import panel_actions as pa  # noqa: E402
 

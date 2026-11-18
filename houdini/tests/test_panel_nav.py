@@ -119,7 +119,7 @@ class OpenInNewWindowTest(unittest.TestCase):
 try:
     import panel_widgets
     import rag_chatbot as rc
-    from PySide6.QtWidgets import QApplication, QLabel, QStackedWidget
+    from PySide6.QtWidgets import QApplication, QLabel
     HAVE_QT = True
 except ImportError:  # PySide6 が無い環境
     rc = None

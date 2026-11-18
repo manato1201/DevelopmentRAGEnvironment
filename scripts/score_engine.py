@@ -38,6 +38,9 @@ class UnderstandingScoreEngine:
 
     def __init__(self, db_path: str | Path = "data/auth.db") -> None:
         self.db_path = Path(db_path)
+        # data/ はリポジトリに含まれない(gitignore)。クリーンな環境(CI・新しい PC)でも、
+        # import しただけで落ちないように、DB の置き場所を先に作る。
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_table()
 
     def _ensure_table(self) -> None:

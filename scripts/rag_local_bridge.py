@@ -85,7 +85,7 @@ _NS_SCOPED_KNOWLEDGE_PATHS = {
 # auth_manager をインポート（同ディレクトリにある）
 _SCRIPTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(_SCRIPTS_DIR))
-import bridge_guard  # Host / Origin 検査(認証ではない。ブラウザ経由の CSRF・DNS rebinding 対策)
+import bridge_guard  # noqa: E402 -- sys.path に scripts/ を足した後でないと読めない。Host / Origin 検査(認証ではない。ブラウザ経由の CSRF・DNS rebinding 対策)
 try:
     from auth_manager import AuthManager, VALID_NAMESPACES
     _AUTH_AVAILABLE = True

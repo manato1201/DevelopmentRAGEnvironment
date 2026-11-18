@@ -112,7 +112,8 @@ class ResendTest(unittest.TestCase):
         return md
 
     def test_new_rating_is_pending_until_marked(self):
-        a, b = self.make("a"), self.make("b", rating=0)
+        a = self.make("a")
+        self.make("b", rating=0)
         self.assertEqual(fb.pending_uploads(self.dir), [a])  # 評価の無いものは対象外
         self.assertTrue(fb.mark_uploaded(a))
         self.assertEqual(fb.pending_uploads(self.dir), [])
@@ -166,7 +167,8 @@ class ResendTest(unittest.TestCase):
         self.assertEqual(result["remaining"], 1)
 
     def test_report_counts_unsent_and_warns(self):
-        a, b = self.make("a"), self.make("b")
+        a = self.make("a")
+        self.make("b")
         fb.mark_uploaded(a)
         report = fb.build_report(fb.list_entries(self.dir))
         self.assertEqual(report["kpis"]["unsent"], 1)
