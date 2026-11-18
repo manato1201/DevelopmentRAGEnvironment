@@ -10,6 +10,7 @@
 | 生成エンジン（速度・打ち切り・品質） | [generation.md](pilot-feedback-2026-11-17/generation.md) |
 | 動画の素材（Houdini 側） | [video-capture.md](pilot-feedback-2026-11-17/video-capture.md) |
 | 動画エンジン・ギャラリー（RAGReel） | [video-engine.md](pilot-feedback-2026-11-17/video-engine.md) |
+| 動画の書き出しの高速化（実測・画質・音声の並列化） | [video-speed.md](pilot-feedback-2026-11-17/video-speed.md) |
 | パネルの画面・チャット・導入手順 | [panel-install.md](pilot-feedback-2026-11-17/panel-install.md) |
 | 管理画面（集計）・課題タブ | [pilot-admin.md](pilot-feedback-2026-11-17/pilot-admin.md) |
 
@@ -83,6 +84,21 @@
 | 課題タブ: ドキュメントのみ／ツール使用を選べる | 参加者番号から、機械的に決まる | 管理画面で「自動（番号から半々）」「全員ツール使用」「全員ドキュメントのみ」を切り替え（`pilot_config` の `condition_mode`）。**既定は自動のまま**。開始済みの人は、そのまま。課題カードに「［ツール使用］／［ドキュメントのみ］」 | 完了（本番での切り替えは、あなたが行う） |
 | 比較の集計 | 片方の群が 0 件でも差を出す | 片方が 0 件なら「比較できない」と理由を出す。自由課題は比較に入れない | 完了 |
 
+### 1.7 動画の書き出しの高速化（RAGReel）
+
+1.4 で、フル HD・30 fps にしたら、書き出しが 3〜4 倍遅くなった。そこで、書き出しを速くした。同じ入力（Houdini 形式・1063 秒・31902 フレーム・1080p30）を、旧版と新版で、最初から最後まで書き出して比べた（2026-11-18）。
+
+| 項目 | 前 | 後 | 状態 |
+|---|---|---|---|
+| 書き出し全体（SAPI 音声） | **583 秒** | **139〜182 秒**（3.2〜4.2 倍）。PC の状態が良いときは、描画・エンコードだけで 98 秒（5.7 倍） | 完了 |
+| 何をしたか | VP9 は実質 1 スレッド。全フレームを描き、描画・変換・エンコードを 1 本の列で処理 | VP9 を複数スレッドに。見た目が同じフレームは描かない。描画・変換・エンコードを 3 段のパイプラインに | 完了 |
+| 画質 | — | 3191 枚（10 枚に 1 枚）を比較。PSNR 中央値 74.2 dB・最小 55.9 dB、SSIM 最小 0.9991。ファイル +0.03%。違いは進捗バーの帯の中だけ | 完了 |
+| 音声 | — | WAV は旧・新・並列でバイト単位で同じ | 完了 |
+| 音声（TTS）の並列化（`RAGREEL_TTS_PARALLEL`。既定 1） | 直列。**本物のクラウド TTS で 384 秒** | 並列 4 で **95.7 秒**（約 4 倍）、並列 8 で **49.2 秒**（約 8 倍）。SAPI は 6.2 → 2.3 秒。出力は直列と同じ。429・エラーは出なかった | 完了（まず 4 から。失敗した block だけ別の声になる点は残る） |
+| 並列のときの不具合 | クラウドが失敗して VOICEVOX・SAPI に切り替わる場面で、エンジンが落ちた（排他なし） | `LazyNarrationEngine` に `std::mutex`。落ちずに完走。**単体テストは無い**（統合の実行で確認） | 完了（`concrete_services.h` の修正） |
+
+**注意**: 「5.7 倍」は、この PC の状態が良いときの最良値。常駐ソフトがあると、新版は影響を受けやすく、実測は 3〜4 倍前後だった。Opus の警告（「Error parsing Opus packet header」）は、旧版の WebM でも出る。詳しい測定・方法は [video-speed.md](pilot-feedback-2026-11-17/video-speed.md)。
+
 ## 2. テスト
 
 | 対象 | 変更前 | 変更後 |
@@ -90,7 +106,8 @@
 | Houdini（`unittest discover`） | 467 件 | **759 件、すべて成功** |
 | Worker（`npm test`・型検査） | 33 件 | **34 件、すべて成功**（型検査にエラー無し） |
 | ギャラリー Worker（`npm test`） | — | 18 件、すべて成功 |
-| RAGReel（C++） | — | `video_profile_tests` 7、`manifest_writer_tests` 16、`script_composer_tests` 33、`narration_tests` 52、`cloud_rag_client_tests` 4 が成功。ビルドにエラー無し |
+| RAGReel（C++） | — | `video_profile_tests` 7、`manifest_writer_tests` 19、`script_composer_tests` 33、`narration_tests` 56、`cloud_rag_client_tests` 4、`frame_pipeline_tests` 8、`frame_reuse_tests` 10 が成功。ビルドにエラー無し |
+| 書き出し全体（実データ・旧版との比較）・クラウド TTS の実測 | — | 上の 1.7。新旧の書き出し、SAPI・模擬クラウド・本物のクラウド（並列 1・4・8） |
 | 動画の検査（`tools/tests`） | — | 26 件、すべて成功 |
 
 ## 3. 残っていること
@@ -101,6 +118,11 @@
 - エンジンが自動アップロードするとき以外の、Houdini の「動画」タブの手動アップロードで、出典を渡す（`tutorial_dirs` を渡す）。
 - Mermaid の図を 2 倍の画素にする（`ingest/script_composer.cpp` の `renderMermaidToPng` に `-s 2`）。1080p で効く。
 - 生成の「3 段階連続生成」を続けるか（時間が段の数だけ掛かる）。あなたの判断。
+
+**動画の書き出しの高速化（1.7）で残っていること**
+- クラウド TTS の並列を既定にするか（今は 1。並列 4 が目安）。失敗した block を再試行する仕組みは、まだ無い（失敗すると、その block だけ VOICEVOX に切り替わる）。
+- インストーラー（`RAGReel-Setup`）を作り直さないと、利用者の PC は速くならない。
+- 新版は、常駐ソフトの影響を受けやすい（実測 129〜171 秒でばらついた）。
 
 **実機でしか確認できないもの**
 - ガイド: `editor.setCurrentNode`・`hou.ui.paneTabOfType`・ピンの解除・階層表示の更新タイマー。

@@ -75,9 +75,9 @@
 <header class="hero">
   <span class="badge">資料</span>
   <h1>実証実験の結果を受けた改善（前と後の差）</h1>
-  <div class="meta">HTML生成: 2026-11-17（元: docs/reports/pilot-feedback-2026-11-17.md）</div>
+  <div class="meta">HTML生成: 2026-11-18（元: docs/reports/pilot-feedback-2026-11-17.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-項目ごとの前と後">1. 項目ごとの前と後</a><ol><li><a href="#11-ガイド">1.1 ガイド</a></li><li><a href="#12-生成エンジン速度打ち切り品質">1.2 生成エンジン（速度・打ち切り・品質）</a></li><li><a href="#13-動画の素材houdini-側">1.3 動画の素材（Houdini 側）</a></li><li><a href="#14-動画エンジンギャラリーragreel">1.4 動画エンジン・ギャラリー（RAGReel）</a></li><li><a href="#15-パネルの画面チャット導入手順">1.5 パネルの画面・チャット・導入手順</a></li><li><a href="#16-管理画面集計課題タブ">1.6 管理画面（集計）・課題タブ</a></li></ol></li><li><a href="#2-テスト">2. テスト</a></li><li><a href="#3-残っていること">3. 残っていること</a></li><li><a href="#4-本番へ出すとき順序">4. 本番へ出すとき（順序）</a></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-項目ごとの前と後">1. 項目ごとの前と後</a><ol><li><a href="#11-ガイド">1.1 ガイド</a></li><li><a href="#12-生成エンジン速度打ち切り品質">1.2 生成エンジン（速度・打ち切り・品質）</a></li><li><a href="#13-動画の素材houdini-側">1.3 動画の素材（Houdini 側）</a></li><li><a href="#14-動画エンジンギャラリーragreel">1.4 動画エンジン・ギャラリー（RAGReel）</a></li><li><a href="#15-パネルの画面チャット導入手順">1.5 パネルの画面・チャット・導入手順</a></li><li><a href="#16-管理画面集計課題タブ">1.6 管理画面（集計）・課題タブ</a></li><li><a href="#17-動画の書き出しの高速化ragreel">1.7 動画の書き出しの高速化（RAGReel）</a></li></ol></li><li><a href="#2-テスト">2. テスト</a></li><li><a href="#3-残っていること">3. 残っていること</a></li><li><a href="#4-本番へ出すとき順序">4. 本番へ出すとき（順序）</a></li></ol></details></nav>
 <main>
 
 <p><strong>日付:</strong> 2026-11-17　<strong>対象:</strong> Houdini パネル（RAGReel Tutorial）、Cloudflare Worker（rag-poc）、動画エンジン・ギャラリー（RAGReel）</p>
@@ -105,6 +105,10 @@
 <tr>
 <td>動画エンジン・ギャラリー（RAGReel）</td>
 <td><a href="pilot-feedback-2026-11-17/video-engine.md">video-engine.md</a></td>
+</tr>
+<tr>
+<td>動画の書き出しの高速化（実測・画質・音声の並列化）</td>
+<td><a href="pilot-feedback-2026-11-17/video-speed.md">video-speed.md</a></td>
 </tr>
 <tr>
 <td>パネルの画面・チャット・導入手順</td>
@@ -412,6 +416,57 @@
 </tr>
 </tbody>
 </table></div>
+<h3 id="17-動画の書き出しの高速化ragreel">1.7 動画の書き出しの高速化（RAGReel）</h3>
+<p>1.4 で、フル HD・30 fps にしたら、書き出しが 3〜4 倍遅くなった。そこで、書き出しを速くした。同じ入力（Houdini 形式・1063 秒・31902 フレーム・1080p30）を、旧版と新版で、最初から最後まで書き出して比べた（2026-11-18）。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>前</th>
+<th>後</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>書き出し全体（SAPI 音声）</td>
+<td><strong>583 秒</strong></td>
+<td><strong>139〜182 秒</strong>（3.2〜4.2 倍）。PC の状態が良いときは、描画・エンコードだけで 98 秒（5.7 倍）</td>
+<td>完了</td>
+</tr>
+<tr>
+<td>何をしたか</td>
+<td>VP9 は実質 1 スレッド。全フレームを描き、描画・変換・エンコードを 1 本の列で処理</td>
+<td>VP9 を複数スレッドに。見た目が同じフレームは描かない。描画・変換・エンコードを 3 段のパイプラインに</td>
+<td>完了</td>
+</tr>
+<tr>
+<td>画質</td>
+<td>—</td>
+<td>3191 枚（10 枚に 1 枚）を比較。PSNR 中央値 74.2 dB・最小 55.9 dB、SSIM 最小 0.9991。ファイル +0.03%。違いは進捗バーの帯の中だけ</td>
+<td>完了</td>
+</tr>
+<tr>
+<td>音声</td>
+<td>—</td>
+<td>WAV は旧・新・並列でバイト単位で同じ</td>
+<td>完了</td>
+</tr>
+<tr>
+<td>音声（TTS）の並列化（<code>RAGREEL_TTS_PARALLEL</code>。既定 1）</td>
+<td>直列。<strong>本物のクラウド TTS で 384 秒</strong></td>
+<td>並列 4 で <strong>95.7 秒</strong>（約 4 倍）、並列 8 で <strong>49.2 秒</strong>（約 8 倍）。SAPI は 6.2 → 2.3 秒。出力は直列と同じ。429・エラーは出なかった</td>
+<td>完了（まず 4 から。失敗した block だけ別の声になる点は残る）</td>
+</tr>
+<tr>
+<td>並列のときの不具合</td>
+<td>クラウドが失敗して VOICEVOX・SAPI に切り替わる場面で、エンジンが落ちた（排他なし）</td>
+<td><code>LazyNarrationEngine</code> に <code>std::mutex</code>。落ちずに完走。<strong>単体テストは無い</strong>（統合の実行で確認）</td>
+<td>完了（<code>concrete_services.h</code> の修正）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>注意</strong>: 「5.7 倍」は、この PC の状態が良いときの最良値。常駐ソフトがあると、新版は影響を受けやすく、実測は 3〜4 倍前後だった。Opus の警告（「Error parsing Opus packet header」）は、旧版の WebM でも出る。詳しい測定・方法は <a href="pilot-feedback-2026-11-17/video-speed.md">video-speed.md</a>。</p>
 <h2 id="2-テスト">2. テスト</h2>
 <div class="table-scroll"><table>
 <thead>
@@ -440,7 +495,12 @@
 <tr>
 <td>RAGReel（C++）</td>
 <td>—</td>
-<td><code>video_profile_tests</code> 7、<code>manifest_writer_tests</code> 16、<code>script_composer_tests</code> 33、<code>narration_tests</code> 52、<code>cloud_rag_client_tests</code> 4 が成功。ビルドにエラー無し</td>
+<td><code>video_profile_tests</code> 7、<code>manifest_writer_tests</code> 19、<code>script_composer_tests</code> 33、<code>narration_tests</code> 56、<code>cloud_rag_client_tests</code> 4、<code>frame_pipeline_tests</code> 8、<code>frame_reuse_tests</code> 10 が成功。ビルドにエラー無し</td>
+</tr>
+<tr>
+<td>書き出し全体（実データ・旧版との比較）・クラウド TTS の実測</td>
+<td>—</td>
+<td>上の 1.7。新旧の書き出し、SAPI・模擬クラウド・本物のクラウド（並列 1・4・8）</td>
 </tr>
 <tr>
 <td>動画の検査（<code>tools/tests</code>）</td>
@@ -456,6 +516,10 @@
 - エンジンが自動アップロードするとき以外の、Houdini の「動画」タブの手動アップロードで、出典を渡す（<code>tutorial_dirs</code> を渡す）。<br />
 - Mermaid の図を 2 倍の画素にする（<code>ingest/script_composer.cpp</code> の <code>renderMermaidToPng</code> に <code>-s 2</code>）。1080p で効く。<br />
 - 生成の「3 段階連続生成」を続けるか（時間が段の数だけ掛かる）。あなたの判断。</p>
+<p><strong>動画の書き出しの高速化（1.7）で残っていること</strong><br />
+- クラウド TTS の並列を既定にするか（今は 1。並列 4 が目安）。失敗した block を再試行する仕組みは、まだ無い（失敗すると、その block だけ VOICEVOX に切り替わる）。<br />
+- インストーラー（<code>RAGReel-Setup</code>）を作り直さないと、利用者の PC は速くならない。<br />
+- 新版は、常駐ソフトの影響を受けやすい（実測 129〜171 秒でばらついた）。</p>
 <p><strong>実機でしか確認できないもの</strong><br />
 - ガイド: <code>editor.setCurrentNode</code>・<code>hou.ui.paneTabOfType</code>・ピンの解除・階層表示の更新タイマー。<br />
 - パネル: <code>includeInPaneTabMenu</code> で New Pane Tab Type に出ること、<code>createFloatingPaneTab</code>。<br />
