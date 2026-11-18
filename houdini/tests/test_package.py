@@ -110,7 +110,9 @@ class BuildTest(unittest.TestCase):
         self.assertIn("rag_chatbot", text)
 
 
-@unittest.skipUnless(POWERSHELL, "PowerShell がありません")
+# install.ps1 / install.cmd は、Windows の Houdini 用の導入スクリプト(%USERPROFILE% の Documents\houdini<版> や cmd /c を使う)。
+# Linux の CI にも pwsh は入っているが、Windows 以外では前提(パス・cmd)が成り立たず 31 件が落ちるので、Windows だけで動かす。
+@unittest.skipUnless(POWERSHELL and sys.platform == "win32", "Windows の PowerShell がありません")
 class InstallScriptTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
