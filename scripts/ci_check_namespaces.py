@@ -38,10 +38,12 @@ _REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(Path(__file__).parent))
 
 
-def main() -> int:
+def main(vault: Path | None = None) -> int:
+    """vault を省略すると、リポジトリ直下の localRAG/ を検査する(テストでは一時フォルダを渡す)。"""
     from auto_index import NAMESPACES
 
-    vault = _REPO_ROOT / "localRAG"
+    if vault is None:
+        vault = _REPO_ROOT / "localRAG"
     if not vault.exists():
         print(f"[ci_check_namespaces] localRAG/ が見つかりません（スキップ）: {vault}")
         return 0
