@@ -84,5 +84,76 @@ class MetricsTest(unittest.TestCase):
             self.assertEqual(metrics.get("fast_mode"), fast)
 
 
+class OneShotOptionsTest(unittest.TestCase):
+    """complete_text の、出力の上限と effort（Reference の説明を、短く・安くするための 1 回だけの指定）。"""
+
+    def _post(self, model: str, **options) -> dict:
+        import io
+        import json
+
+        agent = ta.TutorialAgent(model=model, cf_url="https://example.invalid", cf_api_key="x")
+        sent: dict = {}
+
+        class Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_urlopen(req, timeout=0):
+            sent.update(json.loads(req.data.decode("utf-8")))
+            return Resp(json.dumps({"content": [{"type": "text", "text": "ok"}], "usage": {"input_tokens": 1, "output_tokens": 2}}).encode())
+
+        with mock.patch.dict(os.environ, {"RAG_TUTORIAL_EFFORT": ""}), mock.patch.object(ta.urllib.request, "urlopen", fake_urlopen):
+            text, usage = agent.complete_text("sys", "user", **options)
+        self.assertEqual((text, usage["output_tokens"]), ("ok", 2))
+        self.assertIsNone(agent.__dict__.get("_one_shot"))  # 次の呼び出しには、残らない
+        return sent
+
+    def test_limits_apply_to_that_one_call_only(self) -> None:
+        body = self._post("claude-sonnet-5-5", max_tokens=1800, effort="low")
+        self.assertEqual(body["max_tokens"], 1800)
+        self.assertEqual(body["output_config"], {"effort": "low"})
+
+    def test_defaults_are_unchanged_without_options(self) -> None:
+        body = self._post("claude-sonnet-5-5")
+        self.assertEqual(body["max_tokens"], ta.MAX_TOKENS_PER_TURN)
+        self.assertEqual(body["output_config"], {"effort": "medium"})
+
+    def test_a_model_without_effort_gets_none(self) -> None:
+        self.assertNotIn("output_config", self._post("claude-haiku-4-5", effort="low"))
+
+    def test_the_environment_variable_still_wins(self) -> None:
+        import io
+        import json
+
+        agent = ta.TutorialAgent(model="claude-sonnet-5-5", cf_url="https://example.invalid", cf_api_key="x")
+        sent: dict = {}
+
+        class Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_urlopen(req, timeout=0):
+            sent.update(json.loads(req.data.decode("utf-8")))
+            return Resp(json.dumps({"content": [], "usage": {}}).encode())
+
+        with mock.patch.dict(os.environ, {"RAG_TUTORIAL_EFFORT": "high"}), mock.patch.object(ta.urllib.request, "urlopen", fake_urlopen):
+            agent.complete_text("s", "u", effort="low")
+        self.assertEqual(sent["output_config"], {"effort": "high"})
+
+
+class UsageCostTest(unittest.TestCase):
+    def test_cost_uses_the_model_price_and_falls_back_for_unknown_models(self) -> None:
+        usage = {"input_tokens": 5000, "output_tokens": 1000}
+        self.assertAlmostEqual(ta.usage_cost_for("claude-sonnet-5-5", usage), 0.02, places=6)
+        self.assertAlmostEqual(ta.usage_cost_for("unknown-model", usage), ta.usage_cost_for(ta.DEFAULT_MODEL, usage), places=9)
+        self.assertEqual(ta.usage_cost_for("claude-sonnet-5-5", {}), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

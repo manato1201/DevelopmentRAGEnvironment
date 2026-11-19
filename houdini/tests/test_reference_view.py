@@ -100,12 +100,17 @@ class ReferenceWidgetTest(unittest.TestCase):
         import reference_view as rv
 
         self.rv = rv
+        env = mock.patch.dict(os.environ, {"RAGREEL_REFERENCE_AUTHOR": "1"})  # 開発者モード（説明を AI で作る）。参加者の動きは、ParticipantTest
+        env.start()
+        self.addCleanup(env.stop)
+        rd.set_shelf_tools([])
+        self.addCleanup(rd.set_shelf_tools, [])
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.cfg = {"local_bridge_dir": self.tmp.name, "cf_url": "", "cf_api_key": "", "tutorial_rag_namespace": ""}
         self.completed: list = []
 
-        def complete(system, user):
+        def complete(system, user, **options):
             self.completed.append((system, user))
             return json.dumps({"what": "点を散らす", "use": "植生", "example": "", "example_point": "", "when": "密度を決める"}), {}
 
@@ -140,8 +145,8 @@ class ReferenceWidgetTest(unittest.TestCase):
         self.widget._set_kind("apex")
         self.assertTrue(all(i["kind"] == "apex" for i in self.widget._items))
         self.widget._set_kind("shelf")
-        self.assertEqual(self.widget._items, [])
-        self.assertIn("この名前で作る", self.widget._status.text())
+        self.assertEqual(self.widget._items, [])  # Houdini の外では、一覧が空
+        self.assertIn("Houdini の中で開くと出ます", self.widget._status.text())
 
     def test_used_items_are_marked_and_come_first(self) -> None:
         self.widget._used = {"node": {"sop/merge"}, "vex": set(), "apex": set(), "shelf": set()}
@@ -180,7 +185,7 @@ class ReferenceWidgetTest(unittest.TestCase):
         self.assertTrue(self.widget._make_btn.isEnabled())
 
     def test_a_bad_ai_answer_shows_a_message_and_saves_nothing(self) -> None:
-        self.widget._complete_getter = lambda: (lambda s, u: ("すみません、分かりません", {}))
+        self.widget._complete_getter = lambda: (lambda s, u, **kw: ("すみません、分かりません", {}))
         self.widget._search.setText("scatter")
         self.widget._on_make()
         self._wait(self.widget)
@@ -188,7 +193,7 @@ class ReferenceWidgetTest(unittest.TestCase):
         self.assertIsNone(rd.load_entry(self.tmp.name, "node", "sop/scatter"))
 
     def test_an_exception_from_the_ai_is_shown_not_raised(self) -> None:
-        def boom(_s, _u):
+        def boom(_s, _u, **kw):
             raise RuntimeError("予算を使い切りました")
 
         self.widget._complete_getter = lambda: boom
@@ -200,7 +205,7 @@ class ReferenceWidgetTest(unittest.TestCase):
     def test_a_custom_shelf_tool_is_created_by_name(self) -> None:
         self.widget._set_kind("shelf")
         self.widget._search.setText("Billowy Smoke")
-        self.assertFalse(self.widget._create_custom.isHidden())
+        self.assertFalse(self.widget._create_custom.isHidden())  # 開発者モードだけ
         self.widget._on_custom()
         self._wait(self.widget)
         self.assertEqual(self.widget._current["key"], "shelf/billowy_smoke")
@@ -263,6 +268,269 @@ class GuideLinkTest(unittest.TestCase):
         self.addCleanup(widget.deleteLater)
         self.assertEqual(rv.open_item_for_step(widget, {"tool": "cook_node"}), "この手順には、説明するノードがありません")
         self.assertEqual(rv.open_item_for_step(widget, {"node_type": "scatter"}), "Reference タブが見つかりません")
+
+
+GUIDE = {"title": "t", "sandbox_path": "", "steps": [
+    {"tool": "create_node", "node": "s1", "node_type": "scatter::2.0", "node_label": "Scatter", "instruction": "散らす点を作る", "tab": "network", "tab_label": "ネットワーク"},
+    {"tool": "create_node", "node": "m1", "node_type": "merge", "instruction": "まとめる", "tab": "network", "tab_label": "ネットワーク"},
+    {"tool": "set_parm", "node": "s1", "node_type": "scatter::2.0", "instruction": "数を変える", "tab": "parameters", "tab_label": "パラメータ"},
+]}
+
+
+class UsedStepsTest(unittest.TestCase):
+    def test_used_steps_lists_every_step_that_uses_the_item(self) -> None:
+        steps = rd.used_steps(GUIDE, "node", "sop/scatter")
+        self.assertEqual([i for i, _ in steps], [0, 2])
+        self.assertIn("散らす", steps[0][1])
+        self.assertEqual(rd.used_steps(GUIDE, "node", "sop/nothing"), [])
+        self.assertEqual(rd.used_steps(None, "node", "sop/scatter"), [])
+
+    def test_entry_html_links_each_step_and_states_the_cost_before_making(self) -> None:
+        item = {"kind": "node", "key": "sop/scatter", "label": "Scatter"}
+        html = rd.entry_html(item, None, None, True, [(0, "散らす"), (2, "数を変える")], author=True)
+        self.assertIn('href="step:0"', html)
+        self.assertIn('href="step:2"', html)
+        self.assertIn("手順 3", html)
+        self.assertIn("トークン", html)  # 説明を作る前に、AI を呼ぶ費用を伝える
+        self.assertNotIn("step:", rd.entry_html(item, None, None, False, None))
+
+
+@unittest.skipIf(QApplication is None, "PySide6 がありません")
+class JumpAndCostTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _tabs(self):
+        import guide_view as gv
+        import reference_view as rv
+
+        tabs = QTabWidget()
+        self.addCleanup(tabs.deleteLater)
+        guide_widget = gv.GuideWidget(lambda: {"local_bridge_dir": ""})
+        reference = rv.ReferenceWidget(lambda: {"local_bridge_dir": "", "tutorial_model": "claude-sonnet-5-5"}, lambda: None)
+        tabs.addTab(guide_widget, "Guide")
+        tabs.addTab(reference, "Reference")
+        guide_widget.load_generated(GUIDE, "t")
+        return tabs, guide_widget, reference
+
+    def test_clicking_a_step_link_opens_that_step_in_guide(self) -> None:
+        import reference_view as rv
+        from PySide6.QtCore import QUrl
+
+        with mock.patch.object(rv, "fetch_reference_items", lambda base_dir, **kw: []):
+            tabs, guide_widget, reference = self._tabs()
+            tabs.setCurrentIndex(1)
+            reference.show_item("node", "sop/scatter")
+            self.assertIn("手順 3", reference._detail.toPlainText())  # 使っている場所の一覧（リンク）が出ている
+            reference._on_link(QUrl("step:2"))
+            self.assertEqual(tabs.currentIndex(), 0)
+            self.assertEqual(guide_widget._index, 2)
+            reference._on_link(QUrl("step:99"))  # 範囲外は、何もせず文を出す
+            self.assertIn("その手順がありません", reference._status.text())
+
+    def test_goto_step_rejects_out_of_range(self) -> None:
+        import reference_view as rv
+
+        with mock.patch.object(rv, "fetch_reference_items", lambda base_dir, **kw: []):
+            _tabs, guide_widget, _reference = self._tabs()
+            self.assertFalse(guide_widget.goto_step(-1))
+            self.assertFalse(guide_widget.goto_step(3))
+            self.assertTrue(guide_widget.goto_step(1))
+            self.assertEqual(guide_widget._index, 1)
+
+    def test_cost_note_shows_tokens_and_dollars(self) -> None:
+        import reference_view as rv
+
+        with mock.patch.object(rv, "fetch_reference_items", lambda base_dir, **kw: []):
+            _tabs, _guide, reference = self._tabs()
+            note = reference._cost_note({"input_tokens": 5000, "output_tokens": 1000})
+            self.assertIn("入力 5,000", note)
+            self.assertIn("出力 1,000", note)
+            self.assertIn("$0.020", note)  # 5000*2/1M + 1000*10/1M
+            self.assertEqual(reference._cost_note({}), "")
+            self.assertEqual(reference._cost_note(None), "")
+
+    def test_make_passes_the_short_output_limits_and_shows_the_cost(self) -> None:
+        import reference_view as rv
+
+        seen: list = []
+
+        def complete(system, user, **options):
+            seen.append(options)
+            return json.dumps({"what": "点を散らす", "use": "", "example": "", "example_point": "", "when": ""}), {"input_tokens": 5000, "output_tokens": 1000}
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(rv, "fetch_reference_items", lambda base_dir, **kw: []),                 mock.patch.dict(os.environ, {"RAGREEL_REFERENCE_AUTHOR": "1"}), mock.patch.object(rv._EntryWorker, "_fetch_docs", lambda self_, label: []):
+            reference = rv.ReferenceWidget(lambda: {"local_bridge_dir": d, "tutorial_model": "claude-sonnet-5-5"}, lambda: complete)
+            self.addCleanup(reference.deleteLater)
+            reference._search.setText("scatter")
+            reference._on_make()
+            deadline = time.time() + 10
+            while reference._worker is not None and reference._worker.isRunning() and time.time() < deadline:
+                self.app.processEvents()
+                time.sleep(0.01)
+            for _ in range(20):
+                self.app.processEvents()
+            self.assertEqual(seen[0], {"max_tokens": rd.REFERENCE_MAX_TOKENS, "effort": rd.REFERENCE_EFFORT})
+            self.assertIn("入力 5,000", reference._status.text())
+
+
+@unittest.skipIf(QApplication is None, "PySide6 がありません")
+class ParticipantTest(unittest.TestCase):
+    """参加者の画面: Cloudflare の説明を読むだけ（作れない）。通信は、偽物に差し替える。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        import reference_remote as rr
+        import reference_view as rv
+        from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+        from PySide6.QtGui import QColor, QImage
+
+        self.rr, self.rv = rr, rv
+        env = mock.patch.dict(os.environ, {"RAGREEL_REFERENCE_AUTHOR": ""})
+        env.start()
+        self.addCleanup(env.stop)
+        rd.set_shelf_tools([])
+        self.addCleanup(rd.set_shelf_tools, [])
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cfg = {"local_bridge_dir": self.tmp.name, "cf_url": "https://example.invalid", "cf_api_key": "k"}
+        image = QImage(8, 8, QImage.Format_RGB32)
+        image.fill(QColor("red"))
+        data, buf = QByteArray(), QBuffer()
+        buf.setBuffer(data)
+        buf.open(QIODevice.WriteOnly)
+        image.save(buf, "PNG")
+        self.png = bytes(data)
+        self.requests: list[str] = []
+        self.version = 1
+
+        def fake_request(cfg, path, payload, timeout, opener, content_type="application/json"):
+            self.requests.append(path)
+            if path == "/reference/index":
+                return json.dumps({"status": "ok", "items": [{"kind": "node", "key": "sop/scatter", "title": "Scatter", "version": self.version, "mediaCount": 2}]}).encode()
+            if path == "/reference/entry":
+                return json.dumps({"status": "ok", "title": "Scatter", "version": self.version, "entry": {"what": f"点を散らす v{self.version}"},
+                                   "media": [{"id": "node/sop/scatter/after.png", "type": "image", "role": "after", "label": "後"},
+                                             {"id": "node/sop/scatter/before.png", "type": "image", "role": "before", "label": "前"}]}).encode()
+            if path == "/reference/media":
+                return self.png
+            raise AssertionError(path)
+
+        for target in ("_request",):
+            patcher = mock.patch.object(rr, target, fake_request)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(rv, "fetch_reference_items", lambda base_dir, **kw: [])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.widget = rv.ReferenceWidget(lambda: self.cfg, lambda: None)
+        self.addCleanup(self.widget.deleteLater)
+        self.addCleanup(self._wait_for_threads)  # 後片付けは、あとに登録したものから動く: 取得スレッドが終わってから、一時フォルダを消す
+
+    def _wait_for_threads(self) -> None:
+        for worker in (self.widget._index_worker, self.widget._fetch_worker):
+            if worker is not None:
+                worker.wait(10000)
+        for _ in range(10):
+            self.app.processEvents()
+
+    def _settle(self, until=None) -> None:
+        """スレッドが終わり、結果が画面に届くまで待つ。until（条件の関数）があれば、それが真になるまで（最大 15 秒。負荷の高い全体実行でも、揺れないように）。"""
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            busy = any(w is not None and w.isRunning() for w in (self.widget._index_worker, self.widget._fetch_worker))
+            self.app.processEvents()
+            if not busy and (until is None or until()):
+                break
+            time.sleep(0.01)
+        for _ in range(20):
+            self.app.processEvents()
+
+    def test_participants_cannot_make_explanations(self) -> None:
+        self.assertTrue(self.widget._make_btn.isHidden())
+        self.assertTrue(self.widget._create_custom.isHidden())
+        self.widget._search.setText("scatter")
+        self.widget._on_make()
+        self.assertIsNone(self.widget._worker, "nothing is started (no AI call)")
+        self.widget._search.setText("Billowy Smoke")
+        self.widget._on_custom()
+        self.assertIsNone(self.widget._worker)
+
+    def test_the_list_is_narrowed_to_items_with_an_explanation_once_the_index_arrives(self) -> None:
+        self.assertGreater(self.widget._list.count(), 100, "before the index: everything is listed")
+        self.widget._refresh_index(force=True)
+        self._settle(lambda: bool(self.widget._remote))
+        self.assertEqual([i["key"] for i in self.widget._items], ["sop/scatter"])
+        self.assertIn("説明あり 1 件", self.widget._status.text())
+        self.widget._described_only.setChecked(False)
+        self.assertGreater(self.widget._list.count(), 100)
+
+    def test_selecting_an_item_fetches_shows_and_caches_the_explanation_with_images(self) -> None:
+        self.widget._refresh_index(force=True)
+        self._settle(lambda: self.widget._current is not None)
+        self.assertEqual(self.widget._current["key"], "sop/scatter")
+        self._settle(lambda: "点を散らす v1" in self.widget._detail.toPlainText() and self.requests.count("/reference/media") >= 2)
+        text = self.widget._detail.toPlainText()
+        self.assertIn("点を散らす v1", text)
+        self.assertIn("適用前", text)
+        self.assertIn("適用後", text)
+        self.assertEqual(self.requests.count("/reference/media"), 2)
+        document = self.widget._detail.document()
+        self.assertIn("refmedia:node/sop/scatter/after.png", self.widget._detail.toHtml())
+        self.assertFalse(document.resource(3, self.rv.QUrl("refmedia:node/sop/scatter/after.png")) is None, "the image stays registered after setHtml")
+        # 2 回目: 保存した版と同じなので、説明も画像も、通信しない
+        before = len(self.requests)
+        self.widget._show(self.widget._current)
+        self._settle()
+        self.assertEqual(len(self.requests), before)
+        # 版が上がったら、取り直す
+        self.version = 2
+        self.widget._refresh_index(force=True)
+        self._settle()
+        self.widget._show(self.widget._current)
+        self._settle()
+        self.assertIn("点を散らす v2", self.widget._detail.toPlainText())
+
+    def test_an_item_without_an_explanation_says_so_and_still_offers_the_official_doc(self) -> None:
+        self.widget._described_only.setChecked(False)
+        self.widget._search.setText("merge")
+        self._settle()
+        self.assertIn("まだ用意していません", self.widget._detail.toPlainText())
+        self.assertNotIn("説明を作る", self.widget._detail.toPlainText())
+        self.assertTrue(self.widget._doc_btn.isEnabled())
+
+    def test_when_offline_the_saved_explanation_is_still_shown(self) -> None:
+        self.widget._refresh_index(force=True)
+        self._settle()
+        self._settle()
+        with mock.patch.object(self.rr, "_request", side_effect=OSError("offline")):
+            fresh = self.rv.ReferenceWidget(lambda: self.cfg, lambda: None)
+            self.addCleanup(fresh.deleteLater)
+            fresh._described_only.setChecked(True)
+            fresh._reload()
+            self.assertEqual([i["key"] for i in fresh._items], ["sop/scatter"], "the saved index is used")
+            self.assertIn("点を散らす", fresh._detail.toPlainText())
+
+    def test_shelf_tools_come_from_houdini(self) -> None:
+        tools = [("Create", "box", "Box"), ("Lights and Cameras", "pointlight", "Point Light")]
+        with mock.patch.object(self.rv, "houdini_shelf_tools", lambda: tools):
+            self.widget._described_only.setChecked(False)
+            self.widget._set_kind("shelf")
+        self.assertEqual([i["label"] for i in self.widget._items], ["Box", "Point Light"])
+        self.assertIn("[Lights and Cameras]", self.widget._list.item(1).text())
+        self.assertIn("全 2 件", self.widget._status.text())
+
+    def test_the_author_switch_comes_from_the_config_or_the_environment(self) -> None:
+        self.assertFalse(self.widget._author())
+        self.cfg["reference_author_mode"] = True
+        self.assertTrue(self.widget._author())
+        self.cfg["reference_author_mode"] = False
+        with mock.patch.dict(os.environ, {"RAGREEL_REFERENCE_AUTHOR": "1"}):
+            self.assertTrue(self.widget._author())
 
 
 if __name__ == "__main__":

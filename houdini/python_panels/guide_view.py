@@ -776,6 +776,16 @@ class GuideWidget(QWidget):
         self._status.setText("\n".join(shown))
         self._status.setToolTip("\n".join(lines))
 
+    def goto_step(self, index: int) -> bool:
+        """指定の手順（0 始まり）を開く（Reference タブの「使っている場所」から）。自動で案内する設定のときは、Houdini の画面も動かす。範囲外は False。"""
+        if self._guide is None or not (0 <= index < len(self._guide["steps"])):
+            return False
+        self._index = index
+        self._render()
+        if self._auto.isChecked():
+            self._apply()
+        return True
+
     def _open_reference(self) -> None:
         """この手順のノードを、Reference タブで開く（reference_view.open_item_for_step）。"""
         if self._guide is None:

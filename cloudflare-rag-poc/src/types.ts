@@ -5,6 +5,8 @@ export interface Env {
   DB: D1Database;
   VEC_SHARED: VectorizeIndex;
   VEC_PERSONAL: VectorizeIndex;
+  // Reference タブの画像・動画（適用前後・ノード画面。src/reference.ts）。バケット未作成のうちは未設定でよい（その取得だけ 503）
+  REFERENCE_MEDIA?: R2Bucket;
   GEMINI_API_KEY: string;
   EMBEDDING_MODEL: string;
   GENERATION_MODEL: string;

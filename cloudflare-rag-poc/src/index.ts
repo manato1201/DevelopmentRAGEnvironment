@@ -18,6 +18,7 @@ import { handleSlackCommand, handleSlackLinkCode, handleSlackStatus, handleSlack
 import { handleSlackEvents } from "./slackEvents";
 import { handleMyGrowth, handleMyGrowthReset } from "./growth";
 import { handlePilotSummary } from "./pilotStats";
+import { handleReferenceDelete, handleReferenceEntry, handleReferenceIndex, handleReferenceMedia, handleReferenceMediaPut, handleReferencePut } from "./reference";
 import { handlePilotConfig, handlePilotPlan, handlePilotProfile, handlePilotSessionEnd, handlePilotSessionReset, handlePilotSessionStart, handlePilotTasks } from "./pilotTasks";
 import { handlePresetList, handlePresetSave, handlePresetDelete } from "./presets";
 import { handleThreadList, handleThreadGet, handleThreadRename, handleThreadDelete } from "./threads";
@@ -495,6 +496,18 @@ export default {
           return await handlePilotSessionEnd(req, env, user);
         case "/pilot/session/reset":
           return await handlePilotSessionReset(req, env, user);
+        case "/reference/index":
+          return await handleReferenceIndex(req, env, user);
+        case "/reference/entry":
+          return await handleReferenceEntry(req, env, user);
+        case "/reference/media":
+          return await handleReferenceMedia(req, env, user);
+        case "/admin/reference/put":
+          return await handleReferencePut(req, env, user);
+        case "/admin/reference/delete":
+          return await handleReferenceDelete(req, env, user);
+        case "/admin/reference/media_put":
+          return await handleReferenceMediaPut(req, env, user);
         case "/me/growth":
           return await handleMyGrowth(req, env, user);
         case "/me/growth/reset":

@@ -22,7 +22,7 @@ class CatalogTest(unittest.TestCase):
         self.assertGreater(len(rd.catalog("node")), 1000)
         self.assertGreater(len(rd.catalog("apex")), 50)
         self.assertGreaterEqual(len(rd.catalog("vex")), 80)
-        self.assertEqual(rd.catalog("shelf"), [])  # シェルフツールは、検索して作る
+        self.assertEqual(rd.catalog("shelf"), [])  # シェルフツールは、Houdini の中で登録される（set_shelf_tools）
         self.assertEqual(rd.catalog("nonsense"), [])
 
     def test_node_catalog_has_no_apex_and_apex_catalog_only_apex(self) -> None:
@@ -196,7 +196,7 @@ class HtmlTest(unittest.TestCase):
         text = rd.entry_html(self.ITEM, {"what": "点を散らす", "use": "", "when": "密度を決める"})
         self.assertLess(text.index("何をする・どんなもの"), text.index("使いどころ"))
         self.assertNotIn("どういったものに使うか", text)
-        self.assertIn("今後追加", text)  # 適用前後の動画・ノード画面は、まだ無い
+        self.assertNotIn("今後追加", text)
 
     def test_text_is_escaped(self) -> None:
         text = rd.entry_html({**self.ITEM, "label": "<script>x</script>"}, {"what": "<img src=x onerror=alert(1)>"})
@@ -204,8 +204,41 @@ class HtmlTest(unittest.TestCase):
         self.assertNotIn("<img", text)
         self.assertIn("&lt;img", text)
 
-    def test_no_entry_asks_to_create_one(self) -> None:
-        self.assertIn("説明を作る", rd.entry_html(self.ITEM, None))
+    def test_no_entry_asks_a_developer_to_create_one_and_tells_a_participant_it_is_not_ready(self) -> None:
+        developer = rd.entry_html(self.ITEM, None, author=True)
+        self.assertIn("説明を作る", developer)
+        self.assertIn("トークン", developer)  # 作る前に、AI を呼ぶ費用を伝える
+        participant = rd.entry_html(self.ITEM, None)
+        self.assertNotIn("説明を作る", participant)
+        self.assertIn("まだ用意していません", participant)
+        self.assertIn("読み込んでいます", rd.entry_html(self.ITEM, None, loading=True))
+
+    def test_media_html_places_before_after_and_node_images(self) -> None:
+        media = [{"id": "a/before.png", "role": "before"}, {"id": "a/after.png", "role": "after"}, {"id": "a/node.png", "role": "node"},
+                 {"id": "a/clip.gif", "role": "clip"}, {"id": "a/lost.png", "role": "after"}]
+        sources = {"a/before.png": "refmedia:a/before.png", "a/after.png": "refmedia:a/after.png", "a/node.png": "refmedia:a/node.png", "a/clip.gif": "refmedia:a/clip.gif"}
+        text = rd.media_html(media, sources)
+        self.assertLess(text.index("適用前"), text.index("適用後"))
+        self.assertIn("ノード画面", text)
+        self.assertIn("refmedia:a/before.png", text)
+        self.assertNotIn("clip.gif", text)  # 動きは、画面側が別に出す
+        self.assertEqual(rd.media_html([{"id": "x.png", "role": "after"}], {}), "", "an image that could not be loaded is skipped")
+        self.assertEqual(rd.media_html(None, None), "")
+        html = rd.entry_html(self.ITEM, {"what": "x"}, media=text)
+        self.assertLess(html.index("適用前"), html.index("何をする"))
+
+    def test_shelf_items_use_the_internal_name_as_key_and_skip_duplicates(self) -> None:
+        items = rd.shelf_items([("Create", "box", "Box"), ("Lights", "rman_pxrrectlight", "Rect Light"), ("Other", "box", "Box"), ("Create", "", ""),
+                                ("Terrain", "rect_light2", "Rect Light")])
+        self.assertEqual([i["key"] for i in items], ["shelf/box", "shelf/rman_pxrrectlight", "shelf/rect_light2"], "the same label in two shelves stays two items")
+        self.assertEqual(items[0]["context"], "Create")
+        self.assertTrue(items[0]["doc_url"].startswith("https://www.sidefx.com/search/?q=Box"))
+        rd.set_shelf_tools(items)
+        try:
+            self.assertEqual(len(rd.catalog("shelf")), 3)
+            self.assertEqual(rd.search("shelf", "rect")[0]["label"], "Rect Light")
+        finally:
+            rd.set_shelf_tools([])
 
     def test_used_mark(self) -> None:
         self.assertIn("このチュートリアルで使いました", rd.entry_html(self.ITEM, {"what": "x"}, used=True))

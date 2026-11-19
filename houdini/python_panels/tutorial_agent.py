@@ -750,6 +750,18 @@ class TutorialResult:
 
 # ─── エージェント本体 ─────────────────────────────────────────────────────────────
 
+def usage_cost_for(model: str, usage: dict) -> float:
+    """usage（トークン数）から、概算の費用（ドル）。未知のモデルは、既定のモデルの単価。"""
+    price = _MODEL_PRICES.get(model) or _MODEL_PRICES[DEFAULT_MODEL]
+    usage = usage or {}
+    return (
+        usage.get("input_tokens", 0) * price["input"]
+        + usage.get("output_tokens", 0) * price["output"]
+        + usage.get("cache_creation_input_tokens", 0) * price["cache_write"]
+        + usage.get("cache_read_input_tokens", 0) * price["cache_read"]
+    ) / 1_000_000
+
+
 class _SkipLessonDesign(Exception):
     """高速モードで、レッスン設計を省く（design_lesson を呼ばないための内部の合図）。"""
 
@@ -1591,15 +1603,20 @@ class TutorialAgent:
             except Exception:  # noqa: BLE001 -- ログで生成を止めない
                 pass
 
-    def complete_text(self, system: str, user: str) -> tuple[str, dict]:
+    def complete_text(self, system: str, user: str, max_tokens: int | None = None, effort: str | None = None) -> tuple[str, dict]:
         """
-        ツールを使わない、1回きりのテキスト生成（動画の台本づくり: video_script.py）。
+        ツールを使わない、1回きりのテキスト生成（動画の台本づくり: video_script.py。Reference タブの説明）。
         エージェントループと同じ経路（Cloudflare経由・トークン予算の対象）で呼ぶ。
         戻り値: (本文, usage)。API呼び出しの失敗は例外のまま呼び出し元へ出す。
+        max_tokens（出力の上限）・effort（思考の深さ low/medium/high）は、この 1 回だけの指定（2026-11-19。短い説明で、費用を抑えるため）。
         """
-        response = self._call_api(
-            [{"type": "text", "text": system}], [], [{"role": "user", "content": user}],
-        )
+        self._one_shot = {"max_tokens": max_tokens, "effort": effort}
+        try:
+            response = self._call_api(
+                [{"type": "text", "text": system}], [], [{"role": "user", "content": user}],
+            )
+        finally:
+            self._one_shot = None
         text = "".join(b.get("text", "") for b in (response.get("content") or []) if b.get("type") == "text")
         return text, response.get("usage", {})
 
@@ -1619,9 +1636,10 @@ class TutorialAgent:
         （contentやusageを直接読める）なので、呼び出し元（_run_loop）は
         コードでそのまま読める。
         """
+        one_shot = self.__dict__.get("_one_shot") or {}
         request_body = {
             "model": self._model,
-            "max_tokens": MAX_TOKENS_PER_TURN,
+            "max_tokens": one_shot.get("max_tokens") or MAX_TOKENS_PER_TURN,
             "system": system_blocks,
             "tools": tools,
             "messages": messages,
@@ -1629,6 +1647,8 @@ class TutorialAgent:
         if not tools:
             request_body.pop("tools")  # 教訓の要約など、ツールを使わない呼び出しではtoolsを送らない
         effort = effort_for(self._model, self.__dict__.get("_fast", False))
+        if effort and one_shot.get("effort") in _EFFORT_CHOICES and not os.environ.get("RAG_TUTORIAL_EFFORT", "").strip():
+            effort = one_shot["effort"]  # その 1 回だけの指定（effort を受け付けるモデルだけ。上の effort_for が、空でないとき）
         if effort:
             request_body["output_config"] = {"effort": effort}
         payload = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
@@ -1711,13 +1731,7 @@ class TutorialAgent:
                 raise TransientApiError(f"Claudeに接続できませんでした（{type(exc).__name__}: {str(exc)[:120]}）") from exc
 
     def _usage_cost(self, usage: dict) -> float:
-        price = _MODEL_PRICES[self._model]
-        return (
-            usage.get("input_tokens", 0) * price["input"]
-            + usage.get("output_tokens", 0) * price["output"]
-            + usage.get("cache_creation_input_tokens", 0) * price["cache_write"]
-            + usage.get("cache_read_input_tokens", 0) * price["cache_read"]
-        ) / 1_000_000
+        return usage_cost_for(self._model, usage)
 
     def _feedback_sections(self, topic: str) -> str:
         """
