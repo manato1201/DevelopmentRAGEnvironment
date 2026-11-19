@@ -814,6 +814,30 @@ class TutorialGeneratePanel(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
+        # 追加指示（2026-11-18）: できたチュートリアルに、「ここを変えて」「これを足して」と伝えて、続きを作る。
+        # 前の結果を土台にして（題・概要・手順の見出しを必須条件に入れて）、もう一度生成する。新しい結果は、完全な手順になる。
+        # 生成にかかる時間と費用は、1 回分かかる。保存していない前の結果は、破棄される。
+        followup_content = QWidget()
+        followup_layout = QVBoxLayout(followup_content)
+        followup_layout.setContentsMargins(0, 0, 0, 0)
+        followup_layout.setSpacing(px(4))
+        self._followup_edit = QTextEdit()
+        self._followup_edit.setAcceptRichText(False)
+        self._followup_edit.setFixedHeight(px(54))
+        self._followup_edit.setPlaceholderText("例: 光を青にして、粒の数を倍にする／最後に、公開パラメータを HDA にまとめる手順を足す")
+        followup_layout.addWidget(self._followup_edit)
+        followup_note = token_usage.fit_label(QLabel("前の結果を土台に、もう一度生成します（時間と費用が、1 回分かかります。保存していない前の結果は、破棄されます）"))
+        followup_note.setStyleSheet(type_qss("caption", COLOR_MUTED))
+        followup_layout.addWidget(followup_note)
+        self._followup_btn = QPushButton("追加指示で作り直す")
+        self._followup_btn.setEnabled(False)
+        self._followup_btn.clicked.connect(self._on_followup)
+        followup_layout.addWidget(self._followup_btn)
+        self._followup_box = CollapsibleBox(
+            "追加指示（この結果に足して、続きを作る）", followup_content, collapsed=True, state_key="tutorial_followup", left_align=True
+        )
+        layout.addWidget(self._followup_box)
+
         # 保存した直後だけ出す、控えめな評価の行（2026-10-28）。評価は任意。ポップアップにはせず、保存1回につき1度だけ。
         # 押さなければ、そのまま消える（履歴タブでも、あとから付けられる）。次の生成を始める・破棄するときにも消える。
         self._rate_row = QWidget()
@@ -979,12 +1003,19 @@ class TutorialGeneratePanel(QWidget):
         self._refresh_reference_label()
 
     def _on_generate(self) -> None:
+        self._start_generation()
+
+    def _start_generation(self, requirements_override: str | None = None) -> None:
+        """生成を始める。requirements_override があるとき（追加指示で作り直すとき）は、入力欄の条件ではなく、それを必須条件にする
+        （入力欄は書き換えない）。このときは、3段階連続生成にはしない。"""
         if self._worker and self._worker.isRunning():
             return
         topic = self._topic_edit.text().strip()
         if not topic:
             self._status.setText("トピックを入力してください")
             return
+        followup = requirements_override is not None
+        requirements = requirements_override if followup else self._requirements_edit.toPlainText().strip()
 
         cfg = self._cfg_getter()
         try:
@@ -1000,11 +1031,11 @@ class TutorialGeneratePanel(QWidget):
         self._agent = None  # 前回（単発/チェーン問わず）の参照を残さない
         self._chain_agents = []
         self._chain_saved_paths = []
-        for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn, self._discard_chain_btn):
+        for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn, self._discard_chain_btn, self._followup_btn):
             btn.setEnabled(False)
         self._generate_btn.setEnabled(False)
 
-        if self._chain_checkbox.isChecked():
+        if self._chain_checkbox.isChecked() and not followup:
             self._status.setText("3段階連続生成中（basic→applied→advanced）...")
             chain_kwargs = {
                 "bridge_port":    cfg.get("local_port", 8766),
@@ -1016,7 +1047,7 @@ class TutorialGeneratePanel(QWidget):
                 "cf_api_key":     cfg.get("cf_api_key", ""),
                 "rag_namespace":  cfg.get("tutorial_rag_namespace", ""),
                 "reference_images": list(self._reference_paths),
-                "requirements":   self._requirements_edit.toPlainText().strip(),
+                "requirements":   requirements,
                 "target_model":   self._target_model_path,
             }
             self._worker = TutorialChainWorker(topic, chain_kwargs)
@@ -1038,7 +1069,7 @@ class TutorialGeneratePanel(QWidget):
             cf_api_key=cfg.get("cf_api_key", ""),
             rag_namespace=cfg.get("tutorial_rag_namespace", ""),
             reference_images=list(self._reference_paths),
-            requirements=self._requirements_edit.toPlainText().strip(),
+            requirements=requirements,
             target_model=self._target_model_path,
         )
         level = self._level_combo.currentText()
@@ -1052,6 +1083,25 @@ class TutorialGeneratePanel(QWidget):
         self._worker.done.connect(self._on_done)
         self._worker.failed.connect(self._on_failed)
         self._worker.start()
+
+    def _on_followup(self) -> None:
+        """追加指示で、前の結果を土台に、もう一度生成する（tutorial_followup.build_requirements）。"""
+        if self._result is None or (self._worker and self._worker.isRunning()):
+            return
+        import tutorial_followup
+
+        instruction = tutorial_followup.clean_instruction(self._followup_edit.toPlainText())
+        if not instruction:
+            self._status.setText("追加指示を入力してください")
+            return
+        result = self._result
+        requirements = tutorial_followup.build_requirements(
+            self._requirements_edit.toPlainText().strip(), self._topic_edit.text().strip(),
+            getattr(result, "title", ""), getattr(result, "markdown", ""), instruction,
+        )
+        self._start_generation(requirements_override=requirements)
+        self._progress_log.append(f"追加指示で作り直します: {instruction}")
+        self._followup_edit.clear()
 
     def _on_progress(self, text: str) -> None:
         self._progress_log.append(text)
@@ -1080,6 +1130,7 @@ class TutorialGeneratePanel(QWidget):
         self._generate_btn.setEnabled(True)
         for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn):
             btn.setEnabled(True)
+        self._followup_btn.setEnabled(True)  # 追加指示で、続きを作れる
         state = "完了" if result.completed else f"途中経過（{result.abort_reason}）"
         self._status.setText(
             f"{state} — ${result.cost_usd:.3f} / {result.iterations} ステップ。"
@@ -1340,7 +1391,8 @@ class TutorialGeneratePanel(QWidget):
                 extra_env=gallery_upload.gallery_env(cfg),
             )
             if log_path is not None:
-                self._start_video_progress_poll(log_path, Path(exe_path).parent, md_path)
+                self._start_video_progress_poll(
+                    log_path, Path(exe_path).parent, md_path, upload_expected=bool(gallery_upload.gallery_env(cfg)))
             else:
                 self._video_bar.setVisible(False)  # 起動できなかった（exe未設定など）。進捗は無い
             return status
@@ -1355,7 +1407,7 @@ class TutorialGeneratePanel(QWidget):
         if voice:
             name = voice[-1].strip()
             if name.startswith("SAPI"):
-                return f"音声: 従来の音声（{name}）。自然な声にするには、歯車メニュー →「接続・アカウント」の URL / APIキーを設定するか、VOICEVOXを起動してください"
+                return f"音声: 従来の音声（{name}）。自然な声にするには、メニュー（≡） →「接続・アカウント」の URL / APIキーを設定するか、VOICEVOXを起動してください"
             return f"音声: {name}"
         engine = re.findall(r"Narration engine: (.+)", log_text)
         return f"音声: {engine[-1].strip()[:90]}" if engine else ""
@@ -1365,7 +1417,7 @@ class TutorialGeneratePanel(QWidget):
     _VIDEO_PROGRESS_POLL_MS = 2000
     _VIDEO_PROGRESS_MAX_POLLS = 900  # 2秒間隔で最大30分。それ以上は諦めてポーリングだけ止める
 
-    def _start_video_progress_poll(self, log_path: Path, output_dir: Path, md_path: Path) -> None:
+    def _start_video_progress_poll(self, log_path: Path, output_dir: Path, md_path: Path, upload_expected: bool = False) -> None:
         """
         video_factory_cloudrag_poc.exe が書く<slug>_video_factory.logを定期的に
         読み、"Rendered frame N / M" 行から進捗を、"Wrote "/"ERROR"行から完了・
@@ -1414,6 +1466,8 @@ class TutorialGeneratePanel(QWidget):
                     except OSError:
                         pass  # サイドカー書き出し失敗は致命的ではない（プレビュー再生自体は動く）
                     self._on_video_ready(md_path.stem, video_path)
+                if upload_expected:
+                    self._follow_gallery_upload(log_path, f"動画生成: 完了（{video_path.name}）")
                 return
             # 失敗の判定は、エンジンが「ERROR:」で始まる行を出したときだけ（video_progress.py）。以前は、ログのどこかに
             # 「エラー」という文字があれば失敗扱いにしていたため、スライドの見出し（「エラーが出ないか確かめる」等）で
@@ -1433,6 +1487,43 @@ class TutorialGeneratePanel(QWidget):
                 self._video_progress.setText(f"動画生成: 進捗表示を終了しました（{log_path.name}を直接確認してください）")
 
         QTimer.singleShot(self._VIDEO_PROGRESS_POLL_MS, poll)
+
+    _UPLOAD_POLL_MS = 3000
+    _UPLOAD_POLL_MAX = 400  # 3 秒 × 400 = 20 分（長い動画を、分けて送る時間まで見る）
+
+    def _follow_gallery_upload(self, log_path: Path, base_text: str) -> None:
+        """動画ができたあと、エンジンが自動でギャラリーへ送った結果を、ログから読んで、画面に出す（2026-11-18）。
+        以前は、アップロードが失敗しても（例: 動画が大きすぎて「Payload Too Large」）、ログにしか残らず、「ギャラリーに載っていない」ことに
+        気づけなかった。失敗したときは、理由と、Movie タブの「未アップロードをすべて」で再送できることを伝える。"""
+        state = {"polls": 0}
+
+        def poll() -> None:
+            state["polls"] += 1
+            try:
+                text = log_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return
+            status, reason = video_progress.upload_status(text)
+            if status == "done":
+                self._video_progress.setText(f"{base_text} / ギャラリーに載せました")
+                return
+            if status == "failed":
+                self._video_progress.setText(
+                    f"{base_text} / ギャラリーへの自動アップロードに失敗しました（{reason}）。"
+                    "Movie タブの「未アップロードをすべて」で、もう一度送れます"
+                )
+                return
+            if status == "none":
+                self._video_progress.setText(
+                    f"{base_text} / ギャラリーへは送られていません（接続先が渡されていません）。"
+                    "メニュー（≡）→「接続・アカウント」の「動画・ギャラリー」を確かめてください"
+                )
+                return
+            self._video_progress.setText(f"{base_text} / ギャラリーへアップロード中…")
+            if state["polls"] < self._UPLOAD_POLL_MAX:
+                QTimer.singleShot(self._UPLOAD_POLL_MS, poll)
+
+        QTimer.singleShot(self._UPLOAD_POLL_MS, poll)
 
     def _on_preview_video(self) -> None:
         """
@@ -1699,42 +1790,54 @@ class VideoLibraryPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(4)
 
-        toolbar = QHBoxLayout()
-        refresh_btn = action_button("refresh", "一覧を更新")
-        refresh_btn.clicked.connect(self.refresh)
-        toolbar.addWidget(refresh_btn)
+        # 2 段にする（2026-11-18。以前は 5 つのボタンと状態が 1 行に並び、狭いペインで潰れていた）:
+        #   上段 = 選んだ動画への操作（主 = ダッシュボードへ、副 = 外部プレイヤー、危険 = 削除）
+        #   下段 = 一覧全体の操作（更新・未アップロードをすべて）と、状態の 1 行
+        self._current_video_path: Path | None = None
+        selection_row = QHBoxLayout()
+        selection_row.setSpacing(px(6))
+        # ダッシュボードの「動画」ページ（ギャラリー）へのアップロード（2026-10-22追加）。
+        # 以前は、Houdini の中・ローカルで確認するだけで、ダッシュボードにはほとんど載っていなかった。
+        self._upload_btn = QPushButton("選択をダッシュボードへ")
+        self._upload_btn.setEnabled(False)
+        self._upload_btn.setStyleSheet(button_qss("primary"))
+        self._upload_btn.setToolTip("選択した動画を、ダッシュボードの動画ページへアップロードします（すでにあるものは省略。大きい動画は分けて送ります）")
+        self._upload_btn.clicked.connect(lambda: self._start_upload(selected_only=True))
+        selection_row.addWidget(self._upload_btn)
+        # 2026-09-13追加: 埋め込みQtWebEngineプレイヤーが再生できない・止まる場合の保険
+        # （TutorialGeneratePanel._on_open_in_external_playerと同じ理由）。
+        self._external_player_btn = QPushButton("外部プレイヤーで開く")
+        self._external_player_btn.setEnabled(False)
+        self._external_player_btn.clicked.connect(self._on_open_in_external_player)
+        selection_row.addWidget(self._external_player_btn)
+        selection_row.addStretch()
         # 選択した動画（複数選択可、Ctrl/Shiftクリック）だけを削除する（2026-09-12追加）。
         # 削除対象は動画ファイルとサイドカー（<名前>.video.txt）のみで、チュートリアル
         # 本体（.md/.json）やスクリーンショットマニフェストは対象外にしている
         # （「動画の一括削除」という要望のスコープを動画ファイル自体に絞るため）。
         self._delete_btn = QPushButton("選択した動画を削除")
         self._delete_btn.setEnabled(False)
+        self._delete_btn.setStyleSheet(button_qss("danger"))
         self._delete_btn.clicked.connect(self._on_delete_selected)
-        toolbar.addWidget(self._delete_btn)
-        # 2026-09-13追加: 埋め込みQtWebEngineプレイヤーが再生できない・止まる場合の保険
-        # （TutorialGeneratePanel._on_open_in_external_playerと同じ理由）。
-        self._external_player_btn = QPushButton("外部プレイヤーで開く")
-        self._external_player_btn.setEnabled(False)
-        self._external_player_btn.clicked.connect(self._on_open_in_external_player)
-        toolbar.addWidget(self._external_player_btn)
-        self._current_video_path: Path | None = None
-        # ダッシュボードの「動画」ページ（ギャラリー）へのアップロード（2026-10-22追加）。
-        # 以前は、Houdini の中・ローカルで確認するだけで、ダッシュボードにはほとんど載っていなかった。
-        self._upload_btn = QPushButton("選択をダッシュボードへ")
-        self._upload_btn.setEnabled(False)
-        self._upload_btn.setToolTip("選択した動画を、ダッシュボードの動画ページへアップロードします（すでにあるものは省略）")
-        self._upload_btn.clicked.connect(lambda: self._start_upload(selected_only=True))
-        toolbar.addWidget(self._upload_btn)
+        selection_row.addWidget(self._delete_btn)
+        layout.addLayout(selection_row)
+
+        library_row = QHBoxLayout()
+        library_row.setSpacing(px(6))
+        refresh_btn = action_button("refresh", "一覧を更新")
+        refresh_btn.clicked.connect(self.refresh)
+        library_row.addWidget(refresh_btn)
         self._upload_all_btn = QPushButton("未アップロードをすべて")
         self._upload_all_btn.setToolTip("動画エンジンの出力にある動画のうち、ダッシュボードにまだ無いものを、すべてアップロードします")
         self._upload_all_btn.clicked.connect(lambda: self._start_upload(selected_only=False))
-        toolbar.addWidget(self._upload_all_btn)
+        library_row.addWidget(self._upload_all_btn)
+        library_row.addStretch()
+        layout.addLayout(library_row)
         self._upload_worker: GalleryUploadWorker | None = None
         self._status = token_usage.fit_label(QLabel(""))
-        self._status.setStyleSheet("color:#94a3b8;font-size:11px;")
-        toolbar.addWidget(self._status)
-        toolbar.addStretch()
-        layout.addLayout(toolbar)
+        self._status.setStyleSheet(type_qss("caption", COLOR_MUTED))
+        self._status.setWordWrap(True)
+        layout.addWidget(self._status)
         # アップロードの進み具合（0〜100%）。アップロード中だけ表示する。
         self._upload_bar = QProgressBar()
         self._upload_bar.setRange(0, 100)
@@ -1779,10 +1882,10 @@ class VideoLibraryPanel(QWidget):
         url, token = cfg.get("gallery_url", ""), cfg.get("gallery_token", "")
         exe_path = cfg.get("video_factory_exe_path", "")
         if not url.strip() or not token.strip():
-            self._status.setText("歯車メニュー →「接続・アカウント」の「動画・ギャラリー」で、ギャラリーのURLとアップロードトークンを設定してください（運営から受け取った値です）")
+            self._status.setText("メニュー（≡） →「接続・アカウント」の「動画・ギャラリー」で、ギャラリーのURLとアップロードトークンを設定してください（運営から受け取った値です）")
             return
         if not exe_path:
-            self._status.setText("歯車メニュー →「接続・アカウント」の「動画・ギャラリー」で、Video Factory exe パス（動画エンジン）を設定してください")
+            self._status.setText("メニュー（≡） →「接続・アカウント」の「動画・ギャラリー」で、Video Factory exe パス（動画エンジン）を設定してください")
             return
         output_dir = gallery_upload.output_dir_for(exe_path)
         only_ids: set[str] | None = None

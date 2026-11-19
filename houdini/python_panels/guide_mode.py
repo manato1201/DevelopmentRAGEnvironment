@@ -28,6 +28,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import display_isolation
 import guide_shortcuts
 
 GUIDE_VERSION = 2
@@ -859,6 +860,84 @@ def show_nodes(hou, wanted: list[tuple[str, str]]) -> tuple[list[str], list[str]
     return [n.name() for n in found], missing
 
 
+def isolate_display(hou, node_paths: list[str]) -> str:
+    """手順が指すノードのオブジェクト以外の表示を切り、見せたいオブジェクトの表示を入れる（ビューポートに、関係ないものが重ならないように）。
+    切ったものがあれば、画面に出す1文を返す（無ければ空）。"""
+    keep = [display_isolation.top_object_path(p) for p in node_paths if p]
+    keep = [k for k in keep if k]
+    if not keep:
+        return ""
+    turned_off = display_isolation.isolate(hou, keep)
+    for path in keep:
+        display_isolation.show(hou, path)
+    if not turned_off:
+        return ""
+    return f"ほかのオブジェクトの表示を切りました（{len(turned_off)}個: {'、'.join(p.rsplit('/', 1)[-1] for p in turned_off[:4])}{'…' if len(turned_off) > 4 else ''}）。「表示を元に戻す」で戻せます"
+
+
+def restore_display(hou) -> str:
+    """切ったオブジェクトの表示を、元に戻す。画面に出す1文を返す。"""
+    restored = display_isolation.restore(hou)
+    return f"{len(restored)}個のオブジェクトの表示を戻しました" if restored else "戻すものはありません"
+
+
+def _parm_targets(node, names: list[str]) -> list:
+    """名前の、実在するパラメータ（無ければ、タプル）。"""
+    found = []
+    for name in names:
+        try:
+            parm = node.parm(name)
+            if parm is None:
+                parm = node.parmTuple(name)
+            if parm is not None:
+                found.append(parm)
+        except Exception:  # noqa: BLE001
+            continue
+    return found
+
+
+def highlight_parms(hou, step: dict, node, reveal=None) -> list[str]:
+    """パラメータ画面で、この手順の項目を見つけやすくする。Houdini には、パラメータを光らせる API が無いので、
+    ① 項目が入っているタブ（フォルダ）を前面にし（reveal）、② その項目がちょうど画面の中央に来るよう、スクロールし
+    （ParameterEditor.scrollTo）、③ キーボードの焦点を最初の項目に移す（moveFocusTo）。
+    戻り値: 画面に出すメッセージ（できたこと・できなかったこと）。失敗しても、案内は止めない。"""
+    names = [str(p.get("name")) for p in (step.get("parms") or []) if isinstance(p, dict) and p.get("name")]
+    if node is None or not names:
+        return []
+    pane = _pane(hou, "parm")
+    if pane is None:
+        return []
+    messages: list[str] = []
+    if callable(reveal):
+        try:
+            reveal(node, names)
+        except Exception:  # noqa: BLE001
+            pass
+    targets = _parm_targets(node, names)
+    if not targets:
+        return []
+    scrolled = False
+    scroll = getattr(pane, "scrollTo", None)
+    if callable(scroll):
+        position = getattr(getattr(hou, "scrollPosition", None), "Center", None)
+        try:
+            scroll(targets, position) if position is not None else scroll(targets)
+            scrolled = True
+        except Exception:  # noqa: BLE001 -- 版によって、引数が違う・画面がまだ追従していない
+            scrolled = False
+    focused = False
+    focus = getattr(pane, "moveFocusTo", None)
+    if callable(focus):
+        try:
+            focus(targets[0])
+            focused = True
+        except Exception:  # noqa: BLE001
+            focused = False
+    if scrolled or focused:
+        messages.append("パラメータ画面を、この手順の項目（" + "、".join(names[:3]) + ("…" if len(names) > 3 else "") + "）の位置に合わせました")
+    return messages
+
+
 def _endpoints(step: dict) -> list[dict]:
     """つなぐ手順の、両端のノード（同じネットワークの中にあるとして、パスを作る）。"""
     parent = _step_container_rel(step)
@@ -904,6 +983,9 @@ def apply_step(hou, step: dict, sandbox_path: str = "", mode: str = "auto") -> l
                 messages.append(f"いまのネットワーク: {editor.pwd().path()}")
         except Exception:  # noqa: BLE001
             pass
+        note = isolate_display(hou, [h.node.path() for h in found])
+        if note:
+            messages.append(note)
     if tool == "set_parameter":
         pin = release_parm_pin(hou)
         if pin:

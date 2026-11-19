@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 import pilot_task as pt
+from panel_actions import COLOR_MUTED, COLOR_TEXT, button_qss, px, type_qss
 from panel_info import friendly_error
 from rag_client import RAGClient
 
@@ -47,6 +48,7 @@ _SAMPLE_INTERVAL_MS = 20_000  # cook エラーの採取の間隔
 _PROGRESS_PATH = Path.home() / ".houdini" / "rag_pilot_progress.json"
 _FINISH_TEXT = "終了して振り返りへ"
 _CARD_STYLE = "QFrame#card{background:#1e293b;border-radius:6px;}QLabel{background:transparent;}"
+# 文字の大きさは、Tutorial タブと同じ 4 段階（panel_actions.type_qss）にそろえた（2026-11-18）
 
 
 class _CallWorker(QThread):
@@ -120,6 +122,7 @@ class TaskSurveyDialog(QDialog):
         later = QPushButton("戻る（課題を続ける）")
         later.clicked.connect(self.reject)
         send = QPushButton("送信して課題を終える")
+        send.setStyleSheet(button_qss("primary"))
         send.clicked.connect(self.accept)
         buttons.addWidget(later)
         buttons.addWidget(send)
@@ -158,13 +161,13 @@ class PilotTaskPanel(QWidget):
     # ── 画面 ──
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
+        layout.setSpacing(px(8))
         self._header = QLabel("")
-        self._header.setStyleSheet("font-weight:bold;")
+        self._header.setStyleSheet(type_qss("heading", COLOR_TEXT))
         layout.addWidget(self._header)
         self._message = QLabel("")
         self._message.setWordWrap(True)
-        self._message.setStyleSheet("color:#94a3b8;")
+        self._message.setStyleSheet(type_qss("caption", COLOR_MUTED))
         layout.addWidget(self._message)
 
         # 事前アンケート
@@ -193,6 +196,7 @@ class PilotTaskPanel(QWidget):
         form.addRow("実務経験", self._practice)
         form.addRow("ツールの使用歴", self._tools)
         self._profile_send = QPushButton("送信して始める")
+        self._profile_send.setStyleSheet(button_qss("primary"))
         self._profile_send.clicked.connect(self._on_profile_send)
         form.addRow(self._profile_send)
         layout.addWidget(self._profile_box)
@@ -208,18 +212,21 @@ class PilotTaskPanel(QWidget):
             card.setStyleSheet(_CARD_STYLE)
             inner = QVBoxLayout(card)
             title = QLabel("")
-            title.setStyleSheet("font-weight:bold;")
+            title.setStyleSheet(type_qss("heading", COLOR_TEXT))
             condition = QLabel("")
             condition.setWordWrap(True)
             criterion = QLabel("")
             criterion.setWordWrap(True)
-            criterion.setStyleSheet("color:#94a3b8;")
+            criterion.setStyleSheet(type_qss("caption", COLOR_MUTED))
             status = QLabel("")
-            status.setStyleSheet("color:#cbd5e1;")
+            status.setStyleSheet(type_qss("body", "#cbd5e1"))
             row = QHBoxLayout()
             start = QPushButton("開始")
             finish = QPushButton(_FINISH_TEXT)
             restart = QPushButton("計測をやり直す")
+            start.setStyleSheet(button_qss("primary"))
+            finish.setStyleSheet(button_qss("primary"))
+            restart.setStyleSheet(button_qss("danger"))  # 計測を捨てて、最初からやり直す操作
             start.clicked.connect(lambda _c=False, k=kind: self._on_start(k))
             finish.clicked.connect(self._on_finish)
             restart.clicked.connect(self._on_restart)
@@ -325,7 +332,7 @@ class PilotTaskPanel(QWidget):
         if not done:
             return
         title = QLabel("完了した記録")
-        title.setStyleSheet("font-weight:bold;")
+        title.setStyleSheet(type_qss("heading", COLOR_TEXT))
         self._history_layout.addWidget(title)
         for item in done:
             row = QHBoxLayout()
@@ -342,7 +349,7 @@ class PilotTaskPanel(QWidget):
             self._history_layout.addWidget(holder)
         note = QLabel("間違えて終えたときは、「やり直す」で取り直せます。やり直した回数は、記録に残ります。")
         note.setWordWrap(True)
-        note.setStyleSheet("color:#94a3b8;")
+        note.setStyleSheet(type_qss("caption", COLOR_MUTED))
         self._history_layout.addWidget(note)
 
     def _confirm(self, text: str) -> bool:

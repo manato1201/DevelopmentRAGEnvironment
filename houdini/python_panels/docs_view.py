@@ -1,4 +1,5 @@
 """
+（2026-11-18: Docs タブは、使わないので、パネルから外した。配布物にも入れていない。単体の部品として残している。）
 docs_view.py — Docs タブ: ナレッジベースに入っているドキュメントを、パネルの中で探して読む（2026-10-31）
 
 以前ここにあった「Graph タブ」（ドキュメント同士の関係図）は、生成の質にも学習にもつながらず、使われていなかったので、
@@ -216,7 +217,7 @@ class DocsWidget(QWidget):
     def _load_namespaces(self) -> None:
         self._loaded_namespaces = True
         if self._cfg.get("mode") != "cloudflare":
-            self._status.setText("Docs は、Cloudflare モードで、Worker の URL と APIキーを設定すると使えます（歯車メニュー →「接続・アカウント」）")
+            self._status.setText("Docs は、Cloudflare モードで、Worker の URL と APIキーを設定すると使えます（メニュー（≡） →「接続・アカウント」）")
             return
         client = self._client()
         self._run(client.docs_namespaces, self._on_namespaces, "ナレッジの一覧を取得しています…")

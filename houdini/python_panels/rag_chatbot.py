@@ -42,13 +42,6 @@ except NameError:
     except Exception:
         pass
 
-# docs_view.py（Docs タブ）がインポートできない場合はフォールバック UI を表示する
-try:
-    from docs_view import DocsWidget as _DocsWidget
-    _DOCS_AVAILABLE = True
-except ImportError:
-    _DOCS_AVAILABLE = False
-
 # guide_view.py（Guide タブ: 手順ごとの案内）も同様
 try:
     from guide_view import GuideWidget as _GuideWidget
@@ -75,12 +68,13 @@ import panel_paths as _paths
 from pilot_panel import PilotTaskPanel as _PilotTaskPanel
 from rag_client import post_json as _post_json
 from rag_client import _cf_base as _cf_base_url
-from panel_actions import Speaker as _Speaker, action_button as _action_button, normalize_fonts as _normalize_fonts, set_active as _action_set_active
+from panel_actions import Speaker as _Speaker, action_button as _action_button, button_qss as _button_qss, make_icon as _make_icon, px as _px, type_font as _type_font, type_qss as _type_qss, normalize_fonts as _normalize_fonts, set_active as _action_set_active
 from PySide6.QtCore import Qt, QSize, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QApplication,
@@ -154,7 +148,7 @@ def _read_config_file(path: Path) -> tuple[dict | None, str]:
 def _load_config() -> dict:
     """
     設定ファイルを読み込む。
-    ファイルが存在しない or 壊れている場合はデフォルト設定を返す（理由は、歯車メニューの「デバッグ」の記録に残す）。
+    ファイルが存在しない or 壊れている場合はデフォルト設定を返す（理由は、メニュー（≡）の「デバッグ」の記録に残す）。
     既存設定とデフォルトをマージするので、新しいキーが追加されても後方互換を保てる。
     保存先（local_bridge_dir）が未設定なら、既定の場所（ドキュメント内の RAGReelTutorial フォルダ）を使う（panel_paths）。
     """
@@ -318,7 +312,7 @@ class BridgeStartWorker(QThread):
     def run(self) -> None:
         bridge_dir = self._cfg.get("local_bridge_dir", "")
         if not bridge_dir:
-            self.failed.emit("保存先フォルダ（ブリッジのあるフォルダ）が設定されていません（歯車メニュー → 接続・アカウント → 保存先フォルダ）")
+            self.failed.emit("保存先フォルダ（ブリッジのあるフォルダ）が設定されていません（メニュー（≡） → 接続・アカウント → 保存先フォルダ）")
             return
 
         port = self._cfg["local_port"]
@@ -452,7 +446,7 @@ _CONNECTION_CHECK_INTERVAL_MS = 20_000  # 自動再チェックの間隔（ミ�
 
 
 class _ConnectionLamp(QWidget):
-    """接続状態を丸いランプ（色）+ テキストで示すインジケータ。クリックすると、接続の画面（歯車メニュー内）を開く。"""
+    """接続状態を丸いランプ（色）+ テキストで示すインジケータ。クリックすると、接続の画面（メニュー（≡）内）を開く。"""
 
     clicked = Signal()
 
@@ -549,7 +543,7 @@ class RAGChatbotPanel(QWidget):
         self._last_health: tuple[float, bool] | None = None
         self._last_user_info: dict | None = None
         self._last_growth: dict | None = None
-        self._current_sub = ""           # 歯車メニューの中の画面を開いているとき、そのキー（タブの画面なら ""）
+        self._current_sub = ""           # メニュー（≡）の中の画面を開いているとき、そのキー（タブの画面なら ""）
 
         self._build_ui()
         self._ensure_bridge()  # Local モードなら起動確認
@@ -595,17 +589,19 @@ class RAGChatbotPanel(QWidget):
         # コールバック（_on_video_ready/_on_open_video）がこのタブへの切り替えに使う。
         video_tab = self._build_video_tab()
         self._video_tab_wrapper = self._wrap_tab(video_tab)
-        tabs.addTab(self._wrap_tab(self._build_help_tab()),     "はじめに")
+        # 「はじめに」は、アイコン（本）だけのタブ。Docs タブは、使わないので、なくした（2026-11-18）。動画のタブは「Movie」
+        book = _make_icon(_nav.ICON_TABS["help"])
+        help_index = tabs.addTab(self._wrap_tab(self._build_help_tab()), book, "" if not book.isNull() else "?")  # SVG が無い環境は、文字で代用
+        tabs.setTabToolTip(help_index, "はじめに（使い方）")
         tabs.addTab(self._wrap_tab(self._build_chat_tab()),     "Chat")
-        tabs.addTab(self._wrap_tab(self._build_docs_tab()),     "Docs")
         tabs.addTab(self._wrap_tab(self._build_guide_tab()),    "Guide")
         tabs.addTab(self._tutorial_tab_wrapper,                 "Tutorial")
-        tabs.addTab(self._video_tab_wrapper,                    "動画")
-        # 「課題」タブ（実証実験の参加者向け）。歯車メニュー「接続・アカウント」の「実証実験に参加する」を入れたときだけ表示する（既定は非表示）。
+        tabs.addTab(self._video_tab_wrapper,                    "Movie")
+        # 「課題」タブ（実証実験の参加者向け）。メニュー（≡）「接続・アカウント」の「実証実験に参加する」を入れたときだけ表示する（既定は非表示）。
         self._pilot_panel = _PilotTaskPanel(lambda: self._cfg)
         self._pilot_tab_idx = tabs.addTab(self._wrap_tab(self._pilot_panel, scrollable=True), "課題")
         tabs.setTabVisible(self._pilot_tab_idx, bool(_ui_state_get("pilot_enabled", False)))
-        # ふだん使わない画面（履歴・接続・設定・デバッグ）は、タブに並べず、右上の歯車メニューの中に置く
+        # ふだん使わない画面（履歴・接続・設定・デバッグ）は、タブに並べず、右上のメニュー（≡）の中に置く
         # （2026-11-17 実証実験の感想: 設定のタブが、ふだん使うタブと同じ重さで目立っていた）。
         # 「設定」と「デバッグ」は、設定者（admin / editor）にだけ出す（_apply_role_visibility）。
         # サーバー側の権限が正で、これは画面の出し分け。
@@ -638,7 +634,7 @@ class RAGChatbotPanel(QWidget):
         lamp_row.addWidget(self._build_gear_button())
         root.addLayout(lamp_row)
 
-        # 0: タブの画面 / 1: 歯車メニューの中の画面（戻るボタンつき）
+        # 0: タブの画面 / 1: メニュー（≡）の中の画面（戻るボタンつき）
         self._main_stack = QStackedWidget()
         self._main_stack.addWidget(tabs)
         self._main_stack.addWidget(self._build_sub_view())
@@ -699,7 +695,7 @@ class RAGChatbotPanel(QWidget):
 <ol>
 <li><b>接続を確認する</b> — 右上に「Local 接続OK」または「Cloudflare 接続OK」の
 緑ランプが出ているか確認してください。赤色（接続なし）の場合は、ランプをクリックするか、
-右上の歯車 → <code>接続・アカウント</code> で URL と APIキーを確認し、「保存して接続を確認」を押してください。</li>
+右上のメニュー（≡）→ <code>接続・アカウント</code> で URL と APIキーを確認し、「保存して接続を確認」を押してください。</li>
 <li><b>まず Chat タブで質問してみる</b> — 例:「mountainノードの使い方は？」と入力して
 <code>Ctrl+Enter</code>（または「送信」ボタン）で聞いてみてください。</li>
 <li><b>慣れたら Tutorial タブでチュートリアル生成を試す</b> — トピックを1行で入力
@@ -714,16 +710,15 @@ class RAGChatbotPanel(QWidget):
 と入力すると Tutorial タブに切り替わりその場で生成を開始できます。回答の中の URL はリンクになり、
 クリックすると外部ブラウザで開きます。ノードの名前（Pyro Solver など）が出てきたときは、回答の下に、
 SideFX の公式ドキュメントへのリンクが出ます。</li>
-<li><b>Docs</b> — ナレッジベースに入っているドキュメントを探して読むタブ。「意味で検索」は関連度の高い順、
-「名前で絞る」は名前の部分一致で並べます。クリックすると本文が開き、長いときは「続きを読む」で追加できます。
-チュートリアルの「参考」に出る名前（出典）の中身も、ここで確かめられます。Cloudflare モードで使えます。</li>
+<li><b>Guide</b> — 保存したチュートリアル（生成した直後のものも）を、手順ごとに案内するタブ。
+「この手順を案内」で、操作するノードを選び、見るタブを前面に出します。値を変える手順では、パラメータ画面の項目の位置に合わせます。</li>
 <li><b>Tutorial</b> — トピックを入力してチュートリアルを自動生成するタブ。生成結果は
 プレビュー表示されるだけで、「保存」を押すまでファイルには書き込まれません。</li>
-<li><b>動画</b> — 生成した動画の一覧。「ダッシュボードへアップロード」で、
+<li><b>Movie</b> — 生成した動画の一覧。「ダッシュボードへアップロード」で、
 ダッシュボードの動画ページ（ギャラリー）に載せられます。</li>
 </ul>
 
-<h2>右上の歯車メニュー（ふだん使わない画面）</h2>
+<h2>右上のメニュー（≡）（ふだん使わない画面）</h2>
 <ul>
 <li><b>保存したチュートリアル（History）</b> — 保存済みチュートリアルの一覧と、実際に組み立てられたノード
 グラフのビューア。「簡易」は直列に繋がったノードを1つにまとめた要約表示、
@@ -741,10 +736,10 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
 <h2>よくある詰まりポイント</h2>
 <ul>
 <li><b>ランプが赤い（接続なし）</b> — Local モードならブリッジ（<code>rag_local_bridge.py</code>）
-が起動しているか確認してください。歯車メニューの <code>設定</code> の「Local RAG」にある「ブリッジ再起動」で
+が起動しているか確認してください。メニュー（≡）の <code>設定</code> の「Local RAG」にある「ブリッジ再起動」で
 自動起動を試みます。Cloudflare モードなら Worker の URL / APIキー の設定を見直してください。</li>
 <li><b>「保存先未設定」と出る</b> — 通常は、ドキュメント内の RAGReelTutorial フォルダに自動で保存します。
-出たときは、歯車 → <code>接続・アカウント</code> の「保存先フォルダ」に、書き込める場所を入力して保存してください。</li>
+出たときは、メニュー（≡）→ <code>接続・アカウント</code> の「保存先フォルダ」に、書き込める場所を入力して保存してください。</li>
 <li><b>チュートリアル生成が途中で打ち切られる</b> — 抽象的すぎるトピック
 （例: 具体的なノードで表現しにくい題材）だと、Houdiniのノードタイプを
 探し続けて反復回数を使い切ることがあります。より具体的な操作
@@ -767,7 +762,12 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         """
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setSpacing(4)
+        layout.setSpacing(_px(6))  # Tutorial タブと同じ、拡大率に追従する余白（2026-11-18）
+
+        def caption(text: str) -> QLabel:
+            label = QLabel(text)
+            label.setStyleSheet(_type_qss("caption", "#94a3b8"))
+            return label
 
         # モード切り替え行
         mode_row = QHBoxLayout()
@@ -775,7 +775,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._mode_box = QWidget()
         mode_box_layout = QHBoxLayout(self._mode_box)
         mode_box_layout.setContentsMargins(0, 0, 0, 0)
-        mode_box_layout.addWidget(QLabel("モード:"))
+        mode_box_layout.addWidget(caption("モード:"))
         self._mode_combo = QComboBox()
         self._mode_combo.addItems(["local", "cloudflare"])
         self._mode_combo.setCurrentText(self._cfg["mode"])
@@ -794,7 +794,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         mode_row.addWidget(self._attach_viewport_checkbox)
 
         # 説明レベル（Cloudflare のみ）。おまかせ＝これまでの質問（使った専門用語）から、だんだん高度になる。
-        mode_row.addWidget(QLabel("説明:"))
+        mode_row.addWidget(caption("説明:"))
         self._explain_combo = QComboBox()
         for value, label in _EXPLAIN_CHOICES:
             self._explain_combo.addItem(label, value)
@@ -803,7 +803,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._explain_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._explain_combo.setToolTip(
             "回答の説明の深さ。おまかせ＝質問に使った専門用語の蓄積から、だんだん高度になります。\n"
-            "歯車メニュー →「接続・アカウント」で、いまの習熟度を確認できます（Cloudflareモードのみ）。"
+            "メニュー（≡） →「接続・アカウント」で、いまの習熟度を確認できます（Cloudflareモードのみ）。"
         )
         self._explain_combo.setEnabled(self._cfg["mode"] == "cloudflare")
         self._explain_combo.currentIndexChanged.connect(self._on_explain_changed)
@@ -819,7 +819,9 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._chat_scroll  = QScrollArea()
         self._chat_scroll.setWidgetResizable(True)
         self._chat_scroll.setMinimumHeight(120)
+        self._chat_scroll.setFrameShape(QFrame.NoFrame)
         self._chat_inner   = QWidget()
+        self._chat_inner.setFont(_type_font("body"))  # 回答の文字の大きさを、Tutorial タブと同じ 10pt にそろえる
         self._chat_layout  = QVBoxLayout(self._chat_inner)
         self._chat_layout.addStretch()  # バブルを下から積み上げるためのスペーサー
         self._chat_scroll.setWidget(self._chat_inner)
@@ -828,12 +830,16 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         # テキスト入力（固定高さ70→50に縮小。ボタン行と合わせた最低限の要求高さを
         # 減らし、狭いペインでも収まりやすくする）
         self._input = QTextEdit()
-        self._input.setFixedHeight(50)
+        self._input.setFixedHeight(_px(56))
+        self._input.setFont(_type_font("body"))
         self._input.setPlaceholderText("質問を入力（Ctrl+Enter で送信）")
         layout.addWidget(self._input)
 
+        # 主な操作は「送信」（主ボタン）。「クリア」は副。送るキーの案内は、補足の文字で左に置く
         btn_row = QHBoxLayout()
+        btn_row.addWidget(caption("Ctrl+Enter で送信"))
         self._send_btn = QPushButton("送信")
+        self._send_btn.setStyleSheet(_button_qss("primary"))
         self._send_btn.clicked.connect(self._on_send)
         clear_btn = QPushButton("クリア")
         clear_btn.clicked.connect(self._on_clear)
@@ -859,26 +865,6 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self.updateGeometry()
         if self.layout() is not None:
             self.layout().activate()
-
-    def _build_docs_tab(self) -> QWidget:
-        """
-        Docs タブ（旧 Graph タブの置き換え。2026-10-31）:
-          docs_view.py が利用可能なら DocsWidget（ナレッジのドキュメントを探して読む）を表示。
-          インポートできない場合はエラーメッセージを表示するフォールバック UI を返す。
-        """
-        if _DOCS_AVAILABLE:
-            self._docs_widget = _DocsWidget(self._cfg)
-            return self._docs_widget
-        # フォールバック: docs_view.py が見つからない場合
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        label = QLabel(
-            "docs_view.py が見つかりません。\n"
-            "houdini/python_panels/ に docs_view.py を配置してください。"
-        )
-        label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(label)
-        return w
 
     def _build_guide_tab(self) -> QWidget:
         """
@@ -954,7 +940,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         """
         if self._video_library_panel is not None:
             self._video_library_panel.show_video(name, video_path)
-        self._show_main()  # 履歴（歯車メニューの中）から呼ばれたとき、動画のタブへ戻る
+        self._show_main()  # 履歴（メニュー（≡）の中）から呼ばれたとき、動画のタブへ戻る
         self._tabs.setCurrentWidget(self._video_tab_wrapper)
 
     @staticmethod
@@ -1007,7 +993,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
 
     def _build_connection_tab(self) -> QWidget:
         """
-        「接続・アカウント」の画面（歯車メニュー。全員）: あなたの情報 / Worker URL / APIキー / 検索するナレッジ / 保存先フォルダ / 動画・ギャラリー。
+        「接続・アカウント」の画面（メニュー（≡）。全員）: あなたの情報 / Worker URL / APIキー / 検索するナレッジ / 保存先フォルダ / 動画・ギャラリー。
         一般ユーザーが触る設定は、ここまで（チュートリアルのモデル・ローカルRAGは「設定」の画面＝設定者だけ）。
         """
         w = QWidget()
@@ -1115,7 +1101,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
 
     def _build_settings_tab(self) -> QWidget:
         """
-        設定の画面（歯車メニュー。設定者だけ）: チュートリアル生成（モデル・検索するナレッジ）/ Local RAG。グループごとに折りたためる。
+        設定の画面（メニュー（≡）。設定者だけ）: チュートリアル生成（モデル・検索するナレッジ）/ Local RAG。グループごとに折りたためる。
         URL・APIキー・検索するナレッジ・保存先・動画・ギャラリーは「接続・アカウント」にある（一般ユーザーが自分で入れるもの）。
         """
         w = QWidget()
@@ -1284,13 +1270,13 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             self._show_main()
             self._tabs.setCurrentIndex(self._pilot_tab_idx)  # 切り替わると _on_tab_changed が、課題を読み込む
 
-    # ── 歯車メニュー（ふだん使わない画面）・別ウィンドウ ────────────────────────────
+    # ── メニュー（≡）（ふだん使わない画面）・別ウィンドウ ────────────────────────────
 
     def _is_setup(self) -> bool:
         return _is_setup_user(self._role, self._cfg.get("mode", "cloudflare"))
 
     def _build_gear_button(self) -> QToolButton:
-        """右上の歯車。履歴・接続・設定・デバッグの画面と、「別ウィンドウで開く」をまとめたメニュー。"""
+        """右上のメニュー（≡）。履歴・接続・設定・デバッグの画面と、「別ウィンドウで開く」をまとめたメニュー。"""
         menu = QMenu(self)
         self._sub_actions = {}
         for key, label, _title, _setup_only in _nav.SUB_PAGES:
@@ -1301,14 +1287,14 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         menu.addAction("このパネルを別ウィンドウで開く（並べて見る）").triggered.connect(self._on_open_new_window)
         menu.addAction("並べて見る方法").triggered.connect(self._show_parallel_help)
         self._gear_menu = menu
-        button = _action_button("gear", "履歴・接続・設定、別ウィンドウで開く")
+        button = _action_button("menu", "メニュー（履歴・接続・設定・別ウィンドウで開く）")
         button.setMenu(menu)
         button.setPopupMode(QToolButton.InstantPopup)
         button.setStyleSheet("QToolButton::menu-indicator{image:none;}")
         return button
 
     def _build_sub_view(self) -> QWidget:
-        """歯車メニューの中の画面を出す場所。上に「戻る」と見出し。"""
+        """メニュー（≡）の中の画面を出す場所。上に「戻る」と見出し。"""
         view = _FixedHintTab()
         layout = QVBoxLayout(view)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1328,7 +1314,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         return view
 
     def _show_sub(self, key: str) -> None:
-        """歯車メニューの中の画面を開く。設定・デバッグは、設定者だけ。"""
+        """メニュー（≡）の中の画面を開く。設定・デバッグは、設定者だけ。"""
         wrapper = self._sub_wrappers.get(key)
         if wrapper is None or key not in _nav.visible_sub_pages(self._is_setup()):
             return
@@ -1380,7 +1366,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _apply_role_visibility(self) -> None:
-        """設定者（admin / editor、または Local モード）にだけ、歯車メニューの設定・デバッグと、モード切り替えを出す。"""
+        """設定者（admin / editor、または Local モード）にだけ、メニュー（≡）の設定・デバッグと、モード切り替えを出す。"""
         visible = set(_nav.visible_sub_pages(self._is_setup()))
         for key, action in getattr(self, "_sub_actions", {}).items():
             action.setVisible(key in visible)
@@ -1403,12 +1389,6 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
                 return True
         return super().eventFilter(obj, event)
 
-    def _sync_docs_connection(self) -> None:
-        """Docs タブに、いまの接続設定（モード・URL・キー）を渡す。タブは起動時の設定のままだと、保存・切り替えが反映されない。"""
-        widget = getattr(self, "_docs_widget", None)
-        if widget is not None:
-            widget.set_connection(self._cfg)
-
     def _on_mode_changed(self, mode: str) -> None:
         """モード切り替え時に設定を保存してクライアントを再生成する。"""
         self._cfg["mode"] = mode
@@ -1416,7 +1396,6 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         _paths.apply_default_data_dir(self._cfg)  # Cloudflare に戻したとき、保存先が空なら、既定の場所を使う
         self._refresh_data_dir_note()
         self._client = RAGClient(self._cfg)
-        self._sync_docs_connection()
         if mode == "local":
             self._ensure_bridge()
         # 画面添付（VLM入力）はCloudflare専用。Localに切り替えたら
@@ -1577,7 +1556,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         """クエリ失敗時のコールバック。エラーをバブルとステータスに表示する。"""
         _debug.log("質問", f"エラー: {msg}")
         friendly = _friendly_error(msg)
-        hint = "（詳細は、歯車メニューの「デバッグ」）" if _is_setup_user(self._role, self._cfg.get("mode", "cloudflare")) else ""
+        hint = "（詳細は、メニュー（≡）の「デバッグ」）" if _is_setup_user(self._role, self._cfg.get("mode", "cloudflare")) else ""
         self._add_bubble(f"エラー: {friendly}{hint}", is_user=False)
         self._set_status(friendly)
         self._send_btn.setEnabled(True)
@@ -1625,7 +1604,6 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             self._bridge_dir_edit.setText(self._cfg["local_bridge_dir"])  # 保存先を、いま使っている値にそろえる
         self._refresh_data_dir_note()
         self._client = RAGClient(self._cfg)
-        self._sync_docs_connection()
         # バックエンド変更をブリッジに通知
         if self._cfg["mode"] == "local":
             threading.Thread(target=self._push_backend, daemon=True).start()

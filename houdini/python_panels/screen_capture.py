@@ -83,6 +83,7 @@ import time
 import unicodedata
 from pathlib import Path
 
+import display_isolation
 import hou
 
 
@@ -620,16 +621,18 @@ def _displayed_bounds(container_path: str | None, log_path: Path | None):
     return union
 
 
-def _frame_view(viewport, container_path: str | None, log_path: Path | None) -> str:
-    """ビューポートを、作ったものに合わせる。使った方法を返す（"bounds" / "all" / ""）。"""
+def _frame_view(viewport, container_path: str | None, log_path: Path | None, scale: float = 1.0) -> str:
+    """ビューポートを、作ったものに合わせる。使った方法を返す（"bounds" / "all" / ""）。
+    scale: 境界ボックスを広げる倍率（縦長のペインを 16:9 に切り出しても、作ったものが欠けないように。1 = そのまま）。"""
     try:
         box = _displayed_bounds(container_path, log_path)
         if box is not None:
             size, center = box.sizevec(), box.center()
             pad = max(size[0], size[1], size[2]) * _FRAME_PADDING
+            half = [(size[i] / 2 + pad) * max(1.0, scale) for i in range(3)]
             padded = hou.BoundingBox(
-                center[0] - size[0] / 2 - pad, center[1] - size[1] / 2 - pad, center[2] - size[2] / 2 - pad,
-                center[0] + size[0] / 2 + pad, center[1] + size[1] / 2 + pad, center[2] + size[2] / 2 + pad,
+                center[0] - half[0], center[1] - half[1], center[2] - half[2],
+                center[0] + half[0], center[1] + half[1], center[2] + half[2],
             )
             viewport.frameBoundingBox(padded)
             return "bounds"
@@ -657,6 +660,75 @@ def _output_size(viewport, width: int, height: int, log_path: Path | None) -> tu
     return width, height
 
 
+def _view_aspect(viewport) -> float:
+    """ビューポートの縦横比（幅 / 高さ）。読めないときは 16:9（= 何も変えない）。"""
+    try:
+        size = tuple(viewport.size())
+        view_w, view_h = (size[-2], size[-1]) if len(size) >= 4 else (size[0], size[1])
+        return float(view_w) / float(view_h)
+    except Exception:  # noqa: BLE001
+        return OUTPUT_ASPECT
+
+
+# 動画のビューポート画像は 16:9 で使われる。縦長のペインで撮ると、そのまま（例 1920x2132）では、動画の枠に小さく収まり、
+# 左右に黒い帯が出ていた（2026-11-18 の動画で確認）。撮った画像は、中央を 16:9 に切り出す。切り出しで作ったものが
+# 欠けないよう、撮る前に、作ったものを、その分だけ小さく収める（frame_scale）。
+OUTPUT_ASPECT = 16.0 / 9.0
+_MAX_FRAME_SCALE = 2.4
+
+
+def crop_rect_for_aspect(width: int, height: int, aspect: float = OUTPUT_ASPECT) -> tuple[int, int, int, int]:
+    """画像の中央を、縦横比 aspect に切り出す矩形 (x, y, w, h)。すでに近い（差が 2% 未満）・大きさが不正なときは、全体。"""
+    if width <= 0 or height <= 0 or aspect <= 0:
+        return 0, 0, max(0, width), max(0, height)
+    current = width / height
+    if abs(current - aspect) / aspect < 0.02:
+        return 0, 0, width, height
+    if current < aspect:  # 縦長: 上下を切る
+        new_h = max(2, int(round(width / aspect / 2.0)) * 2)
+        new_h = min(new_h, height)
+        return 0, (height - new_h) // 2, width, new_h
+    new_w = max(2, int(round(height * aspect / 2.0)) * 2)  # 横長: 左右を切る
+    new_w = min(new_w, width)
+    return (width - new_w) // 2, 0, new_w, height
+
+
+def frame_scale(view_aspect: float, aspect: float = OUTPUT_ASPECT) -> float:
+    """縦長のペインで、16:9 に切り出しても、作ったものが欠けないよう、境界ボックスを広げる倍率（1 以上）。"""
+    if view_aspect <= 0 or view_aspect >= aspect:
+        return 1.0
+    return min(_MAX_FRAME_SCALE, aspect / view_aspect)
+
+
+def crop_to_aspect(path: Path, aspect: float = OUTPUT_ASPECT, log_path: Path | None = None) -> bool:
+    """画像の中央を、縦横比 aspect に切り出して上書きする。切り出した（または、すでに近い）ときは True。"""
+    try:
+        from PySide6.QtGui import QImage
+
+        image = QImage(str(path))
+        if image.isNull():
+            return False
+        x, y, w, h = crop_rect_for_aspect(image.width(), image.height(), aspect)
+        if (w, h) == (image.width(), image.height()):
+            return True
+        return bool(image.copy(x, y, w, h).save(str(path), "PNG"))
+    except Exception as exc:  # noqa: BLE001 -- 撮影は止めない（切り出せなければ、元の画像のまま）
+        _log(f"crop_to_aspect failed: {exc!r}", log_path)
+        return False
+
+
+def _isolate_for_capture(frame_path: str | None, log_path: Path | None) -> None:
+    """撮る前に、サンドボックス以外のオブジェクトの表示を切る（関係ないものが、ビューポートに重ならないように）。"""
+    if not frame_path:
+        return
+    try:
+        turned_off = display_isolation.isolate(hou, [frame_path])
+        if turned_off:
+            _log("hid other objects before capture: " + ", ".join(turned_off), log_path)
+    except Exception as exc:  # noqa: BLE001
+        _log(f"display isolation failed: {exc!r}", log_path)
+
+
 def capture_viewport(
     output_path: Path, width: int = VIEWPORT_WIDTH, height: int = VIEWPORT_HEIGHT, log_path: Path | None = None,
     frame_path: str | None = None,
@@ -678,7 +750,8 @@ def capture_viewport(
         # right before capturing. Best-effort: a failed frameAll() still
         # lets the capture proceed with whatever framing was already there.
         viewport = scene_viewer.curViewport()
-        method = _frame_view(viewport, frame_path, log_path)
+        _isolate_for_capture(frame_path, log_path)
+        method = _frame_view(viewport, frame_path, log_path, frame_scale(_view_aspect(viewport)))
         width, height = _output_size(viewport, width, height, log_path)
         _log(f"viewport framing: {method or 'unchanged'} ({width}x{height})", log_path)
         # hou.FlipbookSettings() is abstract and can't be constructed
@@ -698,6 +771,7 @@ def capture_viewport(
             _log(f"flipbook() returned without raising but no file at {output_path}", log_path)
         else:
             flatten_alpha(output_path, log_path)
+            crop_to_aspect(output_path, OUTPUT_ASPECT, log_path)  # 動画で 16:9 の枠に収まるように、中央を切り出す
         return exists
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
         _log(f"viewport capture failed: {exc!r}", log_path)
@@ -848,7 +922,8 @@ def capture_viewport_clip(
             _log("no SceneViewer pane found for clip capture", log_path)
             return [], 0
         clip_viewport = scene_viewer.curViewport()
-        _frame_view(clip_viewport, frame_path, log_path)
+        _isolate_for_capture(frame_path, log_path)
+        _frame_view(clip_viewport, frame_path, log_path, frame_scale(_view_aspect(clip_viewport)))
         width, height = _output_size(clip_viewport, width, height, log_path)
 
         original_frame = hou.frame()
@@ -877,6 +952,7 @@ def capture_viewport_clip(
             return [], 0
         for frame_file in frames:
             flatten_alpha(frame_file, log_path)
+            crop_to_aspect(frame_file, OUTPUT_ASPECT, log_path)
         return frames, fps
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
         _log(f"viewport clip capture failed: {exc!r}", log_path)

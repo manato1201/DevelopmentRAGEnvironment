@@ -29,6 +29,26 @@ _RENDER_PROGRESS = re.compile(r"Rendered frame (\d+) / (\d+)")
 _WROTE = re.compile(r"Wrote (\S+\.webm)")
 
 
+_UPLOAD_FAILED = re.compile(r"Cloud gallery upload failed[^:\n]*:\s*(.+)")
+_UPLOAD_DONE = re.compile(r"Cloud gallery upload: done")
+_PUBLISHED = "Published to local dashboard"
+
+
+def upload_status(text: str) -> tuple[str, str]:
+    """動画エンジンが、できた動画を、ギャラリーへ自動でアップロードした結果を、ログから読む（2026-11-18）。
+    戻り値: (状態, 理由)。状態は "done"（載せた）/ "failed"（失敗。理由つき）/ "pending"（まだ。アップロード中、または書き出しの仕上げ中）
+    / "none"（アップロードを試みていない。接続先が渡されていない）。
+    エンジンは、「Wrote」のあと、ローカルの公開の途中でアップロードする。「Published to local dashboard」が出たあとに、結果の行が無ければ、"none"。"""
+    failed = _UPLOAD_FAILED.findall(text)
+    if failed:
+        return "failed", failed[-1].strip()[:200]
+    if _UPLOAD_DONE.search(text):
+        return "done", ""
+    if _PUBLISHED in text:
+        return "none", ""
+    return "pending", ""
+
+
 @dataclass
 class VideoProgress:
     percent: int = 0

@@ -19,18 +19,26 @@ gallery_upload.py — 生成した動画を、ダッシュボードの「動画�
 
 from __future__ import annotations
 
+import base64
 import http.client
 import json
 import ssl
+import time
 import uuid
 from pathlib import Path
 from typing import Callable, Iterable
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 USER_AGENT = "HoudiniGalleryUploader/1.0"
-# Cloudflare は、1回のリクエスト本文を、無料・Pro プランで 100MB までに制限している。
-# 余裕を見て、これを超える動画は送らず、理由を返す。
-MAX_UPLOAD_BYTES = 95 * 1024 * 1024
+# Cloudflare は、1回のリクエスト本文を、無料・Pro プランで 100MB までに制限している（Worker のメモリも 128MB）。
+# 1080p30 の長い動画（約 1000 秒以上）は、これを超え、1 回の POST では「Payload Too Large」になった（2026-11-18、実機で確認）。
+# 余裕を見て 90MB までは 1 回で送り、それより大きい動画は、ギャラリーの「分けて送る」経路（R2 のマルチパート。1 パート 32MB）で送る。
+SINGLE_UPLOAD_BYTES = 90 * 1024 * 1024
+PART_BYTES = 32 * 1024 * 1024
+MAX_UPLOAD_BYTES = 200 * PART_BYTES  # 分けて送るときの上限（Worker の MAX_PARTS = 200 パート。約 6.4GB）
+_PART_RETRIES = 3
+_MIN_PART_BYTES = 5 * 1024 * 1024  # R2 のマルチパートの、最後以外のパートの最小の大きさ
+_MAX_PART_BYTES = 50 * 1024 * 1024  # Worker が 1 パートで受ける上限
 _CHUNK = 256 * 1024
 
 
@@ -289,6 +297,9 @@ def upload_entry(
         raise GalleryUploadError(f"metadata.json が壊れています: {meta} ({exc})") from exc
     metadata_text = merge_rag_sources(metadata_text, sources or [])
 
+    if video.stat().st_size > SINGLE_UPLOAD_BYTES:
+        return _upload_chunked(base_url, token, entry, video, thumb, metadata_text, timeout, progress)
+
     files: list[tuple[str, Path, str, str]] = [("video", video, "video.webm", "video/webm")]
     if thumb.is_file():
         files.append(("thumbnail", thumb, "thumb.png", "image/png"))
@@ -324,6 +335,123 @@ def upload_entry(
     if resp.status >= 400:
         raise GalleryUploadError(_explain_http_error(resp.status, body))
     return stream.length
+
+
+def _json_call(
+    base_url: str, method: str, path: str, token: str, payload: dict | None, timeout: float,
+) -> tuple[int, bytes]:
+    """JSON を送って、(HTTP の状態, 本文) を返す。通信できないときは GalleryUploadError。"""
+    conn, prefix = _connection(base_url, timeout)
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+    headers = {"Authorization": f"Bearer {token.strip()}", "User-Agent": USER_AGENT}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    try:
+        conn.request(method, f"{prefix}{path}", body=body, headers=headers)
+        resp = conn.getresponse()
+        return resp.status, resp.read()
+    except (OSError, http.client.HTTPException) as exc:
+        raise GalleryUploadError(f"ギャラリーに接続できませんでした: {exc}") from exc
+    finally:
+        conn.close()
+
+
+def _put_part(base_url: str, token: str, upload_id: str, video_id: str, number: int, data: bytes, timeout: float) -> dict:
+    """1 パートを送る。通信の失敗・5xx は、少し待って、最大 _PART_RETRIES 回まで。4xx（認証・大きすぎ）は、すぐ失敗にする。"""
+    last: Exception | None = None
+    for attempt in range(_PART_RETRIES):
+        conn, prefix = _connection(base_url, timeout)
+        try:
+            conn.request(
+                "PUT",
+                f"{prefix}/api/videos/uploads/{quote(upload_id, safe='')}/parts/{number}?id={quote(video_id, safe='')}",
+                body=data,
+                headers={
+                    "Authorization": f"Bearer {token.strip()}",
+                    "Content-Length": str(len(data)),
+                    "Content-Type": "application/octet-stream",
+                    "User-Agent": USER_AGENT,
+                },
+            )
+            resp = conn.getresponse()
+            body = resp.read()
+        except (OSError, http.client.HTTPException) as exc:
+            last = GalleryUploadError(f"ギャラリーに接続できませんでした: {exc}")
+        else:
+            if resp.status < 400:
+                try:
+                    part = json.loads(body.decode("utf-8"))
+                except ValueError:
+                    part = {}
+                if isinstance(part, dict) and part.get("etag") and part.get("partNumber") == number:
+                    return {"partNumber": number, "etag": str(part["etag"])}
+                last = GalleryUploadError("ギャラリーの返事を読み取れませんでした（パートの確認）")
+            elif resp.status < 500:
+                raise GalleryUploadError(_explain_http_error(resp.status, body))
+            else:
+                last = GalleryUploadError(_explain_http_error(resp.status, body))
+        finally:
+            conn.close()
+        if attempt + 1 < _PART_RETRIES:
+            time.sleep(1.5 * (attempt + 1))
+    raise last if last is not None else GalleryUploadError("パートを送れませんでした")
+
+
+def _upload_chunked(
+    base_url: str, token: str, entry: dict, video: Path, thumb: Path, metadata_text: str, timeout: float,
+    progress: Callable[[int, int], None] | None,
+) -> int:
+    """90MB を超える動画を、32MB ずつ分けて送る（POST /api/videos/uploads → PUT parts/n → POST complete）。失敗したら、途中の分を捨てる。
+    戻り値: 送ったバイト数（動画 + サムネイル）。"""
+    video_id = str(entry["id"])
+    size = video.stat().st_size
+    status, body = _json_call(base_url, "POST", "/api/videos/uploads", token, {"id": video_id}, timeout)
+    if status >= 400:
+        raise GalleryUploadError(_explain_http_error(status, body))
+    try:
+        started = json.loads(body.decode("utf-8"))
+        upload_id = str(started["uploadId"])
+        part_size = int(started.get("partSize") or PART_BYTES)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise GalleryUploadError("ギャラリーの返事を読み取れませんでした（アップロードの開始）") from exc
+    part_size = max(_MIN_PART_BYTES, min(part_size, _MAX_PART_BYTES))
+
+    thumb_b64 = ""
+    thumb_bytes = 0
+    if thumb.is_file():
+        raw = thumb.read_bytes()
+        thumb_bytes = len(raw)
+        thumb_b64 = base64.b64encode(raw).decode("ascii")
+    total = size + thumb_bytes
+    parts: list[dict] = []
+    try:
+        sent = 0
+        with open(video, "rb") as f:
+            number = 0
+            while True:
+                data = f.read(part_size)
+                if not data:
+                    break
+                number += 1
+                parts.append(_put_part(base_url, token, upload_id, video_id, number, data, timeout))
+                sent += len(data)
+                if progress is not None:
+                    progress(min(sent, total), total)
+        payload = {"id": video_id, "parts": parts, "entry": entry, "metadata": json.loads(metadata_text)}
+        if thumb_b64:
+            payload["thumbnail_base64"] = thumb_b64
+        status, body = _json_call(base_url, "POST", f"/api/videos/uploads/{quote(upload_id, safe='')}/complete", token, payload, timeout)
+        if status >= 400:
+            raise GalleryUploadError(_explain_http_error(status, body))
+    except Exception:
+        try:  # 途中の分を、R2 に残さない（失敗しても、元のエラーを優先する）
+            _json_call(base_url, "DELETE", f"/api/videos/uploads/{quote(upload_id, safe='')}?id={quote(video_id, safe='')}", token, None, 30)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+    if progress is not None:
+        progress(total, total)
+    return total
 
 
 def fetch_gallery_ids(base_url: str, timeout: float = 30) -> set[str]:
@@ -423,7 +551,7 @@ def describe_result(result: dict[str, list]) -> str:
 
 
 __all__ = [
-    "GalleryUploadError", "MAX_UPLOAD_BYTES", "describe_result", "entry_files", "fetch_gallery_ids",
+    "GalleryUploadError", "MAX_UPLOAD_BYTES", "PART_BYTES", "SINGLE_UPLOAD_BYTES", "describe_result", "entry_files", "fetch_gallery_ids",
     "find_local_entry", "find_script_sources", "gallery_env", "merge_rag_sources", "output_dir_for", "read_local_manifest",
     "sources_from_script", "upload_entry", "upload_missing",
 ]

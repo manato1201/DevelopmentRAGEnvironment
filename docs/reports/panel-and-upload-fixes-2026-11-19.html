@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>パネルの整理・動画の投稿・ビューポート画像の修正（前と後の差）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">資料</span>
+  <h1>パネルの整理・動画の投稿・ビューポート画像の修正（前と後の差）</h1>
+  <div class="meta">HTML生成: 2026-11-19（元: docs/reports/panel-and-upload-fixes-2026-11-19.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-原因を確かめたもの実機の記録から">1. 原因を確かめたもの（実機の記録から）</a><ol><li><a href="#11-動画がギャラリーに投稿されない">1.1 動画が、ギャラリーに投稿されない</a></li><li><a href="#12-ビューポート画像が手順と合っていない同じ画像が続く">1.2 ビューポート画像が、手順と合っていない・同じ画像が続く</a></li><li><a href="#13-手順の本文にバックスラッシュ-nが出る">1.3 手順の本文に「バックスラッシュ + n」が出る</a></li></ol></li><li><a href="#2-直したこと">2. 直したこと</a></li><li><a href="#3-テスト">3. テスト</a></li><li><a href="#4-実機で試すものまだのもの">4. 実機で試すもの・まだのもの</a></li></ol></details></nav>
+<main>
+
+<p><strong>日付:</strong> 2026-11-19　<strong>対象:</strong> Houdini パネル（RAGReel Tutorial）、動画エンジン・ギャラリー（RAGReel）</p>
+<p>2026-11-18 の依頼（アイコン・タブ・Guide の強調・表示の切り替え・追加指示・動画が投稿されない・スクショのずれ）に対応した記録。<br />
+<strong>実機（Houdini・本物の R2）では、まだ確かめていない</strong>。Houdini の API の呼び出しは、偽の <code>hou</code> で確かめた。</p>
+<h2 id="1-原因を確かめたもの実機の記録から">1. 原因を確かめたもの（実機の記録から）</h2>
+<h3 id="11-動画がギャラリーに投稿されない">1.1 動画が、ギャラリーに投稿されない</h3>
+<ul>
+<li>記録: <code>energy-effect-layer-design_20261118_video_factory.log</code> に、<code>Cloud gallery upload failed ... Payload Too Large</code>。動画は 114.7MB（1390 秒・1080p30）。</li>
+<li>原因: 1 回の POST で送るため、Cloudflare の本文の上限（100MB）を超えた。Worker も、動画を全部メモリに読む（上限 128MB）。<strong>フル HD・30 fps にした（11/17）ことで、約 1000 秒以上の動画が超えるようになった。</strong></li>
+<li>もう 1 本（<code>spiral-glow-...</code>、858 秒）は、アップロードの試みが記録に無い（そのときは、自動アップロードの設定が入っていなかったと見ている）。</li>
+<li>さらに、失敗は<strong>ログにしか残らず</strong>、パネルは「完了」と出して終わっていた。</li>
+</ul>
+<h3 id="12-ビューポート画像が手順と合っていない同じ画像が続く">1.2 ビューポート画像が、手順と合っていない・同じ画像が続く</h3>
+<ul>
+<li>記録: 58 手順のうち、ビューポート画像の md5 が同じものが、最大 15 枚続いた（球のまま、など）。</li>
+<li>原因 1: 表示フラグを動かすのは、末端への接続・cook の成功・view_viewport だけで、<strong>ノードを作る・値を変える手順では動かさなかった</strong>（<code>houdini_tools.py</code>）。</li>
+<li>原因 2: 利用者のほかのオブジェクト・前の生成のサンドボックスの表示が入ったままで、ビューポートに重なる。</li>
+<li>原因 3: 縦長のペイン（1920x2132）で撮った画像が、そのまま動画に入り、16:9 の枠の中で小さく、左右に黒い帯が出た。</li>
+</ul>
+<h3 id="13-手順の本文にバックスラッシュ-nが出る">1.3 手順の本文に「バックスラッシュ + n」が出る</h3>
+<ul>
+<li>記録: <code>energy-effect-layer-design_20261118.md</code> の手順が 1 行のままで、2 文字の改行が 119 個。モデルが、改行を二重にエスケープして送った。</li>
+</ul>
+<h2 id="2-直したこと">2. 直したこと</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>前</th>
+<th>後</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>右上の歯車</td>
+<td>Houdini のペイン自身の歯車と、紛らわしい</td>
+<td><strong>メニュー（≡）のアイコン</strong>に変更（<code>panel_actions.py</code> の <code>menu</code>）。文言も「メニュー（≡）」に</td>
+</tr>
+<tr>
+<td>「はじめに」タブ</td>
+<td>文字のタブ</td>
+<td><strong>本のアイコンだけ</strong>のタブ（ツールチップ「はじめに（使い方）」）。毎日見るタブと、重さを分けた</td>
+</tr>
+<tr>
+<td>Docs タブ</td>
+<td>あった</td>
+<td><strong>なくした</strong>（<code>docs_view.py</code> は、部品として残し、配布物から外した）</td>
+</tr>
+<tr>
+<td>動画タブの名前</td>
+<td>動画</td>
+<td><strong>Movie</strong></td>
+</tr>
+<tr>
+<td>Guide: パラメータの強調</td>
+<td>文字だけ</td>
+<td><strong>色つきの帯</strong>で、タブ・項目・前の値・新しい値を出す。「この手順を案内」で、項目のタブを前面にし、<strong>中央にスクロール</strong>し、<strong>キーボードの焦点</strong>を当てる（<code>ParameterEditor.scrollTo</code> / <code>moveFocusTo</code>）。Houdini には、パラメータを光らせる API が無い</td>
+</tr>
+<tr>
+<td>Guide・生成: ほかのオブジェクトの表示</td>
+<td>入ったまま</td>
+<td><strong>手順が指すオブジェクト以外の表示を切る</strong>（<code>display_isolation.py</code>）。切った状態は覚え、Guide の「ほかのオブジェクトの表示を元に戻す」で戻せる</td>
+</tr>
+<tr>
+<td>Guide・Chat・Movie・課題の見た目</td>
+<td>画面ごとにばらばら</td>
+<td>Tutorial タブと同じ<strong>文字の 4 段階・主ボタン・余白</strong>にそろえた。Guide は、ふだん触らない設定を、折りたたみに</td>
+</tr>
+<tr>
+<td>追加指示</td>
+<td>なし</td>
+<td>Tutorial タブに「<strong>追加指示（この結果に足して、続きを作る）</strong>」。前の結果（題・概要・手順の見出し）を必須条件に入れて、もう一度生成する（<code>tutorial_followup.py</code>）。時間と費用は、1 回分かかる</td>
+</tr>
+<tr>
+<td>ビューポート画像</td>
+<td>球のまま・関係ないものが重なる・縦長</td>
+<td>作る・値を変える手順でも、結果を映す。サンドボックス以外の表示を切る。<strong>中央を 16:9 に切り出し</strong>、切り出しで欠けないよう、撮る前に収め直す</td>
+</tr>
+<tr>
+<td>手順の本文の改行</td>
+<td>バックスラッシュ + n が、そのまま出る</td>
+<td><code>finish_tutorial</code> で、<strong>本当の改行に直す</strong>（コード中の正当なものは、壊さない条件つき）</td>
+</tr>
+<tr>
+<td>動画の投稿</td>
+<td>90MB 超は失敗</td>
+<td><strong>分けて送る</strong>（R2 のマルチパート。32MB ずつ）。Worker・エンジン（C++）・Houdini の手動アップロード（Python）の 3 か所</td>
+</tr>
+<tr>
+<td>自動アップロードの結果</td>
+<td>ログにしか出ない</td>
+<td>パネルが、ログを読んで「<strong>ギャラリーに載せました</strong>／<strong>失敗しました（理由）。「未アップロードをすべて」で再送できます</strong>」を出す</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-テスト">3. テスト</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>対象</th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Houdini（<code>unittest discover</code>）</td>
+<td><strong>891 件、すべて成功</strong>（以前 851 件。新規: <code>test_viewport_isolation</code> 25・<code>test_guide_highlight</code> 13・<code>test_gallery_chunked</code> 11・<code>test_upload_status</code> 7・<code>test_escaped_newlines</code> 6・<code>test_tutorial_followup</code> 10・<code>test_followup_ui</code> 5 ほか）</td>
+</tr>
+<tr>
+<td>ギャラリー Worker（<code>npm test</code>）</td>
+<td><strong>33 件、すべて成功</strong>（新規 <code>chunked_upload.test.js</code> 10 件）</td>
+</tr>
+<tr>
+<td>RAGReel（C++）</td>
+<td>8 本すべて成功（新規 <code>cloud_gallery_uploader_tests</code> 6 件。偽のギャラリーで、パート・再試行・取り消しを確認）</td>
+</tr>
+<tr>
+<td>結線の確認</td>
+<td>本物の Worker のコード（メモリ上の偽の R2）に、Python のクライアントで 70MB を送り、3 パートで、同じバイト列が戻ることを確認</td>
+</tr>
+</tbody>
+</table></div>
+<p>テストで見つけた不具合: C++ の <code>apiUrl</code> が、<code>?id=...</code> を <code>%3F</code> に直し、クエリがパスの一部になっていた（分けて送る経路の、パート送信が 4xx / 0 になる）。直した。</p>
+<h2 id="4-実機で試すものまだのもの">4. 実機で試すもの・まだのもの</h2>
+<ul>
+<li><strong>反映</strong>: パネルは、<code>uv run python houdini/deploy_panels.py 22.0 --pypanel</code> で、Houdini の場所へ配置する（まだ配置していない）。動画エンジンは、インストーラーの作り直しが要る。ギャラリー Worker は、<strong>デプロイが要る</strong>（先に Worker を出さないと、新しい動画エンジンの「分けて送る」が 404 になる。古いエンジンは、これまでどおり）。</li>
+<li>実機で確かめるもの: ParameterEditor の <code>scrollTo</code> / <code>moveFocusTo</code> の見え方、表示フラグの切り替えと、ビューポート画像、メニューのアイコン、「はじめに」のアイコンタブ、本物の R2 のマルチパート。</li>
+<li>追加指示は、前のノードを引き継いで編集するのではなく、<strong>新しいサンドボックスで作り直す</strong>（前の結果は、保存していなければ破棄される）。</li>
+<li>すでに投稿に失敗した 2 本（1390 秒・858 秒の動画）は、新しい版を入れたあと、Movie タブの「未アップロードをすべて」で送れる。</li>
+<li>表示を切ったオブジェクトは、生成・案内のあと、切ったまま。戻すのは、Guide の「案内の設定」の「ほかのオブジェクトの表示を元に戻す」。</li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

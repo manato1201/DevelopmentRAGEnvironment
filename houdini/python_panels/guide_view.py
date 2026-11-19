@@ -23,11 +23,14 @@ import html
 from pathlib import Path
 from typing import Callable
 
+import display_isolation
 import guide_mode
 import guide_shortcuts
 import panel_paths
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QTextOption
+from panel_actions import action_button, button_qss, px, type_font, type_qss
+from panel_widgets import CollapsibleBox
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -51,12 +54,14 @@ except ImportError:  # Houdini の外（テスト・単体確認）
 _SECTION_TITLES = (("prerequisites", "前提条件"), ("tips", "TIPS"), ("challenge", "自分でやってみよう"))
 
 
+_PARM_BG, _PARM_BAR = "#13301f", "#4ade80"  # 変えるパラメータの帯（背景・左の線）
 _WORK_STYLE = "background-color:#1e3a5f;color:#e0f2fe;padding:4px"
 _DELETE_STYLE = "background-color:#5f1e1e;color:#fee2e2;padding:4px"
 _TAB_BASE_TEXT = "Guide"
 _TAB_NEW_TEXT = "Guide ●"
 _AUTO_SWITCH_KEY = "guide_auto_switch"
 _SHORTCUTS_KEY = "guide_shortcuts_open"
+_PARM_FOCUS_KEY = "guide_parm_focus"
 _MODE_KEY = "guide_target_mode"
 
 
@@ -117,7 +122,7 @@ def render_step_html(guide: dict, index: int, step_override: dict | None = None,
         rows.append(f"<p>つなぐ線（{len(lines)}本）:</p><ul>" + "".join(f"<li>{esc(line)}</li>" for line in lines) + "</ul>")
     parms = step.get("parms") or []
     if parms:
-        items = []
+        cards = []
         for p in parms:
             d = guide_mode.describe_parm_change(p, p.get("_info"))
             old = f"前の値: {esc(d['old_text'])} → " if d["old_text"] != "" else ""
@@ -125,12 +130,17 @@ def render_step_html(guide: dict, index: int, step_override: dict | None = None,
             cut = ""
             if d["kind"] != "code" and len(str(p.get("new") or "")) >= 60:
                 cut = "<br><span style='color:#f59e0b'>値が長いため、記録は60文字までです。続きは手順書で確かめてください</span>"
-            items.append(
-                f"<li><b>{esc(d['action'])}</b><br>"
+            # 変える項目は、色つきの帯で強調する（Houdini のパラメータ画面には、項目を光らせる API が無いので、この画面で強調する）
+            cards.append(
+                f"<table width='100%' cellspacing='0' cellpadding='0' style='margin-top:6px'><tr>"
+                f"<td width='5' bgcolor='{_PARM_BAR}'></td>"
+                f"<td bgcolor='{_PARM_BG}' style='padding:6px 8px'>"
+                f"<b style='color:#bbf7d0'>{esc(d['action'])}</b><br>"
                 f"パラメータのタブ: <b>{esc(d['where_text'])}</b>、項目: <b>{esc(d['label'])}</b>{name}<br>"
-                f"{old}新しい値: <b>{esc(d['new_text'])}</b>{cut}</li>"
+                f"{old}新しい値: <b>{esc(d['new_text'])}</b>{cut}"
+                f"</td></tr></table>"
             )
-        rows.append("<p>変えるパラメータ:</p><ul>" + "".join(items) + "</ul>")
+        rows.append("<p style='margin-bottom:0'>変えるパラメータ:</p>" + "".join(cards))
     shortcuts = step.get("shortcuts") or []
     if shortcuts and show_shortcuts:
         rows.append("<p>使うショートカット（Houdini の標準のキー）:</p>")
@@ -197,6 +207,18 @@ def _state_set(key: str, value) -> None:
         ui_state_set(key, value)
     except Exception:  # noqa: BLE001
         pass
+
+
+def dedupe_messages(messages: list[str]) -> list[str]:
+    """同じ行を、1回だけにする（順番は保つ）。複数行の文は、行ごとに見る。案内のメッセージが、同じ行を繰り返して長くならないように。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for message in messages:
+        for line in str(message).splitlines():
+            if line and line not in seen:
+                seen.add(line)
+                out.append(line)
+    return out
 
 
 def locate_in_tabs(widget: QWidget):
@@ -304,34 +326,75 @@ class GuideWidget(QWidget):
     # ── 画面 ─────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
+        """上から「チュートリアル → いまの場所 → 手順の移動 → 手順 → 案内の結果 → 主ボタン → 折りたたみ（前提・設定）」。
+        Tutorial タブと同じ文字の大きさ（type_qss）・主ボタン（button_qss）にそろえた（2026-11-18）。"""
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(4)
+        root.setSpacing(px(6))
 
         bar = QHBoxLayout()
         self._combo = QComboBox()
         self._combo.setToolTip("保存したチュートリアル。保存したときに、案内データも一緒に作られます。生成した直後のものは、保存前でも、先頭に出ます")
         self._combo.currentIndexChanged.connect(self._on_pick)
-        self._refresh_btn = QPushButton("更新")
-        self._refresh_btn.clicked.connect(self.refresh)
+        self._refresh_btn = action_button("refresh", "チュートリアルの一覧を更新", self.refresh)
         bar.addWidget(self._combo, stretch=1)
         bar.addWidget(self._refresh_btn)
         root.addLayout(bar)
 
-        self._status = QLabel("")
-        self._status.setStyleSheet("color:#94a3b8;font-size:11px;")
-        self._status.setWordWrap(True)
-        root.addWidget(self._status)
-
-        # どの階層にいるか（いまのネットワークと、この手順の作業場所）。常に出す
+        # どの階層にいるか（いまのネットワークと、この手順の作業場所）。常に出す。場所が違うときは、色を変える
         self._where = QLabel("")
         self._where.setWordWrap(True)
         self._where.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self._where.setStyleSheet("font-size:11px;")
+        self._set_where_style(True)
         root.addWidget(self._where)
 
-        mode_row = QHBoxLayout()
-        mode_row.addWidget(QLabel("案内する場所:"))
+        nav = QHBoxLayout()
+        self._prev_btn = QPushButton("◀ 前へ")
+        self._next_btn = QPushButton("次へ ▶")
+        self._pos = QLabel("")
+        self._pos.setAlignment(Qt.AlignCenter)
+        self._pos.setStyleSheet(type_qss("heading", "#e2e8f0"))
+        self._prev_btn.clicked.connect(lambda: self._go(-1))
+        self._next_btn.clicked.connect(lambda: self._go(1))
+        nav.addWidget(self._prev_btn)
+        nav.addWidget(self._pos, stretch=1)
+        nav.addWidget(self._next_btn)
+        root.addLayout(nav)
+
+        # 手順（主役。いちばん広く取る）
+        self._step_view = QTextBrowser()
+        self._step_view.setOpenLinks(False)
+        self._step_view.setFont(type_font("body"))
+        _wrap_anywhere(self._step_view)
+        root.addWidget(self._step_view, stretch=1)
+
+        # 案内した結果（Houdini の画面を動かしたあとの、短い報告）
+        self._status = QLabel("")
+        self._status.setStyleSheet(type_qss("caption", "#94a3b8"))
+        self._status.setWordWrap(True)
+        root.addWidget(self._status)
+
+        # 主な操作: 「この手順を案内」（主ボタン）と、移るたびの自動案内
+        actions = QHBoxLayout()
+        self._apply_btn = QPushButton("この手順を案内")
+        self._apply_btn.setStyleSheet(button_qss("primary"))
+        self._apply_btn.setToolTip("見るタブを前面に出し、操作するノードを選んで画面に収めます。パラメータを変える手順では、その項目の位置へ合わせます")
+        self._apply_btn.clicked.connect(self._apply)
+        self._auto = QCheckBox("手順を移るたびに自動で案内")
+        actions.addWidget(self._apply_btn)
+        actions.addWidget(self._auto, stretch=1)
+        root.addLayout(actions)
+
+        # 前提条件・TIPS（折りたたむ。ショートカット一覧を開くと、ここに出る）
+        self._extra_view = QTextBrowser()
+        self._extra_view.setOpenLinks(False)
+        self._extra_view.setFont(type_font("body"))
+        self._extra_view.setMinimumHeight(px(120))
+        _wrap_anywhere(self._extra_view)
+        self._extra_box = CollapsibleBox("前提条件・TIPS", self._extra_view, collapsed=True, state_key="guide_extra", left_align=True)
+        root.addWidget(self._extra_box)
+
+        # 案内の設定（折りたたむ。ふだんは触らないもの）
         self._mode = QComboBox()
         for label, key in (("自動（自分のネットワーク → 無ければ、生成したサンドボックス）", "auto"),
                            ("自分のネットワークだけ", "own"), ("生成したサンドボックス（実物）だけ", "sandbox")):
@@ -340,44 +403,16 @@ class GuideWidget(QWidget):
         self._mode.setCurrentIndex(max(0, self._mode.findData(saved_mode)))
         self._mode.setToolTip("手順が指すノードを、どこから探すか。自動は、まず /obj の自分のネットワーク。無ければ、生成時のサンドボックスの実物を示します")
         self._mode.currentIndexChanged.connect(self._on_mode_changed)
-        mode_row.addWidget(self._mode, stretch=1)
-        root.addLayout(mode_row)
 
         self._auto_switch = QCheckBox("生成が終わったら、自動でこのタブに切り替える")
         self._auto_switch.setChecked(bool(_state_get(_AUTO_SWITCH_KEY, True)))
         self._auto_switch.toggled.connect(lambda on: _state_set(_AUTO_SWITCH_KEY, bool(on)))
-        root.addWidget(self._auto_switch)
 
-        nav = QHBoxLayout()
-        self._prev_btn = QPushButton("◀ 前へ")
-        self._next_btn = QPushButton("次へ ▶")
-        self._pos = QLabel("")
-        self._pos.setAlignment(Qt.AlignCenter)
-        self._prev_btn.clicked.connect(lambda: self._go(-1))
-        self._next_btn.clicked.connect(lambda: self._go(1))
-        nav.addWidget(self._prev_btn)
-        nav.addWidget(self._pos, stretch=1)
-        nav.addWidget(self._next_btn)
-        root.addLayout(nav)
+        self._parm_focus = QCheckBox("パラメータ画面を、この手順の項目の位置に合わせる")
+        self._parm_focus.setChecked(bool(_state_get(_PARM_FOCUS_KEY, True)))
+        self._parm_focus.setToolTip("値を変える手順で、パラメータ画面のタブを切り替え、その項目が中央に来るようスクロールし、キーボードの焦点を当てます")
+        self._parm_focus.toggled.connect(lambda on: _state_set(_PARM_FOCUS_KEY, bool(on)))
 
-        split = QSplitter(Qt.Vertical)
-        self._step_view = QTextBrowser()
-        self._step_view.setOpenLinks(False)
-        _wrap_anywhere(self._step_view)
-        self._extra_view = QTextBrowser()
-        self._extra_view.setOpenLinks(False)
-        _wrap_anywhere(self._extra_view)
-        split.addWidget(self._step_view)
-        split.addWidget(self._extra_view)
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 1)
-        root.addWidget(split, stretch=1)
-
-        actions = QHBoxLayout()
-        self._apply_btn = QPushButton("この手順を案内")
-        self._apply_btn.setToolTip("見るタブを前面に出し、操作するノードを選んで画面に収めます（画面の部品は消しません）")
-        self._apply_btn.clicked.connect(self._apply)
-        self._auto = QCheckBox("手順を移るたびに自動で案内")
         self._sc_btn = QPushButton("ショートカットを表示")
         self._sc_btn.setCheckable(True)
         self._sc_btn.setChecked(bool(_state_get(_SHORTCUTS_KEY, False)))
@@ -388,30 +423,49 @@ class GuideWidget(QWidget):
         self._sheet_btn.setToolTip("Houdini の標準のショートカットを、全部見る（キーや操作で絞れます）。もう一度押すと、手順書の前提・TIPS に戻ります")
         self._sheet_btn.toggled.connect(self._on_sheet_toggled)
         self._popup_btn = QPushButton("手順だけ別ウィンドウ")
-        self._popup_btn.setToolTip("手順だけの小さなウィンドウを出します。Chat・Docs など、ほかのタブを見ながら手順を読めます")
+        self._popup_btn.setToolTip("手順だけの小さなウィンドウを出します。Chat など、ほかのタブを見ながら手順を読めます")
         self._popup_btn.clicked.connect(self._open_popup)
         self._sheet_filter = QLineEdit()
         self._sheet_filter.setPlaceholderText("キーや操作で絞る（例: Space・パラメータ・タイムライン）")
         self._sheet_filter.setClearButtonEnabled(True)
         self._sheet_filter.setVisible(False)
         self._sheet_filter.textChanged.connect(self._render_sheet)
-        actions.addWidget(self._apply_btn)
-        actions.addWidget(self._auto)
-        actions.addStretch()
-        root.addLayout(actions)
+        self._restore_btn = QPushButton("ほかのオブジェクトの表示を元に戻す")
+        self._restore_btn.setToolTip("案内・生成のあいだ、手順が指すもの以外の表示を切っています。切ったものを、元の状態に戻します")
+        self._restore_btn.clicked.connect(self._restore_display)
+
+        settings = QWidget()
+        form = QVBoxLayout(settings)
+        form.setContentsMargins(px(4), 0, 0, 0)
+        form.setSpacing(px(4))
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("案内する場所:"))
+        mode_row.addWidget(self._mode, stretch=1)
+        form.addLayout(mode_row)
+        form.addWidget(self._auto_switch)
+        form.addWidget(self._parm_focus)
         more = QHBoxLayout()
         more.addWidget(self._sc_btn)
         more.addWidget(self._sheet_btn)
         more.addWidget(self._popup_btn)
-        more.addWidget(self._sheet_filter, stretch=1)
         more.addStretch()
-        root.addLayout(more)
+        form.addLayout(more)
+        form.addWidget(self._sheet_filter)
+        form.addWidget(self._restore_btn)
+        self._settings_box = CollapsibleBox("案内の設定", settings, collapsed=True, state_key="guide_settings", left_align=True)
+        root.addWidget(self._settings_box)
 
         self._timer = QTimer(self)
         self._timer.setInterval(1500)
         self._timer.timeout.connect(self._update_where)
 
         self._set_enabled(False)
+
+    def _set_where_style(self, same: bool) -> None:
+        """いまのネットワークが、この手順の場所と同じなら、ふつうの色。違うときは、琥珀の帯で目立たせる。"""
+        base = type_qss("caption", "#cbd5e1" if same else "#fde68a")
+        fill = "#1e293b" if same else "#422006"
+        self._where.setStyleSheet(f"{base}background:{fill};border-radius:{px(4)}px;padding:{px(4)}px {px(6)}px;")
 
     # ── ショートカット ────────────────────────────────────────────────────────
 
@@ -421,7 +475,9 @@ class GuideWidget(QWidget):
 
     def _on_sheet_toggled(self, on: bool) -> None:
         self._sheet_filter.setVisible(on)
+        self._extra_box.set_title("ショートカット一覧" if on else "前提条件・TIPS")
         if on:
+            self._extra_box.set_collapsed(False)  # 一覧を、すぐ見られるように開く
             self._render_sheet()
         else:
             self._sheet_filter.clear()
@@ -436,6 +492,7 @@ class GuideWidget(QWidget):
         self._next_btn.setEnabled(has_guide)
         self._apply_btn.setEnabled(has_guide and hou is not None)
         self._auto.setEnabled(has_guide and hou is not None)
+        self._restore_btn.setEnabled(hou is not None and display_isolation.pending() > 0)
 
     def showEvent(self, event) -> None:  # noqa: N802 -- Qt
         super().showEvent(event)
@@ -624,15 +681,18 @@ class GuideWidget(QWidget):
         if self._guide is not None:
             expected = guide_mode.step_places(self._guide["steps"][self._index], self._sandbox_path())["network"]
         text = ""
+        same = True
         if hou is not None:
             try:
-                text, _same = guide_mode.location_status(guide_mode.current_network_path(hou), expected)
+                text, same = guide_mode.location_status(guide_mode.current_network_path(hou), expected)
             except Exception:  # noqa: BLE001 -- 階層が読めなくても、手順の表示は止めない
-                text = ""
+                text, same = "", True
+            self._restore_btn.setEnabled(display_isolation.pending() > 0)
         if not text:
             text = f"この手順の作業場所: {expected}" if expected else "Houdini の外なので、いまの階層は分かりません"
         self._where_text = text
         self._where.setText(text)
+        self._set_where_style(same)
         if self._popup is not None and self._popup.isVisible():
             self._popup._where.setText(text)
 
@@ -652,8 +712,34 @@ class GuideWidget(QWidget):
             messages = guide_mode.apply_step(hou, step, self._sandbox_path(), self._mode_key())
         except Exception as exc:  # noqa: BLE001 -- 案内に失敗しても、パネルは止めない
             messages = [f"案内に失敗しました（{exc}）"]
-        self._status.setText("\n".join(messages))
+        self._status.setText("\n".join(dedupe_messages(messages)))
         self._update_where()
+        if step.get("tool") == "set_parameter" and self._parm_focus.isChecked():
+            # パラメータ画面がノードに追従するのを待ってから、項目の位置に合わせる（すぐだと、前のノードのままのことがある）
+            index = self._index
+            QTimer.singleShot(250, lambda: self._highlight_parms(index, step))
+
+    def _highlight_parms(self, index: int, step: dict) -> None:
+        """パラメータ画面を、この手順の項目の位置に合わせる。待っているあいだに手順が変わっていたら、何もしない。"""
+        if hou is None or self._guide is None or index != self._index:
+            return
+        try:
+            import screen_capture
+
+            hit = guide_mode.resolve_step_target(hou, step, self._sandbox_path(), self._mode_key())
+            messages = guide_mode.highlight_parms(hou, step, hit.node, screen_capture.reveal_parm_tabs)
+        except Exception:  # noqa: BLE001 -- 合わせられなくても、案内は済んでいる
+            messages = []
+        if messages:
+            current = self._status.text()
+            self._status.setText("\n".join(dedupe_messages(([current] if current else []) + messages)))
+
+    def _restore_display(self) -> None:
+        """案内・生成のあいだに切った、ほかのオブジェクトの表示を、元に戻す。"""
+        if hou is None:
+            return
+        self._status.setText(guide_mode.restore_display(hou))
+        self._restore_btn.setEnabled(display_isolation.pending() > 0)
 
     def _open_popup(self) -> None:
         if self._popup is None:

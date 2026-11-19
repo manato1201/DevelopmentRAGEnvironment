@@ -426,7 +426,7 @@ Write-Line "次の手順で使います。"
 Write-Line "  1. Houdini を起動（すでに起動しているときは、一度終了して起動し直す）"
 Write-Line "  2. 「Windows メニュー → Python Panel → RAGReel Tutorial」、または、ペインのタブの「＋」→ New Pane Tab Type →（Misc の中の）「RAGReel Tutorial」を選ぶ"
 Write-Line "  3. 開けない・見つからないときは、Houdini の Python Shell で  import rag_chatbot  を実行して、出た内容を確認する（導入手順の「困ったとき」を参照）"
-Write-Line "  4. パネル右上の歯車 →「接続・アカウント」で、接続先の URL と API キーが入っていることを確認する"
+Write-Line "  4. パネル右上のメニュー（≡）→「接続・アカウント」で、接続先の URL と API キーが入っていることを確認する"
 if (-not $CloudflareUrl -or -not $ApiKey) { Write-Line "     ※ この導入では、URL または API キーを入力していません。「接続・アカウント」で入力してください（すでに入っているなら、そのままで構いません）。" }
 Write-Line "  この結果は、次のファイルにも書きました: $(Join-Path $InstallDir 'install_report.txt')"
 

@@ -1,14 +1,14 @@
 """
-panel_nav.py — パネルの画面構成（常時のタブと、歯車メニューの中身）と、「別ウィンドウで開く」（Qt に依存しない。単体テストできる）
+panel_nav.py — パネルの画面構成（常時のタブと、メニュー（≡）の中身）と、「別ウィンドウで開く」（Qt に依存しない。単体テストできる）
 
 背景（2026-11-17の実証実験の感想）:
   ・タブを切り替えると別のタブが見られず、並行して見られない
   ・接続などの設定のタブが、ふだん使うタブと同じ比重で並んで目立つ
-  → ふだん使わない画面（履歴・接続・設定・デバッグ）は、右上の歯車メニューの中に移す。
+  → ふだん使わない画面（履歴・接続・設定・デバッグ）は、右上のメニュー（≡）の中に移す。
     並べて見たいときは、パネルをもう 1 つ別ウィンドウで開く（Houdini のペインを分けて、もう 1 つ開く方法でもよい）。
 
   ・MAIN_TABS / SUB_PAGES … 画面の構成（rag_chatbot.py が、これを見て組み立てる）
-  ・visible_sub_pages()    … 歯車メニューに出す項目（設定・デバッグは、設定者だけ）
+  ・visible_sub_pages()    … メニュー（≡）に出す項目（設定・デバッグは、設定者だけ）
   ・open_in_new_window()   … hou で、パネルを別ウィンドウ（フローティング）で開く。hou が無い・失敗のときは、理由を返す
   ・PARALLEL_VIEW_HELP     … 「並べて見る方法」の案内文
 """
@@ -19,13 +19,17 @@ from __future__ import annotations
 MAIN_TABS = (
     ("help", "はじめに"),
     ("chat", "Chat"),
-    ("docs", "Docs"),
     ("guide", "Guide"),
     ("tutorial", "Tutorial"),
-    ("video", "動画"),
+    ("video", "Movie"),
 )
 
-# 歯車メニューの中の画面。（キー, メニューの文, 画面の見出し, 設定者だけか）
+# 「はじめに」は、文字ではなくアイコン（本）だけのタブにする。Chat・Guide・Tutorial・Movie と同じ重さで並ぶと、毎回見るタブに見えるため
+# （2026-11-18）。見出しは、ツールチップ・読み上げ用の名前に使う。
+ICON_TABS = {"help": "book"}
+
+
+# メニュー（≡）の中の画面。（キー, メニューの文, 画面の見出し, 設定者だけか）
 SUB_PAGES = (
     ("history", "保存したチュートリアル（History）", "History（保存したチュートリアル）", False),
     ("connection", "接続・アカウント", "接続・アカウント", False),
@@ -39,7 +43,7 @@ PANEL_INTERFACE_NAMES = ("RAGReelTutorial", "RAGChatBot")
 PARALLEL_VIEW_HELP = (
     "別のタブを並べて見るには、パネルをもう 1 つ開きます。\n"
     "\n"
-    "1. 歯車メニューの「このパネルを別ウィンドウで開く」を選ぶ（新しいウィンドウに、もう 1 つのパネルが出ます）。\n"
+    "1. メニュー（≡）の「このパネルを別ウィンドウで開く」を選ぶ（新しいウィンドウに、もう 1 つのパネルが出ます）。\n"
     "2. または、Houdini のペインを分ける: ペインのメニューから「Split left/right」または「Split top/bottom」を選び、"
     "分けた側のペインのタブバーの、新しいタブのアイコンから「RAGReel Tutorial」をもう一度選びます。"
     "（Houdini の公式ドキュメント「Panes」の、Split a pane into two new panes と Create a new tab の項目）\n"
@@ -53,7 +57,7 @@ PARALLEL_VIEW_HELP = (
 
 
 def visible_sub_pages(is_setup: bool) -> list[str]:
-    """歯車メニューに出す画面のキー。設定・デバッグは、設定者（admin / editor / Local モード）だけ。"""
+    """メニュー（≡）に出す画面のキー。設定・デバッグは、設定者（admin / editor / Local モード）だけ。"""
     return [key for key, _label, _title, setup_only in SUB_PAGES if is_setup or not setup_only]
 
 

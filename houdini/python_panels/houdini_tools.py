@@ -28,6 +28,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+import display_isolation
 import tutorial_review
 from doc_tools import DOC_TOOL_NAMES, DocToolError
 
@@ -576,6 +577,24 @@ def _json_safe(value) -> Any:
 
 # ─── ツール実行エンジン ─────────────────────────────────────────────────────────
 
+_ESCAPED_NEWLINE = chr(92) + "n"  # 文字の「バックスラッシュ + n」
+
+
+def normalize_escaped_newlines(text: str) -> str:
+    """モデルが、改行を「バックスラッシュ + n」の 2 文字で送ってきたとき（二重のエスケープ）、本当の改行に直す（2026-11-18）。
+
+    実機の記録（energy-effect-layer-design_20261118.md）で、手順の本文が 1 行のまま、「バックスラッシュ + n」が 119 個、
+    そのまま画面・動画・Guide に出ていた。直すのは、「本当の改行がほとんど無いのに、2 文字の改行が 3 個以上ある」ときだけ
+    （VEX の printf("..\\n") のように、コードの中に正当に入っているものを、壊さないため）。"""
+    if not isinstance(text, str) or _ESCAPED_NEWLINE not in text:
+        return text
+    literal = text.count(_ESCAPED_NEWLINE)
+    real = text.count("\n")
+    if literal >= 3 and real <= max(2, literal // 10):
+        return text.replace(_ESCAPED_NEWLINE, "\n")
+    return text
+
+
 class SandboxViolation(Exception):
     """サンドボックス外のノードパスが指定されたときに送出される。"""
 
@@ -700,6 +719,10 @@ class HoudiniToolExecutor:
         sandbox = obj.createNode("subnet", self._sandbox_name)
         sandbox.setComment("AI生成チュートリアル用サンドボックス（tutorial_agent）")
         sandbox.moveToGoodPosition()
+        # 利用者のほかのオブジェクト・前の生成のサンドボックスの表示を切る（ビューポート画像・動画の素材に、関係ないものが映らないように。
+        # 切った状態は display_isolation が覚えていて、Guide の「表示を元に戻す」で戻せる）
+        display_isolation.isolate(self._hou, [sandbox.path()])
+        display_isolation.show(self._hou, sandbox.path())
         return sandbox
 
     def destroy_sandbox(self) -> None:
@@ -874,6 +897,39 @@ class HoudiniToolExecutor:
                 setter(True)
             except Exception:  # noqa: BLE001 -- 表示切替の失敗で生成を止めない
                 pass
+
+    def _show_step_result(self, node) -> None:
+        """
+        create_node / set_parameter の直後に、その手順の結果をビューポートに映す（2026-11-18）。
+
+        原因: 表示フラグを動かすのは、末端ノードへの接続・cook の成功・view_viewport だけだった。そのため、ノードを作る・
+        値を変える手順のビューポート画像（動画の素材）は、最初に作ったノード（球）のまま変わらなかった
+        （実機の記録で、57 枚のうち 15 枚が同じ画像だった）。
+        入力が要るのに、まだつながっていないノードは、映しても空なので、いまの表示のままにする。
+        """
+        try:
+            if node.type().category().name() != "Sop":
+                return
+            try:
+                needs_input = int(node.type().minNumInputs()) > 0
+            except Exception:  # noqa: BLE001 -- 取れないときは、映す
+                needs_input = False
+            if needs_input and not any(node.inputs()):
+                return
+        except Exception:  # noqa: BLE001
+            return
+        self._show_in_viewport(node)
+
+    def _prepare_viewport(self, tool_name: str, focus_path: str | None) -> None:
+        """撮影の直前に、サンドボックス以外の表示を切り、手順で触ったノードの結果を映す（どちらも、失敗しても撮影は続ける）。"""
+        try:
+            display_isolation.isolate(self._hou, [self.sandbox_path])
+            if tool_name in ("create_node", "set_parameter") and focus_path:
+                node = self._hou.node(focus_path)
+                if node is not None:
+                    self._show_step_result(node)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _restore_final_display(self) -> None:
         """最後に接続した末端ノードへ表示フラグを戻す（finish_tutorial直後の自己確認画像用）。"""
@@ -1310,6 +1366,7 @@ class HoudiniToolExecutor:
             # (needed for its own capture to show the right content) --
             # doing that first would risk Scene View no longer being the
             # visible tab if the two share a pane group.
+            self._prepare_viewport(tool_name, focus_path)
             got_viewport = screen_capture.capture_viewport(viewport_path, log_path=log_path, frame_path=self.sandbox_path)
 
             # cook_node re-evaluates the graph, which for simulation nodes
@@ -2723,7 +2780,7 @@ class HoudiniToolExecutor:
         # ここでは即座にfinish_dataを確定しない（下書きとして保持するのみ）。
         # 視覚的自己検証ステップ: この直後にビューポート画像が見せられるので、
         # それを確認したうえでconfirm_tutorialを呼んで初めてfinish_dataが確定する。
-        draft = dict(args)
+        draft = {k: normalize_escaped_newlines(v) if isinstance(v, str) else v for k, v in args.items()}
         self._pending_finish = draft
         self._finish_drafts.append(draft)
         # 品質ゲート（2026-10-20）: レッスン用の項目（考え方・確認ポイント・実験・仕上げ・次のレッスン）が

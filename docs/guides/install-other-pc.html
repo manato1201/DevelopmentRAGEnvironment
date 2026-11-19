@@ -75,7 +75,7 @@
 <header class="hero">
   <span class="badge">資料</span>
   <h1>別のPCへの導入手順（1枚）</h1>
-  <div class="meta">HTML生成: 2026-11-17（元: docs/guides/install-other-pc.md）</div>
+  <div class="meta">HTML生成: 2026-11-19（元: docs/guides/install-other-pc.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-用意するもの">1. 用意するもの</a></li><li><a href="#2-手順">2. 手順</a><ol><li><a href="#自己診断の読み方">自己診断の読み方</a></li><li><a href="#導入のときに選べること">導入のときに選べること</a></li></ol></li><li><a href="#3-動作の確認3分">3. 動作の確認（3分）</a><ol><li><a href="#動画の書き出しが遅いとき画質の設定">動画の書き出しが遅いとき（画質の設定）</a></li></ol></li><li><a href="#4-困ったとき">4. 困ったとき</a></li><li><a href="#5-パネルが開けないときの確認houdini-の-python-shell">5. パネルが開けないときの確認（Houdini の Python Shell）</a></li><li><a href="#6-版が違うときの確認のしかた220429-220459-220504">6. 版が違うときの確認のしかた（22.0.429 / 22.0.459 / 22.0.504）</a></li></ol></details></nav>
 <main>
@@ -187,7 +187,7 @@ install.cmd -Uninstall                # 取り除く
 <li>パネルの右上の<strong>ランプ</strong>が「接続OK」になることを確認する（ならなければ、ランプをクリック → <strong>接続・アカウント</strong>で URL と API キーを確認）。</li>
 <li><strong>Tutorial</strong> タブにトピック（例: <code>岩を地面に散らす</code>）を入れ、レベル <code>basic</code> で<strong>生成</strong>を押す（2〜4分）。</li>
 <li>プレビューが出たら<strong>保存</strong>する。「保存先未設定」とは出ずに、保存される（<code>ドキュメント\RAGReelTutorial\localRAG\tutorials\</code>）。RAGReel を入れていれば、続けて動画の生成が始まる。</li>
-<li><strong>動画</strong>タブから、できた動画を開く。</li>
+<li><strong>Movie</strong>タブから、できた動画を開く。</li>
 </ol>
 <h3 id="動画の書き出しが遅いとき画質の設定">動画の書き出しが遅いとき（画質の設定）</h3>
 <p>動画エンジンの既定は、<strong>フル HD・30 fps</strong>（<code>1080p30</code>）です。以前の既定（1280x720・15 fps）より、書き出しに<strong>約 3〜4 倍</strong>かかります（実機の長い動画での時間は、未測定）。遅くて困るときは、画質を下げます。</p>
@@ -238,7 +238,7 @@ install.cmd -Uninstall                # 取り除く
 <tbody>
 <tr>
 <td>保存すると「保存先未設定」と出る</td>
-<td><strong>以前の版の不具合</strong>です。いまの版は、保存先が空でも、<code>ドキュメント\RAGReelTutorial</code> を自動で使います。最新の zip で <code>install.cmd</code> をやり直してください。それでも出るときは、パネル右上の歯車 →「<strong>接続・アカウント</strong>」→「<strong>保存先フォルダ</strong>」に、書き込める場所（例: ドキュメント内のフォルダ）を入れて保存。（以前は、案内の「設定タブ」が一般の利用者には表示されず、直せませんでした）</td>
+<td><strong>以前の版の不具合</strong>です。いまの版は、保存先が空でも、<code>ドキュメント\RAGReelTutorial</code> を自動で使います。最新の zip で <code>install.cmd</code> をやり直してください。それでも出るときは、パネル右上のメニュー（≡） →「<strong>接続・アカウント</strong>」→「<strong>保存先フォルダ</strong>」に、書き込める場所（例: ドキュメント内のフォルダ）を入れて保存。（以前は、案内の「設定タブ」が一般の利用者には表示されず、直せませんでした）</td>
 </tr>
 <tr>
 <td><code>RAGReel Tutorial</code> が、New Pane Tab Type の Misc にも、Windows → Python Panel にも出ない</td>
@@ -266,7 +266,7 @@ install.cmd -Uninstall                # 取り除く
 </tr>
 <tr>
 <td>「URL/APIキーが未設定です」・接続できない</td>
-<td>パネルの右上の歯車 →「接続・アカウント」で、URL と API キーを入れて保存。誤りなら入れ直す（キーは再発行も可）</td>
+<td>パネルの右上のメニュー（≡） →「接続・アカウント」で、URL と API キーを入れて保存。誤りなら入れ直す（キーは再発行も可）</td>
 </tr>
 <tr>
 <td>設定ファイルが壊れた／空になった</td>

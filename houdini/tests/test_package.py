@@ -44,7 +44,7 @@ class BuildTest(unittest.TestCase):
             with zipfile.ZipFile(target) as z:
                 names = set(z.namelist())
                 for module in ("rag_chatbot", "tutorial_view", "tutorial_agent", "houdini_tools", "video_script",
-                               "lesson_design", "tutorial_review", "graph_diagram", "video_progress", "screen_capture", "doc_tools", "docs_view", "guide_view", "guide_mode", "guide_shortcuts", "trial_pruning",
+                               "lesson_design", "tutorial_review", "graph_diagram", "video_progress", "screen_capture", "doc_tools", "display_isolation", "tutorial_followup", "guide_view", "guide_mode", "guide_shortcuts", "trial_pruning",
                                "panel_paths", "panel_nav", "node_links", "node_link_data"):
                     self.assertIn(f"python/{module}.py", names)
                 for name in ("install.ps1", "install.cmd", "VERSION", "houdini/python_panels/RAGReelTutorial.pypanel"):
