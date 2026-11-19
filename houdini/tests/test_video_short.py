@@ -33,18 +33,24 @@ def energy_like() -> list[dict]:
     for i in range(13):
         n += 1
         out.append(step(n, "set_parameter", changes=1 + i % 4, code=(i % 3 == 0)))
-    n += 1; out.append(step(n, "connect_nodes"))
-    n += 1; out.append(step(n, "cook_node"))
+    n += 1
+    out.append(step(n, "connect_nodes"))
+    n += 1
+    out.append(step(n, "cook_node"))
     for _ in range(5):
         n += 1
         out.append(step(n, "create_node"))
     for i in range(15):
         n += 1
         out.append(step(n, "set_parameter", changes=1 + i % 3))
-    n += 1; out.append(step(n, "connect_nodes"))
-    n += 1; out.append(step(n, "cook_node"))
-    n += 1; out.append(step(n, "set_parameter", changes=2))
-    n += 1; out.append(step(n, "cook_node"))
+    n += 1
+    out.append(step(n, "connect_nodes"))
+    n += 1
+    out.append(step(n, "cook_node"))
+    n += 1
+    out.append(step(n, "set_parameter", changes=2))
+    n += 1
+    out.append(step(n, "cook_node"))
     return out
 
 

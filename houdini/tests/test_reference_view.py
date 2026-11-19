@@ -40,6 +40,8 @@ class FakeResponse(io.BytesIO):
         return False
 
 
+# reference_view は panel_actions(PySide6)を読み込むので、PySide6 の無い環境(CI)ではこのクラスもスキップする。
+@unittest.skipIf(QApplication is None, "PySide6 がありません")
 class FetchReferenceItemsTest(unittest.TestCase):
     def test_fetch_saves_then_reuses_the_cache_for_a_day(self) -> None:
         import reference_view as rv
