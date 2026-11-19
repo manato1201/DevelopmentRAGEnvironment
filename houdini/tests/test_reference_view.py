@@ -495,6 +495,13 @@ class ParticipantTest(unittest.TestCase):
         self._settle()
         self.assertIn("点を散らす v2", self.widget._detail.toPlainText())
 
+    def test_a_published_item_missing_from_the_catalog_is_still_listed(self) -> None:
+        self.widget._remote = {"node|sop/mountain": {"kind": "node", "key": "sop/mountain", "title": "Mountain", "version": 1, "mediaCount": 0}}
+        self.widget._reload()
+        self.assertEqual([i["key"] for i in self.widget._items], ["sop/mountain"])
+        self.assertIn("Mountain", self.widget._list.item(0).text())
+        self.assertTrue(self.widget._doc_btn.isEnabled())
+
     def test_an_item_without_an_explanation_says_so_and_still_offers_the_official_doc(self) -> None:
         self.widget._described_only.setChecked(False)
         self.widget._search.setText("merge")

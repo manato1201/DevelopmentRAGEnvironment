@@ -131,9 +131,28 @@ def custom_item(kind: str, text: str) -> dict:
             "doc_url": SEARCH_BASE + quote(name), "custom": True}
 
 
-def search(kind: str, query: str, limit: int = 120) -> list[dict]:
-    """表示名・ページ名の部分一致（大文字・小文字は区別しない）。空なら、先頭から limit 件。"""
+def remote_items(kind: str, remote: dict | None) -> list[dict]:
+    """Cloudflare にある説明の一覧（reference_remote.fetch_index の結果）のうち、一覧データ（catalog）に載っていない項目。
+    一覧データは、公式ドキュメントの索引から作っていて、Mountain・Twist のような基本のノードが抜けていることがある。
+    公開した項目は、必ず探せるようにする。"""
+    known = {i["key"] for i in catalog(kind)}
+    items = []
+    for meta in (remote or {}).values():
+        if not isinstance(meta, dict) or meta.get("kind") != kind or not meta.get("key") or meta["key"] in known:
+            continue
+        key = str(meta["key"])
+        name = key.split("/")[-1]
+        context = key.split("/")[0] if kind in ("node", "apex") and "/" in key else kind
+        items.append({"kind": kind, "key": key, "name": name, "label": str(meta.get("title") or name), "context": context,
+                      "doc_url": f"{DOC_BASE}/{key}.html" if kind == "node" and "/" in key else SEARCH_BASE + quote(name)})
+    return items
+
+
+def search(kind: str, query: str, limit: int = 120, extra: list[dict] | None = None) -> list[dict]:
+    """表示名・ページ名の部分一致（大文字・小文字は区別しない）。空なら、先頭から limit 件。extra は、一覧に足す項目（remote_items）。"""
     items = catalog(kind)
+    if extra:
+        items = sorted(items + list(extra), key=lambda i: (i["label"].lower(), i["context"]))
     q = " ".join(str(query or "").lower().split())
     if not q:
         return items[:limit]

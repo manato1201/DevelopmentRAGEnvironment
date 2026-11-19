@@ -227,6 +227,18 @@ class HtmlTest(unittest.TestCase):
         html = rd.entry_html(self.ITEM, {"what": "x"}, media=text)
         self.assertLess(html.index("適用前"), html.index("何をする"))
 
+    def test_remote_items_adds_published_items_missing_from_the_catalog(self) -> None:
+        remote = {"node|sop/mountain": {"kind": "node", "key": "sop/mountain", "title": "Mountain", "version": 1},
+                  "node|sop/scatter": {"kind": "node", "key": "sop/scatter", "title": "Scatter", "version": 1},
+                  "vex|vex/chf": {"kind": "vex", "key": "vex/chf", "title": "chf", "version": 1}, "bad": 3}
+        extra = rd.remote_items("node", remote)
+        self.assertEqual([i["key"] for i in extra], ["sop/mountain"], "scatter is already in the catalog; other kinds are not mixed in")
+        self.assertEqual((extra[0]["label"], extra[0]["context"]), ("Mountain", "sop"))
+        self.assertTrue(extra[0]["doc_url"].endswith("/nodes/sop/mountain.html"))
+        self.assertEqual(rd.search("node", "mountain", extra=extra)[0]["key"], "sop/mountain")
+        self.assertEqual(rd.search("node", "mountain"), [], "without extra the catalog does not know it")
+        self.assertEqual(rd.remote_items("node", None), [])
+
     def test_shelf_items_use_the_internal_name_as_key_and_skip_duplicates(self) -> None:
         items = rd.shelf_items([("Create", "box", "Box"), ("Lights", "rman_pxrrectlight", "Rect Light"), ("Other", "box", "Box"), ("Create", "", ""),
                                 ("Terrain", "rect_light2", "Rect Light")])

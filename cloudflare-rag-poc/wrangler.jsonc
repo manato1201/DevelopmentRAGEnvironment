@@ -15,6 +15,13 @@
 			"database_id": "47934c04-8cb6-4e11-935a-21aa6b23901c"
 		}
 	],
+	// R2: Reference タブの画像・動画（適用前後・ノード画面。src/reference.ts）。バケットは `wrangler r2 bucket create rag-poc-reference` で作成済み（2026-11-19）
+	"r2_buckets": [
+		{
+			"binding": "REFERENCE_MEDIA",
+			"bucket_name": "rag-poc-reference"
+		}
+	],
 	// Vectorize: 共有／個人スコープ用インデックス（それぞれ1本、metadataでnamespace/owner_user_idをフィルタ）
 	// 両インデックスとも作成済み（768次元・cosine。src/embeddings.tsでgemini-embedding-001に
 	// outputDimensionality=768を明示指定して次元数を合わせている）

@@ -367,7 +367,7 @@ class ReferenceWidget(QWidget):
 
     def _reload(self, *_args) -> None:
         query = self._search.text()
-        items = rd.search(self._kind, query, limit=100000)  # 絞り込み（使ったもの・説明のあるもの）は、ここから後で行うので、先に切らない
+        items = rd.search(self._kind, query, limit=100000, extra=rd.remote_items(self._kind, self._remote))  # 絞り込み（使ったもの・説明のあるもの）は、ここから後で行うので、先に切らない
         used_keys = self._used.get(self._kind, set())
         if self._used_only.isChecked():
             items = [i for i in items if i["key"] in used_keys]
