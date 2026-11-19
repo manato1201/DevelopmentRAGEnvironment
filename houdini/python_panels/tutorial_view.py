@@ -60,6 +60,8 @@ import gallery_upload
 import panel_paths
 import token_usage
 import video_progress
+import video_script as video_script_mod
+import video_short
 from panel_actions import (
     COLOR_ACCENT,
     COLOR_MUTED,
@@ -72,7 +74,7 @@ from panel_actions import (
     type_font,
     type_qss,
 )
-from panel_widgets import CollapsibleBox, make_separator
+from panel_widgets import CollapsibleBox, make_separator, ui_state_get, ui_state_set
 from report_dialog import ReportDialog
 from tutorial_graph_simplify import graph_to_mermaid, layered_positions, simplify_graph
 
@@ -653,6 +655,16 @@ class TutorialGeneratePanel(QWidget):
             "オンの間は、左のレベル選択は使われません。"
         )
         self._chain_checkbox.toggled.connect(self._on_chain_toggled)
+        # 高速モード（2026-11-19）: 生成の時間を縮める（effort を下げ、レッスン設計を省き、手順書を短く）。説明は、短めになる。
+        self._fast_checkbox = QCheckBox("高速モード（生成を速く。説明は短め）")
+        self._fast_checkbox.setToolTip(
+            "生成の時間を縮めます（思考を浅くし、レッスン設計を省き、手順書の本文を短くさせます）。\n"
+            "品質への影響は、同じ題材で、通常モードと比べて確かめてください（保存される metrics に fast_mode が記録されます）。\n"
+            "3段階まとめて生成には使われません。"
+        )
+        self._fast_checkbox.setChecked(bool(ui_state_get("tutorial_fast_mode", False)))
+        self._fast_checkbox.toggled.connect(lambda on: ui_state_set("tutorial_fast_mode", bool(on)))
+        layout.addWidget(self._fast_checkbox)
         layout.addWidget(self._chain_checkbox)  # 狭いペインでも折れ曲がらないよう、レベルの下に独立した行で置く
 
         # ── 2. 詳細設定（めったに触らないものは折りたたむ）──────────────────────
@@ -1071,6 +1083,7 @@ class TutorialGeneratePanel(QWidget):
             reference_images=list(self._reference_paths),
             requirements=requirements,
             target_model=self._target_model_path,
+            fast=self._fast_checkbox.isChecked(),
         )
         level = self._level_combo.currentText()
         self._worker = TutorialWorker(self._agent, topic, level=level)
@@ -1317,6 +1330,14 @@ class TutorialGeneratePanel(QWidget):
         steps = list(getattr(result, "step_screenshots", None) or [])
         if not steps:
             return self._start_video_process(result, md_path, json_path, None)
+        # 動画の長さ（2026-11-19）。既定は短縮版: 要点の手順だけを動画にする（実証実験は 1 人 90 分で、動画が 23 分では見られない）。
+        # 手順書・Guide は、全部の手順のまま。
+        mode = video_short.length_mode(self._cfg_getter())
+        video_steps = steps
+        if mode == video_short.SHORT:
+            usable = video_script_mod.usable_steps(steps)
+            video_steps = video_short.select_steps(usable)
+        self._video_length_note = video_short.describe(len(video_script_mod.usable_steps(steps)), len(video_steps), mode)
         self._video_progress.setText("動画生成: 解説の台本を作っています（数十秒かかります）…")
         self._set_video_bar(0, "台本づくり")
         self._script_elapsed = 0.0
@@ -1332,7 +1353,7 @@ class TutorialGeneratePanel(QWidget):
                 images["node_diagram"] = str(diagram_path)
         except Exception:  # noqa: BLE001 -- 図が描けなくても動画は作る
             images = {}
-        worker = VideoScriptWorker(self._make_agent, md_path, steps, images)
+        worker = VideoScriptWorker(self._make_agent, md_path, video_steps, images)
         self._script_workers.append(worker)
 
         def on_done(script_path: str, message: str, w: VideoScriptWorker = worker) -> None:
@@ -1340,8 +1361,10 @@ class TutorialGeneratePanel(QWidget):
             self._set_video_bar(video_progress.SCRIPT_END, "動画エンジンを起動")
             if w in self._script_workers:
                 self._script_workers.remove(w)
-            status = self._start_video_process(result, md_path, json_path, Path(script_path) if script_path else None)
-            self._video_progress.setText(f"{message} / {status}")
+            status = self._start_video_process(
+                result, md_path, json_path, Path(script_path) if script_path else None, video_steps=video_steps, mode=mode)
+            note = getattr(self, "_video_length_note", "")
+            self._video_progress.setText(f"{message} / {status}" + (f" / {note}" if note else ""))
 
         worker.done.connect(on_done)
         worker.start()
@@ -1369,7 +1392,9 @@ class TutorialGeneratePanel(QWidget):
         """台本づくりでClaudeを呼ぶためのエージェント（サンドボックスは作らない）。"""
         return _build_light_agent(self._cfg_getter())
 
-    def _start_video_process(self, result, md_path: Path, json_path: Path, script_path: Path | None) -> str:
+    def _start_video_process(
+        self, result, md_path: Path, json_path: Path, script_path: Path | None, video_steps: list | None = None, mode: str = video_short.FULL,
+    ) -> str:
         """動画エンジンを起動する（video_factory_bridge）。起動に成功したら進捗表示を始める。"""
         cfg = self._cfg_getter()
         exe_path = cfg.get("video_factory_exe_path", "")
@@ -1380,10 +1405,11 @@ class TutorialGeneratePanel(QWidget):
                 md_path=md_path,
                 json_path=json_path,
                 sandbox_path=result.sandbox_path,
-                step_screenshots=result.step_screenshots,
+                step_screenshots=video_steps if video_steps is not None else result.step_screenshots,
                 exe_path=exe_path,
                 db_key=getattr(result, "rag_name", ""),
                 script_path=script_path,
+                extra_args=video_short.engine_args(mode),
                 # 音声合成（Worker経由のGoogle Cloud TTS）。Cloudflare版の設定をそのまま使う
                 tts_url=cfg.get("cf_url", ""),
                 tts_key=cfg.get("cf_api_key", ""),

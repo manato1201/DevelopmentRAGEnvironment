@@ -21,6 +21,7 @@ MAIN_TABS = (
     ("chat", "Chat"),
     ("guide", "Guide"),
     ("tutorial", "Tutorial"),
+    ("reference", "Reference"),
     ("video", "Movie"),
 )
 

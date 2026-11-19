@@ -42,6 +42,13 @@ except NameError:
     except Exception:
         pass
 
+# reference_view.py（Reference タブ: ノード・VEX・APEX・シェルフツールの説明）も同様
+try:
+    from reference_view import ReferenceWidget as _ReferenceWidget
+    _REFERENCE_AVAILABLE = True
+except ImportError:
+    _REFERENCE_AVAILABLE = False
+
 # guide_view.py（Guide タブ: 手順ごとの案内）も同様
 try:
     from guide_view import GuideWidget as _GuideWidget
@@ -68,6 +75,7 @@ import panel_paths as _paths
 from pilot_panel import PilotTaskPanel as _PilotTaskPanel
 from rag_client import post_json as _post_json
 from rag_client import _cf_base as _cf_base_url
+from panel_thinking import ThinkingRow as _ThinkingRow
 from panel_actions import Speaker as _Speaker, action_button as _action_button, button_qss as _button_qss, make_icon as _make_icon, px as _px, type_font as _type_font, type_qss as _type_qss, normalize_fonts as _normalize_fonts, set_active as _action_set_active
 from PySide6.QtCore import Qt, QSize, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QPalette
@@ -120,6 +128,7 @@ _DEFAULT_CONFIG = {
     "gallery_url":      "",
     "gallery_token":    "",
     "gallery_auto_upload": True,   # 動画生成の完了時に、自動でギャラリーへ上げる
+    "video_length": "short",       # 動画の長さ: "short"（要点の手順だけ。約 4 分）| "full"（全部の手順。長いと 10〜20 分）
 }
 
 def _read_config_file(path: Path) -> tuple[dict | None, str]:
@@ -596,6 +605,7 @@ class RAGChatbotPanel(QWidget):
         tabs.addTab(self._wrap_tab(self._build_chat_tab()),     "Chat")
         tabs.addTab(self._wrap_tab(self._build_guide_tab()),    "Guide")
         tabs.addTab(self._tutorial_tab_wrapper,                 "Tutorial")
+        tabs.addTab(self._wrap_tab(self._build_reference_tab()), "Reference")
         tabs.addTab(self._video_tab_wrapper,                    "Movie")
         # 「課題」タブ（実証実験の参加者向け）。メニュー（≡）「接続・アカウント」の「実証実験に参加する」を入れたときだけ表示する（既定は非表示）。
         self._pilot_panel = _PilotTaskPanel(lambda: self._cfg)
@@ -866,6 +876,20 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         if self.layout() is not None:
             self.layout().activate()
 
+    def _build_reference_tab(self) -> QWidget:
+        """
+        Reference タブ（2026-11-19）: ノード・VEX・APEX・シェルフツールの「何をする・使いどころ・実例」。チュートリアルで使ったものに「●」。
+        説明は、公式のドキュメントと HoudiniReference を元に、AI がまとめて保存する（reference_view.py）。
+        """
+        if _REFERENCE_AVAILABLE:
+            def complete():
+                panel = getattr(self, "_tutorial_panel", None)
+                return panel._make_agent().complete_text if panel is not None else None
+
+            self._reference_widget = _ReferenceWidget(lambda: self._cfg, complete)
+            return self._reference_widget
+        return self._missing_module_widget("reference_view.py")
+
     def _build_guide_tab(self) -> QWidget:
         """
         Guide タブ（2026-11-03）: 保存したチュートリアルを手順ごとに案内する。見るタブ・操作するノード・
@@ -1075,6 +1099,13 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             self._gallery_auto_checkbox = QCheckBox("動画の生成が終わったら、自動でギャラリーへアップロードする")
             self._gallery_auto_checkbox.setChecked(bool(self._cfg.get("gallery_auto_upload", True)))
             box.addWidget(self._gallery_auto_checkbox)
+            box.addWidget(QLabel("動画の長さ:"))
+            self._video_length_combo = QComboBox()
+            self._video_length_combo.addItem("短縮版（要点の手順だけ。約 4 分で作れます）", "short")
+            self._video_length_combo.addItem("完全版（全部の手順。長いと、作るのに 10〜20 分かかります）", "full")
+            self._video_length_combo.setCurrentIndex(max(0, self._video_length_combo.findData(str(self._cfg.get("video_length", "short") or "short"))))
+            self._video_length_combo.setToolTip("手順書（Markdown）と Guide には、どちらでも、全部の手順が残ります")
+            box.addWidget(self._video_length_combo)
 
         layout.addWidget(self._group_box("動画・ギャラリー", "conn.video", False, fill_video))
 
@@ -1528,6 +1559,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._history.append({"role": "user", "text": query})
         self._set_status("応答中...")
         self._send_btn.setEnabled(False)
+        self._show_thinking()
 
         # 直近 12 件の履歴を Worker に渡す（古すぎる会話は LLM に送らない）
         explain = self._explain_combo.currentData() if self._cfg.get("mode") == "cloudflare" else None
@@ -1536,8 +1568,26 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._worker.error.connect(self._on_query_error)
         self._worker.start()
 
+    def _show_thinking(self) -> None:
+        """回答を待っているあいだの「関連情報を確認中… ●○○」を、チャットの末尾に出す（panel_thinking.py）。"""
+        self._hide_thinking()
+        row = _ThinkingRow()
+        self._thinking_row = row
+        self._chat_layout.insertWidget(self._chat_layout.count() - 1, row)  # 末尾の stretch の手前
+        row.start()
+        QTimer.singleShot(0, self._scroll_to_bottom)
+
+    def _hide_thinking(self) -> None:
+        row = getattr(self, "_thinking_row", None)
+        if row is not None:
+            row.stop()
+            self._chat_layout.removeWidget(row)
+            row.deleteLater()
+            self._thinking_row = None
+
     def _on_query_done(self, result: dict) -> None:
         """クエリ成功時のコールバック。回答バブルを追加し参照ドキュメントをステータスに表示する。"""
+        self._hide_thinking()
         answer    = result.get("answer", "(空の回答)")
         sources   = result.get("sources", [])
         memory_id = result.get("memoryId", "")
@@ -1554,6 +1604,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
 
     def _on_query_error(self, msg: str) -> None:
         """クエリ失敗時のコールバック。エラーをバブルとステータスに表示する。"""
+        self._hide_thinking()
         _debug.log("質問", f"エラー: {msg}")
         friendly = _friendly_error(msg)
         hint = "（詳細は、メニュー（≡）の「デバッグ」）" if _is_setup_user(self._role, self._cfg.get("mode", "cloudflare")) else ""
@@ -1568,6 +1619,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
     def _on_clear(self) -> None:
         """会話履歴とバブルをすべて削除してチャットをリセットする。"""
         self._history.clear()
+        self._hide_thinking()
         # stretch（最後の要素）以外のすべてのバブルを削除する
         for i in reversed(range(self._chat_layout.count() - 1)):
             item = self._chat_layout.itemAt(i)
@@ -1591,6 +1643,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._cfg["gallery_auto_upload"] = self._gallery_auto_checkbox.isChecked()
         self._cfg["score_user_id"]    = self._score_uid_edit.text().strip()
         self._cfg["video_factory_exe_path"] = self._video_factory_exe_edit.text().strip()
+        self._cfg["video_length"] = str(self._video_length_combo.currentData() or "short")
         try:
             self._cfg["local_port"] = int(self._port_edit.text())
         except ValueError:

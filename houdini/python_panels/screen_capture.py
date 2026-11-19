@@ -438,6 +438,7 @@ def prefer_diagram(pane_width: int, node_count: int) -> bool:
 CODE_FONT_PT = 16.0
 CODE_LINE_H = 28.0
 CODE_MAX_PAGES = 4
+CODE_SCALE_MAX = 1.9  # 行が少ないとき、コードの文字を、最大この倍率まで大きくする
 MAX_CODE_CHARS = 200_000  # これより長いコードは、ここで切る（表示できるのは CODE_MAX_PAGES 枚まで。巨大な入力で固まらないため）
 
 
@@ -1420,6 +1421,18 @@ def _fit_text(metrics, text: str, max_width: float) -> str:
     return text + "…"
 
 
+PARAM_SCALE_MAX = 1.8  # 変更が少ないとき、パラメータのカードの文字・行を、最大この倍率まで大きくする
+
+
+def param_card_scale(plain_count: int, has_code: bool = False, has_others: bool = False, height: float = LOGICAL_HEIGHT) -> float:
+    """パラメータのカードの、全体の拡大率（1.0 以上、PARAM_SCALE_MAX 以下）。変更が 1〜3 行だと、カードの上のほうに小さく出て、
+    下が空いていた（2026-11-18 の動画で確認）。コードの欄・「その他の設定」があるカードは、そのまま（1.0）。"""
+    if has_code or has_others or plain_count <= 0:
+        return 1.0
+    content = 134.0 + 32.0 + min(plain_count, 8) * 56.0 + 20.0
+    return max(1.0, min(PARAM_SCALE_MAX, (height - 30.0) / content))
+
+
 def render_parameter_card(
     output_path: Path,
     container_path: str,
@@ -1446,12 +1459,15 @@ def render_parameter_card(
         from PySide6.QtCore import QRectF, Qt
         from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
 
+        has_code = any(c.get("code") for c in changes)
+        zoom = param_card_scale(sum(1 for c in changes if not c.get("code")), has_code, bool(others), height)
         image = QImage(width * RENDER_SCALE, height * RENDER_SCALE, QImage.Format_ARGB32)
         image.fill(QColor("#2f2f31"))
         p = QPainter(image)
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setRenderHint(QPainter.TextAntialiasing, True)
-        p.scale(RENDER_SCALE, RENDER_SCALE)  # 座標は width x height のまま、画素だけ細かくする
+        p.scale(RENDER_SCALE * zoom, RENDER_SCALE * zoom)  # 座標は、（width / zoom）x（height / zoom）。画素は細かく、全体を大きくする
+        width, height = width / zoom, height / zoom
 
         bar_font = QFont("Segoe UI", 12)
         bar_font.setBold(True)
@@ -1584,6 +1600,17 @@ def render_parameter_card(
         return False
 
 
+def code_scale(row_count: int, longest_cols: int, max_cols: int, available_height: float, line_height: float = CODE_LINE_H) -> float:
+    """コードのカードの、文字を大きくする倍率（1.0 以上、CODE_SCALE_MAX 以下）。
+    行が少ないと、カードの上のほうに小さく出て、残りが空いていた（2026-11-18 の動画で確認）。行が収まる・いちばん長い行が収まる範囲で、大きくする。
+    row_count: 行数（折り返し後）、longest_cols: いちばん長い行の桁数、max_cols: 倍率 1.0 での 1 行に入る桁数、available_height: コードの箱に使える高さ。"""
+    if row_count <= 0 or longest_cols <= 0 or max_cols <= 0 or available_height <= 0:
+        return 1.0
+    by_width = max_cols / longest_cols
+    by_height = available_height / (row_count * line_height + 24.0)
+    return max(1.0, min(CODE_SCALE_MAX, by_width, by_height))
+
+
 def code_card_capacity(plain_count: int, height: int = LOGICAL_HEIGHT) -> tuple[int, int]:
     """コードのカードの 1 枚に入る行数。戻り値: (1 枚目, 2 枚目から)。1 枚目は、変更点の行（plain_count。最大 3）と一緒。"""
     box_top_first = 100.0 + 30.0 + min(plain_count, 3) * 52.0 + 42.0
@@ -1624,6 +1651,16 @@ def render_code_cards(
         first_cap, other_cap = code_card_capacity(len(shown_plain), height)
         pages, hidden_rows = paginate_code(rows, first_cap, other_cap)
         total_lines = max((n for n, _t in rows if n), default=0)
+        # 1 枚に収まり、折り返しも無いときは、文字を大きくして、カードの空きを使う
+        scale = 1.0
+        if len(pages) == 1 and not hidden_rows and not any(n is None for n, _t in rows):
+            box_top = 100.0 + 30.0 + len(shown_plain) * 52.0 + 4.0 + 38.0
+            longest = max((len(t) for _n, t in rows), default=0)
+            scale = code_scale(len(rows), longest, max_cols, height - box_top - 20.0)
+        line_h = CODE_LINE_H * scale
+        if scale > 1.0:
+            code_font.setPointSizeF(CODE_FONT_PT * scale)
+            gutter = 48.0 * scale
 
         for stale in find_extra_pages(output_path):  # 前の実行の、使われない続きの画像を消す
             try:
@@ -1704,7 +1741,7 @@ def render_code_cards(
             p.drawText(QRectF(40, y, width - 80, 30), Qt.AlignVCenter | Qt.AlignLeft,
                        _fit_text(QFontMetricsF(label_font), title, width - 80))
             y += 38.0 if page_no == 1 else 34.0
-            box = QRectF(40, y, box_w, len(page_rows) * CODE_LINE_H + 24.0)
+            box = QRectF(40, y, box_w, len(page_rows) * line_h + 24.0)
             p.setPen(QPen(QColor("#ffb000"), 1.6))
             p.setBrush(QColor("#1d1d1f"))
             p.drawRoundedRect(box, 8, 8)
@@ -1713,10 +1750,10 @@ def render_code_cards(
             for number, text in page_rows:
                 if number is not None:
                     p.setPen(QColor("#6f6f76"))
-                    p.drawText(QRectF(52, ty, gutter - 8, CODE_LINE_H), Qt.AlignVCenter | Qt.AlignRight, str(number))
+                    p.drawText(QRectF(52, ty, gutter - 8, line_h), Qt.AlignVCenter | Qt.AlignRight, str(number))
                 p.setPen(QColor("#7ec699") if text.lstrip().startswith("//") else QColor("#e6e6e8"))
-                p.drawText(QRectF(52 + gutter, ty, box_w - gutter - 24, CODE_LINE_H), Qt.AlignVCenter | Qt.AlignLeft, text)
-                ty += CODE_LINE_H
+                p.drawText(QRectF(52 + gutter, ty, box_w - gutter - 24, line_h), Qt.AlignVCenter | Qt.AlignLeft, text)
+                ty += line_h
             if hidden_rows and page_no == len(pages):
                 p.setFont(QFont("Segoe UI", 12))
                 p.setPen(QColor("#8d8d92"))
@@ -1730,7 +1767,7 @@ def render_code_cards(
             paths.append(target)
         write_capture_meta(output_path, {
             "kind": "code_card", "pages": len(paths), "lines_total": total_lines, "lines_hidden": hidden_rows,
-            "font_pt": CODE_FONT_PT, "max_cols": max_cols, "wrapped": any(n is None for n, _t in rows),
+            "font_pt": round(CODE_FONT_PT * scale, 1), "max_cols": max_cols, "wrapped": any(n is None for n, _t in rows),
             "width": width * RENDER_SCALE, "height": height * RENDER_SCALE,
         }, log_path)
         _log(f"code card rendered ({node_name}: {total_lines} lines, {len(paths)} page(s), {hidden_rows} row(s) not shown)", log_path)

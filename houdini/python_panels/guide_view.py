@@ -221,6 +221,33 @@ def dedupe_messages(messages: list[str]) -> list[str]:
     return out
 
 
+_STATUS_MAX_LINES = 4
+
+
+def compact_messages(messages: list[str]) -> list[str]:
+    """案内のメッセージを、短くする（2026-11-19）。同じ行は 1 回に。「示したノード: …」が 3 行以上あるとき（つなぐ手順は、両端のノードを全部言う）は、
+    1 行にまとめる。実機で、この行が 14 行並んで、手順の説明の欄を押しつぶしていた。"""
+    lines = dedupe_messages(messages)
+    shown = [ln for ln in lines if ln.startswith("示したノード:")]
+    if len(shown) > 2:
+        names = []
+        for ln in shown:
+            path = ln.split(":", 1)[1].strip().split("（", 1)[0]
+            names.append(path.rsplit("/", 1)[-1])
+        summary = f"示したノード: {len(shown)}個（{'、'.join(names[:3])}{' ほか' if len(names) > 3 else ''}）"
+        out: list[str] = []
+        placed = False
+        for ln in lines:
+            if ln in shown:
+                if not placed:
+                    out.append(summary)
+                    placed = True
+            else:
+                out.append(ln)
+        lines = out
+    return lines
+
+
 def locate_in_tabs(widget: QWidget):
     """widget を中に含む、タブ（QTabWidget）とそのページの番号。見つからなければ None。"""
     node = widget
@@ -365,6 +392,7 @@ class GuideWidget(QWidget):
         self._step_view = QTextBrowser()
         self._step_view.setOpenLinks(False)
         self._step_view.setFont(type_font("body"))
+        self._step_view.setMinimumHeight(px(200))  # 説明の欄は、いちばん広く取る（ほかの部品に押しつぶされない）
         _wrap_anywhere(self._step_view)
         root.addWidget(self._step_view, stretch=1)
 
@@ -372,6 +400,7 @@ class GuideWidget(QWidget):
         self._status = QLabel("")
         self._status.setStyleSheet(type_qss("caption", "#94a3b8"))
         self._status.setWordWrap(True)
+        self._status_lines: list[str] = []
         root.addWidget(self._status)
 
         # 主な操作: 「この手順を案内」（主ボタン）と、移るたびの自動案内
@@ -381,7 +410,11 @@ class GuideWidget(QWidget):
         self._apply_btn.setToolTip("見るタブを前面に出し、操作するノードを選んで画面に収めます。パラメータを変える手順では、その項目の位置へ合わせます")
         self._apply_btn.clicked.connect(self._apply)
         self._auto = QCheckBox("手順を移るたびに自動で案内")
+        self._ref_btn = QPushButton("ノードの説明")
+        self._ref_btn.setToolTip("この手順のノードの「何をする・使いどころ・実例」を、Reference タブで開きます")
+        self._ref_btn.clicked.connect(self._open_reference)
         actions.addWidget(self._apply_btn)
+        actions.addWidget(self._ref_btn)
         actions.addWidget(self._auto, stretch=1)
         root.addLayout(actions)
 
@@ -712,7 +745,7 @@ class GuideWidget(QWidget):
             messages = guide_mode.apply_step(hou, step, self._sandbox_path(), self._mode_key())
         except Exception as exc:  # noqa: BLE001 -- 案内に失敗しても、パネルは止めない
             messages = [f"案内に失敗しました（{exc}）"]
-        self._status.setText("\n".join(dedupe_messages(messages)))
+        self._set_status(messages)
         self._update_where()
         if step.get("tool") == "set_parameter" and self._parm_focus.isChecked():
             # パラメータ画面がノードに追従するのを待ってから、項目の位置に合わせる（すぐだと、前のノードのままのことがある）
@@ -731,14 +764,36 @@ class GuideWidget(QWidget):
         except Exception:  # noqa: BLE001 -- 合わせられなくても、案内は済んでいる
             messages = []
         if messages:
-            current = self._status.text()
-            self._status.setText("\n".join(dedupe_messages(([current] if current else []) + messages)))
+            self._set_status(self._status_lines + messages)
+
+    def _set_status(self, messages: list[str]) -> None:
+        """案内の結果を、短く出す（compact_messages）。全文は、ツールチップに残す。手順の説明の欄を、押しつぶさないため、
+        出すのは最大 _STATUS_MAX_LINES 行まで。"""
+        lines = compact_messages(messages)
+        self._status_lines = lines
+        shown = lines[:_STATUS_MAX_LINES]
+        if len(lines) > _STATUS_MAX_LINES:
+            shown.append(f"…ほか {len(lines) - _STATUS_MAX_LINES} 行（マウスを載せると全部出ます）")
+        self._status.setText("\n".join(shown))
+        self._status.setToolTip("\n".join(lines))
+
+    def _open_reference(self) -> None:
+        """この手順のノードを、Reference タブで開く（reference_view.open_item_for_step）。"""
+        if self._guide is None:
+            return
+        try:
+            import reference_view
+
+            message = reference_view.open_item_for_step(self, self._guide["steps"][self._index])
+        except ImportError:
+            message = "Reference タブが見つかりません"
+        self._set_status([message])
 
     def _restore_display(self) -> None:
         """案内・生成のあいだに切った、ほかのオブジェクトの表示を、元に戻す。"""
         if hou is None:
             return
-        self._status.setText(guide_mode.restore_display(hou))
+        self._set_status([guide_mode.restore_display(hou)])
         self._restore_btn.setEnabled(display_isolation.pending() > 0)
 
     def _open_popup(self) -> None:

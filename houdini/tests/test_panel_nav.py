@@ -34,7 +34,7 @@ class VisibleSubPagesTest(unittest.TestCase):
         keys = [key for key, _label in nav.MAIN_TABS]
         for rare in ("history", "connection", "settings", "debug"):
             self.assertNotIn(rare, keys)
-        for everyday in ("guide", "tutorial", "chat", "video"):
+        for everyday in ("guide", "tutorial", "chat", "video", "reference"):
             self.assertIn(everyday, keys)
         self.assertNotIn("docs", keys)  # Docs タブは、使わないので、なくした（2026-11-18）
         self.assertEqual(dict(nav.MAIN_TABS)["video"], "Movie")
@@ -183,7 +183,7 @@ class PanelLayoutTest(unittest.TestCase):
 
     def test_only_the_everyday_tabs_are_in_the_tab_bar(self) -> None:
         # 「はじめに」は、アイコン（本）だけのタブ（文字は空。ツールチップが「はじめに」）。Docs タブは、なくした。動画のタブは「Movie」
-        self.assertEqual(self.visible_tab_names(), ["", "Chat", "Guide", "Tutorial", "Movie"])
+        self.assertEqual(self.visible_tab_names(), ["", "Chat", "Guide", "Tutorial", "Reference", "Movie"])
         self.assertEqual(self.panel._tabs.tabToolTip(0), "はじめに（使い方）")
         self.assertFalse(self.panel._tabs.tabIcon(0).isNull())
 

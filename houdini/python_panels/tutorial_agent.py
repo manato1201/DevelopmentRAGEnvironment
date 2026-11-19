@@ -170,13 +170,29 @@ _MODEL_EFFORT: dict[str, str] = {
 _EFFORT_CHOICES = ("low", "medium", "high")
 
 
-def effort_for(model: str) -> str:
-    """このモデルに送る effort。受け付けないモデルは空。環境変数があれば、それを優先する。"""
+def effort_for(model: str, fast: bool = False) -> str:
+    """このモデルに送る effort。受け付けないモデルは空。環境変数があれば、それを優先する。
+    高速モード（fast）のときは、low（思考を浅くして、応答の時間を縮める。2026-11-19）。"""
     base = _MODEL_EFFORT.get(model, "")
     if not base:
         return ""
     override = os.environ.get("RAG_TUTORIAL_EFFORT", "").strip().lower()
-    return override if override in _EFFORT_CHOICES else base
+    if override in _EFFORT_CHOICES:
+        return override
+    return "low" if fast else base
+
+
+# 高速モード（2026-11-19）。実証実験は 1 人 90 分で、チュートリアルと動画の生成を、合わせて 5 分以下にしたい。
+# 実機の記録（炎のエネルギー）: 生成 368 秒のうち、応答待ちが 272 秒（出力 39k トークンの生成時間）。出力を減らすほど速くなる。
+# → effort を low にし、レッスン設計（約 30 秒）を省き、出力（手順書の本文・思考）を短くさせる。品質への影響は、同じ題材で、
+#    通常モードと比べて測る（metrics の fast_mode・elapsed_seconds・cook_errors・confirm_rejections・lesson_score）。
+FAST_MODE_SECTION = """
+## 高速モード（最優先: 速さ。短く、無駄なく）
+- 1 回の応答で、独立した操作（ノードの作成・値の設定・接続）は、まとめて呼ぶ。1 つずつ呼ばない。
+- 考えすぎない。迷ったら、最も可能性の高い案で、すぐ作る。cook は、最後と、エラーが出そうな箇所だけでよい。
+- finish_tutorial の steps は、手順ごとに 1〜2 文。コードは、ノードごとに主要な行だけ。概要・TIPS・自分でやってみよう・次のレッスンは、各 2〜3 行にする（補足は、実際の記録から、システムが自動で付ける）。
+- confirm_tutorial の note は、1 文。
+"""
 
 
 class TransientApiError(RuntimeError):
@@ -734,6 +750,10 @@ class TutorialResult:
 
 # ─── エージェント本体 ─────────────────────────────────────────────────────────────
 
+class _SkipLessonDesign(Exception):
+    """高速モードで、レッスン設計を省く（design_lesson を呼ばないための内部の合図）。"""
+
+
 class TutorialAgent:
     """
     RAG検索 → エージェントループ → Markdown/JSON 組み立て。
@@ -757,7 +777,9 @@ class TutorialAgent:
         progress_cb: Callable[[str], None] | None = None,
         executor_factory: Callable[..., HoudiniToolExecutor] | None = None,
         doc_tools: bool | None = None,
+        fast: bool = False,
     ) -> None:
+        self._fast = bool(fast)  # 高速モード（FAST_MODE_SECTION）
         self._port = bridge_port
         self._project_dir = project_dir
         self._rag_mode = rag_mode if rag_mode in ("local", "cloudflare") else "local"
@@ -891,10 +913,14 @@ class TutorialAgent:
         # ③-0 レッスン設計（ノードを組む前に、章立て・確認・実験を決める）。失敗しても設計なしで続ける。
         phase_started = time.monotonic()
         try:
+            if self.__dict__.get("_fast", False):
+                raise _SkipLessonDesign()
             result.lesson_plan, plan_message, plan_usage = lesson_design.design_lesson(
                 self.complete_text, topic, level, self._requirements, rag_texts, prior_level_summary,
                 bool(self._reference_blocks), Path(self._target_model).name if self._target_model else "",
             )
+        except _SkipLessonDesign:
+            result.lesson_plan, plan_message, plan_usage = None, "レッスン設計: 高速モードのため、省きました", {}
         except Exception as exc:  # noqa: BLE001 -- 設計は付加価値。例外で生成を止めない
             result.lesson_plan, plan_message, plan_usage = None, f"レッスン設計: 失敗したため設計なしで続けます（{str(exc)[:60]}）", {}
         self._note_phase("design_seconds", time.monotonic() - phase_started)
@@ -1188,6 +1214,7 @@ class TutorialAgent:
             + tutorial_review.topic_hint_section(topic, self._requirements)
             + build_houdini22_section(self._rag_name)
             + (DOC_TOOLS_SECTION if self._doc_client is not None else "")
+            + (FAST_MODE_SECTION if self.__dict__.get("_fast", False) else "")
             + self._cache_section()
             + self._feedback_sections(topic),
         )
@@ -1601,7 +1628,7 @@ class TutorialAgent:
         }
         if not tools:
             request_body.pop("tools")  # 教訓の要約など、ツールを使わない呼び出しではtoolsを送らない
-        effort = effort_for(self._model)
+        effort = effort_for(self._model, self.__dict__.get("_fast", False))
         if effort:
             request_body["output_config"] = {"effort": effort}
         payload = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
@@ -1760,6 +1787,7 @@ class TutorialAgent:
             "cache_write_tokens": result.cache_write_tokens,
             "cache_read_tokens": result.cache_read_tokens,
             "elapsed_seconds": round(result.elapsed_seconds, 1),
+            "fast_mode": bool(self.__dict__.get("_fast", False)),
             "rag_extraction_rate": result.rag_extraction_rate if result.rag_extraction_rate is not None else -1,
             # 途中でドキュメントを引くツールの効果を測る指標（2026-10-31）。rag_extraction_rate は、途中で引いた
             # ページも含む全体の引用率。rag_initial_extraction_rate は、最初の検索結果だけの引用率（従来と比べられる）。

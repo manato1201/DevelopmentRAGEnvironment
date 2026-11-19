@@ -4,6 +4,7 @@ compare_tutorial_metrics.py — チュートリアル生成の指標（localRAG/
 使い方（リポジトリのルートで）:
   uv run python scripts/compare_tutorial_metrics.py                 # doc_tools の有無で比べる（既定）
   uv run python scripts/compare_tutorial_metrics.py --by domain     # 領域別
+  uv run python scripts/compare_tutorial_metrics.py --by fast_mode  # 高速モードと通常で比べる（秒・差し戻し・cook失敗・設計点）
   uv run python scripts/compare_tutorial_metrics.py --by model --dir localRAG/tutorials
 
 「ドキュメント検索ツール（search_docs / get_doc）で質が上がったか」を測るための道具。
@@ -29,6 +30,8 @@ COLUMNS = [
     ("差し戻し", "confirm_rejections", 2),
     ("費用$", "cost_usd", 3),
     ("秒", "elapsed_seconds", 0),
+    ("応答待ち秒", "api_seconds", 0),
+    ("撮影秒", "capture_seconds", 0),
     ("設計点", "lesson_score", 1),
     ("引用率", "rag_extraction_rate", 2),
     ("最初の引用率", "rag_initial_extraction_rate", 2),
@@ -54,6 +57,8 @@ def load_metrics(directory: Path) -> list[dict]:
 def group_key(row: dict, by: str) -> str:
     if by == "doc_tools":
         return "あり(doc_tools)" if row.get("doc_tools") else "なし(従来)"
+    if by == "fast_mode":  # 高速モードの有無（2026-11-19）。無い古い指標は「通常」
+        return "高速" if row.get("fast_mode") else "通常"
     return str(row.get(by, "-"))
 
 

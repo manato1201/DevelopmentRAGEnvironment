@@ -95,6 +95,8 @@ def launch_video_generation(
     tts_url: str = "",
     tts_key: str = "",
     extra_env: dict[str, str] | None = None,
+    extra_args: list[str] | None = None,
+    tts_parallel: int = 4,
 ) -> tuple[str, Path | None]:
     """
     動画生成を非同期で起動する。戻り値は (状態メッセージ, ログファイルパス)。
@@ -113,6 +115,11 @@ def launch_video_generation(
     extra_env（2026-10-22追加）: エンジンの環境変数に足すもの。ダッシュボード（ギャラリー）への自動アップロード用の
     GALLERY_UPLOAD_URL / GALLERY_UPLOAD_TOKEN（gallery_upload.gallery_env）を渡す。エンジンは、動画ができたあと、
     自分でギャラリーへ送る（失敗しても、ローカルの動画は無事）。
+
+    extra_args（2026-11-19追加）: エンジンに足す引数。短縮版の動画は ["--short"]（video_short.engine_args）。
+    tts_parallel（2026-11-19追加）: クラウド TTS を同時に呼ぶ数（RAGREEL_TTS_PARALLEL）。本物のクラウドで、直列 384 秒 → 4 で 96 秒（約 4 倍）、
+    出力の音声は直列と同じ、429・エラーなし（RAGReel docs/technical-reference.md §28）。クラウド TTS を使うとき（tts_url と tts_key がある）だけ入れる。
+    利用者が、環境変数 RAGREEL_TTS_PARALLEL を自分で決めていれば、それを優先する。
     """
     if not exe_path:
         return "動画生成: video_factory_exe_path が未設定のためスキップしました（Settingsタブで設定してください）", None
@@ -142,6 +149,8 @@ def launch_video_generation(
     has_script = script_path is not None and Path(script_path).exists()
     if has_script:
         args += ["--houdini-script", str(script_path)]
+    if extra_args:
+        args += [str(a) for a in extra_args]
 
     # 動画エンジンの位置引数（トピック・DBキー）。トピックはエンジン側がチュートリアルの
     # タイトルで上書きするので仮の値でよい。DBキーは動画のブランド表示（"HOUDINI22"）と
@@ -159,6 +168,8 @@ def launch_video_generation(
     if tts_url and tts_key:
         env["RAGREEL_CLOUD_TTS_URL"] = tts_url.strip()
         env["RAGREEL_CLOUD_TTS_KEY"] = tts_key.strip()
+        if tts_parallel > 1 and not env.get("RAGREEL_TTS_PARALLEL"):
+            env["RAGREEL_TTS_PARALLEL"] = str(min(8, int(tts_parallel)))
     if extra_env:
         env.update(extra_env)
     try:

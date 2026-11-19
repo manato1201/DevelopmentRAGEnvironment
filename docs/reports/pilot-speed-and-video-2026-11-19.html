@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>生成時間の内訳と、動画の質・Guide の見づらさの調査（2026-11-19）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">資料</span>
+  <h1>生成時間の内訳と、動画の質・Guide の見づらさの調査（2026-11-19）</h1>
+  <div class="meta">HTML生成: 2026-11-19（元: docs/reports/pilot-speed-and-video-2026-11-19.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-時間の内訳実機の記録-2026-11-18cloud-tts1080p30">1. 時間の内訳（実機の記録 2026-11-18。Cloud TTS・1080p30）</a></li><li><a href="#2-動画の質が下がって見える原因実物のフレームで確認">2. 動画の質が下がって見える原因（実物のフレームで確認）</a></li><li><a href="#3-短縮版の動画今回と実測">3. 短縮版の動画（今回）と、実測</a></li><li><a href="#4-guide-の説明欄が押しつぶされる原因">4. Guide の説明欄が押しつぶされる原因</a></li><li><a href="#5-エージェントの生成時間368-秒の短縮案まだ測っていない推定">5. エージェントの生成時間（368 秒）の短縮案（まだ測っていない。推定）</a></li><li><a href="#51-決定したこと2026-11-19と実装">5.1 決定したこと（2026-11-19）と、実装</a></li><li><a href="#6-残っていること">6. 残っていること</a></li></ol></details></nav>
+<main>
+
+<p><strong>背景:</strong> 実証実験は、1 人 90 分。チュートリアルの生成と動画の生成に、合わせて 15 分以上かかり、全体を 5 分以下にしたい。<br />
+Guide の説明欄が押しつぶされて見づらい。動画の質が下がったように感じる。</p>
+<h2 id="1-時間の内訳実機の記録-2026-11-18cloud-tts1080p30">1. 時間の内訳（実機の記録 2026-11-18。Cloud TTS・1080p30）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>段</th>
+<th>炎のエネルギー</th>
+<th>らせんの光</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>チュートリアルの生成</td>
+<td><strong>368 秒</strong></td>
+<td>244 秒</td>
+<td>応答待ち 272 秒（28 回・1 回平均 9.7 秒。最大 47 秒）・撮影 48 秒・レッスン設計 30 秒・ツール 10 秒。出力は 39k トークン（応答待ちの大半は、出力の生成時間）</td>
+</tr>
+<tr>
+<td>動画の台本（Claude）</td>
+<td>約 1 分（記録に秒数なし。推定）</td>
+<td>同左</td>
+<td>58 手順</td>
+</tr>
+<tr>
+<td>動画: 音声（クラウド TTS・直列）</td>
+<td><strong>579 秒</strong></td>
+<td>301 秒</td>
+<td>ナレーション 8124 文字・約 190 リクエスト</td>
+</tr>
+<tr>
+<td>動画: 描画・エンコード</td>
+<td><strong>295 秒</strong></td>
+<td>203 秒</td>
+<td>41724 フレーム。Houdini が動いている間の値</td>
+</tr>
+<tr>
+<td><strong>合計</strong></td>
+<td><strong>約 22 分</strong></td>
+<td>約 13 分</td>
+<td></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>動画の長さが原因の中心</strong>: ナレーションは 8124 文字（58 手順 5736 + 節 1948 + 冒頭・まとめ）で、動画は <strong>1390 秒（23 分）・74 スライド・114.7MB</strong>。<br />
+長さは文字数にほぼ比例する（約 6 文字 / 秒）。音声・描画・アップロード・再生の時間が、全部、長さに比例する。参加者は、23 分の動画を、90 分の中で見られない。</p>
+<h2 id="2-動画の質が下がって見える原因実物のフレームで確認">2. 動画の質が下がって見える原因（実物のフレームで確認）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>現象</th>
+<th>原因</th>
+<th>対応</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ビューポートが縦長で、動画の枠の中で小さく、左右が黒い</td>
+<td>縦長のペイン（1920×2132）の画像を、そのまま使っていた</td>
+<td>中央を 16:9 に切り出す（11/19 の前の回で対応済み。この動画は、その前の版）</td>
+</tr>
+<tr>
+<td>ビューポートが、最初のノード（球）のまま</td>
+<td>ノードを作る・値を変える手順で、表示を動かしていなかった</td>
+<td>前の回で対応済み</td>
+</tr>
+<tr>
+<td>パラメータ・コードのカードの上のほうに、小さく出て、残りが空く</td>
+<td>文字の大きさが固定（コードは 16pt、パラメータは 17pt・1 行 56px）</td>
+<td><strong>行が少ないとき、収まる範囲で、最大 1.9 倍（コード）・1.8 倍（パラメータ）に大きくする</strong>（今回）</td>
+</tr>
+<tr>
+<td>コードのカードが、何枚も続く</td>
+<td>手順の約半分が、VEX の入力</td>
+<td>短縮版で、コードの手順は 4 件まで（今回）</td>
+</tr>
+<tr>
+<td>ノード図が、新しいノード 1 個だけ</td>
+<td>作っただけで、まだつながっていないノードの手順</td>
+<td>未対応（下の「残っていること」）</td>
+</tr>
+<tr>
+<td>手順が 58 枚（74 スライド）で、同じ形が続く</td>
+<td>全手順を動画にしていた</td>
+<td><strong>短縮版</strong>（今回）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-短縮版の動画今回と実測">3. 短縮版の動画（今回）と、実測</h2>
+<ul>
+<li>設定「動画の長さ」（接続・アカウント → 動画・ギャラリー）。<strong>既定は短縮版</strong>。手順書・Guide には、全部の手順が残る。</li>
+<li>要点の手順を 10 件選ぶ（最初・最後・つなぎ・値を変える（コードは 4 件まで）・結果の確認（3 件まで））。節（考え方・実験・TIPS・参考）のスライドは作らない。</li>
+<li>クラウド TTS の並列を、<strong>既定で 4</strong>（本物のクラウドで、直列 384 秒 → 96 秒）。</li>
+<li><strong>実測（炎のエネルギーの実データ。クラウド TTS・並列 4）</strong>: 動画の段が <strong>64 秒</strong>（音声 19 秒・描画 42 秒）。動画は <strong>268 秒（約 4.5 分）・12 スライド・22.9MB</strong>。<br />
+  前は、874 秒（音声 579 + 描画 295）・1390 秒・114.7MB。<strong>動画の段は、約 13.7 倍速く、ファイルは約 5 分の 1</strong>。</li>
+<li>90MB 以下になったので、1 回の POST でも、投稿できる。</li>
+</ul>
+<h2 id="4-guide-の説明欄が押しつぶされる原因">4. Guide の説明欄が押しつぶされる原因</h2>
+<ul>
+<li>「示したノード: …」が、つなぐ手順で 14 行並び、案内の結果の欄が、説明の欄を押しつぶしていた。</li>
+<li>対応: 3 個以上は 1 行に（「示したノード: 14個（dust_attr、merge_layers、core_src ほか）」）、結果の欄は最大 4 行（全文はツールチップ）、説明の欄に最小の高さ。</li>
+</ul>
+<h2 id="5-エージェントの生成時間368-秒の短縮案まだ測っていない推定">5. エージェントの生成時間（368 秒）の短縮案（<strong>まだ測っていない。推定</strong>）</h2>
+<p>時間の約 74% は応答待ちで、その大半は、出力（39k トークン）の生成時間。出力を減らすほど、速くなる。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>案</th>
+<th>推定の効果</th>
+<th>品質への影響</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>effort を medium → low（<code>RAG_TUTORIAL_EFFORT=low</code>）</td>
+<td>20〜35% 短縮（前の回の推定。未測定）</td>
+<td>思考が浅くなる。cook エラー・確認の差し戻し・レッスン品質で比べる必要がある</td>
+</tr>
+<tr>
+<td>手順書の本文（<code>steps</code>）を短くさせる。補足は、記録から自動で付く（既に実装）</td>
+<td>出力の 10〜15k トークンぶん（約 1.5 分）の可能性</td>
+<td>説明が薄くなる</td>
+</tr>
+<tr>
+<td>レッスン設計（約 30 秒）を省く</td>
+<td>30 秒</td>
+<td>「考え方・確認ポイント」が減る</td>
+</tr>
+<tr>
+<td>題材（固定課題 3 つ）の結果を、事前に作って使い回す</td>
+<td>生成 0 秒</td>
+<td>「その場で生成する」実験ではなくなる</td>
+</tr>
+</tbody>
+</table></div>
+<p>動画（約 1 分）＋ 生成（約 3 分に短縮できた場合）で、合計 5 分前後が見込める。生成の段を、品質を落とさずに、どこまで縮められるかは、実機で測る必要がある。</p>
+<h2 id="51-決定したこと2026-11-19と実装">5.1 決定したこと（2026-11-19）と、実装</h2>
+<ul>
+<li><strong>生成の短縮 → 高速モードを作り、実機で測る</strong>: Tutorial タブの「高速モード」（既定オフ）。effort を low にし、レッスン設計（約 30 秒）を省き、手順書の本文・考察を短くさせる（<code>tutorial_agent.py</code> の <code>FAST_MODE_SECTION</code>）。<br />
+  比べ方: 同じ題材を、通常と高速で生成し、<code>uv run python scripts/compare_tutorial_metrics.py --by fast_mode</code>（秒・応答待ち秒・差し戻し・cook失敗・設計点）。<strong>効果は、まだ測っていない</strong>。</li>
+<li><strong>Reference タブ → SideFX 公式の説明 + HoudiniReference の抜粋を、AI でまとめる</strong>: ノード（3561）・VEX（88）・APEX（490）・シェルフ（名前を入れて作る）。保存され、次からは AI を呼ばない。<br />
+  チュートリアルで使ったものに「●」、Guide の「ノードの説明」から開く。適用前後の動画・ノード画面は、まだ無い（欄だけ）。<br />
+<strong>公式の説明は、RAG に入っている Houdini のドキュメントから取り、書いてない内容は、書かせない</strong>（資料なしのときは、その旨を AI に伝える）。内容の正しさは、実機で、いくつか確かめる必要がある。</li>
+</ul>
+<h2 id="6-残っていること">6. 残っていること</h2>
+<ul>
+<li>新しい版は、まだ、Houdini に配置していない（<code>deploy_panels.py</code>）。動画エンジンの <code>--short</code> は、ビルド済み（<code>build/engine</code>）で、インストーラーは、作り直していない。</li>
+<li>ノード図（まだつながっていないノード 1 個の手順）に、すでにあるノードを小さく添える。</li>
+<li>生成の高速化の方針（上の表）の決定。</li>
+<li>実機の Houdini で、短縮版の動画・Guide の見た目・Chat の「確認中…」を確かめる。</li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>
