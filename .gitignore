@@ -31,3 +31,6 @@ dist/
 .claude/settings.local.json
 .env.*
 !.env.example
+
+# Reference の撮影の出力（scripts/reference_capture/capture.py）。公開は scripts/publish_reference.py
+build/reference_media/

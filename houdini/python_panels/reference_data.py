@@ -208,20 +208,21 @@ def _step_keys(step: dict, by_base: dict[str, list[dict]], vex_names: set[str]) 
     return found
 
 
-def _index() -> tuple[dict[str, list[dict]], set[str]]:
+def _index(extra: list[dict] | None = None) -> tuple[dict[str, list[dict]], set[str]]:
+    """名前（ページ名）から項目を引く表。extra は、一覧データに無い公開済みの項目（remote_items）。"""
     by_base: dict[str, list[dict]] = {}
-    for item in catalog("node") + catalog("apex"):
+    for item in catalog("node") + catalog("apex") + [i for i in (extra or []) if i.get("kind") in ("node", "apex")]:
         by_base.setdefault(item["name"].split("--")[-1].lower(), []).append(item)
     for entries in by_base.values():  # 同じ名前が複数の章にあるとき、SOP を先に（Merge・Attribute Wrangle など）
         entries.sort(key=lambda i: _CONTEXT_ORDER.index(i["context"]) if i["context"] in _CONTEXT_ORDER else len(_CONTEXT_ORDER))
     return by_base, set(VEX_FUNCTIONS)
 
 
-def used_steps(guide: dict | None, kind: str, key: str) -> list[tuple[int, str]]:
+def used_steps(guide: dict | None, kind: str, key: str, extra: list[dict] | None = None) -> list[tuple[int, str]]:
     """この項目を使っている手順。[(手順の番号（0 始まり）, 短い説明), ...]。Reference タブから、使っている場所へ飛ぶのに使う（2026-11-19）。"""
     if not isinstance(guide, dict):
         return []
-    by_base, vex_names = _index()
+    by_base, vex_names = _index(extra)
     out: list[tuple[int, str]] = []
     for i, step in enumerate(guide.get("steps") or []):
         if not isinstance(step, dict):
@@ -232,13 +233,13 @@ def used_steps(guide: dict | None, kind: str, key: str) -> list[tuple[int, str]]
     return out
 
 
-def used_items(guide: dict | None) -> dict[str, set[str]]:
+def used_items(guide: dict | None, extra: list[dict] | None = None) -> dict[str, set[str]]:
     """チュートリアル（Guide のデータ）で使ったものの、キーの集合。{"node": {"sop/scatter", ...}, "vex": {"vex/chf", ...}, "apex": {...}}。
     ノードは、手順の node_type（例: scatter::2.0）を、一覧のページ名に合わせる。VEX は、コードを入れた欄の中の関数名。"""
     used: dict[str, set[str]] = {k: set() for k, _ in KINDS}
     if not isinstance(guide, dict):
         return used
-    by_base, vex_names = _index()
+    by_base, vex_names = _index(extra)
     for step in guide.get("steps") or []:
         if isinstance(step, dict):
             for kind, keys in _step_keys(step, by_base, vex_names).items():
@@ -287,7 +288,9 @@ SYSTEM_PROMPT = """あなたは Houdini の教材を書く人です。与えら�
 指定された項目（ノード・VEX の関数・APEX・シェルフツール）の説明を、日本語で、初学者に分かるように書いてください。
 
 ルール:
-- 資料に書かれていないことは、書かない。分からない項目は、空の文字列にする。推測で、パラメータ名・値・性能を作らない。
+- 「資料」に書かれていることを優先する。資料に無いときは、Houdini の基本として確立している内容（そのノード・関数が何をするか、典型的な使いどころ）だけを、短く書く。確かでないことは書かず、その欄は空の文字列にする。
+- パラメータ名・関数の引数・数値・性能は、資料に書かれているものだけを使う。推測で作らない。
+- 「資料に無かった」「確認できなかった」といった、調べた経過は書かない。利用者が読む説明だけを書く。
 - 専門用語は、初出で、短く言い換える。1 項目は、2〜4 文までに収める（各 {limit} 文字まで）。
 - 出力は、次の JSON だけ（前後に文章やコードブロックを付けない）:
   {{"what": "何をするもの・どんなものか（1〜2 文）", "use": "どういったものに使うか（用途の例。1〜2 文）", "example": "実例（短い。資料・参考に例があれば、それを元に。無ければ空）", "example_point": "実例のポイント（見るところ。1〜2 文。実例が無ければ空）", "when": "使いどころ・向いている場面と、向かない場面（1〜2 文）"}}
@@ -295,12 +298,12 @@ SYSTEM_PROMPT = """あなたは Houdini の教材を書く人です。与えら�
 
 
 def build_prompt(kind: str, label: str, doc_texts: list[str], references: list[dict]) -> tuple[str, str]:
-    """(system, user)。資料は、長くなりすぎないよう、1 件 1500 文字・合計 6000 文字までに切る。"""
+    """(system, user)。資料は、空白を詰めて（公式ページの先頭は、空白だらけ）、1 件 1800 文字・合計 7000 文字までに切る。"""
     docs: list[str] = []
     total = 0
     for text in doc_texts or []:
-        chunk = str(text or "").strip()[:1500]
-        if not chunk or total + len(chunk) > 6000:
+        chunk = " ".join(str(text or "").split())[:1800]
+        if not chunk or total + len(chunk) > 7000:
             continue
         docs.append(chunk)
         total += len(chunk)
@@ -317,6 +320,21 @@ def _clip(text: object) -> str:
     return " ".join(str(text or "").split())[:MAX_FIELD_CHARS]
 
 
+# 調べた経過（「資料に無かった」など）が、利用者の読む説明に混ざったときの目印。「確認できます」のような普通の言い方は、引っかけない。
+_PROCESS_LEAK_RE = re.compile(r"資料|確認できません|確認できていません|確認できない|見つかりません|載っていません|含まれていません")
+
+
+def sanitize_entry(entry: dict | None) -> dict | None:
+    """調べた経過が混ざった欄を空にする。「何をするもの（what）」に混ざっていたら、説明として使えないので None（AI が、資料の無い項目で、
+    「このノードの説明は資料に無い」と書いたときなど）。欄が 1 つも残らなければ、None。"""
+    if not isinstance(entry, dict):
+        return None
+    if _PROCESS_LEAK_RE.search(str(entry.get("what") or "")):
+        return None
+    clean = {k: ("" if _PROCESS_LEAK_RE.search(str(entry.get(k) or "")) else str(entry.get(k) or "")) for k in SECTION_KEYS}
+    return clean if clean.get("what") else None
+
+
 def parse_entry(text: str) -> dict | None:
     """AI の返事から、項目の内容を取り出す。JSON が読めない・全部の欄が空なら None。"""
     raw = str(text or "").strip()
@@ -330,7 +348,7 @@ def parse_entry(text: str) -> dict | None:
     if not isinstance(data, dict):
         return None
     entry = {k: _clip(data.get(k)) for k in SECTION_KEYS}
-    return entry if any(entry.values()) else None
+    return sanitize_entry(entry) if any(entry.values()) else None
 
 
 # ── キャッシュ ──────────────────────────────────────────────────────────────

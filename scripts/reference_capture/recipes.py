@@ -8,15 +8,15 @@
 from __future__ import annotations
 
 GRID = {"type": "grid", "parms": {"rows": 60, "cols": 60, "size": [4, 4]}}
-TALL_TUBE = {"type": "tube", "parms": {"height": 3, "rows": 30, "cols": 16, "rad": [0.5, 0.5]}}  # 縦に細かく分割した筒（ねじりが、見て分かる）
+TALL_RIBBON = {"type": "grid", "parms": {"orient": 0, "size": [1.2, 3], "rows": 40, "cols": 6}}  # 縦に細かく分割した細長い板（円筒だと、ねじっても見た目が変わらない）
 
 RECIPES: list[dict] = [
     {"kind": "node", "key": "sop/mountain", "type": ["mountain::2.0", "mountain"], "input": GRID,
      "parms": {"height": 1.2}, "sweep": {"parm": "height", "from": 0.0, "to": 1.2}},
     {"kind": "node", "key": "sop/scatter", "type": ["scatter::2.0", "scatter"], "input": GRID,
      "parms": {"npts": 800}, "sweep": {"parm": "npts", "from": 20, "to": 800}},
-    {"kind": "node", "key": "sop/twist", "type": ["twist::2.0", "twist"], "input": TALL_TUBE,
-     "parms": {"strength": 160}, "sweep": {"parm": "strength", "from": 0, "to": 160}},
+    {"kind": "node", "key": "sop/twist", "type": ["twist::2.0", "twist"], "input": TALL_RIBBON,
+     "parms": {"strength": 160, "paxis": 1, "saxis": 0}, "sweep": {"parm": "strength", "from": 0, "to": 160}},
     {"kind": "node", "key": "sop/subdivide", "type": ["subdivide"], "input": {"type": "box", "parms": {}},
      "parms": {"iterations": 3}, "sweep": {"parm": "iterations", "from": 0, "to": 3}},
     {"kind": "node", "key": "sop/polyextrude", "type": ["polyextrude::2.0", "polyextrude"], "input": GRID,

@@ -127,11 +127,17 @@ class ReferenceItemsTest(unittest.TestCase):
 
 class PromptAndParseTest(unittest.TestCase):
     def test_prompt_contains_the_item_docs_and_references_and_bounds_the_docs(self) -> None:
-        system, user = rd.build_prompt("node", "Scatter", ["a" * 5000, "b" * 1400, "c" * 1400, "d" * 1400, "e" * 1400], [{"title": "t", "excerpt": "x" * 400}])
+        system, user = rd.build_prompt("node", "Scatter", ["a" * 5000, "b" * 1700, "c" * 1700, "d" * 1700, "e" * 1700], [{"title": "t", "excerpt": "x" * 400}])
         self.assertIn("JSON", system)
         self.assertIn("項目: Scatter（ノード）", user)
-        self.assertLess(len(user), 7500)
-        self.assertNotIn("a" * 1501, user)
+        self.assertLess(len(user), 8200)
+        self.assertTrue("a" * 1800 in user and "a" * 1801 not in user, "each doc is cut at 1800 characters")
+        self.assertNotIn("eeee", user, "the total is bounded at 7000 characters")
+
+    def test_doc_whitespace_is_squeezed(self) -> None:
+        raw = "Nodes" + ("" + chr(10) + " ") * 3 + "Geometry nodes" + chr(10) + " " + chr(10) + "Extrudes polygonal faces."
+        _s, user = rd.build_prompt("node", "Scatter", [raw], [])
+        self.assertIn("Nodes Geometry nodes Extrudes polygonal faces.", user)
 
     def test_prompt_without_docs_says_so(self) -> None:
         _s, user = rd.build_prompt("vex", "chf", [], [])
@@ -238,6 +244,14 @@ class HtmlTest(unittest.TestCase):
         self.assertEqual(rd.search("node", "mountain", extra=extra)[0]["key"], "sop/mountain")
         self.assertEqual(rd.search("node", "mountain"), [], "without extra the catalog does not know it")
         self.assertEqual(rd.remote_items("node", None), [])
+
+    def test_used_marks_and_steps_include_published_items_missing_from_the_catalog(self) -> None:
+        guide = {"steps": [{"node_type": "mountain::2.0", "instruction": "山にする"}, {"node_type": "scatter::2.0", "instruction": "散らす"}]}
+        self.assertEqual(rd.used_items(guide)["node"], {"sop/scatter"}, "the catalog alone does not know mountain")
+        extra = rd.remote_items("node", {"node|sop/mountain": {"kind": "node", "key": "sop/mountain", "title": "Mountain"}})
+        self.assertEqual(rd.used_items(guide, extra)["node"], {"sop/scatter", "sop/mountain"})
+        self.assertEqual(rd.used_steps(guide, "node", "sop/mountain", extra), [(0, "山にする")])
+        self.assertEqual(rd.used_steps(guide, "node", "sop/mountain"), [])
 
     def test_shelf_items_use_the_internal_name_as_key_and_skip_duplicates(self) -> None:
         items = rd.shelf_items([("Create", "box", "Box"), ("Lights", "rman_pxrrectlight", "Rect Light"), ("Other", "box", "Box"), ("Create", "", ""),

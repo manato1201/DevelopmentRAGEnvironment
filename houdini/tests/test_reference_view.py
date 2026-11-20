@@ -407,13 +407,21 @@ class ParticipantTest(unittest.TestCase):
         self.png = bytes(data)
         self.requests: list[str] = []
         self.version = 1
+        self.extra_keys: list[str] = []  # 追加で「説明あり」にする項目（切り替えのテスト用）
+        self.entry_delay = 0.0
+        self.offline_entries = False
 
         def fake_request(cfg, path, payload, timeout, opener, content_type="application/json"):
             self.requests.append(path)
             if path == "/reference/index":
-                return json.dumps({"status": "ok", "items": [{"kind": "node", "key": "sop/scatter", "title": "Scatter", "version": self.version, "mediaCount": 2}]}).encode()
+                keys = ["sop/scatter"] + self.extra_keys
+                return json.dumps({"status": "ok", "items": [{"kind": "node", "key": k, "title": k.split("/")[-1], "version": self.version, "mediaCount": 2} for k in keys]}).encode()
             if path == "/reference/entry":
-                return json.dumps({"status": "ok", "title": "Scatter", "version": self.version, "entry": {"what": f"点を散らす v{self.version}"},
+                if self.offline_entries:
+                    raise OSError("offline")
+                time.sleep(self.entry_delay)
+                what = "点を散らす" if payload["key"] == "sop/scatter" else f"{payload['key']} の説明"
+                return json.dumps({"status": "ok", "title": "Scatter", "version": self.version, "entry": {"what": f"{what} v{self.version}"},
                                    "media": [{"id": "node/sop/scatter/after.png", "type": "image", "role": "after", "label": "後"},
                                              {"id": "node/sop/scatter/before.png", "type": "image", "role": "before", "label": "前"}]}).encode()
             if path == "/reference/media":
@@ -494,6 +502,65 @@ class ParticipantTest(unittest.TestCase):
         self.widget._show(self.widget._current)
         self._settle()
         self.assertIn("点を散らす v2", self.widget._detail.toPlainText())
+
+    def test_switching_items_while_a_fetch_is_running_still_loads_the_new_one(self) -> None:
+        self.extra_keys = ["sop/subdivide"]
+        self.entry_delay = 0.3
+        self.widget._remote = {}
+        self.widget._refresh_index(force=True)
+        self._settle(lambda: len(self.widget._remote) == 2)
+        self._settle(lambda: self.widget._fetch_worker is not None)
+        keys = [i["key"] for i in self.widget._items]
+        self.assertEqual(keys, ["sop/scatter", "sop/subdivide"])
+        self.widget._list.setCurrentRow(1)  # 最初の取得が終わらないうちに、別の項目へ
+        self._settle(lambda: "sop/subdivide の説明 v1" in self.widget._detail.toPlainText())
+        self.assertIn("sop/subdivide の説明 v1", self.widget._detail.toPlainText(), "the second item is not left on 'loading'")
+
+    def test_a_late_index_does_not_move_the_selection(self) -> None:
+        self.extra_keys = ["sop/subdivide"]
+        self.widget._described_only.setChecked(False)
+        self.widget._search.setText("sub")
+        self.assertEqual(self.widget._current["key"], "sop/subdivide")
+        self.widget._on_index({"node|sop/subdivide": {"kind": "node", "key": "sop/subdivide", "title": "Subdivide", "version": 1, "mediaCount": 0},
+                               "node|sop/scatter": {"kind": "node", "key": "sop/scatter", "title": "Scatter", "version": 1, "mediaCount": 0}})
+        self.assertEqual(self.widget._current["key"], "sop/subdivide")
+        self.assertEqual(self.widget._items[self.widget._list.currentRow()]["key"], "sop/subdivide")
+
+    def test_a_failed_fetch_says_so_instead_of_claiming_there_is_no_explanation(self) -> None:
+        self.offline_entries = True
+        self.widget._refresh_index(force=True)
+        self._settle(lambda: bool(self.widget._remote))
+        self._settle(lambda: self.widget._fetch_worker is not None)
+        self._settle()
+        self.assertIn("取得できませんでした", self.widget._status.text())
+
+    def test_guide_button_opens_a_published_node_that_the_catalog_lacks_and_it_is_marked_used(self) -> None:
+        import guide_view as gv
+
+        tabs = QTabWidget()
+        self.addCleanup(tabs.deleteLater)
+        guide_widget = gv.GuideWidget(lambda: {"local_bridge_dir": ""})
+        tabs.addTab(guide_widget, "Guide")
+        tabs.addTab(self.widget, "Reference")
+        self.widget._remote = {"node|sop/mountain": {"kind": "node", "key": "sop/mountain", "title": "Mountain", "version": 1, "mediaCount": 0}}
+        guide_widget.load_generated({"title": "t", "sandbox_path": "", "steps": [
+            {"tool": "create_node", "node": "m1", "node_type": "mountain::2.0", "node_label": "Mountain", "instruction": "山にする", "tab": "network", "tab_label": "ネットワーク"}]}, "t")
+        message = self.rv.open_item_for_step(guide_widget, guide_widget._guide["steps"][0])
+        self.assertIn("Mountain", message)
+        self.assertEqual(self.widget._current["key"], "sop/mountain", "not a made-up node/mountain item")
+        self.assertIn("sop/mountain", self.widget._used["node"])
+        self.assertIn("手順 1", self.widget._detail.toPlainText())
+
+    def test_threads_outlive_the_widget_until_they_finish(self) -> None:
+        self.widget._refresh_index(force=True)
+        worker = self.widget._index_worker
+        self.assertIn(worker, self.rv._LIVE_THREADS, "kept alive while running")
+        self._settle(lambda: not worker.isRunning())
+        deadline = time.time() + 5
+        while worker in self.rv._LIVE_THREADS and time.time() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.assertNotIn(worker, self.rv._LIVE_THREADS, "released when finished")
 
     def test_a_published_item_missing_from_the_catalog_is_still_listed(self) -> None:
         self.widget._remote = {"node|sop/mountain": {"kind": "node", "key": "sop/mountain", "title": "Mountain", "version": 1, "mediaCount": 0}}

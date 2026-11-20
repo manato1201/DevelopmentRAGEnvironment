@@ -20,12 +20,13 @@ from __future__ import annotations
 import json
 import os
 import time
-import urllib.request
 from pathlib import Path
 from typing import Callable
 
+import reference_author as ra
 import reference_data as rd
 import reference_remote as rr
+from reference_author import fetch_reference_items  # noqa: F401 -- 画面とテストが、この名前で使う（本体は reference_author）
 from panel_actions import button_qss, px, type_font, type_qss
 from PySide6.QtCore import QThread, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QImage, QMovie, QTextDocument
@@ -45,14 +46,22 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-_REFERENCE_CACHE_NAME = "_houdinireference_items.json"
-_REFERENCE_MAX_AGE_SECONDS = 24 * 3600
 _USED_MARK = "● "
 _MAX_LIST = 200
 _INDEX_REFRESH_SECONDS = 60
 _STILL_ROLES = ("before", "after", "node")
 _MOVIE_SUFFIXES = (".gif", ".webp")
 _VIDEO_SUFFIXES = (".webm", ".mp4")
+
+
+_LIVE_THREADS: set = set()
+
+
+def _start_detached(thread: QThread) -> None:
+    """スレッドを開始し、画面（親）が先に消えても、終わるまで生かしておく。動いている QThread が壊れると、Houdini ごと落ちるため。"""
+    _LIVE_THREADS.add(thread)
+    thread.finished.connect(lambda t=thread: _LIVE_THREADS.discard(t))
+    thread.start()
 
 
 def houdini_shelf_tools() -> list[tuple[str, str, str]]:
@@ -68,36 +77,6 @@ def houdini_shelf_tools() -> list[tuple[str, str, str]]:
         return out
     except Exception:  # noqa: BLE001
         return []
-
-
-def fetch_reference_items(base_dir: str, now: float | None = None, opener: Callable | None = None) -> list[dict]:
-    """HoudiniReference の項目（Tips・動画・ニュース）。1 日は、保存したものを使う。取れなければ、古い保存か、空。例外は投げない。
-    出典・利用条件は、それぞれの元のページにある（HoudiniReference の README）。ここでは、題名・出典・日付・短い抜粋・URL だけを使う。"""
-    path = Path(base_dir) / "localRAG" / "reference" / _REFERENCE_CACHE_NAME if base_dir else None
-    now = time.time() if now is None else now
-    cached: list[dict] = []
-    if path is not None:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            cached = [i for i in (data.get("items") or []) if isinstance(i, dict)]
-            if cached and now - float(data.get("fetched_at", 0)) < _REFERENCE_MAX_AGE_SECONDS:
-                return cached
-        except (OSError, ValueError, AttributeError, TypeError):
-            cached = []
-    try:
-        open_url = opener or (lambda url: urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "RAGReelTutorial/1.0"}), timeout=15))
-        with open_url(rd.HOUDINI_REFERENCE_URL) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        items = [i for i in (payload.get("items") or []) if isinstance(i, dict)]
-    except Exception:  # noqa: BLE001 -- 通信できなくても、説明は作れる（参考が、空になるだけ）
-        return cached
-    if path is not None and items:
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({"fetched_at": now, "items": items}, ensure_ascii=False), encoding="utf-8")
-        except OSError:
-            pass
-    return items
 
 
 class _IndexWorker(QThread):
@@ -117,26 +96,19 @@ class _IndexWorker(QThread):
 
 
 class _EntryFetchWorker(QThread):
-    """1 項目の説明と、その画像・動画を、Cloudflare から取って、端末に保存する。別スレッド。"""
-
-    done = Signal(object, object)   # (説明の記録 dict または None, {メディアの id: 保存したパス})
+    """1 項目の説明と、その画像・動画を、Cloudflare から取って、端末に保存する。別スレッド。結果は、保存したファイルから読む（終わったら finished）。"""
 
     def __init__(self, cfg: dict, item: dict, version: int | None, parent=None) -> None:
         super().__init__(parent)
         self._cfg, self._item, self._version = dict(cfg), dict(item), version
 
     def run(self) -> None:
-        paths: dict[str, str] = {}
-        record = None
         try:
             record = rr.fetch_entry(self._cfg, self._item["kind"], self._item["key"], self._version)
             for media in ((record or {}).get("media") or [])[:6]:
-                path = rr.fetch_media(self._cfg, str(media.get("id") or ""))
-                if path is not None:
-                    paths[str(media["id"])] = str(path)
-        except Exception:  # noqa: BLE001
+                rr.fetch_media(self._cfg, str(media.get("id") or ""))
+        except Exception:  # noqa: BLE001 -- 取れなければ、保存が増えないだけ（画面は、取れなかったと伝える）
             pass
-        self.done.emit(record, paths)
 
 
 class _EntryWorker(QThread):
@@ -157,33 +129,19 @@ class _EntryWorker(QThread):
             base_dir = str(self._cfg.get("local_bridge_dir") or "")
             label = self._item.get("label") or self._item.get("name") or ""
             references = rd.match_reference_items(fetch_reference_items(base_dir), label, self._item.get("kind", ""))
-            docs = self._fetch_docs(label)
-            system, user = rd.build_prompt(self._item.get("kind", ""), label, docs, references)
-            # 短い要約なので、出力の上限と思考の深さを抑える（費用と時間を、減らす）
-            text, usage = self._complete(system, user, max_tokens=rd.REFERENCE_MAX_TOKENS, effort=rd.REFERENCE_EFFORT)
-            entry = rd.parse_entry(text)
-            if entry is None:
+            docs = self._fetch_docs(label)  # テストが差し替える入口（本体は ra.fetch_docs）
+            try:
+                entry, usage, docs_found, refs_found = ra.make_entry(self._cfg, self._complete, self._item, references=references, docs=docs)
+            except ra.UnreadableAnswer:
                 self.failed.emit("AI の返事を読み取れませんでした。もう一度、「説明を作る」を押してください")
                 return
-            if base_dir:
-                rd.save_entry(base_dir, self._item["kind"], self._item["key"], entry,
-                              {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "docs_found": len(docs), "references": len(references)})
-            self.done.emit(entry, references, usage or {})
+            ra.save_made(base_dir, self._item, entry, docs_found, refs_found)
+            self.done.emit(entry, references, usage)
         except Exception as exc:  # noqa: BLE001 -- 画面に理由を出す。パネルは止めない
             self.failed.emit(f"説明を作れませんでした（{str(exc)[:120]}）")
 
     def _fetch_docs(self, label: str) -> list[str]:
-        """公式ドキュメント（RAG の Houdini のナレッジ）から、この項目の資料を取る。取れなければ、空（AI は、資料なしと分かった上で書く）。"""
-        try:
-            from rag_client import RAGClient
-            from tutorial_agent import resolve_rag_name
-
-            client = RAGClient(self._cfg)
-            namespace = f"shared:{resolve_rag_name(str(self._cfg.get('tutorial_rag_namespace') or ''))}"
-            result = client.docs_search(namespace, f"{label} {rd.KIND_LABELS.get(self._item.get('kind', ''), '')}", limit=4)
-            return [str(t) for t in (result.get("texts") or []) if str(t).strip()]
-        except Exception:  # noqa: BLE001
-            return []
+        return ra.fetch_docs(self._cfg, self._item)
 
 
 class ReferenceWidget(QWidget):
@@ -197,7 +155,6 @@ class ReferenceWidget(QWidget):
         self._items: list[dict] = []
         self._used: dict[str, set[str]] = {k: set() for k, _ in rd.KINDS}
         self._current: dict | None = None
-        self._references: list[dict] = []
         self._reference_items: list[dict] | None = None
         self._worker: _EntryWorker | None = None
         self._remote: dict[str, dict] = rr.load_cached_index(self._cfg_getter() or {})  # Cloudflare にある説明の一覧（保存してあるもの。最新は、タブを開いたときに取る）
@@ -308,7 +265,7 @@ class ReferenceWidget(QWidget):
         super().showEvent(event)
         self._pull_used()  # タブを開くたびに、Guide のチュートリアルで使ったものを、読み直す
         self._refresh_index()
-        self._reload()
+        self._reload(keep_key=self._current_key())
 
     def _author(self) -> bool:
         """開発者モード（説明を AI で作れる）。設定 reference_author_mode、または環境変数 RAGREEL_REFERENCE_AUTHOR=1。"""
@@ -324,9 +281,9 @@ class ReferenceWidget(QWidget):
         if (self._index_worker is not None and self._index_worker.isRunning()) or (not force and now - self._index_at < _INDEX_REFRESH_SECONDS):
             return
         self._index_at = now
-        self._index_worker = _IndexWorker(self._cfg_getter() or {}, force=force, parent=self)
+        self._index_worker = _IndexWorker(self._cfg_getter() or {}, force=force)
         self._index_worker.done.connect(self._on_index)
-        self._index_worker.start()
+        _start_detached(self._index_worker)
 
     def _on_index(self, index: dict) -> None:
         if not isinstance(index, dict) or not index:
@@ -334,7 +291,8 @@ class ReferenceWidget(QWidget):
         changed = index != self._remote
         self._remote = index
         if changed:
-            self._reload()
+            self._pull_used()  # 公開済みの項目が増えると、使った印の照合も変わる
+            self._reload(keep_key=self._current_key())  # 見ている項目を、動かさない
 
     def _guide(self) -> dict | None:
         """同じタブの中の Guide に、いま読み込まれているチュートリアル。"""
@@ -349,8 +307,12 @@ class ReferenceWidget(QWidget):
         except Exception:  # noqa: BLE001
             return None
 
+    def _extra_nodes(self) -> list[dict]:
+        """一覧データに無い、公開済みのノード（Mountain・Twist など）。使った印・手順への飛び先の照合に足す。"""
+        return rd.remote_items("node", self._remote) + rd.remote_items("apex", self._remote)
+
     def _pull_used(self) -> None:
-        self._used = rd.used_items(self._guide())
+        self._used = rd.used_items(self._guide(), self._extra_nodes())
 
     def _ensure_shelf_tools(self) -> None:
         """シェルフツールの一覧を、Houdini から取る（初めて開くときだけ）。"""
@@ -365,7 +327,10 @@ class ReferenceWidget(QWidget):
             "シェルフツールの名前を入れて、「この名前で作る」（例: Billowy Smoke）" if kind == "shelf" else "名前で探す（例: scatter・attribwrangle）")
         self._reload()
 
-    def _reload(self, *_args) -> None:
+    def _current_key(self) -> tuple[str, str] | None:
+        return (self._current["kind"], self._current["key"]) if self._current else None
+
+    def _reload(self, *_args, keep_key: tuple[str, str] | None = None) -> None:
         query = self._search.text()
         items = rd.search(self._kind, query, limit=100000, extra=rd.remote_items(self._kind, self._remote))  # 絞り込み（使ったもの・説明のあるもの）は、ここから後で行うので、先に切らない
         used_keys = self._used.get(self._kind, set())
@@ -400,7 +365,8 @@ class ReferenceWidget(QWidget):
         else:
             self._status.setText(f"{shown} 件を表示（全 {total} 件、説明あり {described_n} 件）" + (f" / このチュートリアルで使ったもの: {used_n} 件" if used_n else ""))
         if self._items:
-            self._list.setCurrentRow(0)
+            row = next((r for r, i in enumerate(self._items) if keep_key and (i["kind"], i["key"]) == keep_key), 0)
+            self._list.setCurrentRow(row)
         else:
             self._current = None
             self._detail.setHtml("")
@@ -421,6 +387,7 @@ class ReferenceWidget(QWidget):
         meta = self._remote.get(rr.index_key(item["kind"], item["key"]))
         record = None
         loading = False
+        gave_up = False
         if entry is None and meta:
             record = rr.load_cached_entry(cfg, item["kind"], item["key"])
             version = int(meta.get("version") or 0)
@@ -431,31 +398,33 @@ class ReferenceWidget(QWidget):
             if (stale or missing) and not tried:
                 loading = record is None
                 self._start_fetch(item, version)
+            gave_up = record is None and tried  # 取りに行ったが、取れなかった
             entry = (record or {}).get("entry")
         if entry is None and author and base_dir:
             entry = rd.load_entry(base_dir, item["kind"], item["key"])  # 開発者: 自分で作った（まだ公開していない）説明
         references = self._references_for(item)
         used = item["key"] in self._used.get(item["kind"], set())
-        steps = rd.used_steps(self._guide(), item.get("kind", ""), item.get("key", ""))
+        steps = rd.used_steps(self._guide(), item.get("kind", ""), item.get("key", ""), self._extra_nodes())
         media_block = self._prepare_media(cfg, record)
         self._detail.setHtml(rd.entry_html(item, entry, references, used, steps, media=media_block, author=author, loading=loading))
         self._make_btn.setEnabled(self._worker is None or not self._worker.isRunning())
         self._make_btn.setText("説明を作り直す" if entry else "説明を作る")
         self._doc_btn.setEnabled(bool(item.get("doc_url")))
+        if gave_up and entry is None:
+            self._status.setText("説明を取得できませんでした（通信を確かめてください）")
 
     def _start_fetch(self, item: dict, version: int) -> None:
         if self._fetch_worker is not None and self._fetch_worker.isRunning():
-            return
+            return  # 終わったら（_after_fetch）、いま見ている項目で、やり直す
         self._fetch_tried.add((item["kind"], item["key"], version))  # 取れなくても、同じ版で何度も取りに行かない（このセッションでは）
-        self._fetch_worker = _EntryFetchWorker(self._cfg_getter() or {}, item, version, parent=self)
-        self._fetch_worker.done.connect(lambda record, paths, it=item: self._on_fetched(it, record))
-        self._fetch_worker.start()
+        self._fetch_worker = _EntryFetchWorker(self._cfg_getter() or {}, item, version)
+        self._fetch_worker.finished.connect(self._after_fetch)
+        _start_detached(self._fetch_worker)
 
-    def _on_fetched(self, item: dict, record: dict | None) -> None:
-        if self._current is not None and self._current["key"] == item["key"] and self._current["kind"] == item["kind"]:
-            self._show(item)  # 保存されたので、表示し直す
-        elif record is None:
-            self._status.setText("説明を取得できませんでした（通信を確かめてください）")
+    def _after_fetch(self) -> None:
+        """取得が終わった: いま見ている項目を、表示し直す（保存されたものが出る。取り終わるのを待っているうちに、別の項目に移っていたら、その項目の取得が始まる）。"""
+        if self._current is not None:
+            self._show(self._current)
 
     def _prepare_media(self, cfg: dict, record: dict | None) -> str:
         """保存してある画像・動画を、詳細に出せる形にする。静止画は HTML の <img>（QTextDocument に登録）、GIF は動き、動画はボタン。"""
@@ -518,7 +487,7 @@ class ReferenceWidget(QWidget):
         """保存してある HoudiniReference の項目から、関係するもの（通信はしない。取得は、説明を作るとき）。"""
         if self._reference_items is None:
             base_dir = str(self._cfg_getter().get("local_bridge_dir") or "")
-            path = Path(base_dir) / "localRAG" / "reference" / _REFERENCE_CACHE_NAME if base_dir else None
+            path = Path(base_dir) / "localRAG" / "reference" / ra.REFERENCE_CACHE_NAME if base_dir else None
             try:
                 data = json.loads(path.read_text(encoding="utf-8")) if path else {}
                 self._reference_items = [i for i in (data.get("items") or []) if isinstance(i, dict)]
@@ -538,7 +507,8 @@ class ReferenceWidget(QWidget):
         self._used_only.setChecked(False)
         self._used_only.blockSignals(False)
         self._reload()
-        item = rd.find_item(kind, key) or rd.custom_item(kind, label or key.split("/")[-1])
+        item = (rd.find_item(kind, key) or next((i for i in rd.remote_items(kind, self._remote) if i["key"] == key), None)
+                or rd.custom_item(kind, label or key.split("/")[-1]))
         for row, candidate in enumerate(self._items):
             if candidate["key"] == item["key"]:
                 self._list.setCurrentRow(row)
@@ -568,10 +538,10 @@ class ReferenceWidget(QWidget):
         item = self._current
         self._make_btn.setEnabled(False)
         self._status.setText(f"「{item['label']}」の説明を作っています（数秒〜十数秒）…")
-        self._worker = _EntryWorker(self._cfg_getter(), self._complete_getter(), item, self)
+        self._worker = _EntryWorker(self._cfg_getter(), self._complete_getter(), item)
         self._worker.done.connect(lambda entry, refs, usage, it=item: self._on_made(it, entry, refs, usage))
         self._worker.failed.connect(self._on_failed)
-        self._worker.start()
+        _start_detached(self._worker)
 
     def _on_made(self, item: dict, entry: dict, references: list, usage: dict | None = None) -> None:
         self._reference_items = None  # 取得した HoudiniReference の保存を、次の表示で読み直す
@@ -657,6 +627,8 @@ def open_item_for_step(source: QWidget, step: dict) -> str:
                     break
             if hit:
                 break
+        if hit is None:  # 一覧データに無い項目（Mountain など）。公開済みなら、その項目を開く
+            hit = next((i for i in rd.remote_items("node", widget._remote) + rd.remote_items("apex", widget._remote) if i["name"].lower() == base), None)
         label = str(step.get("node_label") or base)
         tabs.setCurrentIndex(tabs.indexOf(_page_of(tabs, widget)))
         if hit:

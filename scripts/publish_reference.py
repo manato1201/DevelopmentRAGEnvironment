@@ -116,6 +116,9 @@ def publish_target(cfg: dict, target: dict, opener=None) -> dict:
     item, entry = target["item"], target["entry"]
     if entry is None:
         raise ValueError("保存した説明がありません（Reference タブの「説明を作る」で作ってください）")
+    entry = rd.sanitize_entry(entry)  # 保存済みの説明にも、同じ点検をかける（調べた経過の混ざった欄は、空にする）
+    if entry is None:
+        raise ValueError("説明として使えません（「資料に無い」など、調べた経過が混ざっています。作り直すか、公開しないでください）")
     for m in target["media"]:
         rr.publish_media(cfg, m["id"], Path(m["path"]).read_bytes(), opener=opener)
     media = [{"id": m["id"], "role": m["role"], "label": m["label"]} for m in target["media"]]
@@ -134,6 +137,8 @@ def load_config(path: Path) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--media", default="", help="撮影の出力先（capture.py の --out）。省略すると、画像なし")
+    parser.add_argument("--set", default="", choices=("", "recipes", "nodes", "vex", "all"),
+                        help="build_reference_entries.py の --set と同じ範囲だけ公開する（試作や古い保存を、公開しないため）。省略すると、保存してある全部")
     parser.add_argument("--only", default="", help="公開するキー（カンマ区切り。例: sop/mountain,vex/chf）。省略すると、保存してある全部")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG), help="パネルの設定ファイル")
     parser.add_argument("--dry-run", action="store_true", help="通信せずに、公開する内容だけを表示")
@@ -143,12 +148,18 @@ def main(argv: list[str] | None = None) -> int:
     cfg = {**cfg, "local_bridge_dir": base_dir}
     media_root = Path(args.media) if args.media else None
     only = {k.strip() for k in args.only.split(",") if k.strip()}
+    if args.set:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from build_reference_entries import select_items
+
+        in_set = {i["key"] for i in select_items(args.set, set())}
+        only = (only & in_set) if only else in_set
     targets = find_targets(base_dir, media_root, only)
     if not targets:
         print("公開するものがありません（説明は、開発者モードの Reference タブで作れます）")
         return 0
     print(f"{len(targets)} 件" + ("（dry-run: 通信しません）" if args.dry_run else ""))
-    failed = 0
+    failed = skipped = 0
     for t in targets:
         item = t["item"]
         has = "説明あり" if t["entry"] else "説明なし"
@@ -159,11 +170,13 @@ def main(argv: list[str] | None = None) -> int:
         try:
             result = publish_target(cfg, t)
             print(f"  OK  {item['key']:<28} 版 {result['version']} / 画像 {result['media']} 件")
+        except ValueError as exc:  # 公開しない（説明が無い・使えない）。失敗ではない
+            skipped += 1
+            print(f"  --  {item['key']:<28} 公開しません: {exc}")
         except Exception as exc:  # noqa: BLE001 -- 1 件の失敗で、全体を止めない
             failed += 1
-            print(f"  NG  {item['key']:<28} {rr.error_text(exc) if not isinstance(exc, ValueError) else exc}")
-    if failed:
-        print(f"失敗 {failed} 件")
+            print(f"  NG  {item['key']:<28} {rr.error_text(exc)}")
+    print(f"完了: 公開 {len(targets) - failed - skipped} / 公開しない {skipped} / 失敗 {failed}")
     return 1 if failed else 0
 
 
