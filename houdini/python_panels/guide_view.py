@@ -34,10 +34,12 @@ from panel_widgets import CollapsibleBox
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QTabWidget,
     QTextBrowser,
@@ -354,7 +356,17 @@ class GuideWidget(QWidget):
     def _build_ui(self) -> None:
         """上から「チュートリアル → いまの場所 → 手順の移動 → 手順 → 案内の結果 → 主ボタン → 折りたたみ（前提・設定）」。
         Tutorial タブと同じ文字の大きさ（type_qss）・主ボタン（button_qss）にそろえた（2026-11-18）。"""
-        root = QVBoxLayout(self)
+        # 置かれた場所が狭い・低いと、部品が重なって読めなくなる。全体をスクロールできる枠に入れて、足りないときは、スクロールで見せる
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        inner = QWidget()
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
+        root = QVBoxLayout(inner)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(px(6))
 

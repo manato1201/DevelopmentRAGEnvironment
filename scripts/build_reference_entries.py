@@ -34,7 +34,7 @@ from publish_reference import DEFAULT_CONFIG, load_config, make_item  # noqa: E4
 COMMON_NODES = (
     # 形を作る・整える
     "sop/box", "sop/grid", "sop/sphere", "sop/tube", "sop/circle", "sop/line", "sop/curve", "sop/null", "sop/merge", "sop/blast", "sop/delete",
-    "sop/transform", "sop/copytopoints", "sop/copytransform", "sop/scatter", "sop/polyextrude", "sop/subdivide", "sop/smooth", "sop/resample",
+    "sop/xform", "sop/copytopoints", "sop/copyxform", "sop/scatter", "sop/polyextrude", "sop/subdivide", "sop/smooth", "sop/resample",
     "sop/fuse", "sop/sort", "sop/facet", "sop/peak", "sop/normal", "sop/color", "sop/measure", "sop/remesh", "sop/polyreduce", "sop/boolean",
     "sop/ray", "sop/sweep", "sop/carve", "sop/polywire", "sop/convertline", "sop/mountain", "sop/twist", "sop/bend", "sop/lattice",
     "sop/pointjitter", "sop/pointdeform", "sop/trail", "sop/rest", "sop/timeshift", "sop/switch", "sop/foreach", "sop/solver", "sop/split",
@@ -45,11 +45,11 @@ COMMON_NODES = (
     "sop/uvlayout", "sop/uvunwrap", "sop/uvproject", "sop/volumewrangle", "sop/volumevop", "sop/volumerasterizeparticles", "sop/volumeblur",
     "sop/volumevisualization", "sop/vdbfrompolygons", "sop/vdbsmooth", "sop/vdbcombine", "sop/convertvdb", "sop/isooffset",
     # Pyro・雲
-    "sop/pyrosource", "sop/pyrosolver", "sop/gasdissipate", "sop/gasturbulence", "sop/cloudnoise", "sop/cloudlight",
+    "sop/pyrosource", "sop/pyrosolver", "sop/cloudnoise", "sop/cloudlight",
     "sop/pyrobakevolume", "sop/volumerasterizeattributes",
     # RBD・Vellum・パーティクル
     "sop/rbdmaterialfracture", "sop/rbdconfigure", "sop/rbdbulletsolver", "sop/rbdconnectedfaces", "sop/rbdconstraintproperties",
-    "sop/vellumconstraints", "sop/vellumsolver", "sop/vellumdrape", "sop/popnet", "sop/popsolver", "sop/pointsfromvolume",
+    "sop/vellumconstraints", "sop/vellumsolver", "sop/vellumdrape", "sop/pointsfromvolume",
     # 出力・キャッシュ
     "sop/filecache", "sop/file", "sop/rop_geometry", "sop/output",
     # オブジェクト・ライト・カメラ
@@ -130,10 +130,40 @@ def select_items(which: str, keys: set[str]) -> list[dict]:
     return out
 
 
-def make_one(cfg: dict, item: dict) -> dict:
-    """1 件を作って保存する。例外は、結果に入れる（1 件の失敗で、全体を止めない）。"""
+def _fmt(parms: dict) -> str:
+    return "、".join(f"{k} = {v}" for k, v in parms.items()) or "初期値のまま"
+
+
+def verified_steps(key: str) -> str:
+    """撮影のレシピ（実機で実行して、画像にしたもの）を、説明の材料の文にする。レシピが無い項目は、空。"""
+    from recipes import RECIPES
+
+    for recipe in RECIPES:
+        if recipe["key"] == key:
+            source = recipe["input"]
+            lines = [f"1. {source['type']} ノードを作る（{_fmt(source.get('parms') or {})}）",
+                     f"2. その出力に、{key.split('/')[-1]} ノードをつなぎ、{_fmt(recipe['parms'])} にする"]
+            sweep = recipe.get("sweep")
+            if sweep:
+                lines.append(f"3. {sweep['parm']} を {sweep['from']} から {sweep['to']} まで動かすと、形が変わっていく（適用前後の画像は、この条件で撮ったもの）")
+            return "\n".join(lines)
+    return ""
+
+
+def make_one(cfg: dict, item: dict, parms: dict | None = None) -> dict:
+    """1 件を作って保存する。例外は、結果に入れる（1 件の失敗で、全体を止めない）。
+    parms は、実機から書き出した本物のパラメータ名（audit_reference.dump_parms）。ノードは、これを材料に渡し、作った説明も、同じ点検にかける
+    （本物に無い名前が混ざったら、保存しない）。"""
+    from audit_reference import entry_problems
+
     try:
-        entry, usage, docs_n, refs_n = ra.make_entry(cfg, complete_in_thread(cfg), item)
+        info = (parms or {}).get(item["key"]) if item["kind"] == "node" else None
+        if item["kind"] == "node" and parms is not None and info is None:
+            return {"key": item["key"], "ok": False, "why": "Houdini 22 に、この種類のノードがありません（キーが違う）", "usage": {}}
+        entry, usage, docs_n, refs_n = ra.make_entry(cfg, complete_in_thread(cfg), item, parm_names=(info or {}).get("names"), verified=verified_steps(item["key"]))
+        problems = entry_problems(item["kind"], item["key"], entry, parms) if parms is not None else []
+        if problems:
+            return {"key": item["key"], "ok": False, "why": "; ".join(problems)[:200], "usage": usage}
         ra.save_made(str(cfg.get("local_bridge_dir") or ""), item, entry, docs_n, refs_n)
         return {"key": item["key"], "ok": True, "docs": docs_n, "refs": refs_n, "usage": usage}
     except ra.UnreadableAnswer as exc:
@@ -167,12 +197,16 @@ def main(argv: list[str] | None = None) -> int:
     if not args.yes:
         if input("AI を呼んで、作りますか？ [y/N] ").strip().lower() != "y":
             return 1
+    from audit_reference import DEFAULT_OUT, dump_parms
     from tutorial_agent import usage_cost_for
+
+    node_keys = [i["key"] for i in todo if i["kind"] == "node"]
+    parms = dump_parms(node_keys, DEFAULT_OUT) if node_keys else None  # 実機の本物のパラメータ名（説明に、無い名前を書かせない・書いたら保存しない）
 
     total_in = total_out = failed = 0
     cost = 0.0
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
-        futures = [pool.submit(make_one, cfg, item) for item in todo]
+        futures = [pool.submit(make_one, cfg, item, parms) for item in todo]
         for n, future in enumerate(as_completed(futures), 1):
             r = future.result()
             usage = r.get("usage") or {}

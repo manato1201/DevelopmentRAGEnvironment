@@ -25,8 +25,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "houdini" / "python_panels"))
 
+sys.path.insert(0, str(ROOT / "scripts"))
+
 import reference_data as rd  # noqa: E402
 import reference_remote as rr  # noqa: E402
+from audit_reference import DEFAULT_OUT as DEFAULT_PARMS  # noqa: E402
+from audit_reference import entry_problems, load_parms  # noqa: E402
 
 ROLE_FILES = (("before", "before.png"), ("after", "after.png"), ("node", "node.png"), ("clip", "clip.gif"))
 ROLE_LABELS = {"before": "適用前", "after": "適用後", "node": "ノード画面", "clip": "適用の動き"}
@@ -111,14 +115,19 @@ def find_targets(base_dir: str, media_root: Path | None, only: set[str]) -> list
     return targets
 
 
-def publish_target(cfg: dict, target: dict, opener=None) -> dict:
-    """1 項目を公開する（画像 → 説明の順）。失敗は例外のまま。戻り値: {"key", "version", "media"}。"""
+def publish_target(cfg: dict, target: dict, opener=None, parms: dict | None = None, audit: bool = True) -> dict:
+    """1 項目を公開する（画像 → 説明の順）。失敗は例外のまま。戻り値: {"key", "version", "media"}。
+    audit: 公開の前に、本物の Houdini と突き合わせる点検（audit_reference.py）に通らない説明は、公開しない（ValueError）。parms は、その材料。"""
     item, entry = target["item"], target["entry"]
     if entry is None:
         raise ValueError("保存した説明がありません（Reference タブの「説明を作る」で作ってください）")
     entry = rd.sanitize_entry(entry)  # 保存済みの説明にも、同じ点検をかける（調べた経過の混ざった欄は、空にする）
     if entry is None:
         raise ValueError("説明として使えません（「資料に無い」など、調べた経過が混ざっています。作り直すか、公開しないでください）")
+    if audit:
+        problems = entry_problems(item["kind"], item["key"], entry, parms)
+        if problems:
+            raise ValueError("本物の Houdini との点検に通りません: " + "; ".join(problems)[:300])
     for m in target["media"]:
         rr.publish_media(cfg, m["id"], Path(m["path"]).read_bytes(), opener=opener)
     media = [{"id": m["id"], "role": m["role"], "label": m["label"]} for m in target["media"]]
@@ -142,10 +151,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", default="", help="公開するキー（カンマ区切り。例: sop/mountain,vex/chf）。省略すると、保存してある全部")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG), help="パネルの設定ファイル")
     parser.add_argument("--dry-run", action="store_true", help="通信せずに、公開する内容だけを表示")
+    parser.add_argument("--parms", default=str(DEFAULT_PARMS), help="audit_reference.py の出力（本物のパラメータ名）。公開の前の点検に使う")
+    parser.add_argument("--skip-audit", action="store_true", help="点検を省く（通常は、使わない。嘘の内容が公開される恐れがある）")
+    parser.add_argument("--unpublish", default="", help="公開済みの説明を取り下げる（kind/key をカンマ区切り。例: node/sop/transform,vex/chf）。ほかは何もしない")
     args = parser.parse_args(argv)
     cfg = load_config(Path(args.config))
     base_dir = str(os.environ.get("RAGREEL_BRIDGE_DIR") or cfg.get("local_bridge_dir") or "")
     cfg = {**cfg, "local_bridge_dir": base_dir}
+    if args.unpublish:
+        for ref in [r.strip() for r in args.unpublish.split(",") if r.strip()]:
+            kind, _, key = ref.partition("/")
+            try:
+                done = rr.delete_entry(cfg, kind, key)
+                print(f"  取り下げ {ref}: {done.get('deleted', 0)} 件")
+            except Exception as exc:  # noqa: BLE001
+                print(f"  NG  {ref}: {rr.error_text(exc)}")
+        return 0
     media_root = Path(args.media) if args.media else None
     only = {k.strip() for k in args.only.split(",") if k.strip()}
     if args.set:
@@ -158,6 +179,10 @@ def main(argv: list[str] | None = None) -> int:
     if not targets:
         print("公開するものがありません（説明は、開発者モードの Reference タブで作れます）")
         return 0
+    parms = load_parms(Path(args.parms))
+    if not args.skip_audit and not args.dry_run and parms is None and any(t["item"]["kind"] in ("node", "vex") for t in targets):
+        raise SystemExit("公開の前の点検に使う、本物のパラメータ名がありません。先に、scripts/audit_reference.py を実行してください"
+                         "（点検を省くなら --skip-audit。ただし、嘘の内容が公開される恐れがあります）")
     print(f"{len(targets)} 件" + ("（dry-run: 通信しません）" if args.dry_run else ""))
     failed = skipped = 0
     for t in targets:
@@ -168,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {item['kind']}/{item['key']:<28} {has} / {roles}")
             continue
         try:
-            result = publish_target(cfg, t)
+            result = publish_target(cfg, t, parms=parms, audit=not args.skip_audit)
             print(f"  OK  {item['key']:<28} 版 {result['version']} / 画像 {result['media']} 件")
         except ValueError as exc:  # 公開しない（説明が無い・使えない）。失敗ではない
             skipped += 1

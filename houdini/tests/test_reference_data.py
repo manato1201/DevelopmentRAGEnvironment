@@ -233,6 +233,21 @@ class HtmlTest(unittest.TestCase):
         html = rd.entry_html(self.ITEM, {"what": "x"}, media=text)
         self.assertLess(html.index("適用前"), html.index("何をする"))
 
+    def test_media_html_shrinks_the_images_to_a_narrow_pane_and_headings_are_not_blue_text(self) -> None:
+        media = [{"id": "a/before.png", "role": "before"}, {"id": "a/after.png", "role": "after"}, {"id": "a/node.png", "role": "node"}]
+        sources = {m["id"]: "refmedia:" + m["id"] for m in media}
+        self.assertIn("width='260'", rd.media_html(media, sources))
+        narrow = rd.media_html(media, sources, width=260)
+        self.assertNotIn("width='260'", narrow)
+        self.assertNotIn("width='420'", narrow)
+        import re
+        for size in re.findall(r"width='(\d+)'", narrow):
+            self.assertLessEqual(int(size), 260 - 36, "an image never exceeds the pane")
+        html = rd.entry_html(self.ITEM, {"what": "x"}, steps=[(0, "a")], references=[{"title": "t", "url": "https://e.com"}])
+        self.assertNotIn("#7dd3fc", html)
+        self.assertIn("bgcolor", html, "headings have a background")
+        self.assertIn("#ffffff", html, "heading text is white")
+
     def test_remote_items_adds_published_items_missing_from_the_catalog(self) -> None:
         remote = {"node|sop/mountain": {"kind": "node", "key": "sop/mountain", "title": "Mountain", "version": 1},
                   "node|sop/scatter": {"kind": "node", "key": "sop/scatter", "title": "Scatter", "version": 1},

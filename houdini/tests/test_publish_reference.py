@@ -85,7 +85,7 @@ class PublishTest(unittest.TestCase):
     def test_publish_uploads_media_first_then_the_entry(self) -> None:
         recorder = Recorder()
         target = pr.find_targets(self.base, self.media, set())[0]
-        result = pr.publish_target(self.cfg, target, opener=recorder)
+        result = pr.publish_target(self.cfg, target, opener=recorder, audit=False)
         self.assertEqual(result, {"key": "sop/mountain", "version": 1, "media": 3})
         paths = [p for p, _ in recorder.calls]
         self.assertEqual([p.split("?")[0] for p in paths], ["/admin/reference/media_put"] * 3 + ["/admin/reference/put"])
@@ -95,13 +95,28 @@ class PublishTest(unittest.TestCase):
         self.assertEqual(sent["entry"]["what"], "地形のような凹凸をつける")
         self.assertTrue(all(m["id"] in paths[i] for i, m in enumerate(sent["media"])), "the entry points at the ids that were uploaded")
 
+    def test_an_entry_that_fails_the_houdini_audit_is_refused_before_any_upload(self) -> None:
+        target = pr.find_targets(self.base, self.media, set())[0]
+        real = {"sop/mountain": {"type": "mountain", "names": ["Height", "Noise Type"]}, "__node_types__": []}
+        target["entry"] = {"what": "「Fractal type」を選ぶ"}
+        recorder = Recorder()
+        with self.assertRaises(ValueError) as caught:
+            pr.publish_target(self.cfg, target, opener=recorder, parms=real)
+        self.assertIn("Fractal type", str(caught.exception))
+        self.assertEqual(recorder.calls, [], "nothing is uploaded")
+        with self.assertRaises(ValueError):
+            pr.publish_target(self.cfg, target, opener=recorder, parms=None)  # 突き合わせの結果が無いときも、公開しない
+        self.assertEqual(recorder.calls, [])
+        target["entry"] = {"what": "「Noise Type」と「Height」で形を決める"}
+        self.assertEqual(pr.publish_target(self.cfg, target, opener=Recorder(), parms=real)["key"], "sop/mountain")
+
     def test_an_item_without_an_entry_is_refused_before_any_upload(self) -> None:
         (self.media / "node" / "sop_scatter").mkdir(parents=True)
         (self.media / "node" / "sop_scatter" / "after.png").write_bytes(b"X")
         recorder = Recorder()
         target = [t for t in pr.find_targets(self.base, self.media, set()) if t["item"]["key"] == "sop/scatter"][0]
         with self.assertRaises(ValueError):
-            pr.publish_target(self.cfg, target, opener=recorder)
+            pr.publish_target(self.cfg, target, opener=recorder, audit=False)
         self.assertEqual(recorder.calls, [], "nothing is uploaded")
 
     def test_main_dry_run_makes_no_requests_and_one_failure_does_not_stop_the_rest(self) -> None:

@@ -115,6 +115,28 @@ class RemoteTest(unittest.TestCase):
         evil = rr.media_path(self.cfg, "../../../evil.png")
         self.assertTrue(str(evil.resolve()).startswith(str(Path(self.tmp.name).resolve())), "a path-like id cannot escape the cache folder")
 
+    def test_prune_cache_removes_media_no_entry_uses_and_keeps_the_total_under_the_cap(self) -> None:
+        server = FakeServer({"/reference/entry": ENTRY, "/reference/media": b"x" * 100})
+        rr.fetch_entry(self.cfg, "node", "sop/scatter", version=2, opener=server)
+        used = rr.fetch_media(self.cfg, "node/sop/scatter/after.png", opener=server)
+        old = rr.media_path(self.cfg, "node/sop/scatter/after.old.png")
+        old.write_bytes(b"old")  # 説明が更新されて、どの説明からも使われなくなった画像
+        self.assertEqual(rr.prune_cache(self.cfg), 1)
+        self.assertTrue(used.is_file())
+        self.assertFalse(old.exists())
+        self.assertEqual(rr.prune_cache(self.cfg), 0, "nothing more to remove")
+        self.assertEqual(rr.prune_cache(self.cfg, max_bytes=10), 1, "over the cap: the used one goes too")
+        self.assertFalse(used.exists())
+        self.assertTrue(rr.load_cached_entry(self.cfg, "node", "sop/scatter"), "the text entry is kept")
+        self.assertEqual(rr.prune_cache({}), 0)
+        self.assertEqual(rr.prune_cache({"local_bridge_dir": self.tmp.name + "/none"}), 0)
+
+    def test_delete_entry_asks_the_worker_to_unpublish(self) -> None:
+        server = FakeServer({"/admin/reference/delete": {"status": "ok", "deleted": 1}})
+        self.assertEqual(rr.delete_entry(self.cfg, "node", "sop/transform", opener=server)["deleted"], 1)
+        self.assertEqual(server.calls[0][0], "/admin/reference/delete")
+        self.assertEqual(json.loads(server.calls[0][1]), {"kind": "node", "key": "sop/transform"})
+
     def test_publish_sends_the_entry_and_the_media(self) -> None:
         server = FakeServer({"/admin/reference/put": {"status": "ok", "version": 1}, "/admin/reference/media_put": {"status": "ok", "bytes": 3}})
         result = rr.publish_entry(self.cfg, "node", "sop/scatter", "Scatter", {"what": "x"}, [{"id": "a.png", "role": "after"}], opener=server)

@@ -28,9 +28,10 @@ import reference_data as rd
 import reference_remote as rr
 from reference_author import fetch_reference_items  # noqa: F401 -- 画面とテストが、この名前で使う（本体は reference_author）
 from panel_actions import button_qss, px, type_font, type_qss
-from PySide6.QtCore import QThread, QUrl, Signal
+from PySide6.QtCore import QEvent, QSize, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QImage, QMovie, QTextDocument
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QButtonGroup,
     QCheckBox,
     QHBoxLayout,
@@ -39,6 +40,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTextBrowser,
     QVBoxLayout,
@@ -47,6 +49,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 _USED_MARK = "● "
+_MEDIA_MARK = "▶ "  # 撮影した画像・動きがある項目（一覧の頭に付ける）
 _MAX_LIST = 200
 _INDEX_REFRESH_SECONDS = 60
 _STILL_ROLES = ("before", "after", "node")
@@ -79,6 +82,36 @@ def houdini_shelf_tools() -> list[tuple[str, str, str]]:
         return []
 
 
+class _FitMovieLabel(QLabel):
+    """GIF（動き）を、置かれた場所の大きさに合わせて縮めて出す（大きい元の絵でも、説明文を押しのけない。元より大きくはしない）。"""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setAlignment(Qt.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)  # 中身の大きさで、場所を要求しない
+        self.setMinimumSize(px(40), px(40))
+        self._native = QSize()
+
+    def show_movie(self, movie: QMovie, native: QSize) -> None:
+        self._native = native
+        self.setMovie(movie)
+        self._fit()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 -- Qt
+        super().resizeEvent(event)
+        self._fit()
+
+    def _fit(self) -> None:
+        movie = self.movie()
+        if movie is None or self._native.width() <= 0 or self.width() < 8 or self.height() < 8:
+            return
+        target = self._native.scaled(max(8, self.width() - 4), max(8, self.height() - 4), Qt.KeepAspectRatio)
+        if target.width() > self._native.width():
+            target = QSize(self._native)
+        if movie.scaledSize() != target:
+            movie.setScaledSize(target)
+
+
 class _IndexWorker(QThread):
     """Cloudflare の、説明のある項目の一覧（版つき）を取る。別スレッド。"""
 
@@ -90,7 +123,12 @@ class _IndexWorker(QThread):
 
     def run(self) -> None:
         try:
-            self.done.emit(rr.fetch_index(self._cfg, force=self._force))
+            index = rr.fetch_index(self._cfg, force=self._force)
+            try:
+                rr.prune_cache(self._cfg)  # 端末の保存が増え続けないように、使われない画像を消す
+            except Exception:  # noqa: BLE001
+                pass
+            self.done.emit(index)
         except Exception:  # noqa: BLE001
             self.done.emit({})
 
@@ -163,6 +201,11 @@ class ReferenceWidget(QWidget):
         self._fetch_worker: _EntryFetchWorker | None = None
         self._fetch_tried: set[tuple[str, str, int]] = set()
         self._movie: QMovie | None = None
+        self._media_width = 0
+        self._relayout = QTimer(self)
+        self._relayout.setSingleShot(True)
+        self._relayout.setInterval(150)
+        self._relayout.timeout.connect(self._relayout_media)
         self._build_ui()
         self._reload()
 
@@ -180,6 +223,8 @@ class ReferenceWidget(QWidget):
         for key, label in rd.KINDS:
             btn = QPushButton(label)
             btn.setCheckable(True)
+            btn.setMinimumWidth(0)
+            btn.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)  # 狭い場所でも、押しのけない
             btn.setChecked(key == self._kind)
             btn.clicked.connect(lambda _c=False, k=key: self._set_kind(k))
             self._kind_group.addButton(btn)
@@ -193,19 +238,24 @@ class ReferenceWidget(QWidget):
         self._search.textChanged.connect(self._reload)
         root.addWidget(self._search)
 
-        row = QHBoxLayout()
+        row = QBoxLayout(QBoxLayout.LeftToRight)
+        self._filter_row = row
         self._used_only = QCheckBox("このチュートリアルで使ったものだけ")
         self._used_only.toggled.connect(self._reload)
         self._described_only = QCheckBox("説明のあるものだけ")
         self._described_only.setChecked(not self._author())  # 開発者は、説明の無いものも見て、作る
         self._described_only.setToolTip("Cloudflare に、説明が置いてある項目だけを、一覧に出します（通信できないときは、全部）")
         self._described_only.toggled.connect(self._reload)
+        self._media_only = QCheckBox("撮影のあるものだけ")
+        self._media_only.setToolTip("適用前後の画像・ノード画面・動きが、置いてある項目だけを、一覧に出します（一覧の「▶」が付いたもの）")
+        self._media_only.toggled.connect(self._reload)
         self._create_custom = QPushButton("この名前で作る")
         self._create_custom.setToolTip("一覧に無い名前（シェルフツールなど）を、この名前で、公式ドキュメントから探して説明を作ります")
         self._create_custom.clicked.connect(self._on_custom)
         self._create_custom.setVisible(False)
         row.addWidget(self._used_only)
         row.addWidget(self._described_only)
+        row.addWidget(self._media_only)
         row.addStretch()
         row.addWidget(self._create_custom)
         root.addLayout(row)
@@ -219,20 +269,34 @@ class ReferenceWidget(QWidget):
         self._detail.setOpenLinks(False)
         self._detail.setFont(type_font("body"))
         self._detail.anchorClicked.connect(self._on_link)
-        self._detail.setMinimumHeight(px(160))
+        self._detail.setMinimumHeight(px(60))
+        self._detail.document().setDefaultStyleSheet("a { color: #ffffff; text-decoration: underline; }")  # 青いリンクは、暗い背景で読みづらい
+        self._detail.viewport().installEventFilter(self)  # 幅が変わったら、画像の大きさを合わせ直す
         detail_box = QWidget()
         detail_layout = QVBoxLayout(detail_box)
         detail_layout.setContentsMargins(0, 0, 0, 0)
-        detail_layout.setSpacing(px(4))
-        detail_layout.addWidget(self._detail, stretch=1)
-        self._clip = QLabel()  # 適用の動き（GIF）。あるときだけ出す
-        self._clip.setAlignment(Qt.AlignCenter)
-        self._clip.setVisible(False)
-        detail_layout.addWidget(self._clip)
+        detail_layout.setSpacing(0)
+        # 説明（上）と、適用の動き（下）。境目をドラッグして、比率を変えられる（動きは、縮めて、隠すこともできる）
+        self._detail_split = QSplitter(Qt.Vertical)
+        self._detail_split.setHandleWidth(px(8))
+        self._detail_split.setChildrenCollapsible(True)
+        self._detail_split.addWidget(self._detail)
+        self._clip_box = QWidget()
+        clip_layout = QVBoxLayout(self._clip_box)
+        clip_layout.setContentsMargins(0, px(2), 0, 0)
+        clip_layout.setSpacing(px(4))
+        self._clip = _FitMovieLabel()  # 適用の動き（GIF）。あるときだけ出す
+        self._clip.setToolTip("上の境目をドラッグすると、大きさを変えられます")
+        clip_layout.addWidget(self._clip, stretch=1)
         self._clip_btn = QPushButton("適用の動画を開く")
-        self._clip_btn.setVisible(False)
         self._clip_btn.clicked.connect(self._on_open_clip)
-        detail_layout.addWidget(self._clip_btn)
+        clip_layout.addWidget(self._clip_btn)
+        self._clip_box.setVisible(False)
+        self._clip_btn.setVisible(False)
+        self._detail_split.addWidget(self._clip_box)
+        self._detail_split.setStretchFactor(0, 3)
+        self._detail_split.setStretchFactor(1, 2)
+        detail_layout.addWidget(self._detail_split)
         split.addWidget(detail_box)
         split.setStretchFactor(0, 2)
         split.setStretchFactor(1, 3)
@@ -260,6 +324,26 @@ class ReferenceWidget(QWidget):
         root.addWidget(self._status)
 
     # ── 一覧 ─────────────────────────────────────────────────────────────────
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 -- Qt
+        if watched is self._detail.viewport() and event.type() == QEvent.Resize:
+            self._relayout.start()  # 動いている間は待って、止まったら 1 回だけ
+        return super().eventFilter(watched, event)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 -- Qt
+        super().resizeEvent(event)
+        wide = self.width() >= px(420)  # 狭い場所では、絞り込みのチェックを縦に並べる（横に並べると、はみ出す）
+        self._filter_row.setDirection(QBoxLayout.LeftToRight if wide else QBoxLayout.TopToBottom)
+
+    def _relayout_media(self) -> None:
+        """詳細欄の幅が変わったので、画像の大きさを合わせて、表示し直す（読んでいる位置は、保つ）。"""
+        width = self._detail.viewport().width()
+        if self._current is None or abs(width - self._media_width) < 24:
+            return
+        bar = self._detail.verticalScrollBar()
+        position = bar.value()
+        self._show(self._current)
+        bar.setValue(min(position, bar.maximum()))
 
     def showEvent(self, event) -> None:  # noqa: N802 -- Qt
         super().showEvent(event)
@@ -327,6 +411,14 @@ class ReferenceWidget(QWidget):
             "シェルフツールの名前を入れて、「この名前で作る」（例: Billowy Smoke）" if kind == "shelf" else "名前で探す（例: scatter・attribwrangle）")
         self._reload()
 
+    def _has_media(self, item: dict) -> bool:
+        """この項目に、撮影した画像・動きが置いてあるか（Cloudflare の一覧の mediaCount）。"""
+        meta = self._remote.get(rr.index_key(item["kind"], item["key"]))
+        try:
+            return bool(meta) and int(meta.get("mediaCount") or 0) > 0
+        except (TypeError, ValueError):
+            return False
+
     def _current_key(self) -> tuple[str, str] | None:
         return (self._current["kind"], self._current["key"]) if self._current else None
 
@@ -338,12 +430,14 @@ class ReferenceWidget(QWidget):
             items = [i for i in items if i["key"] in used_keys]
         if self._described_only.isChecked() and self._remote:
             items = [i for i in items if rr.index_key(i["kind"], i["key"]) in self._remote]
+        if self._media_only.isChecked():
+            items = [i for i in items if self._has_media(i)]
         items.sort(key=lambda i: 0 if i["key"] in used_keys else 1)  # 使ったものを先頭に（並びの順は、そのまま）
         self._items = items[:_MAX_LIST]
         self._list.blockSignals(True)
         self._list.clear()
         for item in self._items:
-            mark = _USED_MARK if item["key"] in used_keys else ""
+            mark = (_USED_MARK if item["key"] in used_keys else "") + (_MEDIA_MARK if self._has_media(item) else "")
             if item["kind"] in ("node", "apex"):
                 ctx = f"  [{item['context'].upper()}]"
             elif item["kind"] == "shelf" and item.get("context"):
@@ -351,8 +445,9 @@ class ReferenceWidget(QWidget):
             else:
                 ctx = ""
             row = QListWidgetItem(f"{mark}{item['label']}{ctx}")
-            if mark:
-                row.setToolTip("このチュートリアルで使いました")
+            tips = (["このチュートリアルで使いました"] if item["key"] in used_keys else []) + (["撮影した画像・動きがあります"] if self._has_media(item) else [])
+            if tips:
+                row.setToolTip("\n".join(tips))
             self._list.addItem(row)
         self._list.blockSignals(False)
         self._create_custom.setVisible(self._author() and bool(query.strip()) and (self._kind == "shelf" or not self._items))
@@ -360,10 +455,11 @@ class ReferenceWidget(QWidget):
         shown = len(self._items)
         used_n = len(used_keys)
         described_n = sum(1 for i in rd.catalog(self._kind) if rr.index_key(i["kind"], i["key"]) in self._remote)
+        media_n = sum(1 for i in rd.remote_items(self._kind, self._remote) + rd.catalog(self._kind) if self._has_media(i))
         if self._kind == "shelf" and total == 0:
             self._status.setText("シェルフツールの一覧は、Houdini の中で開くと出ます")
         else:
-            self._status.setText(f"{shown} 件を表示（全 {total} 件、説明あり {described_n} 件）" + (f" / このチュートリアルで使ったもの: {used_n} 件" if used_n else ""))
+            self._status.setText(f"{shown} 件を表示（全 {total} 件、説明あり {described_n} 件・撮影あり {media_n} 件）" + (f" / このチュートリアルで使ったもの: {used_n} 件" if used_n else ""))
         if self._items:
             row = next((r for r, i in enumerate(self._items) if keep_key and (i["kind"], i["key"]) == keep_key), 0)
             self._list.setCurrentRow(row)
@@ -450,7 +546,8 @@ class ReferenceWidget(QWidget):
                 clip_path, clip_is_video = path, suffix in _VIDEO_SUFFIXES
         if clip_path is not None:
             self._set_clip(clip_path, "video" if clip_is_video else "movie")
-        return rd.media_html(record.get("media"), sources)
+        self._media_width = self._detail.viewport().width()
+        return rd.media_html(record.get("media"), sources, width=self._media_width)
 
     def _set_clip(self, path: Path | None, mode: str) -> None:
         if self._movie is not None:
@@ -458,24 +555,24 @@ class ReferenceWidget(QWidget):
             self._movie = None
         self._clip.clear()
         self._clip.setVisible(False)
+        self._clip_box.setVisible(False)
         self._clip_btn.setVisible(False)
         self._clip_path = path
         if path is None:
             return
         if mode == "video":
             self._clip_btn.setVisible(True)
+            self._clip_box.setVisible(True)
             return
         movie = QMovie(str(path))
         if not movie.isValid():
             return
         movie.jumpToFrame(0)
-        size = movie.currentImage().size()
-        if size.width() > 0:
-            width = min(px(420), size.width())
-            movie.setScaledSize(size.scaled(width, width * 10, Qt.KeepAspectRatio))
+        native = movie.currentImage().size()
         self._movie = movie
-        self._clip.setMovie(movie)
         self._clip.setVisible(True)
+        self._clip_box.setVisible(True)
+        self._clip.show_movie(movie, native)
         movie.start()
 
     def _on_open_clip(self) -> None:

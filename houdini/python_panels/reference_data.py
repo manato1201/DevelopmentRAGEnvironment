@@ -289,7 +289,10 @@ SYSTEM_PROMPT = """あなたは Houdini の教材を書く人です。与えら�
 
 ルール:
 - 「資料」に書かれていることを優先する。資料に無いときは、Houdini の基本として確立している内容（そのノード・関数が何をするか、典型的な使いどころ）だけを、短く書く。確かでないことは書かず、その欄は空の文字列にする。
-- パラメータ名・関数の引数・数値・性能は、資料に書かれているものだけを使う。推測で作らない。
+- パラメータ名・メニュー項目を挙げるときは、「資料」か、【実在するパラメータ名】の一覧にあるものだけを使い、「」で囲む。一覧にある名前は、その表記のまま書く。
+  一覧にも資料にも無い名前は、書かない（似た名前を推測で作らない）。「」『』は、このためだけに使う（用語の強調・属性名・値には使わない）。
+- 関数の引数・数値・性能も、資料に書かれているものだけを使う。推測で作らない。
+- 【検証済みの手順】が付いているときは、実例（example）は、その手順と値だけで書く（ほかの手順・値は、書かない）。
 - 「資料に無かった」「確認できなかった」といった、調べた経過は書かない。利用者が読む説明だけを書く。
 - 専門用語は、初出で、短く言い換える。1 項目は、2〜4 文までに収める（各 {limit} 文字まで）。
 - 出力は、次の JSON だけ（前後に文章やコードブロックを付けない）:
@@ -297,8 +300,14 @@ SYSTEM_PROMPT = """あなたは Houdini の教材を書く人です。与えら�
 """.format(limit=MAX_FIELD_CHARS)
 
 
-def build_prompt(kind: str, label: str, doc_texts: list[str], references: list[dict]) -> tuple[str, str]:
-    """(system, user)。資料は、空白を詰めて（公式ページの先頭は、空白だらけ）、1 件 1800 文字・合計 7000 文字までに切る。"""
+MAX_PARM_NAMES = 150
+
+
+def build_prompt(kind: str, label: str, doc_texts: list[str], references: list[dict],
+                 parm_names: list[str] | None = None, verified: str = "") -> tuple[str, str]:
+    """(system, user)。資料は、空白を詰めて（公式ページの先頭は、空白だらけ）、1 件 1800 文字・合計 7000 文字までに切る。
+    parm_names: 実機（Houdini）の、そのノードの本物のパラメータ名・メニュー項目（説明に、無い名前を書かせないため）。
+    verified: 実機で実行して確かめた手順（撮影のレシピ）。あれば、実例は、これだけで書かせる。"""
     docs: list[str] = []
     total = 0
     for text in doc_texts or []:
@@ -313,6 +322,11 @@ def build_prompt(kind: str, label: str, doc_texts: list[str], references: list[d
         "【資料（SideFX 公式）】\n" + ("\n\n".join(f"({i}) {d}" for i, d in enumerate(docs, 1)) if docs else "（資料が見つかりませんでした）") + "\n\n"
         "【参考（HoudiniReference）】\n" + ("\n".join(refs) if refs else "（なし）")
     )
+    if parm_names:
+        names = sorted({str(n) for n in parm_names if n}, key=lambda n: (not (n != n.lower() or " " in n), n))[:MAX_PARM_NAMES]  # 表示名（大文字・空白を含む）を先に
+        user += "\n\n【実在するパラメータ名（Houdini 22 の実機。この表記のまま使う）】\n" + " / ".join(names)
+    if verified:
+        user += "\n\n【検証済みの手順（実機で実行して、結果を確かめたもの）】\n" + verified
     return SYSTEM_PROMPT, user
 
 
@@ -386,23 +400,38 @@ _SECTIONS = (("what", "何をする・どんなもの"), ("use", "どういっ�
 _MEDIA_TITLES = {"before": "適用前", "after": "適用後", "node": "ノード画面"}
 
 
-def media_html(media: list[dict] | None, sources: dict[str, str] | None) -> str:
-    """適用前後・ノード画面の画像（静止画）を並べる HTML。sources: {メディアの id: <img> の src}（読み込めたものだけ）。動画・GIF は、画面側が別に出す。"""
+_TEXT_MUTED = "#cbd5e1"   # 補足の文字（暗い背景で読める明るさ）
+_HEAD_BLUE = "#2b5a8c"    # 見出しの背景（文字は白）
+_HEAD_GREEN = "#1f6b43"
+
+
+def _heading(text: str, bg: str = _HEAD_BLUE) -> str:
+    """見出し: 背景色つき・白い太字（青い文字は、暗い背景で読みづらいため）。text は、エスケープ済みであること。"""
+    return (f"<table width='100%' cellspacing='0' cellpadding='4' style='margin-top:8px'><tr><td bgcolor='{bg}'>"
+            f"<b><span style='color:#ffffff'>{text}</span></b></td></tr></table>")
+
+
+def media_html(media: list[dict] | None, sources: dict[str, str] | None, width: int | None = None) -> str:
+    """適用前後・ノード画面の画像（静止画）を並べる HTML。sources: {メディアの id: <img> の src}（読み込めたものだけ）。動画・GIF は、画面側が別に出す。
+    width: 詳細欄の幅（px）。狭い所に置かれても、画像が欠けないように、幅に合わせて縮める（無ければ、既定の大きさ）。"""
     esc = html.escape
     sources = sources or {}
     by_role: dict[str, list[dict]] = {}
     for m in media or []:
         if isinstance(m, dict) and m.get("id") in sources and m.get("role") in _MEDIA_TITLES:
             by_role.setdefault(str(m["role"]), []).append(m)
+    usable = max(120, int(width) - 36) if width else None   # 余白・スクロールバーの分を引く
+    pair = 260 if usable is None else max(60, min(260, (usable - 24) // 2))
+    wide = 420 if usable is None else max(100, min(420, usable))
     cells = []
     for role in ("before", "after"):
         if by_role.get(role):
             m = by_role[role][0]
-            cells.append(f"<td align='center'><span style='color:#94a3b8'>{_MEDIA_TITLES[role]}</span><br><img src='{esc(sources[m['id']])}' width='260'></td>")
+            cells.append(f"<td align='center'><span style='color:{_TEXT_MUTED}'>{_MEDIA_TITLES[role]}</span><br><img src='{esc(sources[m['id']])}' width='{pair}'></td>")
     out = f"<table cellspacing='6'><tr>{''.join(cells)}</tr></table>" if cells else ""
     if by_role.get("node"):
         m = by_role["node"][0]
-        out += f"<p style='margin-bottom:0;color:#94a3b8'>{_MEDIA_TITLES['node']}</p><p style='margin-top:2px'><img src='{esc(sources[m['id']])}' width='420'></p>"
+        out += f"<p style='margin-bottom:0;color:{_TEXT_MUTED}'>{_MEDIA_TITLES['node']}</p><p style='margin-top:2px'><img src='{esc(sources[m['id']])}' width='{wide}'></p>"
     return out
 
 
@@ -415,13 +444,13 @@ def entry_html(item: dict, entry: dict | None, references: list[dict] | None = N
     meta = [KIND_LABELS.get(item.get("kind", ""), ""), str(item.get("context") or "").upper() if item.get("kind") in ("node", "apex") else ""]
     meta_text = " / ".join(m for m in meta if m)
     if used:
-        meta_text += ("　" if meta_text else "") + "<span style='color:#4ade80'><b>● このチュートリアルで使いました</b></span>"
+        meta_text += ("　" if meta_text else "") + "<span style='color:#86efac'><b>● このチュートリアルで使いました</b></span>"
         parts.append(f"<p style='margin-top:0'>{meta_text}</p>")
     elif meta_text:
-        parts.append(f"<p style='margin-top:0;color:#94a3b8'>{esc(meta_text)}</p>")
+        parts.append(f"<p style='margin-top:0;color:{_TEXT_MUTED}'>{esc(meta_text)}</p>")
     if steps:
         # 使っている場所（クリックで、Guide のその手順へ飛ぶ。リンクは step:<番号>。画面側が開く）
-        parts.append("<p style='margin-bottom:0'><b style='color:#4ade80'>このチュートリアルで使っている場所</b>（クリックで、Guide のその手順へ）</p><ul style='margin-top:2px'>")
+        parts.append(_heading("このチュートリアルで使っている場所", _HEAD_GREEN) + "<p style='margin-bottom:0'>クリックで、Guide のその手順へ飛びます。</p><ul style='margin-top:2px'>")
         for index, text in steps[:30]:
             parts.append(f'<li><a href="step:{int(index)}">手順 {int(index) + 1}{": " + esc(text) if text else ""}</a></li>')
         if len(steps) > 30:
@@ -433,16 +462,16 @@ def entry_html(item: dict, entry: dict | None, references: list[dict] | None = N
         for key, title in _SECTIONS:
             body = str(entry.get(key) or "").strip()
             if body:
-                parts.append(f"<p style='margin-bottom:0'><b style='color:#7dd3fc'>{esc(title)}</b></p><p style='margin-top:2px'>{esc(body)}</p>")
+                parts.append(_heading(esc(title)) + f"<p style='margin-top:2px'>{esc(body)}</p>")
     elif loading:
-        parts.append("<p style='color:#94a3b8'>説明を読み込んでいます…</p>")
+        parts.append(f"<p style='color:{_TEXT_MUTED}'>説明を読み込んでいます…</p>")
     elif not author:
         parts.append("<p style='color:#fbbf24'>この項目の説明は、まだ用意していません。下の「公式ドキュメントを開く」で、SideFX の説明を見られます。</p>")
     else:
         parts.append("<p style='color:#fbbf24'>まだ説明がありません。「説明を作る」を押すと、公式のドキュメントと HoudiniReference を元に、AI（設定のモデル）が数秒でまとめます。"
                      "<b>AI を 1 回呼ぶので、Claude の予算を、1 件あたり、入力 約 5,000・出力 約 1,000 トークン使います（約 2〜3 セント。推定）。</b>保存され、次からは、すぐ出ます（予算を使いません）。</p>")
     if references:
-        parts.append("<p style='margin-bottom:0'><b style='color:#7dd3fc'>HoudiniReference の関連（出典は、それぞれの元のページ）</b></p><ul style='margin-top:2px'>")
+        parts.append(_heading("HoudiniReference の関連（出典は、それぞれの元のページ）") + "<ul style='margin-top:2px'>")
         for ref in references[:MAX_REFERENCE_ITEMS]:
             url = str(ref.get("url") or "")
             title = esc(reference_line(ref))

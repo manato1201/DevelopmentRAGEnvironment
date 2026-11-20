@@ -169,11 +169,65 @@ def fetch_media(cfg: dict, media_id: str, opener: Callable | None = None) -> Pat
         return None
 
 
+CACHE_MAX_BYTES = 50 * 1024 * 1024  # 画像・動画の保存の上限（端末の容量を圧迫しないため）
+
+
+def prune_cache(cfg: dict, max_bytes: int = CACHE_MAX_BYTES) -> int:
+    """端末に保存した画像・動画の掃除。消した件数を返す。
+    ・どの説明からも使われない画像（説明が更新されて、古くなったもの）を消す
+    ・それでも合計が max_bytes を超えるときは、古い（最後に使った日時の順）ものから消す
+    説明の本文（小さい）は、消さない。例外は投げない。"""
+    root = _cache_root(cfg)
+    if root is None or not (root / "media").is_dir():
+        return 0
+    wanted: set[str] = set()
+    entries_dir = root / "entries"
+    if entries_dir.is_dir():
+        for path in entries_dir.rglob("*.json"):
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            for media in (record.get("media") or []) if isinstance(record, dict) else []:
+                if isinstance(media, dict) and media.get("id"):
+                    wanted.add(_safe(str(media["id"])))
+    removed = 0
+    files = []
+    for path in (root / "media").iterdir():
+        try:
+            if not path.is_file():
+                continue
+            if path.name not in wanted:
+                path.unlink()
+                removed += 1
+            else:
+                stat = path.stat()
+                files.append((max(stat.st_atime, stat.st_mtime), stat.st_size, path))
+        except OSError:
+            continue
+    total = sum(size for _, size, _ in files)
+    for _, size, path in sorted(files):
+        if total <= max_bytes:
+            break
+        try:
+            path.unlink()
+            total -= size
+            removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 # ── 置く（開発側。管理者のキー）──────────────────────────────────────────────
 
 def publish_entry(cfg: dict, kind: str, key: str, title: str, entry: dict, media: list[dict] | None = None, opener: Callable | None = None) -> dict:
     """説明を置く（同じ項目は、版が 1 つ上がって、上書きされる）。失敗は例外のまま（呼び出し側が、画面に出す）。"""
     return _json(cfg, "/admin/reference/put", {"kind": kind, "key": key, "title": title, "entry": entry, "media": media or []}, 30, opener)
+
+
+def delete_entry(cfg: dict, kind: str, key: str, opener: Callable | None = None) -> dict:
+    """公開した説明を取り下げる（画像は、Worker の R2 に残る。説明が無ければ、誰も参照しない）。"""
+    return _json(cfg, "/admin/reference/delete", {"kind": kind, "key": key}, 30, opener)
 
 
 def publish_media(cfg: dict, media_id: str, data: bytes, opener: Callable | None = None) -> dict:

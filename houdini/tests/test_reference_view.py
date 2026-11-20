@@ -477,6 +477,19 @@ class ParticipantTest(unittest.TestCase):
         self.widget._described_only.setChecked(False)
         self.assertGreater(self.widget._list.count(), 100)
 
+    def test_items_with_captured_media_are_marked_and_can_be_filtered(self) -> None:
+        self.widget._remote = {"node|sop/scatter": {"kind": "node", "key": "sop/scatter", "title": "Scatter", "version": 1, "mediaCount": 4},
+                               "node|sop/mountain": {"kind": "node", "key": "sop/mountain", "title": "Mountain", "version": 1, "mediaCount": 0}}
+        self.widget._reload()
+        rows = {i["key"]: self.widget._list.item(n).text() for n, i in enumerate(self.widget._items)}
+        self.assertTrue(rows["sop/scatter"].startswith("▶ "), "has media: marked")
+        self.assertFalse(rows["sop/mountain"].startswith("▶ "), "described only: not marked")
+        self.assertIn("撮影あり 1 件", self.widget._status.text())
+        self.widget._media_only.setChecked(True)
+        self.assertEqual([i["key"] for i in self.widget._items], ["sop/scatter"])
+        self.widget._media_only.setChecked(False)
+        self.assertEqual(sorted(i["key"] for i in self.widget._items), ["sop/mountain", "sop/scatter"])
+
     def test_selecting_an_item_fetches_shows_and_caches_the_explanation_with_images(self) -> None:
         self.widget._refresh_index(force=True)
         self._settle(lambda: self.widget._current is not None)

@@ -59,7 +59,7 @@ hou.NetworkEditor.qtScreenGeometry()（公式ドキュメントにある「ペ�
 2026-11-17 実証実験を受けた変更（video-capture）:
   - ノード図: 注目ノードと前後だけを、名前が読める大きさ（MIN_NAME_PT）で描く。全体図は 1 枚だけ（select_focus_nodes）
   - 実画面のネットワークエディタ: 注目ノードと前後が映る範囲に合わせる（plan_focus_bounds / frame_network_on_focus）。
-    ペインが狭いときは、拡大してぼやけるので、描き直した図にする（prefer_diagram）
+    ペインが狭いときは、ペインを一時的に最大化して撮る（maximized_if_narrow。描き直した図は、実画面が撮れないときの最後の手段）
   - 長いコード: 専用のカード（大きい等幅・折り返し・複数枚。render_code_cards）
   - パラメータ画面: 変更した項目のタブを前面にし（reveal_parm_tabs）、タブ名をスライドに出す（with_tab_paths）
   - 撮った画像のとなりに <画像>.meta.json を書く（品質チェッカーが、文字の大きさ・省略の有無を読む）
@@ -76,6 +76,7 @@ hou.NetworkEditor.qtScreenGeometry()（公式ドキュメントにある「ペ�
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import glob
 import re
@@ -421,13 +422,8 @@ def plan_focus_bounds(
     return bounds, inside, hidden
 
 
-# 実画面が小さいとき（ペインの幅が足りないとき）は、拡大すると画素が粗くなる。この幅より狭いなら、描き直した図のほうが読める。
-PANE_PREFER_DIAGRAM_WIDTH = 1000
-
-
-def prefer_diagram(pane_width: int, node_count: int) -> bool:
-    """実画面の切り出しより、描き直した図を使うほうが読みやすいか。"""
-    return node_count > 0 and 0 < pane_width < PANE_PREFER_DIAGRAM_WIDTH
+# 実画面が小さいとき（ペインの幅が足りないとき）は、拡大すると画素が粗くなる。この幅より狭いなら、撮るあいだ、ペインを最大化する（maximized_if_narrow）。
+PANE_WIDE_ENOUGH_WIDTH = 1000
 
 
 # ─── 長いコード（VEX など）の読める出し方（2026-11-17。副作用なし） ─────────────────────────────────────────
@@ -991,6 +987,111 @@ def _looks_blank(image) -> bool:
     return True
 
 
+# ─── 実画面を、必ず撮るための準備（2026-11-20）─────────────────────────────────────────────────────────
+# 動画に、ネットワーク画面・パラメータ画面の実物が出ていなかった。撮影ログの原因は 2 つ:
+#   ① ペインが狭い（612px）と、実画面を拡大するとぼやけるので、描き直した図を使っていた（旧 prefer_diagram。廃止）
+#   ② Houdini が、前面のアプリでない（生成を待つあいだ、別のアプリを見ている）と、別のウィンドウが写り込むのを恐れて、撮らなかった
+# 直し方: ① ペインを一時的に最大化して、広く撮る（撮ったら、元に戻す）。② Houdini を前面に出す。前面に出せなくても、撮る範囲の最前面が
+# 全部 Houdini のウィンドウなら（格子状に調べる）、撮ってよい（別のアプリが重なっていれば、そこは Houdini のウィンドウではないので、撮らない）。
+
+def houdini_is_active() -> bool:
+    try:
+        from PySide6.QtCore import Qt as QtNamespace
+        from PySide6.QtGui import QGuiApplication
+
+        return QGuiApplication.applicationState() == QtNamespace.ApplicationActive
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _force_foreground(hwnd: int) -> None:
+    """Windows は、別のアプリが前面にあると、SetForegroundWindow を断る。Alt キーの押下を挟むと、通る（よく知られた方法）。"""
+    import sys
+
+    if sys.platform != "win32" or not hwnd:
+        return
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    user32.keybd_event(0x12, 0, 0, 0)  # Alt 押す
+    try:
+        user32.SetForegroundWindow(hwnd)
+    finally:
+        user32.keybd_event(0x12, 0, 2, 0)  # Alt 離す
+
+
+def bring_houdini_to_front(pane_tab, log_path: Path | None, attempts: int = 8) -> bool:
+    """Houdini のウィンドウを前面に出す。出せたか（アプリが Active か）を返す。すでに前面なら、何もしない。"""
+    if houdini_is_active():
+        return True
+    window = None
+    try:
+        window = pane_tab.qtParentWindow()
+    except Exception as exc:  # noqa: BLE001
+        _log(f"qtParentWindow() failed: {exc!r}", log_path)
+    if window is not None:
+        try:
+            if window.isMinimized():
+                window.showNormal()
+            window.raise_()
+            window.activateWindow()
+            _force_foreground(int(window.winId()))
+        except Exception as exc:  # noqa: BLE001
+            _log(f"bringing Houdini to the front failed: {exc!r}", log_path)
+    for _ in range(attempts):
+        _flush_qt_events()
+        if houdini_is_active():
+            _log("Houdini was brought to the front", log_path)
+            return True
+        time.sleep(0.1)
+    _log("Houdini could not be brought to the front; relying on the overlap check of the pane", log_path)
+    return False
+
+
+@contextlib.contextmanager
+def maximized_if_narrow(pane_tab, log_path: Path | None, min_width: int = PANE_WIDE_ENOUGH_WIDTH, settle_seconds: float = 0.5):
+    """ペインの幅が min_width より狭いとき、撮っているあいだだけ、ペインを最大化する（広い実画面を撮るため）。出るときに、必ず元に戻す。
+    最大化できなくても（ペインが無い・浮いている窓など）、そのまま続ける（例外は出さない）。"""
+    pane = None
+    changed = False
+    try:
+        width = int(pane_tab.qtScreenGeometry().width())
+        pane = pane_tab.pane()
+        if 0 < width < min_width and pane is not None and not pane.isMaximized():
+            pane.setIsMaximized(True)
+            changed = True
+            _flush_qt_events()
+            time.sleep(settle_seconds)  # ペインが広がって、描き直されるのを待つ
+            _flush_qt_events()
+            _log(f"pane maximized for the capture (was {width}px wide)", log_path)
+    except Exception as exc:  # noqa: BLE001
+        _log(f"could not maximize the pane: {exc!r}", log_path)
+    try:
+        yield
+    finally:
+        if changed:
+            try:
+                pane.setIsMaximized(False)
+                _flush_qt_events()
+                time.sleep(0.2)
+            except Exception as exc:  # noqa: BLE001
+                _log(f"could not restore the pane size: {exc!r}", log_path)
+
+
+def _grab_with_retry(pane_tab, log_path: Path | None, label: str = "NetworkEditor", attempts: int = 3):
+    """実画面の切り出しを、数回やり直す（一時的な重なり・描き直しの途中で、1 回だけ失敗することがあるため。描き直した図は、最後の手段）。"""
+    for attempt in range(1, attempts + 1):
+        image = _grab_network_pane(pane_tab, log_path, label=label)
+        if image is not None:
+            return image
+        if attempt < attempts:
+            _log(f"{label} screen grab failed ({attempt}/{attempts}); trying again", log_path)
+            time.sleep(0.4)
+            _flush_qt_events()
+    _log(f"WARNING: the real {label} screen could not be captured; a drawn image is used instead", log_path)
+    return None
+
+
 def _grab_network_pane(network_editor, log_path: Path | None, label: str = "NetworkEditor"):
     """
     NetworkEditor ペインが「画面上で占めている矩形」を直接切り出して QImage で返す
@@ -1030,11 +1131,8 @@ def _grab_network_pane(network_editor, log_path: Path | None, label: str = "Netw
     # 画面切り出しは「今画面に見えているもの」をそのままコピーするため、Houdini以外の
     # アプリ（ブラウザ等）が手前に来ているとそれが映ってしまい、しかもウィジェット側からは
     # 検知できない。アプリがアクティブでない間は撮らず、自前描画の図に任せる。
-    from PySide6.QtCore import Qt as QtNamespace
-
-    if QGuiApplication.applicationState() != QtNamespace.ApplicationActive:
-        _log("Houdini is not the active application (another window may cover the pane); not grabbing the screen", log_path)
-        return None
+    # Houdini が前面でなくても、撮る範囲の最前面が全部 Houdini のウィンドウなら撮れる（下の格子の検査）。まず、前面に出す。
+    bring_houdini_to_front(network_editor, log_path)
 
     center = QPoint(x + w // 2, y + h // 2)
     screen = QGuiApplication.screenAt(center)
@@ -1965,7 +2063,8 @@ def capture_parameter_screen(
                     pane.setIsCurrentTab()
                     time.sleep(0.2)  # パラメータ画面が、選んだノードの内容に組み替わるのを待つ
                     _flush_qt_events()
-                    pane_image = _grab_network_pane(pane, log_path, label="Parm")
+                    with maximized_if_narrow(pane, log_path):  # 狭いペインは、撮るあいだだけ最大化（広い実画面を撮る）
+                        pane_image = _grab_with_retry(pane, log_path, label="Parm")
         except Exception as exc:  # noqa: BLE001
             _log(f"screen grab of the Parm pane failed: {exc!r}", log_path)
             pane_image = None
@@ -2015,22 +2114,19 @@ def capture_network_editor(
         network_editor = None
 
     if network_editor is not None:
-        # 注目ノードと前後を、読める大きさで映す（focus_network_on は、注目ノードを知らずに全体を映していた）。
-        if focus_path and container_path:
-            try:
-                network = hou.node(container_path)
-                if network is not None and frame_network_on_focus(network_editor, network, focus_path, log_path):
-                    _flush_qt_events()
-            except Exception as exc:  # noqa: BLE001
-                _log(f"re-framing on the focus node failed: {exc!r}", log_path)
-        _flush_qt_events()
         try:
-            image = _grab_network_pane(network_editor, log_path)
-            if image is not None and container_path and prefer_diagram(image.width(), 1):
-                # ペインが狭いと、切り出した画面を拡大することになり、文字がぼやける。描き直した図のほうが読める。
-                _log(f"network pane is narrow ({image.width()}px); using the drawn diagram for legibility", log_path)
-                if render_network_diagram(output_path, container_path, focus_path, callout, width, height, log_path):
-                    return True
+            # 狭いペインは、撮るあいだだけ最大化する（広い実画面を撮る。描き直した図は、実画面が撮れないときだけ）。注目ノードに合わせるのは、広げたあと。
+            with maximized_if_narrow(network_editor, log_path):
+                # 注目ノードと前後を、読める大きさで映す（focus_network_on は、注目ノードを知らずに全体を映していた）。
+                if focus_path and container_path:
+                    try:
+                        network = hou.node(container_path)
+                        if network is not None and frame_network_on_focus(network_editor, network, focus_path, log_path):
+                            _flush_qt_events()
+                    except Exception as exc:  # noqa: BLE001
+                        _log(f"re-framing on the focus node failed: {exc!r}", log_path)
+                _flush_qt_events()
+                image = _grab_with_retry(network_editor, log_path)
             if image is not None:
                 # 以前は width x height（1280x720）に縮めていたため、高解像度の画面では文字がつぶれた。
                 # 切り出した画素数のまま保存し、狭すぎる／広すぎるときだけ調整する（fit_pane_size）。

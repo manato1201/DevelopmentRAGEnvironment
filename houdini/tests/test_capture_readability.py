@@ -151,10 +151,93 @@ class PlanFocusBoundsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             sc.plan_focus_bounds(self.ITEMS, "/nope")
 
-    def test_prefer_diagram_for_narrow_panes(self) -> None:
-        self.assertTrue(sc.prefer_diagram(580, 12))
-        self.assertFalse(sc.prefer_diagram(1400, 12))
-        self.assertFalse(sc.prefer_diagram(580, 0))
+    def test_a_narrow_pane_is_maximized_only_while_capturing_and_always_restored(self) -> None:
+        class Pane:
+            def __init__(self, maximized=False):
+                self.maximized, self.calls = maximized, []
+
+            def isMaximized(self):
+                return self.maximized
+
+            def setIsMaximized(self, value):
+                self.maximized = value
+                self.calls.append(value)
+
+        class Tab:
+            def __init__(self, width, pane):
+                self._w, self._pane = width, pane
+
+            def qtScreenGeometry(self):
+                return types.SimpleNamespace(width=lambda: self._w)
+
+            def pane(self):
+                return self._pane
+
+        with mock.patch.object(sc, "_flush_qt_events", lambda: None):
+            narrow = Pane()
+            with sc.maximized_if_narrow(Tab(612, narrow), None, settle_seconds=0):
+                self.assertTrue(narrow.maximized, "wide capture while the block runs")
+            self.assertEqual(narrow.calls, [True, False], "restored afterwards")
+            wide = Pane()
+            with sc.maximized_if_narrow(Tab(1500, wide), None, settle_seconds=0):
+                pass
+            self.assertEqual(wide.calls, [], "a wide pane is left alone")
+            already = Pane(maximized=True)
+            with sc.maximized_if_narrow(Tab(612, already), None, settle_seconds=0):
+                pass
+            self.assertEqual(already.calls, [], "an already-maximized pane is not touched (nor un-maximized)")
+            boom = Pane()
+            with self.assertRaises(RuntimeError):
+                with sc.maximized_if_narrow(Tab(612, boom), None, settle_seconds=0):
+                    raise RuntimeError("capture failed")
+            self.assertEqual(boom.calls, [True, False], "restored even when the capture raises")
+
+    def test_a_pane_that_cannot_be_maximized_does_not_stop_the_capture(self) -> None:
+        class Broken:
+            def qtScreenGeometry(self):
+                raise RuntimeError("no geometry")
+
+        ran = []
+        with sc.maximized_if_narrow(Broken(), None, settle_seconds=0):
+            ran.append(1)
+        self.assertEqual(ran, [1])
+
+    def test_the_screen_grab_is_retried_before_giving_up_on_the_real_image(self) -> None:
+        results = [None, None, "image"]
+        with mock.patch.object(sc, "_grab_network_pane", lambda *a, **k: results.pop(0)), mock.patch.object(sc, "_flush_qt_events", lambda: None),                 mock.patch.object(sc.time, "sleep", lambda s: None):
+            self.assertEqual(sc._grab_with_retry(object(), None), "image")
+        results = [None, None, None]
+        with mock.patch.object(sc, "_grab_network_pane", lambda *a, **k: results.pop(0)), mock.patch.object(sc, "_flush_qt_events", lambda: None),                 mock.patch.object(sc.time, "sleep", lambda s: None):
+            self.assertIsNone(sc._grab_with_retry(object(), None))
+        self.assertEqual(results, [], "tried three times")
+
+    def test_bringing_houdini_to_front_does_nothing_when_it_is_already_active(self) -> None:
+        with mock.patch.object(sc, "houdini_is_active", lambda: True):
+            self.assertTrue(sc.bring_houdini_to_front(object(), None))
+
+    def test_bringing_houdini_to_front_tries_the_window_and_reports_failure(self) -> None:
+        calls = []
+
+        class Window:
+            def isMinimized(self):
+                return True
+
+            def showNormal(self):
+                calls.append("showNormal")
+
+            def raise_(self):
+                calls.append("raise")
+
+            def activateWindow(self):
+                calls.append("activate")
+
+            def winId(self):
+                return 0
+
+        tab = types.SimpleNamespace(qtParentWindow=lambda: Window())
+        with mock.patch.object(sc, "houdini_is_active", lambda: False), mock.patch.object(sc, "_flush_qt_events", lambda: None),                 mock.patch.object(sc.time, "sleep", lambda s: None):
+            self.assertFalse(sc.bring_houdini_to_front(tab, None, attempts=2))
+        self.assertEqual(calls, ["showNormal", "raise", "activate"])
 
 
 class CodeLayoutTest(unittest.TestCase):
