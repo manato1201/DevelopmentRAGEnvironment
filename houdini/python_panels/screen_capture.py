@@ -370,11 +370,14 @@ def select_focus_nodes(
 MIN_VIEW_WIDTH, MAX_VIEW_WIDTH = 7.0, 14.0
 VIEW_PAD_X, VIEW_PAD_Y = 1.6, 1.2
 MIN_VIEW_ASPECT, MAX_VIEW_ASPECT = 0.25, 4.0
+# ネットワークエディタの上端には、パス欄とメニューの帯が重なっている（実機の画像で、高さの約 16%）。範囲を合わせても、
+# 上端のノードがこの帯に隠れて、切れて見えた（2026-11-20）。範囲を上に広げて、ノードを帯の下に収める。
+NETWORK_TOP_OVERLAY = 0.16
 
 
 def plan_focus_bounds(
     items: list[dict], focus_path: str, aspect: float = 16 / 9,
-    min_width: float = MIN_VIEW_WIDTH, max_width: float = MAX_VIEW_WIDTH,
+    min_width: float = MIN_VIEW_WIDTH, max_width: float = MAX_VIEW_WIDTH, top_overlay: float = NETWORK_TOP_OVERLAY,
 ) -> tuple[tuple[float, float, float, float], list[str], list[str]]:
     """実画面のネットワークエディタで、注目ノードと、その前後を、読める大きさで映す範囲を決める。
     items: [{"path", "x", "y", "inputs": [path...]}]。aspect: ペインの 幅/高さ。
@@ -413,10 +416,20 @@ def plan_focus_bounds(
     else:
         height = width / aspect
     cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
-    bounds = (cx - width / 2.0, cy - height / 2.0, cx + width / 2.0, cy + height / 2.0)
+    overlay = min(max(top_overlay, 0.0), 0.4)
+    if overlay > 0:
+        # 上端の帯（パス欄・メニュー）の下に、ノードが収まるよう、範囲を広げ、上に足す（下端はそのまま）
+        bottom = cy - height / 2.0
+        scale = 1.0 / (1.0 - overlay)
+        cx_width, height = width * scale, height * scale
+        bounds = (cx - cx_width / 2.0, bottom, cx + cx_width / 2.0, bottom + height)
+        visible_top = bounds[3] - overlay * height
+    else:
+        bounds = (cx - width / 2.0, cy - height / 2.0, cx + width / 2.0, cy + height / 2.0)
+        visible_top = bounds[3]
     inside = [
         i["path"] for i in items
-        if bounds[0] <= i["x"] <= bounds[2] and bounds[1] <= i["y"] <= bounds[3]
+        if bounds[0] <= i["x"] <= bounds[2] and bounds[1] <= i["y"] <= visible_top
     ]
     hidden = [i["path"] for i in items if i["path"] not in inside]
     return bounds, inside, hidden
@@ -618,6 +631,80 @@ def _displayed_bounds(container_path: str | None, log_path: Path | None):
     return union
 
 
+def viewport_is_empty(container_path: str | None, log_path: Path | None = None) -> bool:
+    """container_path の中で、表示中のオブジェクトのジオメトリが、点を 1 つも持たない（ビューポートに、床の格子しか映らない）か。
+    確かに空だと言えるときだけ True（LOP などジオメトリの箱でないものがある・読めないときは、False = 撮る）。
+    実機（2026-11-20）: 何も表示されていない手順のビューポート画像が、格子だけの絵になり、動画の画面の約 4 割を占めた。"""
+    if not container_path:
+        return False
+    try:
+        container = hou.node(container_path)
+        if container is None:
+            return False
+        seen_object = False
+        for child in container.children():
+            if child.type().category() != hou.objNodeTypeCategory() or not hasattr(child, "isDisplayFlagSet"):
+                return False  # ジオメトリの箱でないもの（LOP など）がある。空とは言えない
+            if not child.isDisplayFlagSet():
+                continue
+            seen_object = True
+            display = child.displayNode()
+            geometry = display.geometry() if display is not None else None
+            if geometry is not None and len(geometry.points()) > 0:
+                return False
+        return seen_object
+    except Exception as exc:  # noqa: BLE001
+        _log(f"viewport_is_empty failed: {exc!r}", log_path)
+        return False
+
+
+def fit_zoom(extent_x: float, extent_y: float, margin: float = 0.88) -> float:
+    """作ったものを、動画の枠（16:9 の中央の帯）に大きく収めるための、境界ボックスの倍率。
+    extent_x: 作ったものの、画面上の幅（ビューポートの幅に対する割合。0〜1）。
+    extent_y: 同じく高さ（動画に使う中央の帯の高さに対する割合。_refine_framing が直して渡す）。
+    戻り値: いまの構図に対する、境界ボックスの倍率。1 より小さければ寄る（拡大）、大きければ引く（0.5〜_MAX_FRAME_SCALE）。"""
+    need = max(extent_x / margin, extent_y / margin) if (extent_x > 0 or extent_y > 0) else 1.0
+    return min(max(need, 0.5), _MAX_FRAME_SCALE)
+
+
+def _refine_framing(viewport, box, pad: float, center, scale: float, log_path: Path | None) -> bool:
+    """いったん合わせた構図で、作ったものが、画面の中央の 16:9 の帯に、どれくらいの大きさで映るかを測り、倍率を合わせ直す。
+    境界ボックスを一律に広げる方法（frame_scale）では、縦長のペインで、作ったものが小さくなった（動画では、画面の 1 割ほど）。
+    hou.GeometryViewport.mapToScreen() が使えないときは、何もしない（False）。"""
+    try:
+        map_to_screen = getattr(viewport, "mapToScreen", None)
+        if map_to_screen is None:
+            return False
+        size = tuple(viewport.size())
+        view_w, view_h = (float(size[-2]), float(size[-1])) if len(size) >= 4 else (float(size[0]), float(size[1]))
+        if view_w <= 0 or view_h <= 0:
+            return False
+        lo, hi = box.minvec(), box.maxvec()
+        points = []
+        for x in (lo[0], hi[0]):
+            for y in (lo[1], hi[1]):
+                for z in (lo[2], hi[2]):
+                    p = map_to_screen(hou.Vector3(x, y, z))
+                    points.append((float(p[0]), float(p[1])))
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+        ex, ey = max(xs) - min(xs), max(ys) - min(ys)
+        if max(abs(v) for v in xs + ys) > 2.0:  # 画素で返ってきた。割合にする
+            ex, ey = ex / view_w, ey / view_h
+        band_h = min(1.0, (view_w / OUTPUT_ASPECT) / view_h)  # 動画に使う中央の帯の高さ（ビューポートの高さに対する割合）
+        zoom = fit_zoom(ex, ey / band_h)
+        _log(f"viewport fit: object spans {ex:.2f} x {ey:.2f} of the view (band height {band_h:.2f}) -> zoom {zoom:.2f}", log_path)
+        if abs(zoom - 1.0) < 0.08:
+            return True
+        half = [(box.sizevec()[i] / 2 + pad) * scale * zoom for i in range(3)]  # いまの構図の倍率（scale）に、測った倍率をかける
+        viewport.frameBoundingBox(hou.BoundingBox(
+            center[0] - half[0], center[1] - half[1], center[2] - half[2],
+            center[0] + half[0], center[1] + half[1], center[2] + half[2]))
+        return True
+    except Exception as exc:  # noqa: BLE001 -- 測れなければ、一律の倍率のまま
+        _log(f"viewport fit failed: {exc!r}", log_path)
+        return False
+
+
 def _frame_view(viewport, container_path: str | None, log_path: Path | None, scale: float = 1.0) -> str:
     """ビューポートを、作ったものに合わせる。使った方法を返す（"bounds" / "all" / ""）。
     scale: 境界ボックスを広げる倍率（縦長のペインを 16:9 に切り出しても、作ったものが欠けないように。1 = そのまま）。"""
@@ -632,6 +719,8 @@ def _frame_view(viewport, container_path: str | None, log_path: Path | None, sca
                 center[0] + half[0], center[1] + half[1], center[2] + half[2],
             )
             viewport.frameBoundingBox(padded)
+            if scale > 1.0:  # 縦長のペイン（16:9 に切り出す）。一律に広げた構図を、作ったものの実際の大きさで合わせ直す
+                _refine_framing(viewport, box, pad, center, max(1.0, scale), log_path)
             return "bounds"
     except Exception as exc:  # noqa: BLE001
         _log(f"frameBoundingBox failed, falling back to frameAll(): {exc!r}", log_path)
@@ -728,7 +817,7 @@ def _isolate_for_capture(frame_path: str | None, log_path: Path | None) -> None:
 
 def capture_viewport(
     output_path: Path, width: int = VIEWPORT_WIDTH, height: int = VIEWPORT_HEIGHT, log_path: Path | None = None,
-    frame_path: str | None = None,
+    frame_path: str | None = None, skip_if_empty: bool = False,
 ) -> bool:
     """
     現在の3Dビューポートを1枚の静止画として output_path に保存する。
@@ -736,6 +825,9 @@ def capture_viewport(
     現在フレームだけの1フレームレンジで呼び出す実装。
     """
     try:
+        if skip_if_empty and viewport_is_empty(frame_path, log_path):
+            _log("nothing is displayed in the viewport; no still is taken (the node screen is used instead)", log_path)
+            return False
         scene_viewer = hou.ui.paneTabOfType(hou.paneTabType.SceneViewer)
         if scene_viewer is None:
             _log("no SceneViewer pane found in the current desktop", log_path)
@@ -1048,12 +1140,45 @@ def bring_houdini_to_front(pane_tab, log_path: Path | None, attempts: int = 8) -
     return False
 
 
+def _wait_for_ui(predicate, timeout: float) -> bool:
+    """Houdini / Qt の画面の更新を進めながら、predicate が真になるまで待つ（最大 timeout 秒）。真になったかを返す。
+    実機（2026-11-20）: ペインを最大化しても、time.sleep() と processEvents() を回すだけでは、ペインの大きさが変わらなかった
+    （最大化したと記録したのに、直後の qtScreenGeometry は 612px のまま）。Houdini の画面の更新は、hou.ui.waitUntil() の中で進む。"""
+
+    def ready() -> bool:
+        try:
+            return bool(predicate())
+        except Exception:  # noqa: BLE001
+            return False
+
+    if ready() or timeout <= 0:
+        return ready()
+    deadline = time.monotonic() + timeout
+
+    def check() -> bool:
+        _flush_qt_events()
+        return ready() or time.monotonic() >= deadline
+
+    wait_until = getattr(getattr(hou, "ui", None), "waitUntil", None)
+    if callable(wait_until):
+        try:
+            wait_until(check)
+        except Exception:  # noqa: BLE001 -- 使えなければ、下の待ち方
+            pass
+    while not ready() and time.monotonic() < deadline:
+        _flush_qt_events()
+        time.sleep(0.05)
+    return ready()
+
+
 @contextlib.contextmanager
-def maximized_if_narrow(pane_tab, log_path: Path | None, min_width: int = PANE_WIDE_ENOUGH_WIDTH, settle_seconds: float = 0.5):
+def maximized_if_narrow(pane_tab, log_path: Path | None, min_width: int = PANE_WIDE_ENOUGH_WIDTH, settle_seconds: float = 2.0):
     """ペインの幅が min_width より狭いとき、撮っているあいだだけ、ペインを最大化する（広い実画面を撮るため）。出るときに、必ず元に戻す。
-    最大化できなくても（ペインが無い・浮いている窓など）、そのまま続ける（例外は出さない）。"""
+    最大化できなくても（ペインが無い・浮いている窓など）、そのまま続ける（例外は出さない）。
+    幅が実際に広がるまで待ち（settle_seconds まで）、広がらなかったときは、ログに残す（狭いまま撮ることになる）。"""
     pane = None
     changed = False
+    width = 0
     try:
         width = int(pane_tab.qtScreenGeometry().width())
         pane = pane_tab.pane()
@@ -1061,9 +1186,12 @@ def maximized_if_narrow(pane_tab, log_path: Path | None, min_width: int = PANE_W
             pane.setIsMaximized(True)
             changed = True
             _flush_qt_events()
-            time.sleep(settle_seconds)  # ペインが広がって、描き直されるのを待つ
-            _flush_qt_events()
-            _log(f"pane maximized for the capture (was {width}px wide)", log_path)
+            grown = _wait_for_ui(lambda: int(pane_tab.qtScreenGeometry().width()) > width * 1.15, settle_seconds)
+            if grown:
+                _flush_qt_events()
+                _log(f"pane maximized for the capture ({width}px -> {int(pane_tab.qtScreenGeometry().width())}px wide)", log_path)
+            else:
+                _log(f"WARNING: the pane was maximized but did not get wider (still {width}px); the capture stays narrow", log_path)
     except Exception as exc:  # noqa: BLE001
         _log(f"could not maximize the pane: {exc!r}", log_path)
     try:
@@ -1073,7 +1201,7 @@ def maximized_if_narrow(pane_tab, log_path: Path | None, min_width: int = PANE_W
             try:
                 pane.setIsMaximized(False)
                 _flush_qt_events()
-                time.sleep(0.2)
+                _wait_for_ui(lambda: int(pane_tab.qtScreenGeometry().width()) <= width * 1.15, min(settle_seconds, 1.0))
             except Exception as exc:  # noqa: BLE001
                 _log(f"could not restore the pane size: {exc!r}", log_path)
 
@@ -1914,7 +2042,7 @@ def _compose_parameter_screen(
         fit = min(area.width() / pane_image.width(), area.height() / pane_image.height())
         target_w, target_h = pane_image.width() * fit, pane_image.height() * fit
         px = area.x()
-        py = area.y()
+        py = area.y() + max(0.0, (area.height() - target_h) / 2.0)  # 縦の中央に置く（上寄せだと、下の 3 割ほどが空いた画面になった。2026-11-20）
         p.drawImage(QRectF(px, py, target_w, target_h), pane_image)
         p.setPen(QPen(QColor("#4a4a4f"), 1))
         p.setBrush(Qt.NoBrush)
@@ -2130,7 +2258,8 @@ def capture_network_editor(
             if image is not None:
                 # 以前は width x height（1280x720）に縮めていたため、高解像度の画面では文字がつぶれた。
                 # 切り出した画素数のまま保存し、狭すぎる／広すぎるときだけ調整する（fit_pane_size）。
-                new_w, new_h = fit_pane_size(image.width(), image.height())
+                # 狭いペインを、1280 まで引き伸ばさない（画素が増えるわけではなく、ぼやけるだけ。2026-11-20 の実機の画像で確認）。
+                new_w, new_h = fit_pane_size(image.width(), image.height(), min_width=min(image.width(), PANE_MIN_WIDTH))
                 if (new_w, new_h) != (image.width(), image.height()):
                     from PySide6.QtCore import Qt as QtNamespace
 

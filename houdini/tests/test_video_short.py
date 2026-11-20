@@ -68,77 +68,144 @@ class LengthModeTest(unittest.TestCase):
         self.assertEqual(vs.engine_args(vs.FULL), [])
 
 
-class SelectStepsTest(unittest.TestCase):
-    def test_few_steps_are_all_kept(self) -> None:
+class GroupStepsTest(unittest.TestCase):
+    """全部の手順が、順番を保ったまま、連続した場面に入る（飛ばさない）。2026-11-20: 点数で 10 手順だけ選ぶ方式は、話が飛ぶ動画になった。"""
+
+    def test_few_steps_are_not_grouped(self) -> None:
         steps = [step(i, "create_node") for i in range(1, 8)]
-        self.assertEqual(vs.select_steps(steps), steps)
-        self.assertEqual(vs.select_steps([]), [])
+        self.assertEqual(vs.group_steps(steps), steps)
+        self.assertEqual(vs.group_steps([]), [])
 
-    def test_the_result_is_capped_in_order(self) -> None:
+    def test_every_step_is_in_exactly_one_scene_in_order(self) -> None:
+        for steps in (energy_like(), [step(i, "create_node") for i in range(1, 42)], [step(i, "set_parameter", changes=2) for i in range(1, 14)]):
+            groups = vs.plan_groups(steps)
+            flat = [i for g in groups for i in g]
+            self.assertEqual(flat, list(range(len(steps))), "no step is skipped or repeated")
+            self.assertLessEqual(len(groups), vs.SHORT_MAX_GROUPS)
+            self.assertTrue(all(g == list(range(g[0], g[-1] + 1)) for g in groups), "each scene is a run of consecutive steps")
+
+    def test_the_video_gets_the_last_step_of_each_scene_with_what_it_covers(self) -> None:
+        steps = [step(i, "create_node") for i in range(1, 31)]
+        scenes = vs.group_steps(steps)
+        self.assertEqual(len(scenes), vs.SHORT_MAX_GROUPS)
+        covered = [n for s in scenes for n in (s.get("covers") or [s["step"]])]
+        self.assertEqual(covered, list(range(1, 31)))
+        for scene in scenes:
+            if scene.get("covers"):
+                self.assertEqual(scene["covers"][-1], scene["step"], "the screen shows the state after the last step")
+                self.assertEqual([c["step"] for c in scene["covered"]], scene["covers"])
+
+    def test_the_last_step_is_always_in_the_last_scene_and_the_first_in_the_first(self) -> None:
         steps = energy_like()
-        chosen = vs.select_steps(steps)
-        self.assertEqual(len(chosen), vs.SHORT_MAX_STEPS)
-        numbers = vs.step_numbers(chosen)
-        self.assertEqual(numbers, sorted(numbers))
-        self.assertTrue(set(numbers) <= set(vs.step_numbers(steps)))
+        scenes = vs.group_steps(steps)
+        self.assertEqual(scenes[-1]["step"], steps[-1]["step"])
+        first = scenes[0]
+        self.assertEqual((first.get("covers") or [first["step"]])[0], steps[0]["step"])
 
-    def test_first_and_last_steps_are_always_kept(self) -> None:
-        steps = energy_like()
-        numbers = vs.step_numbers(vs.select_steps(steps))
-        self.assertEqual(numbers[0], steps[0]["step"])
-        self.assertEqual(numbers[-1], steps[-1]["step"])
+    def test_the_41_step_case_from_the_real_run(self) -> None:
+        """実機の動画（41 手順）: 前の方式は 1・7・12・13・17・19・27・31・34・41 だけで、間が飛んでいた。"""
+        tools = ["create_node"] * 6 + ["connect_nodes"] * 6 + ["cook_node"] + ["set_parameter"] * 3 + ["cook_node"] + ["set_parameter"] * 1 + ["cook_node"]
+        tools += ["set_parameter"] * 7 + ["connect_nodes"] * 4 + ["set_parameter"] * 6 + ["cook_node"] * 1 + ["set_parameter"] * 3
+        steps = [step(i + 1, t) for i, t in enumerate(tools[:41])]
+        scenes = vs.group_steps(steps)
+        numbers = [n for s in scenes for n in (s.get("covers") or [s["step"]])]
+        self.assertEqual(numbers, list(range(1, len(steps) + 1)))
+        self.assertLessEqual(len(scenes), vs.SHORT_MAX_GROUPS)
 
-    def test_the_last_cook_is_kept_even_when_it_is_not_high_scoring(self) -> None:
-        steps = [step(1, "create_node")] + [step(i, "set_parameter", changes=5, code=True) for i in range(2, 25)] + [step(25, "cook_node"), step(26, "create_node")]
-        numbers = vs.step_numbers(vs.select_steps(steps, max_steps=6))
-        self.assertIn(25, numbers)
-        self.assertIn(1, numbers)
-        self.assertIn(26, numbers)
+    def test_scene_ends_move_to_a_nearby_cook_so_the_checked_state_is_on_screen(self) -> None:
+        steps = [step(i, "set_parameter") for i in range(1, 25)]
+        steps[10] = step(11, "cook_node")  # 位置 10。理想の終わりは 11 のそば
+        scenes = vs.group_steps(steps, max_groups=2)
+        self.assertEqual(scenes[0]["step"], 11)
 
-    def test_code_and_connect_steps_beat_plain_creates(self) -> None:
-        steps = [step(1, "create_node")] + [step(i, "create_node") for i in range(2, 12)] + [step(12, "connect_nodes"), step(13, "set_parameter", changes=2, code=True), step(14, "create_node")]
-        numbers = vs.step_numbers(vs.select_steps(steps, max_steps=5))
-        self.assertIn(12, numbers)
-        self.assertIn(13, numbers)
-
-    def test_code_and_cook_steps_are_capped_so_the_video_is_varied(self) -> None:
-        steps = (
-            [step(1, "create_node")]
-            + [step(i, "set_parameter", changes=4, code=True) for i in range(2, 12)]
-            + [step(i, "cook_node") for i in range(12, 20)]
-            + [step(i, "set_parameter", changes=1) for i in range(20, 30)]
-            + [step(30, "connect_nodes"), step(31, "cook_node")]
-        )
-        chosen = vs.select_steps(steps, max_steps=10)
-        self.assertEqual(len(chosen), 10)
-        code = [c for c in chosen if c.get("capture")]
-        cooks = [c for c in chosen if c["tool"] == "cook_node"]
-        self.assertLessEqual(len(code), vs.SHORT_MAX_CODE_STEPS)
-        self.assertLessEqual(len(cooks), vs.SHORT_MAX_COOK_STEPS + 1)  # 最後の手順の cook は、数えない
-        self.assertIn(30, vs.step_numbers(chosen))
-        self.assertIn(31, vs.step_numbers(chosen))
-
-    def test_when_the_cap_leaves_too_few_the_rest_is_filled_with_code(self) -> None:
-        steps = [step(i, "set_parameter", changes=4, code=True) for i in range(1, 16)]
-        self.assertEqual(len(vs.select_steps(steps, max_steps=8)), 8)
-
-    def test_ties_prefer_the_earlier_step(self) -> None:
-        steps = [step(i, "create_node") for i in range(1, 21)]
-        numbers = vs.step_numbers(vs.select_steps(steps, max_steps=4))
-        self.assertEqual(numbers, [1, 2, 3, 20])  # 最初・最後 + 同点の前のほう
+    def test_covered_is_bounded_and_text_is_short(self) -> None:
+        long = {"step": 1, "tool": "create_node", "result": "あ" * 500 + "\n2行目", "tool_result": "い" * 500}
+        steps = [long] + [step(i, "create_node") for i in range(2, 40)]
+        scenes = vs.group_steps(steps, max_groups=1)
+        covered = scenes[0]["covered"]
+        self.assertLessEqual(len(covered), vs.COVERED_MAX)
+        self.assertLessEqual(len(covered[0]["result"]), vs.COVERED_TEXT_MAX)
+        self.assertNotIn("2行目", covered[0]["result"])
+        self.assertEqual(len(scenes[0]["covers"]), 39, "covers lists all of them even when covered is bounded")
 
     def test_zero_or_negative_cap(self) -> None:
-        self.assertEqual(vs.select_steps(energy_like(), max_steps=0), [])
-        self.assertEqual(vs.select_steps(energy_like(), max_steps=-3), [])
+        self.assertEqual(vs.group_steps(energy_like(), max_groups=0), [])
+        self.assertEqual(vs.group_steps(energy_like(), max_groups=-3), [])
 
     def test_non_dict_entries_are_ignored(self) -> None:
-        self.assertEqual(vs.select_steps([None, "x", step(1, "create_node")]), [step(1, "create_node")])
+        self.assertEqual(vs.group_steps([None, "x", step(1, "create_node")]), [step(1, "create_node")])
 
     def test_the_input_is_not_modified(self) -> None:
         steps = energy_like()
         before = [dict(s) for s in steps]
-        vs.select_steps(steps)
+        vs.group_steps(steps)
         self.assertEqual(steps, before)
+
+
+class GroupedScriptTest(unittest.TestCase):
+    """場面（複数の手順をまとめたもの）の台本: 中の操作を飛ばさず説明させ、見出しに手順書の範囲を出す。"""
+
+    def scene(self) -> dict:
+        steps = [
+            {"step": 7, "tool": "connect_nodes", "result": "star_base の出力を、star_shape_move の入力につなぐ", "tool_result": "接続しました"},
+            {"step": 8, "tool": "connect_nodes", "result": "star_shape_move の出力を、fairy_dust の入力につなぐ", "tool_result": "接続しました"},
+            {"step": 9, "tool": "cook_node", "result": "fairy_dust を評価（cook）して、エラーが出ないことを確認する", "tool_result": "cook 成功"},
+        ]
+        return vs.group_steps(steps, max_groups=1)[0]
+
+    def test_the_prompt_lists_every_operation_of_the_scene(self) -> None:
+        import video_script as vsc
+
+        prompt = vsc.build_user_prompt("題", "本文", [self.scene()])
+        self.assertIn("この場面にまとめる操作", prompt)
+        for n in (7, 8, 9):
+            self.assertIn(f"手順{n}:", prompt)
+        self.assertIn("1つも飛ばさずに", vsc.system_prompt("basic"))
+
+    def test_a_single_step_has_no_scene_block(self) -> None:
+        import video_script as vsc
+
+        prompt = vsc.build_user_prompt("題", "本文", [{"step": 1, "tool": "create_node", "result": "x"}])
+        self.assertNotIn("この場面にまとめる操作", prompt)
+
+    def test_the_heading_shows_the_range_in_the_written_tutorial_and_no_target_sentence_is_prepended(self) -> None:
+        import video_script as vsc
+
+        scene = self.scene()
+        model = {"steps": [{"step": 9, "heading": "発生源を粒子につなぐ",
+                            "narration": "スターベースをスターシェイプムーブにつなぎ、さらにフェアリーダストへつなぎます。最後にクックして、エラーが出ないことを確かめます。ここで粒子が見えれば正しいです。"}]}
+        script, _source, notes = vsc.assemble_script(model, [scene], "題", "概要")
+        entry = script["steps"][0]
+        self.assertEqual(entry["heading"], "発生源を粒子につなぐ（手順書の7〜9）")
+        self.assertEqual(entry["covers"], [7, 8, 9])
+        self.assertTrue(entry["narration"].startswith("スターベース"), "nothing is put in front of the narration")
+        self.assertFalse([n for n in notes if "対象の名前" in n])
+
+    def test_a_long_heading_is_cut_before_the_range(self) -> None:
+        import video_script as vsc
+
+        model = {"steps": [{"step": 9, "heading": "とても長い見出しで二十字をこえるものです", "narration": "あ" * 60 + "をつなぎます。"}]}
+        script, _s, _n = vsc.assemble_script(model, [self.scene()], "題", "概要")
+        heading = script["steps"][0]["heading"]
+        self.assertTrue(heading.endswith("（手順書の7〜9）"))
+        self.assertLessEqual(len(heading), 18 + len("（手順書の7〜9）"))
+
+    def test_the_template_fallback_goes_through_all_the_steps_of_the_scene(self) -> None:
+        import video_script as vsc
+
+        script, source, _n = vsc.assemble_script(None, [self.scene()], "題", "概要")
+        self.assertEqual(source, "template")
+        narration = script["steps"][0]["narration"]
+        self.assertIn("star_base", narration)
+        self.assertIn("fairy_dust", narration)
+        self.assertTrue(script["steps"][0]["heading"].endswith("（手順書の7〜9）"))
+
+    def test_the_quality_check_does_not_demand_the_last_steps_target_in_a_scene(self) -> None:
+        import video_script as vsc
+
+        scene = self.scene()
+        issues = vsc.check_step_quality(scene, {"narration": "スターベースからフェアリーダストまでをつなぎ、クックで確かめます。", "step": 9})
+        self.assertFalse([i for i in issues if i["code"] == "target_not_named"])
 
 
 class HelpersTest(unittest.TestCase):
@@ -146,7 +213,7 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(vs.step_numbers([{"step": 3}, {"step": "x"}, {}, {"step": "7"}]), [3, 7])
 
     def test_describe(self) -> None:
-        self.assertIn("58 手順のうち 10 手順", vs.describe(58, 10, vs.SHORT))
+        self.assertIn("58 手順を 10 場面", vs.describe(58, 10, vs.SHORT))
         self.assertEqual(vs.describe(8, 8, vs.SHORT), "")
         self.assertEqual(vs.describe(58, 58, vs.FULL), "")
 

@@ -31,8 +31,47 @@ def walk(templates, names):
             walk(template.parmTemplates(), names)
 
 
+_PARENTS = {}
+
+
+def _scratch_parent(category):
+    """そのカテゴリのノードを、試しに作れる親（作れない種類は None）。Sop は geo の中、Object は /obj。"""
+    name = category.name()
+    if name in _PARENTS:
+        return _PARENTS[name]
+    parent = None
+    try:
+        if name == "Sop":
+            parent = hou.node("/obj").createNode("geo", "scratch_for_dump")
+        elif name == "Object":
+            parent = hou.node("/obj")
+    except Exception:  # noqa: BLE001
+        parent = None
+    _PARENTS[name] = parent
+    return parent
+
+
+def created_type(category, name):
+    """学習者が Tab メニューから作ると、実際にできる種類。同じ名前で版が複数あるとき（attribnoise と attribnoise::2.0 など）、
+    hou.nodeType(category, name) は古い版を返すことがある。createNode が選ぶ版が、画面に出る版（パラメータが違う）。
+    2026-11-20: attribnoise が、古い版の amp1・amp3 で点検されていて、実機の attribnoise::2.0（amplitude）とずれていた。"""
+    parent = _scratch_parent(category)
+    if parent is None:
+        return None
+    try:
+        node = parent.createNode(name)
+    except Exception:  # noqa: BLE001
+        return None
+    node_type = node.type()
+    node.destroy()
+    return node_type
+
+
 def resolve(category, name):
-    """名前から種類を探す。版つき（mountain::2.0）や、別名（transform → xform）も、表示名が同じなら拾う。"""
+    """名前から種類を探す。まず、createNode で実際にできる種類。版つき（mountain::2.0）や、別名（transform → xform）も、表示名が同じなら拾う。"""
+    node_type = created_type(category, name)
+    if node_type is not None:
+        return node_type
     node_type = hou.nodeType(category, name)
     if node_type is not None:
         return node_type

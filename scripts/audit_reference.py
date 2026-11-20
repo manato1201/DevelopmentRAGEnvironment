@@ -61,7 +61,13 @@ def recipe_names(key: str) -> list[str]:
 
     for recipe in RECIPES:
         if recipe["key"] == key:
-            return [*(recipe["input"].get("parms") or {}), *recipe["parms"], recipe["input"]["type"]]
+            names: list[str] = [*recipe["parms"]]
+            for spec in recipe.get("inputs") or [recipe["input"]]:
+                for part in (spec, *(spec.get("after") or [])):
+                    names += [*(part.get("parms") or {}), part["type"]]
+            if recipe.get("sweep"):
+                names.append(recipe["sweep"]["parm"])
+            return names
     return []
 
 

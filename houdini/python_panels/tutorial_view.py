@@ -1330,13 +1330,14 @@ class TutorialGeneratePanel(QWidget):
         steps = list(getattr(result, "step_screenshots", None) or [])
         if not steps:
             return self._start_video_process(result, md_path, json_path, None)
-        # 動画の長さ（2026-11-19）。既定は短縮版: 要点の手順だけを動画にする（実証実験は 1 人 90 分で、動画が 23 分では見られない）。
+        # 動画の長さ（2026-11-19）。既定は短縮版（実証実験は 1 人 90 分で、動画が 23 分では見られない）。
+        # 2026-11-20: 手順を選んで捨てるのをやめ、全部の手順を、連続した少ない場面にまとめる（飛び飛びの動画は、話がつながらない）。
         # 手順書・Guide は、全部の手順のまま。
         mode = video_short.length_mode(self._cfg_getter())
         video_steps = steps
         if mode == video_short.SHORT:
             usable = video_script_mod.usable_steps(steps)
-            video_steps = video_short.select_steps(usable)
+            video_steps = video_short.group_steps(usable)
         self._video_length_note = video_short.describe(len(video_script_mod.usable_steps(steps)), len(video_steps), mode)
         self._video_progress.setText("動画生成: 解説の台本を作っています（数十秒かかります）…")
         self._set_video_bar(0, "台本づくり")

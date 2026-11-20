@@ -438,5 +438,204 @@ class RenderTest(unittest.TestCase):
             self.assertEqual([p.name for p in sc.find_extra_pages(out)], [p.name for p in pages[1:]])
 
 
+class RealScreenFixes20261120Test(unittest.TestCase):
+    """2026-11-20 の実機の画像で見つけた不具合: 最大化が効かない・上端のノードが帯に隠れる・格子だけのビューポート・小さく映る作ったもの。"""
+
+    ITEMS = [
+        {"path": "/a", "x": 0.0, "y": 0.0, "inputs": []},
+        {"path": "/b", "x": 0.0, "y": -1.5, "inputs": ["/a"]},
+        {"path": "/c", "x": 0.0, "y": -3.0, "inputs": ["/b"]},
+    ]
+
+    def test_the_top_node_is_placed_below_the_path_bar_overlay(self) -> None:
+        (x0, y0, x1, y1), shown, _h = sc.plan_focus_bounds(self.ITEMS, "/b", 16 / 9)
+        visible_top = y1 - sc.NETWORK_TOP_OVERLAY * (y1 - y0)
+        self.assertLess(max(i["y"] for i in self.ITEMS), visible_top, "the top node is under the overlay band otherwise (cut off in the real image)")
+        self.assertEqual(set(shown), {"/a", "/b", "/c"})
+        (_a, ay0, _b, ay1), _s, _h = sc.plan_focus_bounds(self.ITEMS, "/b", 16 / 9, top_overlay=0.0)
+        self.assertGreater(y1 - y0, ay1 - ay0, "the range is taller than without the overlay")
+
+    def test_an_overlay_never_changes_the_aspect(self) -> None:
+        for aspect in (16 / 9, 1.0, 0.6):
+            (x0, y0, x1, y1), _s, _h = sc.plan_focus_bounds(self.ITEMS, "/b", aspect)
+            self.assertAlmostEqual((x1 - x0) / (y1 - y0), aspect, places=3)
+
+    def test_a_node_under_the_overlay_counts_as_outside(self) -> None:
+        items = self.ITEMS + [{"path": "/up", "x": 0.0, "y": 0.9, "inputs": []}]
+        (x0, y0, x1, y1), _s, hidden = sc.plan_focus_bounds(items, "/b", 16 / 9)
+        visible_top = y1 - sc.NETWORK_TOP_OVERLAY * (y1 - y0)
+        if items[-1]["y"] > visible_top:
+            self.assertIn("/up", hidden)
+
+    def test_waiting_for_the_ui_returns_when_the_condition_holds_or_time_runs_out(self) -> None:
+        state = {"n": 0}
+
+        def grows() -> bool:
+            state["n"] += 1
+            return state["n"] >= 3
+
+        with mock.patch.object(sc, "_flush_qt_events", lambda: None):
+            self.assertTrue(sc._wait_for_ui(grows, 2.0))
+            self.assertFalse(sc._wait_for_ui(lambda: False, 0.05))
+            self.assertTrue(sc._wait_for_ui(lambda: True, 0))
+            self.assertFalse(sc._wait_for_ui(lambda: 1 / 0, 0.05), "an exception in the condition is a no")
+
+    def test_the_ui_is_driven_through_houdinis_wait_until_when_it_exists(self) -> None:
+        calls = []
+        fake_ui = types.SimpleNamespace(waitUntil=lambda cb: calls.append(cb()))
+        with mock.patch.object(sc.hou, "ui", fake_ui, create=True), mock.patch.object(sc, "_flush_qt_events", lambda: None):
+            sc._wait_for_ui(lambda: False, 0.05)
+        self.assertTrue(calls, "hou.ui.waitUntil was used")
+
+    def test_maximizing_waits_until_the_pane_is_really_wider_and_says_so_when_it_is_not(self) -> None:
+        class Pane:
+            def __init__(self):
+                self.maximized, self.tab = False, None
+
+            def isMaximized(self):
+                return self.maximized
+
+            def setIsMaximized(self, value):
+                self.maximized = value
+
+        class Tab:
+            def __init__(self, pane, grows):
+                self.pane_obj, self.grows = pane, grows
+                pane.tab = self
+                self.reads_after = 0
+
+            def qtScreenGeometry(self):
+                if self.pane_obj.maximized:
+                    self.reads_after += 1
+                wide = self.grows and self.pane_obj.maximized and self.reads_after >= 3
+                return types.SimpleNamespace(width=lambda: 1800 if wide else 612)
+
+            def pane(self):
+                return self.pane_obj
+
+        messages = []
+        with mock.patch.object(sc, "_flush_qt_events", lambda: None), mock.patch.object(sc, "_log", lambda line, path=None: messages.append(line)):
+            grown = Tab(Pane(), True)
+            with sc.maximized_if_narrow(grown, None, settle_seconds=1.0):
+                self.assertEqual(grown.qtScreenGeometry().width(), 1800)
+            self.assertTrue(any("612px -> 1800px" in m for m in messages))
+            stuck = Tab(Pane(), False)
+            with sc.maximized_if_narrow(stuck, None, settle_seconds=0.1):
+                pass
+            self.assertTrue(any("did not get wider" in m for m in messages))
+
+    def test_a_narrow_grab_is_not_stretched_to_1280(self) -> None:
+        self.assertEqual(sc.fit_pane_size(612, 386, min_width=min(612, sc.PANE_MIN_WIDTH)), (612, 386))
+        self.assertEqual(sc.fit_pane_size(2000, 1000, min_width=min(2000, sc.PANE_MIN_WIDTH)), (2000, 1000))
+
+    def test_fit_zoom_zooms_in_on_small_objects_and_out_on_big_ones(self) -> None:
+        self.assertLess(sc.fit_zoom(0.2, 0.15), 1.0)
+        self.assertEqual(sc.fit_zoom(0.2, 0.15), 0.5, "clamped")
+        self.assertAlmostEqual(sc.fit_zoom(0.88, 0.5), 1.0, places=3)
+        self.assertGreater(sc.fit_zoom(0.95, 1.4), 1.0, "an object taller than the band is moved back")
+        self.assertEqual(sc.fit_zoom(0, 0), 1.0)
+
+    def test_refine_framing_reframes_by_the_measured_size(self) -> None:
+        class Box:
+            def minvec(self):
+                return (0.0, 0.0, 0.0)
+
+            def maxvec(self):
+                return (2.0, 2.0, 2.0)
+
+            def sizevec(self):
+                return (2.0, 2.0, 2.0)
+
+        class View:
+            def __init__(self, extent):
+                self.framed, self.extent = [], extent
+
+            def size(self):
+                return (0, 0, 800, 1000)
+
+            def mapToScreen(self, v):
+                return (400.0 + (v[0] - 1) * self.extent, 500.0 + (v[1] - 1) * self.extent)  # 画素
+
+            def frameBoundingBox(self, box):
+                self.framed.append(box)
+
+        class FakeBB:
+            def __init__(self, *a):
+                self.a = a
+
+        fake_hou = types.SimpleNamespace(Vector3=lambda x, y, z: (x, y, z), BoundingBox=FakeBB)
+        view = View(extent=60.0)  # 画面で、1 辺が 120 画素（幅 800 の 15%）
+        with mock.patch.object(sc, "hou", fake_hou):
+            self.assertTrue(sc._refine_framing(view, Box(), 0.3, (1.0, 1.0, 1.0), 2.0, None))
+        self.assertEqual(len(view.framed), 1, "reframed")
+        low, high = view.framed[0].a[:3], view.framed[0].a[3:]
+        self.assertLess(high[0] - low[0], 2 * (1.0 + 0.3) * 2.0, "tighter than the uniform widening")
+        class NoMap:  # mapToScreen が無い Houdini
+            framed: list = []
+
+            def size(self):
+                return (0, 0, 800, 1000)
+
+            def frameBoundingBox(self, box):
+                self.framed.append(box)
+
+        view2 = NoMap()
+        with mock.patch.object(sc, "hou", fake_hou):
+            self.assertFalse(sc._refine_framing(view2, Box(), 0.3, (1.0, 1.0, 1.0), 2.0, None))
+        self.assertEqual(view2.framed, [])
+
+    def test_an_empty_viewport_is_detected_only_when_it_is_certain(self) -> None:
+        class Geo:
+            def __init__(self, n):
+                self.n = n
+
+            def points(self):
+                return range(self.n)
+
+        class Disp:
+            def __init__(self, n):
+                self.n = n
+
+            def geometry(self):
+                return Geo(self.n)
+
+        class Child:
+            def __init__(self, shown, n, category="obj"):
+                self.shown, self.n, self.category = shown, n, category
+
+            def type(self):
+                return types.SimpleNamespace(category=lambda: self.category)
+
+            def isDisplayFlagSet(self):
+                return self.shown
+
+            def displayNode(self):
+                return Disp(self.n)
+
+        def hou_with(children):
+            container = types.SimpleNamespace(children=lambda: children)
+            return types.SimpleNamespace(node=lambda p: container if p == "/obj/sb" else None, objNodeTypeCategory=lambda: "obj")
+
+        with mock.patch.object(sc, "hou", hou_with([Child(True, 0)])):
+            self.assertTrue(sc.viewport_is_empty("/obj/sb"))
+        with mock.patch.object(sc, "hou", hou_with([Child(True, 400)])):
+            self.assertFalse(sc.viewport_is_empty("/obj/sb"))
+        with mock.patch.object(sc, "hou", hou_with([Child(True, 0), Child(True, 5)])):
+            self.assertFalse(sc.viewport_is_empty("/obj/sb"))
+        with mock.patch.object(sc, "hou", hou_with([Child(False, 100)])):
+            self.assertFalse(sc.viewport_is_empty("/obj/sb"), "nothing is displayed at all: cannot say (camera may show other things)")
+        with mock.patch.object(sc, "hou", hou_with([Child(True, 0, category="lop")])):
+            self.assertFalse(sc.viewport_is_empty("/obj/sb"))
+        with mock.patch.object(sc, "hou", hou_with([])):
+            self.assertFalse(sc.viewport_is_empty("/obj/sb"))
+            self.assertFalse(sc.viewport_is_empty("/missing"))
+            self.assertFalse(sc.viewport_is_empty(None))
+
+    def test_the_step_still_is_skipped_for_an_empty_viewport_only_when_asked(self) -> None:
+        with mock.patch.object(sc, "viewport_is_empty", lambda *a, **k: True), mock.patch.object(sc, "_log", lambda *a, **k: None):
+            with tempfile.TemporaryDirectory() as d:
+                self.assertFalse(sc.capture_viewport(Path(d) / "v.png", frame_path="/obj/sb", skip_if_empty=True))
+
+
 if __name__ == "__main__":
     unittest.main()

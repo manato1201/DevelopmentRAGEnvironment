@@ -1367,7 +1367,7 @@ class HoudiniToolExecutor:
             # doing that first would risk Scene View no longer being the
             # visible tab if the two share a pane group.
             self._prepare_viewport(tool_name, focus_path)
-            got_viewport = screen_capture.capture_viewport(viewport_path, log_path=log_path, frame_path=self.sandbox_path)
+            got_viewport = screen_capture.capture_viewport(viewport_path, log_path=log_path, frame_path=self.sandbox_path, skip_if_empty=True)
 
             # cook_node re-evaluates the graph, which for simulation nodes
             # (pyro, fire, cloth, particles) plays out over time -- a short

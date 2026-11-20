@@ -135,18 +135,35 @@ def _fmt(parms: dict) -> str:
 
 
 def verified_steps(key: str) -> str:
-    """撮影のレシピ（実機で実行して、画像にしたもの）を、説明の材料の文にする。レシピが無い項目は、空。"""
+    """撮影のレシピ（実機で実行して、画像にしたもの）を、説明の材料の文にする。レシピが無い項目は、空。
+    入力が複数のもの（inputs）や、入力の後ろに別のノードをつなぐもの（after）にも対応する。"""
     from recipes import RECIPES
 
     for recipe in RECIPES:
-        if recipe["key"] == key:
-            source = recipe["input"]
-            lines = [f"1. {source['type']} ノードを作る（{_fmt(source.get('parms') or {})}）",
-                     f"2. その出力に、{key.split('/')[-1]} ノードをつなぎ、{_fmt(recipe['parms'])} にする"]
-            sweep = recipe.get("sweep")
-            if sweep:
-                lines.append(f"3. {sweep['parm']} を {sweep['from']} から {sweep['to']} まで動かすと、形が変わっていく（適用前後の画像は、この条件で撮ったもの）")
-            return "\n".join(lines)
+        if recipe["key"] != key:
+            continue
+        name = key.split("/")[-1]
+        specs = recipe.get("inputs") or [recipe["input"]]
+        lines: list[str] = []
+        outputs: list[str] = []
+        for spec in specs:
+            lines.append(f"{len(lines) + 1}. {spec['type']} ノードを作る（{_fmt(spec.get('parms') or {})}）")
+            last = spec["type"]
+            for step in spec.get("after") or []:
+                lines.append(f"{len(lines) + 1}. その出力に、{step['type']} ノードをつなぐ（{_fmt(step.get('parms') or {})}）")
+                last = step["type"]
+            outputs.append(last)
+        if len(outputs) == 1:
+            lines.append(f"{len(lines) + 1}. {outputs[0]} の出力に、{name} ノードをつなぎ、{_fmt(recipe['parms'])} にする")
+        else:
+            ports = "、".join(f"{o} を {i + 1} 番目の入力" for i, o in enumerate(outputs))
+            lines.append(f"{len(lines) + 1}. {name} ノードを作り、{ports}につなぎ、{_fmt(recipe['parms'])} にする")
+        sweep = recipe.get("sweep")
+        if sweep:
+            lines.append(f"{len(lines) + 1}. {sweep['parm']} を {sweep['from']} から {sweep['to']} まで動かすと、形が変わっていく（適用前後の画像は、この条件で撮ったもの）")
+        if recipe.get("note"):
+            lines.append(f"補足: {recipe['note']}")
+        return "\n".join(lines)
     return ""
 
 
@@ -201,7 +218,9 @@ def main(argv: list[str] | None = None) -> int:
     from tutorial_agent import usage_cost_for
 
     node_keys = [i["key"] for i in todo if i["kind"] == "node"]
-    parms = dump_parms(node_keys, DEFAULT_OUT) if node_keys else None  # 実機の本物のパラメータ名（説明に、無い名前を書かせない・書いたら保存しない）
+    # 公開の点検（publish_reference.py）が読む build/reference_parms.json は、全部の項目の書き出し。一部のキーだけを作るときに、
+    # それを上書きしないよう、作るときの書き出しは、別のファイルに置く（上書きすると、公開が「点検の結果に無い」と止まる。2026-11-20）。
+    parms = dump_parms(node_keys, DEFAULT_OUT.with_name("reference_parms_build.json")) if node_keys else None  # 実機の本物のパラメータ名（説明に、無い名前を書かせない・書いたら保存しない）
 
     total_in = total_out = failed = 0
     cost = 0.0

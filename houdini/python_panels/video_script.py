@@ -148,6 +148,7 @@ _PROMPT_TEMPLATE = """@@ROLE@@
 22. チェックボックスとメニューは、数字で言わない。「0にします」ではなく、「オフにします」「Detailにします」と、画面に出る表示名で言う。入力に表示名が無いときは、数字を言わず、「切り替えます」と言う。
 23. ノードやパラメータを消す手順は、「〇〇を消します」とはっきり言う（「整理します」「外します」にしない）。
 24. ノードを作る手順では、そのノードを使う目的を、1文で言う（purpose にも、30文字まで）。入力にない目的は作らない。
+25. 入力に「この場面にまとめる操作」がある手順は、複数の操作を1つにまとめた場面。その中の操作を、順番に、1つも飛ばさずに説明する（ノードを作る・つなぐだけの操作は、まとめて1文でよい。エラーが出て直した操作は、「何が起きて、どう直したか」まで話す）。最後に、この場面が終わった時点で、何ができていて、画面に何が見えるかを言う。「この場面にまとめる操作」に無いことは、書かない。見出し（heading）は、場面全体を表す16文字までの名前にする。
 
 【出力】JSONだけを出力する（前後に説明やコードブロックを付けない）。形式:
 {
@@ -1093,7 +1094,7 @@ def check_step_quality(entry: dict, script_step: dict | None) -> list[dict]:
     if script_step is not None:
         spoken = str(script_step.get("narration") or "")
         shown = str(script_step.get("subtitle") or spoken)
-        missing = missing_targets(facts, spoken, shown)
+        missing = [] if len(entry.get("covers") or []) > 1 else missing_targets(facts, spoken, shown)  # 場面は、中の操作を順に話す（最後の手順の対象を、名指しで要求しない）
         if missing:
             issues.append(_issue(n, "error", "target_not_named", f"解説・字幕に対象の名前がありません: {'、'.join(missing)}"))
         required, any_of = target_terms(facts)
@@ -1221,6 +1222,10 @@ def build_user_prompt(
                                    ("後", "（コード）" if c["code"] else display_value(c, "new"))) if v}
                 for c in facts["changes"][:6]
             ]
+        covered = [c for c in (s.get("covered") or []) if isinstance(c, dict)]
+        if len(covered) >= 2:
+            # 短縮版: 連続した複数の手順を、1 つの場面にまとめている（video_short.group_steps）。中の操作を、飛ばさずに説明させる
+            item["この場面にまとめる操作"] = [f"手順{c.get('step')}: {c.get('result')}" for c in covered]
         frames, fps = s.get("viewport_clip_frames") or [], s.get("viewport_clip_fps") or 0
         if fps and len(frames) / fps >= 5:
             item["動く映像"] = f"この手順の画面で、約{round(len(frames) / fps)}秒の動く映像が再生される"
@@ -1329,6 +1334,23 @@ def match_sections(raw: object, headings: list[str]) -> dict[str, dict]:
     return out
 
 
+def _grouped_template_narration(entry: dict, seen: set[str], compact: bool, max_chars: int) -> str:
+    """場面（複数の手順をまとめたもの）の、定型の解説。含まれる手順を、順番に、1 つずつ定型の文にして並べる（max_chars を超える前で止める）。"""
+    parts: list[str] = []
+    total = 0
+    for covered in entry.get("covered") or []:
+        if not isinstance(covered, dict):
+            continue
+        sentence = str(_template_step(covered, seen, compact).get("narration") or "").strip()
+        if not sentence:
+            continue
+        if total + len(sentence) > max_chars:
+            break
+        parts.append(sentence)
+        total += len(sentence)
+    return "".join(parts)
+
+
 def assemble_script(
     model: dict | None, steps: list[dict], title: str, summary: str, sections: list[tuple[str, str]] | None = None,
     level: str = "",
@@ -1353,9 +1375,13 @@ def assemble_script(
         facts = step_facts(entry)
         step_min = SHORT_STEP_MIN if entry.get("tool") in ("connect_nodes", "delete_node") else STEP_NARRATION_MIN
         pair = clean_narration_pair(item.get("narration"), lim["step"], step_min) if item else None
+        grouped = len(entry.get("covers") or []) > 1  # 短縮版の場面（複数の手順をまとめている）
         if pair:
             from_model += 1
-            spoken, shown, added = ensure_target(pair[0], pair[1], facts, lim["step"])
+            if grouped:
+                spoken, shown, added = pair[0], pair[1], False  # 場面の最後の手順の対象を、先頭に足さない（場面の中の操作を、順に話している）
+            else:
+                spoken, shown, added = ensure_target(pair[0], pair[1], facts, lim["step"])
             if added:
                 notes.append(f"手順{n}: 解説に対象の名前（ノード・パラメータ）が無かったため、対象を言う文を先頭に足しました")
             template = _template_step(entry, set(), compact)
@@ -1370,10 +1396,22 @@ def assemble_script(
             if item:
                 notes.append(f"手順{n}: 解説が基準を満たさなかったため、定型の解説にしました")
             t = _template_step(entry, seen, compact)
-            spoken, shown, _added = ensure_target(t["narration"], t["narration"], facts, lim["step"])  # 定型の解説への追加は、注意書きにしない
+            if grouped:
+                # 場面の中の手順を、1 つずつ定型の文にして、順番に並べる（最後の手順だけを説明すると、場面の中身が飛ぶ）
+                spoken = _grouped_template_narration(entry, seen, compact, lim["step"]) or t["narration"]
+                shown = spoken
+            else:
+                spoken, shown, _added = ensure_target(t["narration"], t["narration"], facts, lim["step"])  # 定型の解説への追加は、注意書きにしない
             purpose = ""
             out = with_subtitle({"step": n, "heading": t["heading"], "points": _merge_points(facts_points(facts), t["points"])}, spoken, shown)
             out["source"] = "template"
+        if grouped:
+            covers = [c for c in entry["covers"] if isinstance(c, int)]
+            if covers:
+                head = str(out.get("heading") or "")
+                head = head if len(head) <= 18 else head[:17] + "…"
+                out["heading"] = f"{head}（手順書の{covers[0]}〜{covers[-1]}）"
+            out["covers"] = list(entry["covers"])
         if facts["action"] == "create":
             # 目的の優先順: 手順の記録（houdini_tools が entry["purpose"] に書く。ノードを作った時にモデルが書いた目的）→ 台本のモデルの出力 → 定型文
             purpose = recorded_purpose(entry) or purpose

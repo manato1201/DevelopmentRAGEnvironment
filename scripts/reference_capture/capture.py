@@ -104,9 +104,21 @@ def render_node_image(recipe: dict, path: Path) -> bool:
     types = recipe["type"] if isinstance(recipe["type"], list) else [recipe["type"]]
     node_label = recipe["key"].split("/")[-1]
     inputs = recipe.get("inputs") or [recipe["input"]]
-    nodes = [{"id": f"/obj/ref/in{i}", "label": spec["type"], "kind": spec["type"], "parent": "/obj/ref", "position": [float(i) * 160, 0.0]} for i, spec in enumerate(inputs)]
-    nodes.append({"id": "/obj/ref/node", "label": node_label, "kind": types[-1].split("::")[0], "parent": "/obj/ref", "position": [0.0, 1.0]})
-    edges = [{"source": f"/obj/ref/in{i}", "target": "/obj/ref/node", "targetInput": i} for i in range(len(inputs))]
+    nodes: list[dict] = []
+    edges: list[dict] = []
+    for i, spec in enumerate(inputs):
+        chain = [spec, *(spec.get("after") or [])]  # 元のノード → 後ろにつなぐノード…（hython_shot.py の build_chain と同じ並び）
+        for k, step in enumerate(chain):
+            name = f"in{i}" if k == 0 else f"in{i}_{k - 1}"
+            nodes.append({"id": f"/obj/ref/{name}", "label": step["type"], "kind": step["type"].split("::")[0], "parent": "/obj/ref",
+                          "position": [float(i) * 160, float(len(chain) - k)]})
+            if k:
+                previous = f"in{i}" if k == 1 else f"in{i}_{k - 2}"
+                edges.append({"source": f"/obj/ref/{previous}", "target": f"/obj/ref/{name}", "targetInput": 0})
+    nodes.append({"id": "/obj/ref/node", "label": node_label, "kind": types[-1].split("::")[0], "parent": "/obj/ref", "position": [0.0, 0.0]})
+    for i, spec in enumerate(inputs):
+        last = f"in{i}" if not spec.get("after") else f"in{i}_{len(spec['after']) - 1}"
+        edges.append({"source": f"/obj/ref/{last}", "target": "/obj/ref/node", "targetInput": i})
     graph = {"sandbox": "/obj/ref", "nodes": nodes, "edges": edges}
     return sc.render_graph_diagram(graph, path, width=960, height=360)
 
