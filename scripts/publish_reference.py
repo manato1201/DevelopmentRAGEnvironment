@@ -103,8 +103,10 @@ def find_targets(base_dir: str, media_root: Path | None, only: set[str]) -> list
     if kind_dirs and kind_dirs.is_dir():
         for kind, _ in rd.KINDS:
             for path in sorted((kind_dirs / kind).glob("*.json")) if (kind_dirs / kind).is_dir() else []:
-                if only or any(rd.slug(t["item"]["key"]) == path.stem and t["item"]["kind"] == kind for t in targets):
+                if any(rd.slug(t["item"]["key"]) == path.stem and t["item"]["kind"] == kind for t in targets):
                     continue  # 保存した説明のファイル名は、キーの "/" を "_" にしたもの（sop_mountain）。すでに、対象に入っているものは、飛ばす
+                if only and path.stem.replace("_", "/", 1) not in only:
+                    continue  # キーを指定したときは、そのキーだけ（一覧に無い名前でも、指定されていれば公開する。2026-11-21）
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))
                 except (OSError, ValueError):

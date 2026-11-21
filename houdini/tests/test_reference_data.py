@@ -149,6 +149,31 @@ class ReferenceItemsTest(unittest.TestCase):
         items = [{"title": "22.0.507: Fixes a bug with layer drawables", "excerpt": "if the incoming layer's transform was animated", "tags": ["Changelog"]}]
         self.assertEqual(rd.match_reference_items(items, "Transform [SOP]", "node", aliases=("xform",)), [])
 
+    def test_an_ordinary_internal_name_is_not_used_as_an_alias(self) -> None:
+        # Primitive Properties の内部の名前は primitive。別の話題の「primitive number」の投稿に当たらない（2026-11-21、実データで確認）
+        items = [{"title": "VEX xyzdist: distance to a primitive number?", "excerpt": "", "tags": ["Forum"]}, {"title": "Primitive Properties SOP tips", "excerpt": "", "tags": []}]
+        hits = rd.match_reference_items(items, "Primitive Properties", "node", aliases=("primitive",))
+        self.assertEqual([h["title"] for h in hits], ["Primitive Properties SOP tips"])
+
+    def test_an_ordinary_alias_of_a_multi_word_name_still_needs_a_cue(self) -> None:
+        # Rest Position の内部の名前は rest。「the rest of this chapter」に当たらない。Merge LOP の動画は、SOP の Merge に出さない。Vellum Solver (…) は、Solver SOP ではない
+        items = [
+            {"title": "Building Render Geo", "excerpt": "the rest of this chapter", "tags": ["YouTube"]},
+            {"title": "Rest Position SOP explained", "excerpt": "", "tags": ["YouTube"]},
+        ]
+        self.assertEqual([h["title"] for h in rd.match_reference_items(items, "Rest Position", "node", aliases=("rest",), context="sop")], ["Rest Position SOP explained"])
+        lop = [{"title": "How to use Merge LOP and Graft Stages", "excerpt": "", "tags": ["YouTube"]}, {"title": "Merge SOP basics", "excerpt": "", "tags": []}]
+        self.assertEqual([h["title"] for h in rd.match_reference_items(lop, "Merge", "node", aliases=("merge",), context="sop")], ["Merge SOP basics"])
+        vellum = [{"title": "Floating Cloth - Vellum Solver (Project Files Included)", "excerpt": "", "tags": ["YouTube"]}]
+        self.assertEqual(rd.match_reference_items(vellum, "Solver", "node", aliases=("solver",), context="sop"), [])
+
+    def test_copernicus_items_do_not_match_sop_nodes(self) -> None:
+        # COP にも Block Begin などの同名のノードがある。SOP の説明に、COP の記事を出さない
+        items = [{"title": "Block Begin and Block End in Copernicus", "excerpt": "", "tags": ["Qiita", "Copernicus"]}]
+        self.assertEqual(rd.match_reference_items(items, "Block Begin", "node", context="sop"), [])
+        self.assertEqual(len(rd.match_reference_items(items, "Block Begin", "node", context="cop")), 1)
+        self.assertEqual(rd.item_context({"key": "sop/block_begin"}), "sop")
+
     def test_the_excerpt_alone_matches_only_a_distinctive_name(self) -> None:
         items = [{"title": "Houdini tips", "excerpt": "we use the polyextrude node here", "tags": []}, {"title": "Houdini tips 2", "excerpt": "we peak the values", "tags": []}]
         self.assertEqual(len(rd.match_reference_items(items, "Poly Extrude", "node", aliases=("polyextrude",))), 1, "an internal name of 11 letters: distinctive")

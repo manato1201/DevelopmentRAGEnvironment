@@ -61,7 +61,10 @@ def _current(node, name: str):
 
 def quiet_signature(node):
     """cook して、形の特徴を返す（失敗・空のときは、その旨の文字。fail しない。値を変えて試すときに使う）。"""
-    node.cook(force=True)
+    try:
+        node.cook(force=True)
+    except hou.OperationFailed:  # 値を初期値に戻すと cook が失敗するノード（例: sweep の Surface Shape の初期値は、2 番目の入力が要る）。その値は「効いている」
+        return "error"
     if node.errors():
         return "error"
     geometry = node.geometry()
@@ -149,6 +152,7 @@ def signature(geometry) -> dict:
             else:
                 values = [v for point in geometry.points() for v in point.attribValue(name)] if len(geometry.points()) < 20000 else []
             sig[f"{name}_{owner}"] = round(sum(values), 3)
+            sig[f"{name}_{owner}_sq"] = round(sum(v * v for v in values), 3)  # 平均が保たれる処理（ぼかし）でも、ばらつきの変化が分かる
     return sig
 
 

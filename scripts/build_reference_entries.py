@@ -50,12 +50,27 @@ COMMON_NODES = (
     # RBD・Vellum・パーティクル
     "sop/rbdmaterialfracture", "sop/rbdconfigure", "sop/rbdbulletsolver", "sop/rbdconnectedfaces", "sop/rbdconstraintproperties",
     "sop/vellumconstraints", "sop/vellumsolver", "sop/vellumdrape", "sop/pointsfromvolume",
+    # 形を作る・整える（2026-11-21 に足した分。Houdini 22 に実在することは、dump_parms.py で確かめる）
+    "sop/mirror", "sop/polybevel", "sop/clip", "sop/bound", "sop/ripple", "sop/revolve", "sop/fractal", "sop/dissolve", "sop/divide",
+    "sop/polyfill", "sop/matchsize", "sop/pack", "sop/unpack", "sop/add", "sop/convert", "sop/primitive", "sop/torus", "sop/platonic",
+    "sop/skin", "sop/shrinkwrap", "sop/font", "sop/extractcentroid", "sop/polycap", "sop/reverse", "sop/orientalongcurve", "sop/uvflatten",
+    "sop/connectivity", "sop/clean", "sop/polyframe", "sop/polydoctor", "sop/pointvelocity", "sop/pointwrangle",
+    "sop/groupexpand", "sop/grouppromote", "sop/grouprange", "sop/block_begin", "sop/block_end",
+    # RBD・Pyro の下ごしらえ
+    "sop/voronoifracture", "sop/assemble", "sop/pyroburstsource",
     # 出力・キャッシュ
     "sop/filecache", "sop/file", "sop/rop_geometry", "sop/output",
     # オブジェクト・ライト・カメラ
     "obj/geo", "obj/cam", "obj/null", "obj/hlight", "obj/envlight",
 )
-RECIPE_KEYS = ("sop/mountain", "sop/scatter", "sop/twist", "sop/subdivide", "sop/polyextrude")
+def _recipe_keys() -> tuple[str, ...]:
+    """撮影のレシピがあるノードのキー（scripts/reference_capture/recipes.py の全部）。"""
+    from recipes import RECIPES
+
+    return tuple(r["key"] for r in RECIPES)
+
+
+RECIPE_KEYS = _recipe_keys()
 
 _local = threading.local()
 CALL_INTERVAL_SECONDS = 3.0   # Worker は、60 秒に 30 回までしか受け付けない。全スレッドを合わせて、この間隔を空ける（60 ÷ 3 = 20 回 / 分）

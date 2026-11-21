@@ -167,7 +167,7 @@ class _EntryWorker(QThread):
                 return
             base_dir = str(self._cfg.get("local_bridge_dir") or "")
             label = self._item.get("label") or self._item.get("name") or ""
-            references = rd.match_reference_items(fetch_reference_items(base_dir), label, self._item.get("kind", ""), aliases=rd.item_aliases(self._item))
+            references = rd.match_reference_items(fetch_reference_items(base_dir), label, self._item.get("kind", ""), aliases=rd.item_aliases(self._item), context=rd.item_context(self._item))
             docs = self._fetch_docs(label)  # テストが差し替える入口（本体は ra.fetch_docs）
             try:
                 entry, usage, docs_found, refs_found = ra.make_entry(self._cfg, self._complete, self._item, references=references, docs=docs)
@@ -591,7 +591,7 @@ class ReferenceWidget(QWidget):
                 self._reference_items = [i for i in (data.get("items") or []) if isinstance(i, dict)]
             except (OSError, ValueError, AttributeError):
                 self._reference_items = []
-        return rd.match_reference_items(self._reference_items, item.get("label", ""), item.get("kind", ""), aliases=rd.item_aliases(item))
+        return rd.match_reference_items(self._reference_items, item.get("label", ""), item.get("kind", ""), aliases=rd.item_aliases(item), context=rd.item_context(item))
 
     def show_item(self, kind: str, key: str, label: str = "") -> None:
         """指定の項目を開く（Guide の「ノードの説明」から）。一覧に無いときは、名前から作った項目にする。"""

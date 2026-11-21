@@ -266,6 +266,11 @@ _COMMON_VEX_WORDS = frozenset({
 })
 
 
+# 内部の名前が、ふつうの英単語そのもののもの（primitive・geometry など）。表示名（Primitive Properties）の頭の語に過ぎないので、別名として使わない
+# （使うと、「primitive number」を語る別の話題の投稿が当たる。2026-11-21）
+_ORDINARY_ALIASES = frozenset({"primitive", "geometry", "transform", "attribute", "parameter", "material", "object", "particle", "volume", "group", "point", "polygon"})
+
+
 def _name_forms(label: str, kind: str = "", internal: bool = False) -> tuple[list[str], bool]:
     """表示名から、探す書き方（小文字）と、「名前だけで、そのノード・関数と分かるか」を返す。
     「Copy to Points」「attribwrangle」のような長い・複数語の名前は、名前だけで分かる。「Color」「Delete」「Peak」のような、
@@ -282,6 +287,14 @@ def _name_forms(label: str, kind: str = "", internal: bool = False) -> tuple[lis
     return forms, (" " in name or (internal and len(compact) >= 9))
 
 
+_COPERNICUS_RE = re.compile(r"(?<![0-9a-z_])(?:copernicus|cop)(?![0-9a-z_])")
+
+
+def item_context(item: dict | None) -> str:
+    """一覧の項目の、文脈（"sop/scatter" → "sop"）。"""
+    return str((item or {}).get("key") or "").split("/")[0]
+
+
 def item_aliases(item: dict | None) -> tuple[str, ...]:
     """一覧の項目の、内部の名前（"sop--attribwrangle" → "attribwrangle"）。表示名と別の書き方で、書かれていることがある。"""
     name = str((item or {}).get("name") or (item or {}).get("key") or "")
@@ -289,22 +302,32 @@ def item_aliases(item: dict | None) -> tuple[str, ...]:
     return (base,) if base else ()
 
 
-def match_reference_items(items: list[dict], label: str, kind: str, limit: int = MAX_REFERENCE_ITEMS, aliases: tuple[str, ...] = ()) -> list[dict]:
+def match_reference_items(items: list[dict], label: str, kind: str, limit: int = MAX_REFERENCE_ITEMS, aliases: tuple[str, ...] = (), context: str = "") -> list[dict]:
     """HoudiniReference の項目（Tips・動画・ニュース）から、この項目に関係するものを選ぶ。新しい順。
     （2026-11-21 厳しくした。前は、名前を含むだけで選び、「Scatter」に「Transmission Scattering」、「Color」に色の表示の不具合の変更履歴が当たった）
       ・名前は、単語として入っているものだけ（「scatter」は「scattering」に当たらない）
       ・題名か、タグに入っているもの。抜粋にだけ入っているものは、名前が長い・複数語のときだけ
       ・「Color」のような、ふつうの英単語の名前は、「Color SOP」のように、ノード・関数だと分かる言い方があるときだけ
-      ・VEX・APEX は、題名・抜粋・タグに、VEX・APEX の語も入っているものだけ（「fit」「set」などが、ふつうの文に当たらないように）"""
+      ・VEX・APEX は、題名・抜粋・タグに、VEX・APEX の語も入っているものだけ（「fit」「set」などが、ふつうの文に当たらないように）
+      ・context（そのノードの文脈。sop・obj など）が cop 以外のとき、Copernicus（COP）の記事は選ばない（COP にも Block Begin・Transform などの同名のノードがあり、別物）"""
     forms, distinctive = _name_forms(label, kind)
+    strong = list(forms) if distinctive else []  # 名前だけで、そのノード・関数と分かる書き方
+    weak = [] if distinctive else list(forms)    # ふつうの英単語（題名かタグに入り、かつ、ノード・関数だと分かる言い方が一緒のときだけ）
     for alias in aliases:  # 内部の名前（attribwrangle など）。表示名と別の書き方で書かれていることがある
+        if str(alias).lower() in _ORDINARY_ALIASES:
+            continue
         more, more_distinctive = _name_forms(alias, kind, internal=True)
-        forms += [f for f in more if f not in forms]
-        distinctive = distinctive or more_distinctive
-    if not forms:
+        # 別名は、その語自身が名前だけで足りるときだけ、強い書き方にする（表示名が複数語でも、別名の rest・solver などは、ふつうの語）
+        (strong if more_distinctive else weak).extend(f for f in more if f not in strong and f not in weak)
+    if not strong and not weak:
         return []
-    word_res = [_word_re(f) for f in forms]
-    cue_res = [re.compile(r"(?<![0-9a-z_])" + re.escape(f) + r"\s*(?:\[)?\s*" + _CONTEXT_RE + r"(?![0-9a-z_])|(?<![0-9a-z_])" + _CONTEXT_RE + r"\s+" + re.escape(f) + r"(?![0-9a-z_])|(?<![0-9a-z_])" + re.escape(f) + r"\s*\(") for f in forms]
+    strong_res = [_word_re(f) for f in strong]
+    weak_res = [_word_re(f) for f in weak]
+    words = _CONTEXT_WORDS
+    if kind == "node" and context:
+        words = tuple(dict.fromkeys((context, "node", "ノード")))  # そのノードの文脈の言い方だけ（SOP の Merge に、Merge LOP の動画が当たらないように）
+    ctx = "(?:" + "|".join(words) + ")"
+    cue_res = [re.compile(r"(?<![0-9a-z_])" + re.escape(f) + r"\s*(?:\[)?\s*" + ctx + r"(?![0-9a-z_])|(?<![0-9a-z_])" + ctx + r"\s+" + re.escape(f) + r"(?![0-9a-z_])|(?<![0-9a-z_])" + re.escape(f) + r"\(") for f in weak]
     scored: list[tuple[int, str, dict]] = []
     for item in items or []:
         if not isinstance(item, dict):
@@ -312,18 +335,22 @@ def match_reference_items(items: list[dict], label: str, kind: str, limit: int =
         title = str(item.get("title") or "").lower()
         excerpt = str(item.get("excerpt") or "").lower()
         tags = [str(t).lower() for t in (item.get("tags") or [])]
-        in_title = any(r.search(title) for r in word_res)
-        in_tags = any(t in forms for t in tags)
-        in_excerpt = any(r.search(excerpt) for r in word_res)
-        if not (in_title or in_tags or (in_excerpt and distinctive)):
+        if context and context != "cop" and kind == "node" and (_COPERNICUS_RE.search(title) or any(_COPERNICUS_RE.search(t) for t in tags)):
             continue
-        if not distinctive and not any(r.search(title + " " + excerpt) for r in cue_res):
+        strong_title = any(r.search(title) for r in strong_res) or any(t in strong for t in tags)
+        weak_title = any(r.search(title) for r in weak_res) or any(t in weak for t in tags)
+        strong_excerpt = any(r.search(excerpt) for r in strong_res)
+        if strong_title or strong_excerpt:
+            in_title = strong_title
+        elif weak_title and any(r.search(title + " " + excerpt) for r in cue_res):
+            in_title = True
+        else:
             continue
         if kind in ("vex", "apex"):
             hint = kind
             if not (hint in tags or hint in title or hint in excerpt):
                 continue
-        scored.append((3 if in_title or in_tags else 1, str(item.get("published") or ""), item))
+        scored.append((3 if in_title else 1, str(item.get("published") or ""), item))
     scored.sort(key=lambda t: (t[0], t[1]), reverse=True)  # 関係の強い順、同じなら新しい順
     return [s[2] for s in scored[:limit]]
 
