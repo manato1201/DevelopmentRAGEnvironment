@@ -116,6 +116,8 @@ export interface QueryRequest {
   // 説明のレベル（2026-10-27）。"basic" | "applied" | "advanced"（固定）/ "auto"（おまかせ。質問の蓄積から決める＝成長）。
   // 付けない質問は、これまでどおり（説明のレベルの指示も、用語の記録もしない）。src/growth.ts
   explain?: string;
+  // 答え方（2026-11-22）。"open"（既定。資料を最優先に、足りないところは「（推測）」と明示して答える）/ "grounded"（資料だけ）。src/embeddings.ts
+  answerMode?: string;
 }
 
 // POST /query レスポンス（既存契約と同一形式。memoryIdはPOC独自追加、チャットUIの評価ボタン用）

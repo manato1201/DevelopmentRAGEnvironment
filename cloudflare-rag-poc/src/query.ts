@@ -1,6 +1,6 @@
 import type { AuthedUser, Env, QueryRequest, QueryResponse, SourceEntry } from "./types";
 import { jsonResponse } from "./http";
-import { buildAnswerPrompt, generateAnswer, generateAnswerStream, sha256Hex } from "./embeddings";
+import { buildAnswerPrompt, generateAnswer, generateAnswerStream, parseAnswerMode, sha256Hex, type AnswerMode } from "./embeddings";
 import { answerWithMcpTools, type McpPendingAction, type McpToolCallLog } from "./mcp/chat";
 import { buildExplainPlan, introducedIn, loadGrowth, parseExplain, recordQueryTerms, type ExplainPlan } from "./growth";
 import { BudgetExceededError, reserveBudget, reconcileBudget } from "./budget";
@@ -33,6 +33,7 @@ interface PreparedQuery {
   ingestedAts: Array<number | undefined>; // 各出典の登録日時（鮮度表示用）
   hydeTokensUsed: number;
   explain?: ExplainPlan; // 説明のレベル（explain を付けた質問だけ）
+  answerMode: AnswerMode; // 答え方（open = 資料を最優先に、足りないところは推測と明示して答える / grounded = 資料だけ）
 }
 
 // 入力の確認・レート制限・予算の確保・検索まで（生成の前）。早期に返す応答（入力不備・アクセス可能な
@@ -118,6 +119,7 @@ async function prepareQuery(
         ingestedAts: ranked.map((r) => r.metadata.ingested_at),
         hydeTokensUsed,
         explain,
+        answerMode: parseAnswerMode(body.answerMode),
       },
     };
   } catch (err) {
@@ -149,13 +151,13 @@ async function finishQuery(
   try {
     // 外部サービスのMCPツールも使う指定（useMcp）。使えるツールが無ければ従来どおり検索結果だけで答える。
     const mcpResult = body.useMcp
-      ? await answerWithMcpTools(env, user.userId, buildAnswerPrompt(query, texts, history, true, prepared.explain?.note ?? ""), image)
+      ? await answerWithMcpTools(env, user.userId, buildAnswerPrompt(query, texts, history, true, prepared.explain?.note ?? "", prepared.answerMode), image)
       : null;
     const answerResult = mcpResult
       ? { text: mcpResult.text, promptTokens: mcpResult.promptTokens, candidateTokens: mcpResult.candidateTokens }
       : onDelta
-        ? await generateAnswerStream(env, query, texts, history, onDelta, image, prepared.explain?.note ?? "")
-        : await generateAnswer(env, query, texts, history, image, prepared.explain?.note ?? "");
+        ? await generateAnswerStream(env, query, texts, history, onDelta, image, prepared.explain?.note ?? "", prepared.answerMode)
+        : await generateAnswer(env, query, texts, history, image, prepared.explain?.note ?? "", prepared.answerMode);
     if (mcpResult) {
       toolCalls = mcpResult.toolCalls;
       pendingActions = mcpResult.pendingActions;

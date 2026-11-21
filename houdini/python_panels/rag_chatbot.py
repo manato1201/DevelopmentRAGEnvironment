@@ -66,7 +66,7 @@ except ImportError:
     _TUTORIAL_AVAILABLE = False
 
 from rag_client import RAGClient, migrate_config as _migrate_config
-from panel_info import EXPLAIN_CHOICES as _EXPLAIN_CHOICES, format_explain as _format_explain, format_growth as _format_growth, format_user as _format_user, friendly_error as _friendly_error, is_setup_user as _is_setup_user, summarize_sources as _summarize_sources
+from panel_info import ANSWER_MODE_CHOICES as _ANSWER_MODE_CHOICES, EXPLAIN_CHOICES as _EXPLAIN_CHOICES, has_guess as _has_guess, normalize_answer_mode as _normalize_answer_mode, format_explain as _format_explain, format_growth as _format_growth, format_user as _format_user, friendly_error as _friendly_error, is_setup_user as _is_setup_user, summarize_sources as _summarize_sources
 from panel_widgets import CollapsibleBox as _CollapsibleBox, ui_state_get as _ui_state_get, ui_state_set as _ui_state_set
 import panel_debug as _debug
 import node_links as _node_links
@@ -118,6 +118,7 @@ _DEFAULT_CONFIG = {
                                     # "claude-haiku-4-5"（低コスト。token消費対策）
     "score_user_id":    "",        # 理解度スコア記録用ユーザーID
     "explain_level":    "auto",    # チャットの説明レベル: auto（おまかせ＝成長）| basic | applied | advanced
+    "answer_mode":      "open",    # チャットの答え方: open（資料を最優先に、足りないところは「（推測）」と明示して答える）| grounded（資料だけ）
     "video_factory_exe_path": "",  # LearningQt video_factory_cloudrag_poc.exe のフルパス
                                     # （チュートリアル保存時に自動で動画生成を起動する）
     # チュートリアル生成が検索するナレッジ（2026-10-04追加）。""=起動中のHoudiniのバージョンに
@@ -129,7 +130,7 @@ _DEFAULT_CONFIG = {
     "gallery_url":      "",
     "gallery_token":    "",
     "gallery_auto_upload": True,   # 動画生成の完了時に、自動でギャラリーへ上げる
-    "video_length": "short",       # 動画の長さ: "short"（要点の手順だけ。約 4 分）| "full"（全部の手順。長いと 10〜20 分）
+    "video_length": "full",        # 動画の長さ: "full"（既定。全部の手順を、1 手順ずつ解説する）| "short"（約 22 場面にまとめる。短いが、粗い）
 }
 
 def _read_config_file(path: Path) -> tuple[dict | None, str]:
@@ -245,7 +246,7 @@ class QueryWorker(QThread):
 
     def __init__(
         self, client: RAGClient, query: str, history: list[dict], image_b64: str | None = None,
-        explain: str | None = None,
+        explain: str | None = None, answer_mode: str | None = None,
     ) -> None:
         super().__init__()
         self._client    = client
@@ -253,10 +254,11 @@ class QueryWorker(QThread):
         self._history   = history
         self._image_b64 = image_b64
         self._explain   = explain
+        self._answer_mode = answer_mode
 
     def run(self) -> None:
         try:
-            result = self._client.query(self._query, self._history, image_b64=self._image_b64, explain=self._explain)
+            result = self._client.query(self._query, self._history, image_b64=self._image_b64, explain=self._explain, answer_mode=self._answer_mode)
             self.finished.emit(result)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -821,6 +823,20 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._explain_combo.setEnabled(self._cfg["mode"] == "cloudflare")
         self._explain_combo.currentIndexChanged.connect(self._on_explain_changed)
         mode_row.addWidget(self._explain_combo)
+
+        # 答え方。資料に無い質問（「ミズクラゲを作るのに必要そうなノードは？」など）に、推測でも答えるか。
+        mode_row.addWidget(caption("答え方:"))
+        self._answer_combo = QComboBox()
+        for value, label in _ANSWER_MODE_CHOICES:
+            self._answer_combo.addItem(label, value)
+        self._answer_combo.setCurrentIndex(max(0, self._answer_combo.findData(_normalize_answer_mode(self._cfg.get("answer_mode")))))
+        self._answer_combo.setToolTip(
+            "資料＋推測（自由）: 資料を最優先にし、資料に無い話題・見立てが要る質問には、一般知識から答えます。\n"
+            "　推測の部分には「（推測）」と、確かさ・確かめ方が付きます（資料に書かれたことと混ざりません）。\n"
+            "資料だけ（正確）: 資料に書かれていることだけで答えます。無いときは「わかりません」になります。"
+        )
+        self._answer_combo.currentIndexChanged.connect(self._on_answer_mode_changed)
+        mode_row.addWidget(self._answer_combo)
         mode_row.addStretch()
         layout.addLayout(mode_row)
 
@@ -1108,9 +1124,9 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             box.addWidget(self._gallery_auto_checkbox)
             box.addWidget(QLabel("動画の長さ:"))
             self._video_length_combo = QComboBox()
-            self._video_length_combo.addItem("短縮版（要点の手順だけ。約 4 分で作れます）", "short")
-            self._video_length_combo.addItem("完全版（全部の手順。長いと、作るのに 10〜20 分かかります）", "full")
-            self._video_length_combo.setCurrentIndex(max(0, self._video_length_combo.findData(str(self._cfg.get("video_length", "short") or "short"))))
+            self._video_length_combo.addItem("完全版（全部の手順を、1 手順ずつ解説します。長いと、作るのに 10〜20 分かかります）", "full")
+            self._video_length_combo.addItem("短縮版（手順を約 22 場面にまとめます。短いですが、解説は粗くなります）", "short")
+            self._video_length_combo.setCurrentIndex(max(0, self._video_length_combo.findData(str(self._cfg.get("video_length", "full") or "full"))))
             self._video_length_combo.setToolTip("手順書（Markdown）と Guide には、どちらでも、全部の手順が残ります")
             box.addWidget(self._video_length_combo)
 
@@ -1496,6 +1512,10 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._cfg["explain_level"] = self._explain_combo.currentData()
         _save_config(self._cfg)
 
+    def _on_answer_mode_changed(self, _index: int) -> None:
+        self._cfg["answer_mode"] = _normalize_answer_mode(self._answer_combo.currentData())
+        _save_config(self._cfg)
+
     def _on_reset_growth(self) -> None:
         from PySide6.QtWidgets import QMessageBox
         answer = QMessageBox.question(
@@ -1590,7 +1610,8 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
 
         # 直近 12 件の履歴を Worker に渡す（古すぎる会話は LLM に送らない）
         explain = self._explain_combo.currentData() if self._cfg.get("mode") == "cloudflare" else None
-        self._worker = QueryWorker(self._client, query, self._history[-12:], image_b64=image_b64, explain=explain)
+        answer_mode = _normalize_answer_mode(self._answer_combo.currentData())
+        self._worker = QueryWorker(self._client, query, self._history[-12:], image_b64=image_b64, explain=explain, answer_mode=answer_mode)
         self._worker.finished.connect(self._on_query_done)
         self._worker.error.connect(self._on_query_error)
         self._worker.start()
@@ -1621,7 +1642,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._add_rag_bubble(answer, memory_id, sources, result.get("explain"))
         self._history.append({"role": "assistant", "text": answer})
         # 出典と採用比率は、回答の下の折りたたみに出す。下部のステータスには、短い要約だけ。
-        self._set_status(_summarize_sources(sources)["summary"])
+        self._set_status(_summarize_sources(sources, answer)["summary"])
         self._send_btn.setEnabled(True)
         self._scroll_to_bottom()
         # 理解度スコアを自動更新
@@ -1670,7 +1691,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._cfg["gallery_auto_upload"] = self._gallery_auto_checkbox.isChecked()
         self._cfg["score_user_id"]    = self._score_uid_edit.text().strip()
         self._cfg["video_factory_exe_path"] = self._video_factory_exe_edit.text().strip()
-        self._cfg["video_length"] = str(self._video_length_combo.currentData() or "short")
+        self._cfg["video_length"] = str(self._video_length_combo.currentData() or "full")
         try:
             self._cfg["local_port"] = int(self._port_edit.text())
         except ValueError:
@@ -1814,9 +1835,17 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             tag.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
             v.addWidget(tag)
 
+        # 推測を含む回答（答え方が「資料＋推測」のとき）。資料に書かれたことと、推測を、見分けられるようにする。
+        if _has_guess(text):
+            guess_tag = QLabel("「（推測）」の部分は、資料に書かれていない見立てです。確かさと確かめ方を参考に、Reference・公式ドキュメントで確認してください。")
+            guess_tag.setStyleSheet("color:#a5b4fc;font-size:11px;padding:0 6px;")
+            guess_tag.setWordWrap(True)
+            guess_tag.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
+            v.addWidget(guess_tag)
+
         # 出典と採用比率（回答で使った資料／検索で見つかった資料）。見出しに要約、中身は折りたたみ。
         # 出典の番号による引用が無いときは、警告として最初から開いておく。
-        info = _summarize_sources(sources or [])
+        info = _summarize_sources(sources or [], text)
         body_box = None
         if info["state"] != "empty":
             body = QLabel(info["html"])

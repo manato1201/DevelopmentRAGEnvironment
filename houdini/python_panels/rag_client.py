@@ -97,6 +97,7 @@ class RAGClient:
         image_b64: str | None = None,
         context: str | None = None,
         explain: str | None = None,
+        answer_mode: str | None = None,
     ) -> dict:
         """
         RAG にクエリを送る。モードに応じてエンドポイントとリクエスト形式を切り替える。
@@ -129,13 +130,15 @@ class RAGClient:
                 body["image"] = {"mimeType": "image/png", "data": image_b64}
             if explain in ("auto", "basic", "applied", "advanced"):
                 body["explain"] = explain  # 説明のレベル。auto（おまかせ）は、質問に使った専門用語の蓄積から決まる（成長）
+            if answer_mode in ("open", "grounded"):
+                body["answerMode"] = answer_mode  # 答え方。open（既定）= 資料を最優先に、足りないところは「（推測）」と明示して答える / grounded = 資料だけ
             return post_json(f"{base}/query", body, api_key=self.cfg.get("cf_api_key", ""))
         else:
             port = self.cfg["local_port"]
-            return post_json(
-                f"http://localhost:{port}/query",
-                {"query": query, "history": history, "limit": 5},
-            )
+            local_body: dict = {"query": query, "history": history, "limit": 5}
+            if answer_mode in ("open", "grounded"):
+                local_body["answerMode"] = answer_mode
+            return post_json(f"http://localhost:{port}/query", local_body)
 
     def health(self) -> bool:
         """

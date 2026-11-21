@@ -90,6 +90,21 @@ class LocalBackendTests(unittest.TestCase):
         self.assertEqual(req["messages"][-1]["content"], "新しい質問")
         self.assertLessEqual(req["max_tokens"], 2048)
 
+    def test_answer_mode_changes_the_system_prompt(self) -> None:
+        # 答え方(2026-11-22): grounded は従来の SYSTEM_PROMPT そのまま。open は、推測を「(推測)」と明示して答える指示が付く
+        self.assertEqual(bridge.parse_answer_mode(None), "open")
+        self.assertEqual(bridge.parse_answer_mode("grounded"), "grounded")
+        self.assertEqual(bridge.parse_answer_mode("???"), "open")
+        self.assertEqual(bridge.system_prompt_for("grounded"), bridge.SYSTEM_PROMPT)
+        opened = bridge.system_prompt_for("open")
+        self.assertTrue(opened.startswith(bridge.SYSTEM_PROMPT))
+        self.assertIn("(推測)", opened)
+        self.assertIn("混ぜない", opened)
+        bridge._call_local(["x"], "q", [], "open")
+        self.assertEqual(self.gw.requests[-1]["messages"][0]["content"], opened)
+        bridge._call_local(["x"], "q", [], "grounded")
+        self.assertEqual(self.gw.requests[-1]["messages"][0]["content"], bridge.SYSTEM_PROMPT)
+
     def test_bearer_token_is_sent_only_when_set(self) -> None:
         bridge._call_local(["x"], "q", [])
         self.assertIsNone(self.gw.auth[-1])

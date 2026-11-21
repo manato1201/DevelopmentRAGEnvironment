@@ -66,11 +66,12 @@ def _namespace_label(namespace: str) -> str:
     return namespace.removeprefix("shared:")
 
 
-def summarize_sources(sources: list[dict]) -> dict:
+def summarize_sources(sources: list[dict], answer: str | None = None) -> dict:
     """出典の表示用データを返す。
 
-    {"summary": 1行の見出し, "html": 詳細（リッチテキスト。文字はエスケープ済み）, "state": "cited"|"none"|"plain"|"empty",
+    {"summary": 1行の見出し, "html": 詳細（リッチテキスト。文字はエスケープ済み）, "state": "cited"|"none"|"guess"|"plain"|"empty",
      "used": 使った件数, "total": 検索で見つかった件数}
+    answer: 回答の本文。番号による引用が無くても、「（推測）」と明示して答えているときは、警告にしない（state = "guess"）。
     """
     sources = list(sources or [])
     total = len(sources)
@@ -99,6 +100,18 @@ def summarize_sources(sources: list[dict]) -> dict:
     numbered = list(enumerate(sources, start=1))
     used = [(n, s) for n, s in numbered if s.get("cited")]
     unused = [(n, s) for n, s in numbered if not s.get("cited")]
+    if not used and has_guess(answer):
+        return {
+            "summary": f"資料に無い内容を、推測で答えています（検索で見つかった{total}件）",
+            "html": (
+                "<b style='color:#a5b4fc'>この回答は、資料に書かれたことではなく、一般知識からの推測です。</b>"
+                "「（推測）」の部分は、確かさと確かめ方を参考に、Reference・公式ドキュメントで確かめてください。<br>"
+                + "<br>".join(line(n, s) for n, s in unused)
+            ),
+            "state": "guess",
+            "used": 0,
+            "total": total,
+        }
     if not used:
         return {
             "summary": f"⚠ 出典の番号による引用がありません（検索で見つかった{total}件）",
@@ -124,6 +137,26 @@ def summarize_sources(sources: list[dict]) -> dict:
         "used": len(used),
         "total": total,
     }
+
+
+# 答え方（2026-11-22）。open = 資料を最優先に、足りないところは推測と明示して答える（既定）/ grounded = 資料だけ（正確さ優先）
+ANSWER_MODE_CHOICES = [
+    ("open", "資料＋推測（自由）"),
+    ("grounded", "資料だけ（正確）"),
+]
+DEFAULT_ANSWER_MODE = "open"
+GUESS_MARKS = ("（推測）", "(推測)")
+
+
+def normalize_answer_mode(value) -> str:
+    """設定の答え方。"grounded" 以外は open。"""
+    return "grounded" if str(value or "").strip().lower() == "grounded" else DEFAULT_ANSWER_MODE
+
+
+def has_guess(answer: str | None) -> bool:
+    """回答に「（推測）」の印が付いた部分があるか（資料に書かれたことと、推測を、利用者が見分けるため）。"""
+    text = str(answer or "")
+    return any(mark in text for mark in GUESS_MARKS)
 
 
 EXPLAIN_CHOICES = [

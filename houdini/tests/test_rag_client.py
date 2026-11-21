@@ -101,6 +101,17 @@ class RAGClientTest(_ServerCase):
         )
         self.assertNotIn("apiKey", call["body"], "the key goes in the header only")
 
+    def test_answer_mode_is_sent_only_when_valid(self) -> None:
+        client = rc.RAGClient(self.cfg(cf_namespaces=""))
+        client.query("q", [], answer_mode="grounded")
+        self.assertEqual(_Handler.calls[-1]["body"]["answerMode"], "grounded")
+        client.query("q", [], answer_mode="open")
+        self.assertEqual(_Handler.calls[-1]["body"]["answerMode"], "open")
+        client.query("q", [], answer_mode="whatever")
+        self.assertNotIn("answerMode", _Handler.calls[-1]["body"], "an unknown value is not sent (the server's default applies)")
+        client.query("q", [])
+        self.assertNotIn("answerMode", _Handler.calls[-1]["body"])
+
     def test_empty_namespaces_are_not_sent(self) -> None:
         rc.RAGClient(self.cfg(cf_namespaces="")).query("q", [])
         self.assertNotIn("namespaces", _Handler.calls[0]["body"])

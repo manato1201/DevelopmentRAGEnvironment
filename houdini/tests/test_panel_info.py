@@ -56,6 +56,37 @@ class SummarizeSourcesTest(unittest.TestCase):
         self.assertIn("&lt;img", info["html"])
 
 
+class AnswerModeTest(unittest.TestCase):
+    """答え方（2026-11-22）: 資料＋推測（既定）と資料だけ。推測の部分は「（推測）」と明示される。"""
+
+    def test_mode_is_open_unless_grounded(self):
+        self.assertEqual(pi.normalize_answer_mode(None), "open")
+        self.assertEqual(pi.normalize_answer_mode("grounded"), "grounded")
+        self.assertEqual(pi.normalize_answer_mode("Grounded "), "grounded")
+        self.assertEqual(pi.normalize_answer_mode("???"), "open")
+        self.assertEqual([v for v, _ in pi.ANSWER_MODE_CHOICES], ["open", "grounded"])
+
+    def test_guess_marks(self):
+        self.assertTrue(pi.has_guess("（推測）確かさ: 中。Bend ノードが使えそうです"))
+        self.assertTrue(pi.has_guess("(推測) half-width parentheses"))
+        self.assertFalse(pi.has_guess("資料にある説明です [1]"))
+        self.assertFalse(pi.has_guess(None))
+
+    def test_no_citation_but_a_marked_guess_is_not_a_warning(self):
+        sources = [src("a.md", False), src("b.md", False)]
+        warned = pi.summarize_sources(sources, "引用なしの答え")
+        self.assertEqual(warned["state"], "none")
+        guess = pi.summarize_sources(sources, "（推測）確かさ: 中。ripple が使えそうです")
+        self.assertEqual(guess["state"], "guess")
+        self.assertIn("推測で答えています", guess["summary"])
+        self.assertNotIn("⚠", guess["summary"])
+        self.assertIn("[1] a.md", guess["html"])
+
+    def test_citations_win_over_the_guess_state(self):
+        info = pi.summarize_sources([src("a.md", True, 1), src("b.md", False)], "[1] 資料より。（推測）ここは見立て")
+        self.assertEqual(info["state"], "cited")
+
+
 class FormatUserTest(unittest.TestCase):
     def test_roles_and_states(self):
         shown = pi.format_user({"displayName": "田中", "role": "admin", "userIdShort": "ab12cd"})

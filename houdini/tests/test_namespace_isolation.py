@@ -97,7 +97,7 @@ class HandlerTests(unittest.TestCase):
         bridge.BridgeHandler.auth = FakeAuth()
         bridge.BridgeHandler.audit = None
         # LLM は呼ばない: 受け取った検索結果の文章をそのまま回答として返す(何が渡されたかを検査できる)
-        bridge._call_claude = lambda texts, query, history: "\n".join(texts) + " [1]"
+        bridge._call_claude = lambda texts, query, history, answer_mode="grounded": "\n".join(texts) + " [1]"
         os.environ["RAG_LLM_BACKEND"] = "claude"
         bridge._LLM_BACKEND = "claude"
         cls.server = HTTPServer(("127.0.0.1", 0), bridge.BridgeHandler)
