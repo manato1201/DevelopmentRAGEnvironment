@@ -50,11 +50,11 @@ class MakeEntryTest(unittest.TestCase):
 
     def test_without_given_material_it_fetches_docs_and_references(self) -> None:
         with mock.patch.object(ra, "fetch_docs", lambda cfg, item: ["資料"]), \
-                mock.patch.object(ra, "fetch_reference_items", lambda base_dir, **kw: [{"title": "scatter tips", "excerpt": "x", "tags": ["YouTube"], "published": "2026-11-18", "source": "S", "url": "https://e.com"}]):
+                mock.patch.object(ra, "fetch_reference_items", lambda base_dir, **kw: [{"title": "Scatter SOP tips", "excerpt": "x", "tags": ["YouTube"], "published": "2026-11-18", "source": "S", "url": "https://e.com"}]):
             captured = []
             ra.make_entry({"local_bridge_dir": "x"}, lambda s, u, **kw: (captured.append(u) or ANSWER, {}), ITEM)
         self.assertIn("資料", captured[0])
-        self.assertIn("scatter tips", captured[0])
+        self.assertIn("Scatter SOP tips", captured[0])
 
     def test_fetch_docs_takes_the_node_page_first_then_search_results(self) -> None:
         class FakeClient:

@@ -381,9 +381,11 @@ export async function handlePilotPlan(_req: Request, env: Env, user: AuthedUser)
 // POST /pilot/profile — 事前アンケート（1人1回。再送しても、番号は変わらず、回答だけ更新する）
 export async function handlePilotProfile(req: Request, env: Env, user: AuthedUser): Promise<Response> {
   const body = await readBody(req);
-  const years = Number(body.experienceYears);
+  // 経験は、月数（experienceMonths。年と月で聞いた合計）を優先する。DB の列は、従来どおり「年」（月数 ÷ 12）に入れる（列を増やさない）。
+  const months = Number(body.experienceMonths);
+  const years = body.experienceMonths != null && Number.isFinite(months) && months >= 0 && months <= 720 ? Math.round(months) / 12 : Number(body.experienceYears);
   const fields = {
-    experience_years: Number.isFinite(years) && years >= 0 && years <= 60 ? years : null,
+    experience_years: Number.isFinite(years) && years >= 0 && years <= 60 ? Math.round(years * 12) / 12 : null,
     self_level: text(body.selfLevel, 40),
     background: text(body.background, 400),
     practice: text(body.practice, 400),

@@ -50,6 +50,62 @@ def set_parms(node, parms: dict) -> None:
         tup.set(values[: len(tup)])
 
 
+def _current(node, name: str):
+    """パラメータ（組）の、いまの値と、初期値のままか。"""
+    parm = node.parmTuple(name) or node.parm(name)
+    if parm is None:
+        return None, True, None
+    members = list(parm) if hasattr(parm, "__len__") else [parm]
+    return members, all(m.isAtDefault() for m in members), [m.eval() if m.parmTemplate().type() != hou.parmTemplateType.String else m.unexpandedString() for m in members]
+
+
+def quiet_signature(node):
+    """cook して、形の特徴を返す（失敗・空のときは、その旨の文字。fail しない。値を変えて試すときに使う）。"""
+    node.cook(force=True)
+    if node.errors():
+        return "error"
+    geometry = node.geometry()
+    if geometry is None or not geometry.points():
+        return "empty"
+    return signature(geometry)
+
+
+def ineffective_parms(node, parms: dict, after_sig: dict, keep: list | tuple = ()) -> list[str]:
+    """レシピの値を 1 つずつ初期値に戻して、形が変わらないものの名前（値が効いていない）。初期値のままの値は、調べない。
+    例: Attribute Noise は、P（ベクトル）のとき amplitudev だけが効き、amplitude（スカラー用）を変えても、形は変わらない（2026-11-21 に見つけた）。"""
+    idle = []
+    for name in parms:
+        if name in keep:  # 結果は同じでも、書いておくほうが分かりやすい値（例: blast の grouptype = Primitives）。レシピの "keep" に挙げたものだけ
+            continue
+        members, at_default, values = _current(node, name)
+        if members is None or at_default:
+            continue
+        for m in members:
+            m.revertToDefaults()
+        sig = quiet_signature(node)
+        for m, v in zip(members, values):
+            m.set(v)
+        if sig == after_sig:
+            idle.append(name)
+    node.cook(force=True)  # 元の値に戻した状態で、もう一度 cook しておく
+    return idle
+
+
+def ineffective_sweep(node, target, sweep: dict) -> list[str]:
+    """動かす値の最初と最後で、形が変わらないとき、その名前。"""
+    parm = target.parm(sweep["parm"])
+    if parm is None:
+        return []
+    keep = parm.eval()
+    parm.set(sweep["from"])
+    first = quiet_signature(node)
+    parm.set(sweep["to"])
+    last = quiet_signature(node)
+    parm.set(keep)
+    node.cook(force=True)
+    return [] if first != last else [f"{sweep['parm']}（動きの最初と最後で、形が同じ）"]
+
+
 def make_node(parent, type_names, name: str):
     names = type_names if isinstance(type_names, (list, tuple)) else [type_names]
     category = parent.childTypeCategory()
@@ -124,11 +180,21 @@ def main() -> None:
         node.setInput(i, src)
     parms = dict(recipe.get("parms") or {})
     sweep = recipe.get("sweep")
+    # 動かすパラメータは、ノード自身のほか、入力のノード（"node": "in1" = 2 番目の入力の元のノード、"in1_0" = そのあとの 1 つ目）でもよい
+    # （boolean の B を動かす・copytopoints の元の点の数を増やす、など。ノード自身には、動かせる数値が無いもの）
+    target = node
+    if sweep and sweep.get("node"):
+        target = geo.node(sweep["node"])
+        if target is None:
+            fail(f"動かすノード {sweep['node']} がありません")
     if sweep and mode != "clip":
-        parms[sweep["parm"]] = sweep["to"]  # 静止画の「適用後」は、動きの最後の値
+        if target is node:
+            parms[sweep["parm"]] = sweep["to"]  # 静止画の「適用後」は、動きの最後の値
     set_parms(node, parms)
+    if sweep and mode != "clip" and target is not node:
+        set_parms(target, {sweep["parm"]: sweep["to"]})
     if sweep and mode == "clip":
-        parm = node.parm(sweep["parm"])
+        parm = target.parm(sweep["parm"])
         if parm is None:
             fail(f"動かすパラメータ {sweep['parm']} がありません")
         parm.setExpression(f"fit($F,1,{FRAMES},{sweep['from']},{sweep['to']})")
@@ -146,6 +212,12 @@ def main() -> None:
     before_sig, after_sig = signature(before_geo), signature(after_geo)
     if before_sig == after_sig:
         fail("適用の前後で、形が何も変わりません（効果が見えない絵になるので、撮りません）")
+    if mode != "clip":
+        idle = ineffective_parms(node, parms, after_sig, recipe.get("keep") or ())
+        if sweep:
+            idle += ineffective_sweep(node, target, sweep)
+        if idle:
+            fail("値を変えても、形が変わらないパラメータがあります（説明に「効く」と書けないので、撮りません）: " + ", ".join(idle))
     if mode == "check":
         changed = [k for k in after_sig if before_sig.get(k) != after_sig[k]]
         print("CHANGED: " + ", ".join(changed))

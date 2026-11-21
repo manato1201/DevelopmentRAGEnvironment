@@ -94,7 +94,7 @@ def make_entry(cfg: dict, complete: Callable, item: dict, references: list[dict]
     references・docs を渡すと、取得を省く（テスト・まとめて作るとき）。"""
     label = item.get("label") or item.get("name") or ""
     if references is None:
-        references = rd.match_reference_items(fetch_reference_items(str((cfg or {}).get("local_bridge_dir") or "")), label, item.get("kind", ""))
+        references = rd.match_reference_items(fetch_reference_items(str((cfg or {}).get("local_bridge_dir") or "")), label, item.get("kind", ""), aliases=rd.item_aliases(item))
     if docs is None:
         docs = fetch_docs(cfg, item)
     system, user = rd.build_prompt(item.get("kind", ""), label, docs, references, parm_names=parm_names, verified=verified)

@@ -118,11 +118,50 @@ class ReferenceItemsTest(unittest.TestCase):
         self.assertEqual(rd.match_reference_items(self.ITEMS, "", "node"), [])
 
     def test_limit(self) -> None:
-        many = [{"title": f"xyzdist tip {i}", "published": f"2026-11-{10 + i:02d}"} for i in range(10)]
+        many = [{"title": f"xyzdist tip {i}", "tags": ["VEX"], "published": f"2026-11-{10 + i:02d}"} for i in range(10)]
         self.assertEqual(len(rd.match_reference_items(many, "xyzdist", "vex")), rd.MAX_REFERENCE_ITEMS)
 
     def test_none_items(self) -> None:
         self.assertEqual(rd.match_reference_items(None, "scatter", "node"), [])
+
+    # 2026-11-21: 名前を含むだけで選ぶと、別のものが当たった（実データで確認）
+    def test_a_name_inside_a_longer_word_is_not_a_match(self) -> None:
+        items = [{"title": "So Karma just doesnt support Transmission Scattering?", "excerpt": "scattering", "tags": ["Forum"]}]
+        self.assertEqual(rd.match_reference_items(items, "Scatter [SOP]", "node"), [])
+
+    def test_an_ordinary_english_word_needs_a_node_cue(self) -> None:
+        items = [
+            {"title": "22.0.507: Fixes a bug with the color visualizer", "excerpt": "", "tags": ["Changelog"], "published": "2026-11-01"},
+            {"title": "How To 3D Paint In COPs", "excerpt": "paint the color of a mesh", "tags": ["YouTube"], "published": "2026-11-02"},
+            {"title": "Using the Color SOP for vertex colors", "excerpt": "", "tags": ["YouTube"], "published": "2026-11-03"},
+        ]
+        hits = rd.match_reference_items(items, "Color [SOP]", "node")
+        self.assertEqual([h["title"] for h in hits], ["Using the Color SOP for vertex colors"])
+
+    def test_a_long_or_multi_word_name_matches_on_its_own(self) -> None:
+        items = [{"title": "Instancing Explained / Copy to Points workflow", "tags": []}, {"title": "attribwrangle basics", "tags": []}]
+        self.assertEqual(len(rd.match_reference_items(items, "Copy to Points [SOP]", "node")), 1)
+        self.assertEqual(len(rd.match_reference_items(items, "Attribute Wrangle", "node")), 0)
+        self.assertEqual(len(rd.match_reference_items(items, "Attribute Wrangle", "node", aliases=("attribwrangle",))), 1, "the internal name is a second way to write it")
+        self.assertEqual(len(rd.match_reference_items(items, "attribwrangle", "node")), 0, "as a display name, one word is not enough (internal names go in aliases)")
+
+    def test_a_long_ordinary_word_is_not_distinctive(self) -> None:
+        items = [{"title": "22.0.507: Fixes a bug with layer drawables", "excerpt": "if the incoming layer's transform was animated", "tags": ["Changelog"]}]
+        self.assertEqual(rd.match_reference_items(items, "Transform [SOP]", "node", aliases=("xform",)), [])
+
+    def test_the_excerpt_alone_matches_only_a_distinctive_name(self) -> None:
+        items = [{"title": "Houdini tips", "excerpt": "we use the polyextrude node here", "tags": []}, {"title": "Houdini tips 2", "excerpt": "we peak the values", "tags": []}]
+        self.assertEqual(len(rd.match_reference_items(items, "Poly Extrude", "node", aliases=("polyextrude",))), 1, "an internal name of 11 letters: distinctive")
+        self.assertEqual(len(rd.match_reference_items(items, "peak", "node")), 0)
+
+    def test_vex_common_words_need_a_call_or_the_vex_cue(self) -> None:
+        items = [
+            {"title": "That fit was perfect", "excerpt": "", "tags": ["VEX"]},
+            {"title": "Remap with fit() in VEX", "excerpt": "", "tags": ["VEX"]},
+            {"title": "fit01 and fit", "excerpt": "", "tags": ["Forum"]},
+        ]
+        hits = rd.match_reference_items(items, "fit", "vex")
+        self.assertEqual([h["title"] for h in hits], ["Remap with fit() in VEX"])
 
 
 class PromptAndParseTest(unittest.TestCase):

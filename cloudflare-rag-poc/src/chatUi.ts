@@ -1467,7 +1467,7 @@ export function chatUiHtml(): string {
         <h3>事前アンケート（参加者ごと）</h3>
         <p class="hint">登録時に答えた内容です。自由記述（経歴・練習・使ったことのあるツール）には、個人情報が書かれているかもしれません。</p>
         <div class="field-row"><button class="btn" id="pilotProfilesCsv">事前アンケートのCSV</button></div>
-        <div class="table-scroll"><table class="admin-table pilot-answers" id="pilotProfiles"><thead><tr><th>参加者</th><th>経験年数</th><th>自己評価</th><th>経歴</th><th>練習</th><th>使ったことのあるツール</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table pilot-answers" id="pilotProfiles"><thead><tr><th>参加者</th><th>経験（年・ヶ月）</th><th>自己評価</th><th>経歴</th><th>練習</th><th>使ったことのあるツール</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="section">
         <h2>説明レベル別のチャット評価</h2>
@@ -3597,6 +3597,12 @@ ${ASCII_ART_JS}
   // 課題の記録（/admin/pilot/tasks。期間では絞らない: 全部の回をまとめて見る）
   let lastPilotTaskRows = [];
   let lastPilotProfiles = [];
+  // 経験（年。月数 ÷ 12 で入っている）を、「1年7ヶ月」の形に
+  function pilotExperience(years) {
+    const months = Math.round(Number(years) * 12);
+    if (!Number.isFinite(months)) return "-";
+    return Math.floor(months / 12) + "年" + (months % 12) + "ヶ月";
+  }
   // 日時（秒）を、見やすい形に。空なら空
   function pilotTime(sec) {
     if (!sec) return "";
@@ -3674,7 +3680,7 @@ ${ASCII_ART_JS}
         profilesBody.innerHTML = "<tr><td colspan=6>事前アンケートの回答はまだありません</td></tr>";
       } else {
         lastPilotProfiles.forEach((p) => {
-          const tr = appendRow(profilesBody, [p.participant, p.experienceYears == null ? "-" : p.experienceYears, p.selfLevel || "-", p.background || "-", p.practice || "-", p.toolHistory || "-"]);
+          const tr = appendRow(profilesBody, [p.participant, p.experienceYears == null ? "-" : pilotExperience(p.experienceYears), p.selfLevel || "-", p.background || "-", p.practice || "-", p.toolHistory || "-"]);
           for (let i = 3; i < 6; i++) tr.children[i].className = "pilot-comment";
         });
       }
@@ -3697,8 +3703,8 @@ ${ASCII_ART_JS}
     if (lastPilotProfiles.length === 0) { showToast("エクスポートする事前アンケートがありません", "error"); return; }
     downloadCsv(
       "pilot-profiles-" + new Date().toISOString().slice(0, 10) + ".csv",
-      ["参加者", "経験年数", "自己評価", "経歴", "練習", "使ったことのあるツール", "登録日時"],
-      lastPilotProfiles.map((p) => pilotCsvRow([p.participant, p.experienceYears == null ? "" : p.experienceYears, p.selfLevel, p.background, p.practice, p.toolHistory, pilotTime(p.createdAt)])),
+      ["参加者", "経験年数", "経験月数", "自己評価", "経歴", "練習", "使ったことのあるツール", "登録日時"],
+      lastPilotProfiles.map((p) => pilotCsvRow([p.participant, p.experienceYears == null ? "" : p.experienceYears, p.experienceYears == null ? "" : Math.round(p.experienceYears * 12), p.selfLevel, p.background, p.practice, p.toolHistory, pilotTime(p.createdAt)])),
     );
   });
   $("pilotRefresh").addEventListener("click", loadPilotSummary);

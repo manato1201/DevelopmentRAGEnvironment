@@ -93,12 +93,13 @@ panel._confirm = lambda text: answers["yes"]
 panel.refresh()
 pump(lambda: panel._profile_box.isVisible())
 assert not panel._plan_box.isVisible()
-panel._years.setValue(1.5)
+panel._years.setValue(1)
+panel._months.setValue(6)
 panel._background.setText("CG専攻")
 panel._on_profile_send()
 pump(lambda: panel._plan_box.isVisible())
 assert not panel._profile_box.isVisible()
-assert FakeClient.calls[-1][0] == "profile" and FakeClient.calls[-1][1]["experienceYears"] == 1.5
+assert FakeClient.calls[-1][0] == "profile" and FakeClient.calls[-1][1]["experienceYears"] == 1.5 and FakeClient.calls[-1][1]["experienceMonths"] == 18
 assert "第1回（11/16〜11/21）" in panel._header.text() and "P01" in panel._header.text()
 fixed = panel._cards["fixed"]
 assert "Pyro" in fixed["title"].text()

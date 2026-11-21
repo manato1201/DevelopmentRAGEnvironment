@@ -145,3 +145,8 @@ CI（`ruff`・`mypy`・namespace 検査）と、設計判断 → [プロジェ�
 | Notion API リファレンス | https://developers.notion.com/ |
 | Google AI Studio（Gemini API キー発行） | https://aistudio.google.com/ |
 | uv — Python パッケージマネージャー | https://docs.astral.sh/uv/ |
+
+## ライセンス
+
+[PolyForm Noncommercial License 1.0.0](LICENSE)（非商用なら、学習・研究・個人の使用は自由。商用の利用は、別に許可が要ります）。
+第三者のものの表記は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、点検の記録は [docs/operations/license-and-rights-review-2026-11-21.md](docs/operations/license-and-rights-review-2026-11-21.md)。

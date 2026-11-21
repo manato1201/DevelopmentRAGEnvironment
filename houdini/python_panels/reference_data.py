@@ -249,13 +249,62 @@ def used_items(guide: dict | None, extra: list[dict] | None = None) -> dict[str,
 
 # ── HoudiniReference の抜粋 ────────────────────────────────────────────────
 
-def match_reference_items(items: list[dict], label: str, kind: str, limit: int = MAX_REFERENCE_ITEMS) -> list[dict]:
-    """HoudiniReference の項目（Tips・動画・ニュース）から、この項目に関係するものを選ぶ。題名・抜粋・タグに、名前が入っているもの。
-    新しい順。種類が vex / apex のときは、同じ名前のタグ（VEX / APEX）も、関係の手がかりにする。"""
-    name = " ".join(str(label or "").lower().split())
+_CONTEXT_WORDS = ("sop", "vop", "lop", "cop", "dop", "top", "chop", "rop", "node", "ノード", "vex", "apex")
+_CONTEXT_RE = "(?:" + "|".join(_CONTEXT_WORDS) + ")"
+
+
+def _word_re(text: str) -> re.Pattern:
+    """名前の前後が、英数字でない（単語として入っている）ことを求める正規表現。「scatter」が「scattering」に当たらないように。"""
+    return re.compile(r"(?<![0-9a-z_])" + re.escape(text) + r"(?![0-9a-z_])")
+
+
+# VEX の関数のうち、ふつうの英単語としても使われるもの（文の中の語と、区別できない）。これ以外の関数名（xyzdist など）は、名前だけで関数と分かる。
+_COMMON_VEX_WORDS = frozenset({
+    "abs", "append", "ceil", "clamp", "cos", "cross", "degrees", "distance", "dot", "exp", "fit", "floor", "frac", "length", "max", "min",
+    "noise", "normalize", "point", "pow", "printf", "rand", "rotate", "set", "sin", "smooth", "sort", "sqrt", "trunc", "find", "join", "len",
+    "push", "pop", "split", "invert", "matrix", "ident", "foreach", "lerp", "sprintf", "transpose", "random", "sample",
+})
+
+
+def _name_forms(label: str, kind: str = "", internal: bool = False) -> tuple[list[str], bool]:
+    """表示名から、探す書き方（小文字）と、「名前だけで、そのノード・関数と分かるか」を返す。
+    「Copy to Points」「attribwrangle」のような長い・複数語の名前は、名前だけで分かる。「Color」「Delete」「Peak」のような、
+    ふつうの英単語は、「Color SOP」のように、ノード・関数だと分かる言い方が一緒にあるときだけ、関係があるとみなす。"""
+    name = " ".join(re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", str(label or "")).lower().split())
     if len(name) < 3:
+        return [], False
+    compact = name.replace(" ", "")
+    forms = [name] + ([compact] if compact != name else [])
+    if kind in ("vex", "apex"):
+        return forms, compact not in _COMMON_VEX_WORDS and len(compact) >= 4 or " " in name
+    # 表示名（Transform・Geometry など）は、ふつうの英単語なので、1 語なら、長くても、名前だけでは足りない。
+    # 内部の名前（attribwrangle・polyextrude など）は、作られた語なので、9 文字以上なら、名前だけで足りる
+    return forms, (" " in name or (internal and len(compact) >= 9))
+
+
+def item_aliases(item: dict | None) -> tuple[str, ...]:
+    """一覧の項目の、内部の名前（"sop--attribwrangle" → "attribwrangle"）。表示名と別の書き方で、書かれていることがある。"""
+    name = str((item or {}).get("name") or (item or {}).get("key") or "")
+    base = re.split(r"--|/", name)[-1].split("::")[0]
+    return (base,) if base else ()
+
+
+def match_reference_items(items: list[dict], label: str, kind: str, limit: int = MAX_REFERENCE_ITEMS, aliases: tuple[str, ...] = ()) -> list[dict]:
+    """HoudiniReference の項目（Tips・動画・ニュース）から、この項目に関係するものを選ぶ。新しい順。
+    （2026-11-21 厳しくした。前は、名前を含むだけで選び、「Scatter」に「Transmission Scattering」、「Color」に色の表示の不具合の変更履歴が当たった）
+      ・名前は、単語として入っているものだけ（「scatter」は「scattering」に当たらない）
+      ・題名か、タグに入っているもの。抜粋にだけ入っているものは、名前が長い・複数語のときだけ
+      ・「Color」のような、ふつうの英単語の名前は、「Color SOP」のように、ノード・関数だと分かる言い方があるときだけ
+      ・VEX・APEX は、題名・抜粋・タグに、VEX・APEX の語も入っているものだけ（「fit」「set」などが、ふつうの文に当たらないように）"""
+    forms, distinctive = _name_forms(label, kind)
+    for alias in aliases:  # 内部の名前（attribwrangle など）。表示名と別の書き方で書かれていることがある
+        more, more_distinctive = _name_forms(alias, kind, internal=True)
+        forms += [f for f in more if f not in forms]
+        distinctive = distinctive or more_distinctive
+    if not forms:
         return []
-    tag = {"vex": "vex", "apex": "apex"}.get(kind, "")
+    word_res = [_word_re(f) for f in forms]
+    cue_res = [re.compile(r"(?<![0-9a-z_])" + re.escape(f) + r"\s*(?:\[)?\s*" + _CONTEXT_RE + r"(?![0-9a-z_])|(?<![0-9a-z_])" + _CONTEXT_RE + r"\s+" + re.escape(f) + r"(?![0-9a-z_])|(?<![0-9a-z_])" + re.escape(f) + r"\s*\(") for f in forms]
     scored: list[tuple[int, str, dict]] = []
     for item in items or []:
         if not isinstance(item, dict):
@@ -263,15 +312,18 @@ def match_reference_items(items: list[dict], label: str, kind: str, limit: int =
         title = str(item.get("title") or "").lower()
         excerpt = str(item.get("excerpt") or "").lower()
         tags = [str(t).lower() for t in (item.get("tags") or [])]
-        score = 0
-        if name in title:
-            score += 3
-        if name in excerpt:
-            score += 1
-        if tag and tag in tags and score:
-            score += 1
-        if score:
-            scored.append((score, str(item.get("published") or ""), item))
+        in_title = any(r.search(title) for r in word_res)
+        in_tags = any(t in forms for t in tags)
+        in_excerpt = any(r.search(excerpt) for r in word_res)
+        if not (in_title or in_tags or (in_excerpt and distinctive)):
+            continue
+        if not distinctive and not any(r.search(title + " " + excerpt) for r in cue_res):
+            continue
+        if kind in ("vex", "apex"):
+            hint = kind
+            if not (hint in tags or hint in title or hint in excerpt):
+                continue
+        scored.append((3 if in_title or in_tags else 1, str(item.get("published") or ""), item))
     scored.sort(key=lambda t: (t[0], t[1]), reverse=True)  # 関係の強い順、同じなら新しい順
     return [s[2] for s in scored[:limit]]
 

@@ -39,3 +39,7 @@ build/reference_parms_build.json
 build/reference_parms.keys.json
 build/_vcc/
 build/*.log
+
+# 作業用の一時ファイル・ログ・退避（2026-11-21）
+build/_*
+build/*.log

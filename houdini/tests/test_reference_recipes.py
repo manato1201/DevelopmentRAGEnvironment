@@ -45,6 +45,26 @@ class RecipeShapeTest(unittest.TestCase):
                 self.assertTrue({"parm", "from", "to"} <= set(sweep), recipe["key"])
                 self.assertNotEqual(sweep["from"], sweep["to"], f"{recipe['key']}: a sweep that does not move shows nothing")
 
+    def test_a_sweep_on_an_input_names_a_node_that_the_chain_builds(self) -> None:
+        """"node": "in1" は 2 番目の入力の元のノード、"in1_0" はそのあとの 1 つ目（hython_shot.build_chain の名前）。"""
+        import re
+
+        for recipe in RECIPES:
+            name = (recipe.get("sweep") or {}).get("node")
+            if not name:
+                continue
+            match = re.fullmatch(r"in(\d+)(?:_(\d+))?", name)
+            self.assertTrue(match, f"{recipe['key']}: {name}")
+            inputs = recipe.get("inputs") or [recipe["input"]]
+            spec = inputs[int(match.group(1))]
+            if match.group(2) is not None:
+                self.assertLess(int(match.group(2)), len(spec.get("after") or []), f"{recipe['key']}: {name} is not in the chain")
+
+    def test_keep_names_only_values_the_recipe_sets(self) -> None:
+        for recipe in RECIPES:
+            for name in recipe.get("keep") or []:
+                self.assertIn(name, recipe.get("parms") or {}, f"{recipe['key']}: keep {name} is not a value of the recipe")
+
     def test_at_least_a_dozen_recipes_cover_the_common_nodes(self) -> None:
         self.assertGreaterEqual(len(RECIPES), 15)
 

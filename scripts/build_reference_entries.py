@@ -159,7 +159,7 @@ def verified_steps(key: str) -> str:
             ports = "、".join(f"{o} を {i + 1} 番目の入力" for i, o in enumerate(outputs))
             lines.append(f"{len(lines) + 1}. {name} ノードを作り、{ports}につなぎ、{_fmt(recipe['parms'])} にする")
         sweep = recipe.get("sweep")
-        if sweep:
+        if sweep and not sweep.get("node"):  # 入力側を動かす動き（boolean の B など）は、ノードの説明ではないので、書かない（補足の note に残す）
             lines.append(f"{len(lines) + 1}. {sweep['parm']} を {sweep['from']} から {sweep['to']} まで動かすと、形が変わっていく（適用前後の画像は、この条件で撮ったもの）")
         if recipe.get("note"):
             lines.append(f"補足: {recipe['note']}")
@@ -221,6 +221,14 @@ def main(argv: list[str] | None = None) -> int:
     # 公開の点検（publish_reference.py）が読む build/reference_parms.json は、全部の項目の書き出し。一部のキーだけを作るときに、
     # それを上書きしないよう、作るときの書き出しは、別のファイルに置く（上書きすると、公開が「点検の結果に無い」と止まる。2026-11-20）。
     parms = dump_parms(node_keys, DEFAULT_OUT.with_name("reference_parms_build.json")) if node_keys else None  # 実機の本物のパラメータ名（説明に、無い名前を書かせない・書いたら保存しない）
+    # VEX の関数が実在するか（audit_reference.py が vcc で確かめた結果）は、全部の項目の書き出しにある。キーを絞った作り直しでも、それを使う
+    # （使わないと、VEX の説明が「確かめていません」で、すべて保存されない。2026-11-21）
+    from audit_reference import load_parms
+
+    full = load_parms(DEFAULT_OUT) or {}
+    if full.get("__vex__"):
+        parms = dict(parms or {})
+        parms["__vex__"] = {**(full.get("__vex__") or {}), **(parms.get("__vex__") or {})}
 
     total_in = total_out = failed = 0
     cost = 0.0

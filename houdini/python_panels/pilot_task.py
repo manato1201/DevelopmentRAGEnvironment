@@ -224,9 +224,12 @@ def build_end_payload(session_id: str, reached, cook_nodes, self_mistakes, answe
 PROFILE_LEVELS = ("初心者", "初級", "中級", "上級")
 
 
-def build_profile_payload(years: float, level: str, background: str, practice: str, tools: str) -> dict:
+def build_profile_payload(years: float, level: str, background: str, practice: str, tools: str, months: int = 0) -> dict:
+    """事前アンケートの送信内容。経験は、年と月で聞き、合計の月数（experienceMonths）と、年（月数 ÷ 12。分析の既存の列）で送る。"""
+    total = max(0, min(720, round(float(years) * 12) + int(months)))
     return {
-        "experienceYears": float(years),
+        "experienceMonths": total,
+        "experienceYears": round(total / 12, 4),
         "selfLevel": level if level in PROFILE_LEVELS else "",
         "background": (background or "").strip()[:400],
         "practice": (practice or "").strip()[:400],

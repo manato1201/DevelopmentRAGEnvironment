@@ -70,6 +70,7 @@ from panel_info import EXPLAIN_CHOICES as _EXPLAIN_CHOICES, format_explain as _f
 from panel_widgets import CollapsibleBox as _CollapsibleBox, ui_state_get as _ui_state_get, ui_state_set as _ui_state_set
 import panel_debug as _debug
 import node_links as _node_links
+import panel_bus as _bus
 import panel_nav as _nav
 import panel_paths as _paths
 from pilot_panel import PilotTaskPanel as _PilotTaskPanel
@@ -539,6 +540,7 @@ class RAGChatbotPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        _bus.register(self)  # ほかのパネルから、Guide ⇄ Reference の移動を受けるため（panel_bus.py）
         self._cfg           = _load_config()
         self._client        = RAGClient(self._cfg)
         self._history: list[dict]               = []
@@ -603,9 +605,9 @@ class RAGChatbotPanel(QWidget):
         help_index = tabs.addTab(self._wrap_tab(self._build_help_tab()), book, "" if not book.isNull() else "?")  # SVG が無い環境は、文字で代用
         tabs.setTabToolTip(help_index, "はじめに（使い方）")
         tabs.addTab(self._wrap_tab(self._build_chat_tab()),     "Chat")
-        tabs.addTab(self._wrap_tab(self._build_guide_tab()),    "Guide")
+        tabs.addTab(self._wrap_tab(self._build_guide_tab(), scrollable=True, min_size=(_px(300), _px(560))), "Guide")
         tabs.addTab(self._tutorial_tab_wrapper,                 "Tutorial")
-        tabs.addTab(self._wrap_tab(self._build_reference_tab()), "Reference")
+        tabs.addTab(self._wrap_tab(self._build_reference_tab(), scrollable=True, min_size=(_px(300), _px(520))), "Reference")
         tabs.addTab(self._video_tab_wrapper,                    "Movie")
         # 「課題」タブ（実証実験の参加者向け）。メニュー（≡）「接続・アカウント」の「実証実験に参加する」を入れたときだけ表示する（既定は非表示）。
         self._pilot_panel = _PilotTaskPanel(lambda: self._cfg)
@@ -980,7 +982,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         return w
 
     @staticmethod
-    def _wrap_tab(content: QWidget, scrollable: bool = False) -> QWidget:
+    def _wrap_tab(content: QWidget, scrollable: bool = False, min_size: tuple[int, int] | None = None) -> QWidget:
         """
         タブページを_FixedHintTabで包む。QTabWidget追加直前に呼ぶこと。
         戻り値のラッパーがQTabWidgetに登録される実際のタブページになるため、
@@ -1006,6 +1008,10 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         layout = QVBoxLayout(wrapper)
         layout.setContentsMargins(0, 0, 0, 0)
         if scrollable:
+            if min_size:
+                # 狭い・低いペインに置かれても、部品が押しつぶされて重ならないように、最小の大きさを決める。
+                # それより小さいときは、スクロールバーが出る（2026-11-21。右下の小さなペインで、Reference の一覧と説明が重なった）。
+                content.setMinimumSize(min_size[0], min_size[1])
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setFrameShape(QScrollArea.NoFrame)
@@ -1317,6 +1323,11 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         menu.addSeparator()
         menu.addAction("このパネルを別ウィンドウで開く（並べて見る）").triggered.connect(self._on_open_new_window)
         menu.addAction("並べて見る方法").triggered.connect(self._show_parallel_help)
+        jump = menu.addAction("ほかのパネルがあるとき、そちらで開く（Guide ⇄ Reference）")
+        jump.setCheckable(True)
+        jump.setChecked(_bus.enabled())
+        jump.setToolTip("オン: 別のパネルが見えているとき、Guide の「ノードの説明」は、そちらの Reference で開きます（逆も同じ）。オフ: いつも、このパネルの中で切り替えます")
+        jump.toggled.connect(_bus.set_enabled)
         self._gear_menu = menu
         button = _action_button("menu", "メニュー（履歴・接続・設定・別ウィンドウで開く）")
         button.setMenu(menu)

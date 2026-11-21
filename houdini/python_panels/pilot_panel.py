@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QDialog,
-    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -29,6 +28,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QSpinBox,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -178,10 +178,18 @@ class PilotTaskPanel(QWidget):
         intro = QLabel("実験の最初に、1回だけ答えてください。氏名など、個人を特定する情報は聞きません。")
         intro.setWordWrap(True)
         form.addRow(intro)
-        self._years = QDoubleSpinBox()
+        self._years = QSpinBox()  # 経験は、年と月で聞く（半年刻みでは、粗かった。2026-11-21）
         self._years.setRange(0, 30)
-        self._years.setSingleStep(0.5)
         self._years.setSuffix(" 年")
+        self._months = QSpinBox()
+        self._months.setRange(0, 11)
+        self._months.setSuffix(" ヶ月")
+        experience = QWidget()
+        experience_row = QHBoxLayout(experience)
+        experience_row.setContentsMargins(0, 0, 0, 0)
+        experience_row.addWidget(self._years)
+        experience_row.addWidget(self._months)
+        experience_row.addStretch()
         self._level = QComboBox()
         self._level.addItems(pt.PROFILE_LEVELS)
         self._background = QLineEdit()
@@ -190,7 +198,7 @@ class PilotTaskPanel(QWidget):
         self._practice.setPlaceholderText("例: 個人制作のみ／インターン経験あり")
         self._tools = QLineEdit()
         self._tools.setPlaceholderText("例: Blender 2年、Maya 1年、Houdini 半年")
-        form.addRow("Houdini の使用経験", self._years)
+        form.addRow("Houdini の使用経験（触り始めてから、いま）", experience)
         form.addRow("自己評価のレベル", self._level)
         form.addRow("学習背景", self._background)
         form.addRow("実務経験", self._practice)
@@ -357,7 +365,7 @@ class PilotTaskPanel(QWidget):
 
     # ── 事前アンケート ──
     def _on_profile_send(self) -> None:
-        payload = pt.build_profile_payload(self._years.value(), self._level.currentText(), self._background.text(), self._practice.text(), self._tools.text())
+        payload = pt.build_profile_payload(self._years.value(), self._level.currentText(), self._background.text(), self._practice.text(), self._tools.text(), months=self._months.value())
         self._profile_send.setEnabled(False)
         self._call(lambda: self._client().pilot_profile(payload), self._on_profile_done)
 

@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+import panel_bus
 import reference_author as ra
 import reference_data as rd
 import reference_remote as rr
@@ -166,7 +167,7 @@ class _EntryWorker(QThread):
                 return
             base_dir = str(self._cfg.get("local_bridge_dir") or "")
             label = self._item.get("label") or self._item.get("name") or ""
-            references = rd.match_reference_items(fetch_reference_items(base_dir), label, self._item.get("kind", ""))
+            references = rd.match_reference_items(fetch_reference_items(base_dir), label, self._item.get("kind", ""), aliases=rd.item_aliases(self._item))
             docs = self._fetch_docs(label)  # テストが差し替える入口（本体は ra.fetch_docs）
             try:
                 entry, usage, docs_found, refs_found = ra.make_entry(self._cfg, self._complete, self._item, references=references, docs=docs)
@@ -590,7 +591,7 @@ class ReferenceWidget(QWidget):
                 self._reference_items = [i for i in (data.get("items") or []) if isinstance(i, dict)]
             except (OSError, ValueError, AttributeError):
                 self._reference_items = []
-        return rd.match_reference_items(self._reference_items, item.get("label", ""), item.get("kind", ""))
+        return rd.match_reference_items(self._reference_items, item.get("label", ""), item.get("kind", ""), aliases=rd.item_aliases(item))
 
     def show_item(self, kind: str, key: str, label: str = "") -> None:
         """指定の項目を開く（Guide の「ノードの説明」から）。一覧に無いときは、名前から作った項目にする。"""
@@ -687,15 +688,16 @@ def open_guide_step(source: QWidget, index: int) -> str:
     try:
         import guide_view
 
-        host = guide_view.locate_in_tabs(source)
+        other = panel_bus.route(source, guide_view.GuideWidget, panel_bus.enabled())  # 別のパネルが見えていれば、そちらの Guide を開く
+        host = guide_view.locate_in_tabs(other if other is not None else source)
         if host is None:
             return "Guide タブが見つかりません"
         tabs = host[0]
-        guide = guide_view._guide_in(tabs)
+        guide = other if other is not None else guide_view._guide_in(tabs)
         if guide is None or not guide.goto_step(index):
             return "Guide に、その手順がありません（チュートリアルを読み込み直したかもしれません）"
         tabs.setCurrentIndex(tabs.indexOf(_page_of(tabs, guide)))
-        return f"Guide の手順 {index + 1} を開きました"
+        return f"{'別のパネルの ' if other is not None else ''}Guide の手順 {index + 1} を開きました"
     except Exception as exc:  # noqa: BLE001
         return f"Guide を開けませんでした（{exc}）"
 
@@ -708,11 +710,12 @@ def open_item_for_step(source: QWidget, step: dict) -> str:
     try:
         import guide_view
 
-        host = guide_view.locate_in_tabs(source)
+        other = panel_bus.route(source, ReferenceWidget, panel_bus.enabled())  # 別のパネルが見えていれば、そちらの Reference を開く
+        host = guide_view.locate_in_tabs(other if other is not None else source)
         if host is None:
             return "Reference タブが見つかりません"
         tabs = host[0]
-        widget = tabs.findChild(ReferenceWidget)
+        widget = other if other is not None else tabs.findChild(ReferenceWidget)
         if widget is None:
             return "Reference タブが見つかりません"
         base = rd.base_type(node_type).lower()
@@ -732,7 +735,7 @@ def open_item_for_step(source: QWidget, step: dict) -> str:
             widget.show_item(hit["kind"], hit["key"], hit["label"])
         else:
             widget.show_item("node", f"node/{rd.slug(base)}", label)
-        return f"Reference タブで「{label}」を開きました"
+        return f"{'別のパネルの ' if other is not None else ''}Reference タブで「{label}」を開きました"
     except Exception as exc:  # noqa: BLE001
         return f"Reference タブを開けませんでした（{exc}）"
 

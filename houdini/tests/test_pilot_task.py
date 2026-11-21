@@ -167,6 +167,13 @@ class PayloadTest(unittest.TestCase):
         self.assertEqual(p["background"], "CG専攻")
         self.assertEqual(pt.build_profile_payload(0, "不明", "", "", "")["selfLevel"], "")
 
+    def test_profile_experience_is_years_and_months(self):
+        p = pt.build_profile_payload(1, "初級", "", "", "", months=7)
+        self.assertEqual(p["experienceMonths"], 19)
+        self.assertAlmostEqual(p["experienceYears"], 19 / 12, places=3)
+        self.assertEqual(pt.build_profile_payload(0, "", "", "", "")["experienceMonths"], 0)
+        self.assertEqual(pt.build_profile_payload(70, "", "", "", "", months=11)["experienceMonths"], 720, "bounded at 60 years")
+
 
 class TextTest(unittest.TestCase):
     def test_survey_questions_hide_sources_when_docs_only(self):

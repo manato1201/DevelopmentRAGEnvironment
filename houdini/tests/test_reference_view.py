@@ -27,7 +27,7 @@ except ImportError:
     QApplication = None
 
 ITEMS = {"items": [
-    {"title": "scatter tips for Houdini", "excerpt": "Scatter points", "tags": ["YouTube"], "published": "2026-11-18T00:00:00Z", "source": "Entagma", "url": "https://example.com/s"},
+    {"title": "Scatter SOP tips for Houdini", "excerpt": "Scatter points", "tags": ["YouTube"], "published": "2026-11-18T00:00:00Z", "source": "Entagma", "url": "https://example.com/s"},
     {"title": "other", "excerpt": "x", "tags": [], "published": "2026-11-01T00:00:00Z"},
 ]}
 
@@ -94,6 +94,9 @@ class FetchReferenceItemsTest(unittest.TestCase):
 class ReferenceWidgetTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        import panel_bus
+
+        panel_bus._panels.clear()  # 前のテストが残した、見えているパネルに、移動を取られないように
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
@@ -166,7 +169,7 @@ class ReferenceWidgetTest(unittest.TestCase):
         user = self.completed[0][1]
         self.assertIn("項目: Scatter（ノード）", user)
         self.assertIn("点を散らします", user)       # 公式の資料が、依頼に入る
-        self.assertIn("scatter tips for Houdini", user)  # HoudiniReference の関連が、依頼に入る
+        self.assertIn("Scatter SOP tips for Houdini", user)  # HoudiniReference の関連が、依頼に入る
         self.assertIn("点を散らす", self.widget._detail.toPlainText())
         self.assertIsNotNone(rd.load_entry(self.tmp.name, "node", "sop/scatter"))
         self.assertEqual(self.widget._make_btn.text(), "説明を作り直す")
@@ -234,6 +237,9 @@ class ReferenceWidgetTest(unittest.TestCase):
 class GuideLinkTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        import panel_bus
+
+        panel_bus._panels.clear()  # 前のテストが残した、見えているパネルに、移動を取られないように
         cls.app = QApplication.instance() or QApplication([])
 
     def test_the_guide_button_opens_the_node_in_the_reference_tab_and_marks_used_items(self) -> None:
@@ -299,6 +305,9 @@ class UsedStepsTest(unittest.TestCase):
 class JumpAndCostTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        import panel_bus
+
+        panel_bus._panels.clear()  # 前のテストが残した、見えているパネルに、移動を取られないように
         cls.app = QApplication.instance() or QApplication([])
 
     def _tabs(self):
@@ -381,6 +390,9 @@ class ParticipantTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        import panel_bus
+
+        panel_bus._panels.clear()  # 前のテストが残した、見えているパネルに、移動を取られないように
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self) -> None:
