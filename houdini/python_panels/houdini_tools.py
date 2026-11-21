@@ -1380,6 +1380,7 @@ class HoudiniToolExecutor:
                 clip_frames, clip_fps = self._capture_cook_clip(screen_capture, step_index, log_path)
 
             network_kind = "network"
+            network_video = None  # 動画用の、読める大きさの図（実画面が小さいときの代わり）
             if changes:
                 # set_parameter: どのパラメータをいくつからいくつに変えたかを見せるカード。
                 try:
@@ -1413,6 +1414,17 @@ class HoudiniToolExecutor:
                     focus_path=focus_path,
                     callout=tool_result,
                 )
+                # 実画面を撮れたときは、動画のために、読める大きさで描いた図も 1 枚作る（2026-11-22）。実画面は、ノードが小さく、動画では名前が
+                # 読めなかった。Guide・手順書は、これまでどおり実画面を使い、動画だけが、この図を使う（video_factory_bridge.manifest_entries）。
+                try:
+                    if got_network and screen_capture.read_capture_meta(network_path).get("kind") != "node_diagram":
+                        video_path = self._screenshot_dir / f"step_{step_index:03d}_network_video.png"
+                        if screen_capture.render_network_diagram(
+                            video_path, container_path, focus_path, tool_result, log_path=log_path
+                        ):
+                            network_video = str(video_path)
+                except Exception as exc:  # noqa: BLE001 -- 動画用の追加の図が作れなくても、手順の記録は残す（実画面で代用される）
+                    screen_capture._log(f"video diagram failed: {exc!r}", log_path)
             entry = {
                 "step": step_index,
                 "tool": tool_name,
@@ -1421,6 +1433,7 @@ class HoudiniToolExecutor:
                 "viewport": str(viewport_path) if got_viewport else None,
                 "network": str(network_path) if got_network else None,
                 "network_kind": network_kind,
+                "network_video": network_video,
                 "viewport_clip_frames": [str(p) for p in clip_frames],
                 "viewport_clip_fps": clip_fps,
                 "guide": self._step_guide(tool_name, tool_input, focus_path, changes, connections),

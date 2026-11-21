@@ -148,7 +148,7 @@ _PROMPT_TEMPLATE = """@@ROLE@@
 22. チェックボックスとメニューは、数字で言わない。「0にします」ではなく、「オフにします」「Detailにします」と、画面に出る表示名で言う。入力に表示名が無いときは、数字を言わず、「切り替えます」と言う。
 23. ノードやパラメータを消す手順は、「〇〇を消します」とはっきり言う（「整理します」「外します」にしない）。
 24. ノードを作る手順では、そのノードを使う目的を、1文で言う（purpose にも、30文字まで）。入力にない目的は作らない。
-25. 入力に「この場面にまとめる操作」がある手順は、複数の操作を1つにまとめた場面。その中の操作を、順番に、1つも飛ばさずに説明する（ノードを作る・つなぐだけの操作は、まとめて1文でよい。エラーが出て直した操作は、「何が起きて、どう直したか」まで話す）。最後に、この場面が終わった時点で、何ができていて、画面に何が見えるかを言う。「この場面にまとめる操作」に無いことは、書かない。見出し（heading）は、場面全体を表す16文字までの名前にする。
+25. 入力に「この場面にまとめる操作」がある手順は、複数の操作を1つにまとめた場面。その中の操作を、順番に、1つも飛ばさずに説明する（ノードを作る・つなぐだけの操作は、まとめて1文でよい。エラーが出て直した操作は、「何が起きて、どう直したか」まで話す）。最後に、この場面が終わった時点で、何ができていて、画面に何が見えるかを言う。「この場面にまとめる操作」に無いことは、書かない。見出し（heading）は、場面全体を表す16文字までの名前にする。場面の説明は、細かく、正確に、簡潔に書く: 1 つの操作は 1 文（40文字前後）で、ノード名・パラメータの表示名・値を、入力のとおりに言う。同じことの言い換え、前置き、感想は書かない。場面全体で 280 文字前後を目安にし、操作の数が多い場面だけ、それより長くしてよい。
 
 【出力】JSONだけを出力する（前後に説明やコードブロックを付けない）。形式:
 {
@@ -356,13 +356,33 @@ def clean_points(raw: object) -> list[str]:
     return out
 
 
+def cut_heading(text: str, limit: int) -> str:
+    """見出しを limit 文字以内にする。長いときは、文の切れ目（、・助詞の直後）で切り、途中で「…」と切れた見出しにしない（2026-11-22）。
+    動画で、「four_pointsと傘の値を決…（手順書の5〜8）」のように、言い切れない見出しが出ていた。切れ目が無ければ、limit で切って「…」を付ける。"""
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    window = text[:limit]
+    floor = max(8, limit // 2)  # これより短くなる切れ目は使わない（「bell_cutの」のように、意味が足りない見出しになる）
+    best = -1
+    for i, ch in enumerate(window):
+        if ch in "、，, 　" and i >= floor:
+            best = i  # 区切りの記号は、その手前で切る
+    if best >= 0:
+        return window[:best].rstrip()
+    for i in range(limit - 1, floor - 1, -1):  # 助詞の直後（を・に・で・と・の・は・が）。名前の途中（英字の続き）では切らない
+        if window[i] in "をにでとのはが" and not (window[i + 1:i + 2].isascii() and window[i + 1:i + 2].isalnum()):
+            return window[: i + 1]
+    return window[: limit - 1] + "…"
+
+
 def clean_heading(raw: object) -> str:
     if not isinstance(raw, str):
         return ""
     s = re.sub(r"\s+", " ", re.sub(r"[`*#]+", "", raw)).strip()
     if looks_like_code(s):
         return ""
-    return s if len(s) <= 24 else s[:23] + "…"
+    return s if len(s) <= 24 else cut_heading(s, 24)
 
 
 # ── 定型の解説（Claudeが使えない・不合格のときの補い） ──────────────────────────
@@ -1409,7 +1429,7 @@ def assemble_script(
             covers = [c for c in entry["covers"] if isinstance(c, int)]
             if covers:
                 head = str(out.get("heading") or "")
-                head = head if len(head) <= 18 else head[:17] + "…"
+                head = cut_heading(head, 18)
                 out["heading"] = f"{head}（手順書の{covers[0]}〜{covers[-1]}）"
             out["covers"] = list(entry["covers"])
         if facts["action"] == "create":

@@ -55,13 +55,15 @@ def energy_like() -> list[dict]:
 
 
 class LengthModeTest(unittest.TestCase):
-    def test_default_is_short_and_only_full_is_full(self) -> None:
-        self.assertEqual(vs.length_mode({}), vs.SHORT)
-        self.assertEqual(vs.length_mode(None), vs.SHORT)
-        self.assertEqual(vs.length_mode({"video_length": "full"}), vs.FULL)
-        self.assertEqual(vs.length_mode({"video_length": " FULL "}), vs.FULL)
-        self.assertEqual(vs.length_mode({"video_length": "nonsense"}), vs.SHORT)
-        self.assertEqual(vs.length_mode({"video_length": ""}), vs.SHORT)
+    def test_default_is_full_and_only_short_is_short(self) -> None:
+        # 2026-11-22: 既定は完全版（全部の手順を、1 手順ずつ解説する）。短縮版は、1 場面に複数の手順をまとめるので、粗く、短すぎた
+        self.assertEqual(vs.length_mode({}), vs.FULL)
+        self.assertEqual(vs.length_mode(None), vs.FULL)
+        self.assertEqual(vs.length_mode({"video_length": "short"}), vs.SHORT)
+        self.assertEqual(vs.length_mode({"video_length": " SHORT "}), vs.SHORT)
+        self.assertEqual(vs.length_mode({"video_length": "nonsense"}), vs.FULL)
+        self.assertEqual(vs.length_mode({"video_length": ""}), vs.FULL)
+        self.assertEqual(vs.engine_args(vs.FULL), [], "the full video does not drop the other chapters")
 
     def test_engine_args(self) -> None:
         self.assertEqual(vs.engine_args(vs.SHORT), ["--short"])

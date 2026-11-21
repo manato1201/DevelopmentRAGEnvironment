@@ -400,6 +400,24 @@ class BridgeManifestTest(unittest.TestCase):
             self.assertNotIn("network_pages", entries[1])
             self.assertNotIn("capture", entries[2])
 
+    def test_the_video_gets_the_readable_diagram_instead_of_the_real_screen(self) -> None:
+        """実画面は、ノードが小さく、動画では名前が読めなかった（2026-11-22）。動画には、読める大きさで描いた図を渡す。パラメータの画像は、そのまま。"""
+        with tempfile.TemporaryDirectory() as d:
+            raw, diagram, card = Path(d) / "s5_network.png", Path(d) / "s5_network_video.png", Path(d) / "s6_network.png"
+            for path in (raw, diagram, card):
+                path.write_bytes(b"x")
+            entries = vfb.manifest_entries([
+                {"step": 5, "network": str(raw), "network_kind": "network", "network_video": str(diagram)},
+                {"step": 6, "network": str(card), "network_kind": "parameter", "network_video": str(diagram)},
+                {"step": 7, "network": str(raw), "network_kind": "network", "network_video": str(Path(d) / "missing.png")},
+                {"step": 8, "network": str(raw), "network_kind": "network", "network_video": None},
+            ])
+            self.assertEqual(entries[0]["network"], str(diagram), "the video uses the readable diagram")
+            self.assertEqual(entries[1]["network"], str(card), "a parameter card is never swapped")
+            self.assertEqual(entries[2]["network"], str(raw), "a missing diagram file falls back to the real screen")
+            self.assertEqual(entries[3]["network"], str(raw))
+            self.assertTrue(all("network_video" not in e for e in entries), "the engine does not need the extra key")
+
     def test_pages_are_found_even_when_the_file_name_has_glob_characters(self) -> None:
         """名前に [ ] があっても、2 枚目以降の画像を探せる（glob の記号として扱うと、見つからなかった）。"""
         with tempfile.TemporaryDirectory() as d:

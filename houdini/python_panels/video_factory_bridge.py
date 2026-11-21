@@ -70,10 +70,16 @@ def manifest_entries(step_screenshots: list[dict]) -> list[dict]:
     """動画エンジンに渡す、手順ごとの記録（<slug>_screenshots.json の中身）。
     guide は案内モード用なので、渡さない。2026-11-17 に足した（エンジンが読まなければ、無視される）:
       "network_pages": 長いコードを複数枚に分けたときの、2 枚目以降の画像のパス（順番どおり）
-      "capture": "network" 画像の補足情報（kind=node_diagram / code_card、nodes_shown / nodes_total、name_pt、pages など）"""
+      "capture": "network" 画像の補足情報（kind=node_diagram / code_card、nodes_shown / nodes_total、name_pt、pages など）
+    2026-11-22: 手順に "network_video"（動画用に、読める大きさで描いたノード図）があれば、"network" をそれに差し替える（パラメータの画像は、そのまま）。"""
     out = []
     for s in step_screenshots:
-        entry = {k: v for k, v in s.items() if k != "guide"}
+        entry = {k: v for k, v in s.items() if k not in ("guide", "network_video")}
+        # 動画には、読める大きさで描いた図（network_video）があれば、実画面（network）の代わりに渡す（2026-11-22）。
+        # 実画面は、ノードが小さく、動画では名前が読めなかった。Guide・手順書は、実画面のまま。
+        video_image = s.get("network_video")
+        if video_image and entry.get("network_kind") != "parameter" and Path(str(video_image)).is_file():
+            entry["network"] = str(video_image)
         pages = _extra_pages(entry.get("network"))
         if pages:
             entry["network_pages"] = pages

@@ -26,16 +26,19 @@ from __future__ import annotations
 
 SHORT = "short"
 FULL = "full"
-SHORT_MAX_GROUPS = 12       # 場面の数の上限。1 場面 約 30 秒（ナレーション 約 200 文字）で、約 6 分
+# 場面の数の上限。2026-11-22 に 12 → 22 にした: 12 だと、41 手順が 1 場面 3〜4 手順になり、1 つの画面を見せながら、複数の操作を一度に話す
+# 動画になっていた（内容が粗く、画面と説明が合わない。実証実験の感想）。22 なら、1 場面は、ほぼ 2 手順。1 場面 約 25 秒（約 150 文字）で、約 9 分。
+SHORT_MAX_GROUPS = 22
 CONFIG_KEY = "video_length"
 COVERED_TEXT_MAX = 120      # 台本のモデルに渡す、含まれる手順の操作文の長さ（先頭の 1 行）
 COVERED_MAX = 14            # 1 場面で、モデルに渡す、含まれる手順の数の上限
 
 
 def length_mode(cfg: dict | None) -> str:
-    """設定の動画の長さ。"full" のときだけ完全版。それ以外（無い・不正）は、短縮版。"""
-    value = str((cfg or {}).get(CONFIG_KEY, SHORT) or SHORT).strip().lower()
-    return FULL if value == FULL else SHORT
+    """設定の動画の長さ。"short" のときだけ短縮版。それ以外（無い・不正）は、完全版（全部の手順を、1 手順ずつ解説する）。
+    2026-11-22: 既定を短縮版から完全版にした。短縮版は、1 場面に複数の手順をまとめるので、解説が粗く、短すぎた（実証実験の感想）。"""
+    value = str((cfg or {}).get(CONFIG_KEY, FULL) or FULL).strip().lower()
+    return SHORT if value == SHORT else FULL
 
 
 def engine_args(mode: str) -> list[str]:

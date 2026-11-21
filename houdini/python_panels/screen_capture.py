@@ -1079,6 +1079,103 @@ def _looks_blank(image) -> bool:
     return True
 
 
+# ─── 画像の余白を切り詰める（2026-11-22）──────────────────────────────────────────────────────────────
+# 動画で、実画面のパラメータ・ネットワークが、枠の半分ほどの大きさでしか映らず、文字が読めなかった（実際の動画で確認）。
+# 原因: ペインを最大化して撮った（2560x1440 など）画像の、実際の中身（パラメータの行）は、左上の 3 割ほどで、残りは背景の色。
+# それを、そのまま枠に縮めて入れていた。背景の色と違う画素の範囲だけを切り出して、枠いっぱいに使う。
+
+CROP_PAD = 24          # 中身の外側に残す余白（画素）
+CROP_TOLERANCE = 10    # 背景の色との差（各色 0〜255）がこれ以下なら、背景とみなす
+CROP_MIN_FRACTION = 0.92  # 切り出した結果が、元の面積のこれ以上なら、切らない（ほとんど変わらない）
+
+
+def content_rect(image, pad: int = CROP_PAD, tolerance: int = CROP_TOLERANCE, step: int = 3):
+    """背景の色と違う画素が入っている範囲 (x, y, w, h)。背景の色は、画像の四辺で最も多い色。中身が見つからない（単色）ときは None。
+    step 画素おきに調べ、見つかった範囲の端を、1 画素ずつ詰める（巨大な画像でも、数十万回の判定で済む）。"""
+    from PySide6.QtGui import QImage
+
+    width, height = image.width(), image.height()
+    if width <= 0 or height <= 0:
+        return None
+    img = image.convertToFormat(QImage.Format_RGB32)
+    data = memoryview(bytes(img.constBits()))
+    stride = img.bytesPerLine()
+
+    def px(x: int, y: int) -> tuple[int, int, int]:
+        i = y * stride + x * 4  # Format_RGB32 は、リトルエンディアンで B, G, R, (A)
+        return data[i + 2], data[i + 1], data[i]
+
+    border: dict[tuple[int, int, int], int] = {}
+    for x in range(0, width, max(1, step * 4)):
+        for y in (0, height - 1):
+            border[px(x, y)] = border.get(px(x, y), 0) + 1
+    for y in range(0, height, max(1, step * 4)):
+        for x in (0, width - 1):
+            border[px(x, y)] = border.get(px(x, y), 0) + 1
+    bg = max(border, key=border.get)
+
+    def differs(x: int, y: int) -> bool:
+        r, g, b = px(x, y)
+        return abs(r - bg[0]) > tolerance or abs(g - bg[1]) > tolerance or abs(b - bg[2]) > tolerance
+
+    x0, y0, x1, y1 = width, height, -1, -1
+    for y in range(0, height, step):
+        for x in range(0, width, step):
+            if differs(x, y):
+                x0, y0, x1, y1 = min(x0, x), min(y0, y), max(x1, x), max(y1, y)
+    if x1 < 0:
+        return None
+    # 標本の間にあった中身の端を、1 画素ずつ詰めて確かめる
+    x0 = max(0, x0 - step)
+    y0 = max(0, y0 - step)
+    x1 = min(width - 1, x1 + step)
+    y1 = min(height - 1, y1 + step)
+    left = next((x for x in range(x0, x1 + 1) if any(differs(x, y) for y in range(y0, y1 + 1, step))), x0)
+    right = next((x for x in range(x1, x0 - 1, -1) if any(differs(x, y) for y in range(y0, y1 + 1, step))), x1)
+    top = next((y for y in range(y0, y1 + 1) if any(differs(x, y) for x in range(left, right + 1, step))), y0)
+    bottom = next((y for y in range(y1, y0 - 1, -1) if any(differs(x, y) for x in range(left, right + 1, step))), y1)
+    rx, ry = max(0, left - pad), max(0, top - pad)
+    rw, rh = min(width, right + 1 + pad) - rx, min(height, bottom + 1 + pad) - ry
+    return rx, ry, rw, rh
+
+
+def crop_to_content(image, pad: int = CROP_PAD, min_width: int = 480, min_height: int = 270):
+    """image（QImage）の、中身だけを切り出した QImage を返す。ほとんど切れない・中身が無いときは、元の image のまま。
+    切り出した結果が、min_width x min_height より小さくなるときは、中心はそのままに、その大きさまで広げる（小さな部品が、拡大されすぎない）。"""
+    rect = content_rect(image, pad)
+    if rect is None:
+        return image
+    x, y, w, h = rect
+    width, height = image.width(), image.height()
+    if w * h >= width * height * CROP_MIN_FRACTION:
+        return image
+    w2, h2 = max(w, min(min_width, width)), max(h, min(min_height, height))
+    cx, cy = x + w / 2, y + h / 2
+    x2 = int(min(max(0, cx - w2 / 2), width - w2))
+    y2 = int(min(max(0, cy - h2 / 2), height - h2))
+    return image.copy(x2, y2, w2, h2)
+
+
+def shrink_saved_image(path: Path, log_path: Path | None = None) -> bool:
+    """保存した画像（PNG）の余白を切り詰めて、同じ場所に保存し直す。切ったら True。失敗・切る必要が無いときは False（元のまま）。"""
+    try:
+        from PySide6.QtGui import QImage
+
+        image = QImage(str(path))
+        if image.isNull():
+            return False
+        cropped = crop_to_content(image)
+        if cropped is image or (cropped.width(), cropped.height()) == (image.width(), image.height()):
+            return False
+        ok = bool(cropped.save(str(path), "PNG"))
+        if ok:
+            _log(f"cropped {path.name}: {image.width()}x{image.height()} -> {cropped.width()}x{cropped.height()}", log_path)
+        return ok
+    except Exception as exc:  # noqa: BLE001 -- 切れなくても、元の画像のまま使える
+        _log(f"shrink_saved_image failed: {exc!r}", log_path)
+        return False
+
+
 # ─── 実画面を、必ず撮るための準備（2026-11-20）─────────────────────────────────────────────────────────
 # 動画に、ネットワーク画面・パラメータ画面の実物が出ていなかった。撮影ログの原因は 2 つ:
 #   ① ペインが狭い（612px）と、実画面を拡大するとぼやけるので、描き直した図を使っていた（旧 prefer_diagram。廃止）
@@ -2036,6 +2133,7 @@ def _compose_parameter_screen(
         p.setPen(QColor("#c9c9cc"))
         p.drawText(QRectF(16, 0, width - 32, bar_h), Qt.AlignVCenter | Qt.AlignLeft, f"{container_path}  ›  {node_name}")
 
+        pane_image = crop_to_content(pane_image)  # ペイン全体ではなく、パラメータの行がある範囲だけを大きく使う（読めなかった。2026-11-22）
         pane_w = int(width * 0.60)
         area = QRectF(12, bar_h + 12, pane_w - 12, height - bar_h - 24)
         # 切り出した画像は、先に縮小せず、元の画素のまま、描画先の矩形へ直接描く（2倍の画素で描くので、細かさを保つ）。
@@ -2169,6 +2267,8 @@ def capture_parameter_screen(
         )
         if pages:
             _log("parameter capture method: code card", log_path)
+            for page_path in [output_path, *find_extra_pages(output_path)]:
+                shrink_saved_image(page_path, log_path)  # カードの下の空きを切り詰める（動画で、コードが小さく映っていた。2026-11-22）
             return "code_card"
     if target_node is not None:
         reveal_parm_tabs(target_node, [c["name"] for c in changes if c.get("name")], log_path)
