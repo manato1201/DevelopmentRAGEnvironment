@@ -10,7 +10,10 @@ Usage:
     python scripts/rag_local_bridge.py [--port 8766]
 
 Env:
-    ANTHROPIC_API_KEY  必須（.env 非使用）
+    ANTHROPIC_API_KEY  必須（.env 非使用。RAG_LLM_BACKEND=local だけで使うなら不要）
+    RAG_LLM_BACKEND    claude(既定)/ gemini / local。local は LocalLLMHarness の窓口(このPCの Unsloth)で回答し、
+                       資料の抜粋が外へ出ない。RAG_LOCAL_LLM_URL(既定 http://127.0.0.1:8800/v1)・
+                       RAG_LOCAL_LLM_MODEL(既定 llh-main)・LLH_TOKEN(窓口にトークンを付けたとき)
 
 認証:
     全エンドポイント（/health, /admin, /ui を除く）は X-API-Key ヘッダーが必要。
@@ -47,7 +50,14 @@ _LATENCY_WARN_MS = int(os.environ.get("RAG_LATENCY_WARN_MS", "15000"))
 GRAPH_EXPORT_SCRIPT = Path(__file__).parent / "rag_graph_export.py"
 CLAUDE_MODEL    = "claude-haiku-4-5-20251001"
 GEMINI_MODEL    = "gemini-3.6-flash"
-_LLM_BACKEND: str = os.environ.get("RAG_LLM_BACKEND", "claude")  # "claude" | "gemini"
+_LLM_BACKENDS = ("claude", "gemini", "local")
+_LLM_BACKEND: str = os.environ.get("RAG_LLM_BACKEND", "claude")  # "claude" | "gemini" | "local"
+# local = LocalLLMHarness の窓口(OpenAI 互換。このPCの Unsloth Desktop へ中継)。資料の抜粋が、このPCの外へ出ない。
+LOCAL_LLM_URL   = os.environ.get("RAG_LOCAL_LLM_URL", "http://127.0.0.1:8800/v1")
+LOCAL_LLM_MODEL = os.environ.get("RAG_LOCAL_LLM_MODEL", "llh-main")
+# ローカルモデルの文脈は 8K トークン前後。資料に使う文字数の上限(3 文字 ≒ 1 トークンの見積もり。超えたら後ろの資料から落とす)
+LOCAL_CONTEXT_CHARS = int(os.environ.get("RAG_LOCAL_CONTEXT_CHARS", "12000"))
+_LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 SYSTEM_PROMPT   = (
     "あなたはゲーム開発チームの知識ベースを持つ AI アシスタントです。"
     "日本語で簡潔に回答してください（目安: 400 文字以内）。"
@@ -413,6 +423,80 @@ def _call_gemini(context_texts: list[str], query: str, history: list[dict]) -> s
     with urllib.request.urlopen(req, timeout=60) as resp:
         data = json.loads(resp.read())
     return data["candidates"][0]["content"]["parts"][0]["text"]
+
+
+# ─── ローカル LLM(LocalLLMHarness の窓口)呼び出し ───────────────────────────────
+def _local_llm_endpoint() -> str:
+    """窓口の URL。loopback の http だけ許す(資料の抜粋が、別のPC・インターネットへ出ないように)。"""
+    from urllib.parse import urlsplit
+
+    u = urlsplit(LOCAL_LLM_URL)
+    if u.scheme != "http" or u.hostname not in _LOCAL_HOSTS or u.username or u.password:
+        raise RuntimeError(
+            "RAG_LOCAL_LLM_URL は loopback(127.0.0.1 / localhost / ::1)の http だけ使えます"
+            "(資料の抜粋を、このPCの外へ出さないため)。"
+        )
+    return LOCAL_LLM_URL.rstrip("/") + "/chat/completions"
+
+
+def _fit_local_context(texts: list[str], budget: int) -> list[str]:
+    """資料を、文字数の上限に収める。入りきらない後ろの資料から落とす(先頭の 1 件は、切ってでも入れる)。"""
+    out: list[str] = []
+    used = 0
+    for t in texts:
+        if used + len(t) > budget:
+            if not out:
+                out.append(t[:budget])
+            break
+        out.append(t)
+        used += len(t) + 2  # 区切りの改行
+    return out
+
+
+def _call_local(context_texts: list[str], query: str, history: list[dict]) -> str:
+    url = _local_llm_endpoint()
+    texts = _fit_local_context(context_texts, LOCAL_CONTEXT_CHARS)
+    context = "\n\n".join(texts) if texts else "（参考ドキュメントなし）"
+    messages: list[dict] = [
+        {"role": "system",    "content": SYSTEM_PROMPT},
+        {"role": "user",      "content": f"以下の参考ドキュメントを確認しました。\n\n{context}"},
+        {"role": "assistant", "content": "参考ドキュメントを確認しました。ご質問にお答えします。"},
+    ]
+    for h in history[-6:]:
+        role = "assistant" if h.get("role") in ("bot", "assistant") else "user"
+        text = h.get("text", h.get("content", ""))
+        if text:
+            messages.append({"role": role, "content": text})
+    messages.append({"role": "user", "content": query})
+
+    payload = json.dumps({
+        "model": LOCAL_LLM_MODEL, "messages": messages, "temperature": 0.3, "max_tokens": 1024,
+        "llh": {"task": "rag"},   # 窓口が、機密度の判定と記録をする(窓口以外の OpenAI 互換サーバーなら無視される)
+    }, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    token = os.environ.get("LLH_TOKEN", "")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    try:
+        # 9B のローカル推論は、Claude より遅い(モデルの入れ替えが起きると、さらに数十秒)
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        try:
+            err = json.loads(detail).get("error", detail)
+            detail = err.get("message", detail) if isinstance(err, dict) else str(err)
+        except ValueError:
+            pass
+        raise RuntimeError(f"ローカルLLM(窓口)のエラー(HTTP {exc.code}): {detail[:300]}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"ローカルLLMの窓口({LOCAL_LLM_URL})に接続できません。LocalLLMHarness で `uv run llh serve` を起動し、"
+            f"Unsloth Desktop が動いているか確認してください({exc.reason})"
+        ) from exc
+    answer = (data["choices"][0]["message"].get("content") or "").strip()
+    return answer or "ローカルLLMの応答が空でした。もう一度試すか、RAG_LLM_BACKEND を claude に切り替えてください。"
 
 
 # ─── 静的ファイル読み込み ────────────────────────────────────────────────────────
@@ -818,8 +902,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             global _LLM_BACKEND
             data = self._read_body()
             backend = data.get("backend", "claude")
-            if backend not in ("claude", "gemini"):
-                self._send_json(400, {"error": "backend must be 'claude' or 'gemini'"})
+            if backend not in _LLM_BACKENDS:
+                self._send_json(400, {"error": "backend must be 'claude', 'gemini' or 'local'"})
                 return
             _LLM_BACKEND = backend
             self._send_json(200, {"backend": _LLM_BACKEND})
@@ -896,6 +980,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
             if _LLM_BACKEND == "gemini":
                 answer = _call_gemini(texts, query, history)
+            elif _LLM_BACKEND == "local":
+                answer = _call_local(texts, query, history)
             else:
                 answer = _call_claude(texts, query, history)
 
