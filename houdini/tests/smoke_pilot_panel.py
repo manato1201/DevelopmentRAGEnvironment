@@ -96,10 +96,18 @@ assert not panel._plan_box.isVisible()
 panel._years.setValue(1)
 panel._months.setValue(6)
 panel._background.setText("CG専攻")
+# 事前アンケートの学びの確認（任意）。同じ質問を、あとで事後にも聞く
+assert sorted(panel._pre_groups) == ["goalPre", "selfExplorePre", "selfHowPre", "selfWhatPre"], sorted(panel._pre_groups)
+panel._pre_groups["goalPre"].button(2).setChecked(True)
+panel._pre_groups["selfHowPre"].button(1).setChecked(True)
+panel._houdini_def.setText("ノードで作るツール")
 panel._on_profile_send()
 pump(lambda: panel._plan_box.isVisible())
 assert not panel._profile_box.isVisible()
 assert FakeClient.calls[-1][0] == "profile" and FakeClient.calls[-1][1]["experienceYears"] == 1.5 and FakeClient.calls[-1][1]["experienceMonths"] == 18
+sent_profile = FakeClient.calls[-1][1]
+assert sent_profile["goalPre"] == 2 and sent_profile["selfHowPre"] == 1 and sent_profile["houdiniDefPre"] == "ノードで作るツール", sent_profile
+assert "selfWhatPre" not in sent_profile and "selfExplorePre" not in sent_profile, "unanswered items are not sent"
 assert "第1回（11/16〜11/21）" in panel._header.text() and "P01" in panel._header.text()
 fixed = panel._cards["fixed"]
 assert "Pyro" in fixed["title"].text()
@@ -156,6 +164,11 @@ def fake_exec(self):
     self._groups["selfMistakes"].button(2).setChecked(True)
     self._groups["difficulty"].button(4).setChecked(True)
     self._groups["clarity"].button(2).setChecked(True)
+    self._groups["goalPost"].button(5).setChecked(True)
+    self._groups["selfHow"].button(4).setChecked(True)
+    self._groups["learned"].button(3).setChecked(True)
+    self._essays["fun"].setPlainText("ドキュメントを読み解くのが楽しかった")
+    self._essays["explainOwn"].setPlainText("tag_bell は、傘の点に部位の番号を付ける目印")
     self._comment.setPlainText("検索で迷った")
     return 1
 
@@ -170,6 +183,8 @@ panel._on_finish()  # 回答のやり直しはせず、残した答えをその�
 pump(lambda: panel._active is None)
 pp.TaskSurveyDialog.exec = orig_exec
 assert "sourceUseful" not in captured["questions"], captured["questions"]
+assert "goalUsed" not in captured["questions"], "no 'how you used the system' for the control round"
+assert {"goalPost", "selfHow", "selfExplore", "selfWhat", "learned"} <= set(captured["questions"]), "learning is asked in both groups"
 ends = [c[1] for c in FakeClient.calls if c[0] == "end"]
 assert len(ends) == 2 and ends[0]["survey"] == ends[1]["survey"] and ends[0]["comment"] == ends[1]["comment"], "same answers on resend"
 assert ends[1]["surveySec"] >= ends[0]["surveySec"] + 1, "the waiting time grows, so it stays out of the working time"
@@ -178,6 +193,9 @@ end = ends[1]
 assert end["sessionId"] == "sid-1" and end["reached"] is True and end["selfMistakes"] == 2
 assert end["survey"] == {"difficulty": 4, "clarity": 2}, end["survey"]
 assert end["comment"] == "検索で迷った"
+assert end["learning"] == {"goalPost": 5, "selfHow": 4, "learned": 3}, end["learning"]
+assert end["essays"] == {"explainOwn": "tag_bell は、傘の点に部位の番号を付ける目印", "fun": "ドキュメントを読み解くのが楽しかった"}, end["essays"]
+assert "goalPost" not in end["survey"] and "learned" not in end["survey"], "learning answers are separate from the six task items"
 assert end["cookErrorNodes"] in (0, None), end["cookErrorNodes"]  # 空のシーン（hython）なら 0、hou が無ければ None
 assert not panel._tick.isActive() and not panel._sample_timer.isActive()
 assert "完了しました" in fixed["status"].text()

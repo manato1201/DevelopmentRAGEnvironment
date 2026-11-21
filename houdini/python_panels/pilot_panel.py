@@ -15,7 +15,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSpinBox,
     QTextEdit,
     QVBoxLayout,
@@ -72,30 +73,72 @@ def _scale_row(question: str, low: str, high: str):
     layout = QVBoxLayout(box)
     layout.setContentsMargins(0, 2, 0, 2)
     layout.setSpacing(1)
-    layout.addWidget(QLabel(question))
+    heading = QLabel(question)
+    heading.setWordWrap(True)
+    layout.addWidget(heading)
     row = QHBoxLayout()
-    row.addWidget(QLabel(f"1 {low}"))
     group = QButtonGroup(box)
     for value in range(1, 6):
         radio = QRadioButton(str(value))
         group.addButton(radio, value)
         row.addWidget(radio)
-    row.addWidget(QLabel(f"5 {high}"))
     row.addStretch()
     layout.addLayout(row)
+    # 両端の意味は、選択肢の下に、折り返して出す（長い文でも、横にあふれない）
+    ends = QHBoxLayout()
+    low_label = QLabel(f"1 = {low}")
+    high_label = QLabel(f"5 = {high}")
+    for label, align in ((low_label, Qt.AlignLeft), (high_label, Qt.AlignRight)):
+        label.setWordWrap(True)
+        label.setAlignment(align | Qt.AlignTop)
+        label.setStyleSheet(type_qss("caption", COLOR_MUTED))
+        ends.addWidget(label, 1)
+    layout.addLayout(ends)
     return box, group
 
 
+def _essay_box(question: str, height: int = 56):
+    """自由記述の1問。(widget, QTextEdit) を返す。"""
+    box = QWidget()
+    layout = QVBoxLayout(box)
+    layout.setContentsMargins(0, 2, 0, 2)
+    layout.setSpacing(1)
+    label = QLabel(question)
+    label.setWordWrap(True)
+    layout.addWidget(label)
+    edit = QTextEdit()
+    edit.setFixedHeight(height)
+    edit.setAcceptRichText(False)
+    layout.addWidget(edit)
+    return box, edit
+
+
+def _section_label(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setStyleSheet("font-weight:bold;padding-top:8px;")  # 色は指定しない（画面の背景に合わせる）
+    return label
+
+
 class TaskSurveyDialog(QDialog):
-    """課題後アンケート。「送信」か「戻る」（閉じても、課題は続いたまま。終了は取り消される）。"""
+    """課題後アンケート。「送信」か「戻る」（閉じても、課題は続いたまま。終了は取り消される）。
+    固定課題には、「学びの確認」（Houdini の中身を理解できたか）も出る。1 コマ（約 90 分）に収めるため、すべて任意（答えなくても送れる）。"""
 
     def __init__(self, parent: QWidget | None, kind: str, label: str, condition: str) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"{pt.KIND_TEXT.get(kind, kind)}の振り返り")
-        self.resize(560, 640)
+        self.resize(600, 720)
         self._groups: dict[str, QButtonGroup] = {}
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(f"お疲れさまでした。「{label}」について、答えられるところだけ答えてください（空欄でも構いません）。"))
+        self._essays: dict[str, QTextEdit] = {}
+        outer = QVBoxLayout(self)
+        outer.addWidget(QLabel(f"お疲れさまでした。「{label}」について、答えられるところだけ答えてください（空欄でも構いません。目安: {pt.LEARNING_NOTE.get(kind, '約 2 分')}）。"))
+        scroll = QScrollArea()  # 質問が増えても、画面からはみ出さない
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        scroll.setWidget(body)
+        outer.addWidget(scroll, 1)
 
         # 到達: 課題の題材として、作品物ができているか
         layout.addWidget(QLabel("課題の題材として、作品物ができましたか"))
@@ -112,10 +155,24 @@ class TaskSurveyDialog(QDialog):
             self._groups[key] = group
             layout.addWidget(widget)
 
+        # 学びの確認: 本システムは、生成物を作れるようになるためではなく、作られたものを追って、Houdini の中身を理解するためのもの
+        learning = pt.learning_questions(condition, kind)
+        if learning:
+            layout.addWidget(_section_label("Houdini について（いまの考えで）"))
+            for key, question, low, high in learning:
+                widget, group = _scale_row(question, low, high)
+                self._groups[key] = group
+                layout.addWidget(widget)
+        for key, question in pt.essay_questions(kind):
+            box, edit = _essay_box(question, 70 if key == "explainOwn" else 50)
+            self._essays[key] = edit
+            layout.addWidget(box)
+
         layout.addWidget(QLabel("自由記述（任意）: 困ったこと・良かったこと"))
         self._comment = QTextEdit()
         self._comment.setFixedHeight(70)
         layout.addWidget(self._comment)
+        layout.addStretch()
 
         buttons = QHBoxLayout()
         buttons.addStretch()
@@ -126,7 +183,7 @@ class TaskSurveyDialog(QDialog):
         send.clicked.connect(self.accept)
         buttons.addWidget(later)
         buttons.addWidget(send)
-        layout.addLayout(buttons)
+        outer.addLayout(buttons)
 
     def reached(self):
         return True if self._reach_yes.isChecked() else (False if self._reach_no.isChecked() else None)
@@ -135,8 +192,19 @@ class TaskSurveyDialog(QDialog):
         value = self._groups["selfMistakes"].checkedId()
         return value if value > 0 else None
 
+    def _checked(self, keys) -> dict:
+        return {k: self._groups[k].checkedId() for k in keys if k in self._groups and self._groups[k].checkedId() > 0}
+
     def answers(self) -> dict:
-        return {k: g.checkedId() for k, g in self._groups.items() if k != "selfMistakes" and g.checkedId() > 0}
+        """課題後の 6 項目（難しさ・わかりやすさなど）。学びの確認は、learning()。"""
+        return {k: g.checkedId() for k, g in self._groups.items() if k != "selfMistakes" and k not in pt.LEARNING_KEYS and g.checkedId() > 0}
+
+    def learning(self) -> dict:
+        """学びの確認の 1〜5（固定課題だけ）。"""
+        return self._checked(pt.LEARNING_KEYS)
+
+    def essays(self) -> dict:
+        return {k: edit.toPlainText() for k, edit in self._essays.items()}
 
     def comment(self) -> str:
         return self._comment.toPlainText()
@@ -150,6 +218,7 @@ class PilotTaskPanel(QWidget):
         self._plan: dict | None = None
         self._active: dict | None = None  # {sessionId, startedAt, kind, condition, label, pausedSec}
         self._pending_end: dict | None = None  # 送信に失敗した終了（答えを残して、再送する）
+        self._survey_dialog = None  # (sessionId, 振り返りの画面)。「戻る」で閉じても、書いた答えを残す
         self._sampler = pt.ErrorSampler(hou)
         self._progress = pt.ProgressStore(progress_path or _PROGRESS_PATH)
         self._build_ui()
@@ -203,6 +272,16 @@ class PilotTaskPanel(QWidget):
         form.addRow("学習背景", self._background)
         form.addRow("実務経験", self._practice)
         form.addRow("ツールの使用歴", self._tools)
+        # 学びの確認（事前）。終わったあとに、同じ質問をもう一度聞き、差を見る。答えなくてもよい（約 2 分）。
+        form.addRow(_section_label(f"いまの考えを聞かせてください（{pt.LEARNING_NOTE['profile']}。答えなくても始められます）"))
+        self._pre_groups: dict[str, QButtonGroup] = {}
+        for key, question, low, high in pt.pre_questions():
+            widget, group = _scale_row(question, low, high)
+            self._pre_groups[key] = group
+            form.addRow(widget)
+        self._houdini_def = QLineEdit()
+        self._houdini_def.setPlaceholderText("例: ノードをつなげて、手順で 3D を作るツール（わからなければ空欄で）")
+        form.addRow(pt.HOUDINI_DEF_QUESTION, self._houdini_def)
         self._profile_send = QPushButton("送信して始める")
         self._profile_send.setStyleSheet(button_qss("primary"))
         self._profile_send.clicked.connect(self._on_profile_send)
@@ -365,7 +444,11 @@ class PilotTaskPanel(QWidget):
 
     # ── 事前アンケート ──
     def _on_profile_send(self) -> None:
-        payload = pt.build_profile_payload(self._years.value(), self._level.currentText(), self._background.text(), self._practice.text(), self._tools.text(), months=self._months.value())
+        pre = {k: g.checkedId() for k, g in self._pre_groups.items() if g.checkedId() > 0}
+        payload = pt.build_profile_payload(
+            self._years.value(), self._level.currentText(), self._background.text(), self._practice.text(), self._tools.text(), months=self._months.value(),
+            learning=pre, houdini_def=self._houdini_def.text(),
+        )
         self._profile_send.setEnabled(False)
         self._call(lambda: self._client().pilot_profile(payload), self._on_profile_done)
 
@@ -419,11 +502,18 @@ class PilotTaskPanel(QWidget):
         self._sampler.sample()  # 終了時の分も数える
         active = self._active
         pressed = time.monotonic()
-        dialog = TaskSurveyDialog(self, active["kind"], active["label"], active["condition"])
+        # 「戻る」で閉じても、書いた答えは残す（同じ課題の振り返りを開き直したときに、続きから書ける）
+        saved = self._survey_dialog
+        if saved is not None and saved[0] == active["sessionId"]:
+            dialog = saved[1]
+        else:
+            dialog = TaskSurveyDialog(self, active["kind"], active["label"], active["condition"])
+            self._survey_dialog = (active["sessionId"], dialog)
         if not dialog.exec():
             return  # 「戻る」: 課題は続いたまま（終了は取り消される）
         payload = pt.build_end_payload(
             active["sessionId"], dialog.reached(), self._sampler.count, dialog.self_mistakes(), dialog.answers(), dialog.comment(), active["pausedSec"],
+            learning=dialog.learning(), essays=dialog.essays(),
         )
         self._pending_end = {"payload": payload, "pressed": pressed}
         self._send_end()
@@ -442,6 +532,9 @@ class PilotTaskPanel(QWidget):
     def _stop_recording(self) -> None:
         self._active = None
         self._pending_end = None
+        if self._survey_dialog is not None:  # 振り返りの画面を、片づける（残した答えは、もう要らない）
+            self._survey_dialog[1].deleteLater()
+        self._survey_dialog = None
         self._tick.stop()
         self._sample_timer.stop()
         self._progress.clear()

@@ -175,6 +175,66 @@ class PayloadTest(unittest.TestCase):
         self.assertEqual(pt.build_profile_payload(70, "", "", "", "", months=11)["experienceMonths"], 720, "bounded at 60 years")
 
 
+class LearningTest(unittest.TestCase):
+    """学びの確認（2026-11-22）: 事前と事後に同じ質問をし、本システムの目的（中身の理解）が達成されているかを見る。"""
+
+    def test_pre_and_post_ask_the_same_self_items(self):
+        pre = {q[0]: q for q in pt.pre_questions()}
+        self.assertEqual(sorted(pre), ["goalPre", "selfExplorePre", "selfHowPre", "selfWhatPre"])
+        post = {q[0]: q for q in pt.learning_questions("system", "fixed")}
+        for key, question, low, high in pt.SELF_ITEMS:
+            self.assertEqual(pre[key + "Pre"][1:], (question, low, high), "the same wording, so the difference means something")
+            self.assertEqual(post[key][1:], (question, low, high))
+        self.assertEqual(pre["goalPre"][2:], post["goalPost"][2:], "the same two ends for the goal question")
+        self.assertIn("理解", pre["goalPre"][3], "5 = understand how Houdini works")
+        self.assertIn("手早く作れる", pre["goalPre"][2], "1 = just get the finished work")
+
+    def test_how_the_system_was_used_is_asked_only_when_it_was_used(self):
+        system = [q[0] for q in pt.learning_questions("system", "fixed")]
+        docs = [q[0] for q in pt.learning_questions("docs_only", "fixed")]
+        self.assertIn("goalUsed", system)
+        self.assertNotIn("goalUsed", docs)
+        self.assertEqual(set(system) - set(docs), {"goalUsed"}, "learning is compared in both groups; only the usage question is system-only")
+        self.assertEqual(system, ["goalPost", "goalUsed", "selfHow", "selfExplore", "selfWhat", "learned"])
+
+    def test_the_free_task_asks_only_what_was_fun(self):
+        self.assertEqual(pt.learning_questions("system", "free"), [])
+        self.assertEqual([k for k, _ in pt.essay_questions("free")], ["fun"])
+        self.assertEqual([k for k, _ in pt.essay_questions("fixed")], ["houdiniDef", "explainOwn", "fun"])
+
+    def test_the_goal_is_understanding_not_producing(self):
+        used = pt.GOAL_USED_QUESTION
+        self.assertIn("答え・完成物", used[2])
+        self.assertIn("仕組みを理解", used[3])
+        self.assertIn("自分の言葉", pt.EXPLAIN_OWN_QUESTION)
+        self.assertIn("楽しかった", pt.FUN_QUESTION)
+
+    def test_end_payload_carries_learning_and_essays_only_when_answered(self):
+        base = pt.build_end_payload("s", True, 0, 1, {}, "")
+        self.assertNotIn("learning", base, "an old-style payload stays as it was")
+        self.assertNotIn("essays", base)
+        p = pt.build_end_payload("s", True, 0, 1, {}, "", 0, learning={"goalPost": 5, "selfHow": 4, "learned": 0, "selfWhat": 9, "bogus": 3},
+                                 essays={"explainOwn": "  tag_bell は目印  ", "houdiniDef": "", "fun": "あ" * 900, "bogus": "x"})
+        self.assertEqual(p["learning"], {"goalPost": 5, "selfHow": 4}, "out-of-range and unknown values are dropped")
+        self.assertEqual(p["essays"]["explainOwn"], "tag_bell は目印")
+        self.assertNotIn("houdiniDef", p["essays"], "blank answers are not sent")
+        self.assertNotIn("bogus", p["essays"])
+        self.assertEqual(len(p["essays"]["fun"]), pt.ESSAY_MAX["fun"])
+
+    def test_profile_payload_carries_the_pre_answers(self):
+        p = pt.build_profile_payload(0, "初心者", "", "", "", learning={"goalPre": 2, "selfHowPre": 1, "selfWhatPre": 6}, houdini_def="  ノードで作るツール  ")
+        self.assertEqual((p["goalPre"], p["selfHowPre"], p["houdiniDefPre"]), (2, 1, "ノードで作るツール"))
+        self.assertNotIn("selfWhatPre", p)
+        plain = pt.build_profile_payload(0, "", "", "", "")
+        self.assertFalse({"goalPre", "selfHowPre", "selfExplorePre", "selfWhatPre", "houdiniDefPre"} & set(plain), "unanswered: nothing is sent, so the server keeps what it has")
+
+    def test_time_budget_fits_one_class_period(self):
+        self.assertEqual(set(pt.LEARNING_NOTE), {"profile", "fixed", "free"})
+        # 事前 約 2 分 + 事後（固定）約 4 分 + 自由 約 1 分 = 約 7 分。1 コマ（約 90 分）の 1 割に満たない
+        minutes = sum(int(v.split()[1]) for v in pt.LEARNING_NOTE.values())
+        self.assertLessEqual(minutes, 9)
+
+
 class TextTest(unittest.TestCase):
     def test_survey_questions_hide_sources_when_docs_only(self):
         system = [q[0] for q in pt.survey_questions("system")]

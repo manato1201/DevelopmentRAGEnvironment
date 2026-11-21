@@ -225,6 +225,6 @@ assert.equal(csv.pilotCsvText(-1), -1, "numbers are left alone");
 assert.equal(csv.pilotCsvText(null), null);
 assert.deepEqual(csv.pilotCsvRow(["P01", 1, "=HYPERLINK(1)", 2.5, ""]), ["P01", 1, "'=HYPERLINK(1)", 2.5, ""], "every column goes through it");
 // 両方の CSV が、行の全体に対策をかけている
-assert.equal((js.match(/pilotCsvRow\(\[/g) || []).length, 2, "both pilot CSVs wrap their rows");
+assert.equal((js.match(/pilotCsvRow\(\[/g) || []).length, 3, "all three pilot CSVs (tasks, learning, profiles) wrap their rows");
 
 console.log("pilot_admin tests passed");

@@ -1460,6 +1460,13 @@ export function chatUiHtml(): string {
         <div class="table-scroll"><table class="admin-table" id="pilotCompared"><thead><tr><th>指標</th><th>本システム(人)</th><th>対照(人)</th><th>本システムの中央値</th><th>対照の中央値</th><th>差</th><th>効果量</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="section">
+        <h2>学びの確認（固定課題の事前と事後）</h2>
+        <p class="hint">このシステムの目的は、チュートリアルの生成物を作れるようになることではなく、<b>作られたものを追って、Houdini（DCC ツール）の中身を理解する</b>ことです。事前と事後に同じ質問をして、その差（伸び）を見ます。1〜5 の自己評価と、自由記述（Houdini とは何か・自分の言葉での説明・楽しかったこと）です。人数が少ないので、p 値より、個人ごとの推移と中央値を見てください。</p>
+        <p class="hint" id="pilotLearningNote">-</p>
+        <div class="field-row"><button class="btn" id="pilotLearningCsv">学びの確認のCSV（事前・事後・自由記述）</button></div>
+        <div class="table-scroll"><table class="admin-table pilot-answers" id="pilotLearning"><thead><tr><th>参加者</th><th>条件</th><th>得たいもの 事前→事後</th><th>本システムの使い方</th><th>つながりを説明 事前→事後</th><th>調べて判断 事前→事後</th><th>Houdini とは 事前→事後</th><th>新しく理解</th><th>Houdini とは（事前）</th><th>Houdini とは（事後）</th><th>自分の言葉での説明</th><th>楽しかったこと</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="section">
         <h2>回答の一覧（アンケートと計測した値）</h2>
         <p class="hint">課題を終えた記録を、<b>参加者ごと・課題ごと</b>に1行で出します（P01 などの番号。氏名は出しません）。自由記述には、<b>個人情報が書かれているかもしれません</b>。この画面は管理者だけが見られます。外に出すときは、書かれている内容を確かめてからにしてください。所要(分)は、終了 − 開始 − 中断です。1〜5 のアンケート項目は、難しさ・わかりやすさ・集中を妨げた・正確性の不安・出典が役立った（ドキュメントのみの回は空）・また使いたい、の順です。</p>
         <div class="field-row"><button class="btn" id="pilotAnswersCsv">回答の一覧のCSV（開始・終了・中断・自由記述を含む）</button></div>
@@ -1467,7 +1474,7 @@ export function chatUiHtml(): string {
         <h3>事前アンケート（参加者ごと）</h3>
         <p class="hint">登録時に答えた内容です。自由記述（経歴・練習・使ったことのあるツール）には、個人情報が書かれているかもしれません。</p>
         <div class="field-row"><button class="btn" id="pilotProfilesCsv">事前アンケートのCSV</button></div>
-        <div class="table-scroll"><table class="admin-table pilot-answers" id="pilotProfiles"><thead><tr><th>参加者</th><th>経験（年・ヶ月）</th><th>自己評価</th><th>経歴</th><th>練習</th><th>使ったことのあるツール</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table pilot-answers" id="pilotProfiles"><thead><tr><th>参加者</th><th>経験（年・ヶ月）</th><th>自己評価</th><th>経歴</th><th>練習</th><th>使ったことのあるツール</th><th>Houdini とは（事前）</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="section">
         <h2>説明レベル別のチャット評価</h2>
@@ -3596,6 +3603,7 @@ ${ASCII_ART_JS}
   });
   // 課題の記録（/admin/pilot/tasks。期間では絞らない: 全部の回をまとめて見る）
   let lastPilotTaskRows = [];
+  let lastPilotLearningRows = [];
   let lastPilotProfiles = [];
   // 経験（年。月数 ÷ 12 で入っている）を、「1年7ヶ月」の形に
   function pilotExperience(years) {
@@ -3674,14 +3682,38 @@ ${ASCII_ART_JS}
           tr.lastChild.className = "pilot-comment";
         });
       }
+      // 学びの確認: 固定課題の行だけ（事前アンケートの値と並べる）。自由記述は textContent で入れる
+      const pair = (pre, post) => (pre == null ? "-" : pre) + " → " + (post == null ? "-" : post);
+      const learnRows = data.rows.filter((r) => r.kind === "fixed");
+      lastPilotLearningRows = learnRows;
+      const learnBody = $("pilotLearning").querySelector("tbody");
+      learnBody.innerHTML = "";
+      if (learnRows.length === 0) {
+        learnBody.innerHTML = "<tr><td colspan=12>終えた固定課題の記録はまだありません</td></tr>";
+      } else {
+        learnRows.forEach((r) => {
+          const tr = appendRow(learnBody, [
+            r.participant, conds[r.condition] || r.condition, pair(r.goalPre, r.goalPost), r.goalUsed == null ? "-" : r.goalUsed,
+            pair(r.selfHowPre, r.selfHow), pair(r.selfExplorePre, r.selfExplore), pair(r.selfWhatPre, r.selfWhat), r.learned == null ? "-" : r.learned,
+            r.houdiniDefPre || "-", r.houdiniDef || "-", r.explainOwn || "-", r.fun || "-",
+          ]);
+          for (let i = 8; i < 12; i++) tr.children[i].className = "pilot-comment";
+        });
+      }
+      const usedDist = (data.goalUsedDistribution || []).map((d) => d.value + "=" + d.n + "人").join("　");
+      const median = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); if (v.length === 0) return null; const m = Math.floor(v.length / 2); return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+      const shifts = learnRows.map((r) => r.goalShift);
+      $("pilotLearningNote").textContent = "本システムの使い方（1 = 答え・完成物を出してもらうため … 5 = 作られた中身を追って理解するため。本システムを使った固定課題）: " + usedDist
+        + "／得たいものの変化の中央値（事後−事前。+は、仕組みの理解へ）: " + (median(shifts) == null ? "-" : num(median(shifts), 1))
+        + "（回答 " + shifts.filter((x) => x != null).length + "人）";
       const profilesBody = $("pilotProfiles").querySelector("tbody");
       profilesBody.innerHTML = "";
       if (lastPilotProfiles.length === 0) {
-        profilesBody.innerHTML = "<tr><td colspan=6>事前アンケートの回答はまだありません</td></tr>";
+        profilesBody.innerHTML = "<tr><td colspan=7>事前アンケートの回答はまだありません</td></tr>";
       } else {
         lastPilotProfiles.forEach((p) => {
-          const tr = appendRow(profilesBody, [p.participant, p.experienceYears == null ? "-" : pilotExperience(p.experienceYears), p.selfLevel || "-", p.background || "-", p.practice || "-", p.toolHistory || "-"]);
-          for (let i = 3; i < 6; i++) tr.children[i].className = "pilot-comment";
+          const tr = appendRow(profilesBody, [p.participant, p.experienceYears == null ? "-" : pilotExperience(p.experienceYears), p.selfLevel || "-", p.background || "-", p.practice || "-", p.toolHistory || "-", p.houdiniDefPre || "-"]);
+          for (let i = 3; i < 7; i++) tr.children[i].className = "pilot-comment";
         });
       }
     } catch (e) { showToast("課題の記録を読み込めませんでした: " + e.message, "error"); }
@@ -3699,12 +3731,22 @@ ${ASCII_ART_JS}
   });
   // 回答の一覧のCSV（課題ごとのCSVと同じ内容。画面の「回答の一覧」から出す）
   $("pilotAnswersCsv").addEventListener("click", () => $("pilotTasksCsv").click());
+  // 学びの確認のCSV（事前と事後の値・伸び・自由記述）。固定課題の行だけ
+  $("pilotLearningCsv").addEventListener("click", () => {
+    if (lastPilotLearningRows.length === 0) { showToast("エクスポートする学びの確認がありません", "error"); return; }
+    const v = (x) => (x == null ? "" : x);
+    downloadCsv(
+      "pilot-learning-" + new Date().toISOString().slice(0, 10) + ".csv",
+      ["参加者", "条件", "得たいもの(事前)", "得たいもの(事後)", "得たいものの変化", "本システムの使い方", "つながりを説明(事前)", "つながりを説明(事後)", "伸び", "調べて判断(事前)", "調べて判断(事後)", "伸び", "Houdiniとは説明(事前)", "Houdiniとは説明(事後)", "伸び", "新しく理解できた", "Houdiniとは(事前の記述)", "Houdiniとは(事後の記述)", "自分の言葉での説明", "楽しかったこと"],
+      lastPilotLearningRows.map((r) => pilotCsvRow([r.participant, r.condition, v(r.goalPre), v(r.goalPost), v(r.goalShift), v(r.goalUsed), v(r.selfHowPre), v(r.selfHow), v(r.selfHowGain), v(r.selfExplorePre), v(r.selfExplore), v(r.selfExploreGain), v(r.selfWhatPre), v(r.selfWhat), v(r.selfWhatGain), v(r.learned), r.houdiniDefPre, r.houdiniDef, r.explainOwn, r.fun])),
+    );
+  });
   $("pilotProfilesCsv").addEventListener("click", () => {
     if (lastPilotProfiles.length === 0) { showToast("エクスポートする事前アンケートがありません", "error"); return; }
     downloadCsv(
       "pilot-profiles-" + new Date().toISOString().slice(0, 10) + ".csv",
-      ["参加者", "経験年数", "経験月数", "自己評価", "経歴", "練習", "使ったことのあるツール", "登録日時"],
-      lastPilotProfiles.map((p) => pilotCsvRow([p.participant, p.experienceYears == null ? "" : p.experienceYears, p.experienceYears == null ? "" : Math.round(p.experienceYears * 12), p.selfLevel, p.background, p.practice, p.toolHistory, pilotTime(p.createdAt)])),
+      ["参加者", "経験年数", "経験月数", "自己評価", "経歴", "練習", "使ったことのあるツール", "登録日時", "得たいもの(事前)", "つながりを説明(事前)", "調べて判断(事前)", "Houdiniとは説明(事前)", "Houdiniとは(事前の記述)"],
+      lastPilotProfiles.map((p) => pilotCsvRow([p.participant, p.experienceYears == null ? "" : p.experienceYears, p.experienceYears == null ? "" : Math.round(p.experienceYears * 12), p.selfLevel, p.background, p.practice, p.toolHistory, pilotTime(p.createdAt), p.goalPre == null ? "" : p.goalPre, p.selfHowPre == null ? "" : p.selfHowPre, p.selfExplorePre == null ? "" : p.selfExplorePre, p.selfWhatPre == null ? "" : p.selfWhatPre, p.houdiniDefPre])),
     );
   });
   $("pilotRefresh").addEventListener("click", loadPilotSummary);

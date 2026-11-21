@@ -49,6 +49,28 @@ SURVEY_QUESTIONS = (
     ("sourceUseful", "提示された出典（参照先）は役立ちましたか", "役立たなかった", "とても役立った"),
     ("reuse", "また使いたいと思いますか", "使いたくない", "ぜひ使いたい"),
 )
+
+# ── 学びの確認（2026-11-22）─────────────────────────────────────────────────
+# 本システムの目的は、チュートリアルの生成物を作れるようになることではなく、作られたものを追って、Houdini（DCC ツール）の中身
+# （ノードの組み合わせ・使い方）を理解し、自分の制作に使えるようになること。それが達成されているかを、事前と事後の同じ質問で比べる。
+# すべて任意（答えなくても送れる）。所要時間は、1 コマ（約 90 分）に収めるため、事前 約 2 分・事後 約 4 分に抑える。
+GOAL_ENDS = ("完成物（作品）を、手早く作れるようになること", "Houdini の仕組み（ノードのつながり・原理）を理解すること")
+GOAL_PRE_QUESTION = ("goalPre", "この実験で、あなたが得たいものは、どちらに近いですか", *GOAL_ENDS)
+GOAL_POST_QUESTION = ("goalPost", "いま、あなたが学びたいものは、どちらに近いですか", *GOAL_ENDS)
+GOAL_USED_QUESTION = ("goalUsed", "本システムを、主にどう使いましたか", "答え・完成物を出してもらうため", "作られた中身を追って、仕組みを理解するため")
+# 事前と事後で、同じ文面を聞く（差を見る）。キーは、事前は末尾に Pre を付ける（selfHowPre）。
+SELF_ITEMS = (
+    ("selfHow", "できあがった（作られた）ネットワークを見て、それぞれのノードが何をしているか、説明できる", "まったくできない", "よくできる"),
+    ("selfExplore", "初めて見るノードでも、Reference やドキュメントで調べて、使い方を判断できる", "まったくできない", "よくできる"),
+    ("selfWhat", "Houdini が何をするツールか（ほかの DCC ツールと何が違うか）、人に説明できる", "まったくできない", "よくできる"),
+)
+LEARNED_QUESTION = ("learned", "この時間で、Houdini について、新しく理解できたことがありましたか", "ほとんどなかった", "たくさんあった")
+HOUDINI_DEF_QUESTION = "Houdini とは、どんなツールだと思いますか。知っている範囲で、自分の言葉で、一言で"
+EXPLAIN_OWN_QUESTION = "できあがったネットワークから、ノードを 1 つ選んで、そのノードが何をしているか、なぜそのつながりなのかを、自分の言葉で書いてください"
+FUN_QUESTION = "やってみて、何が楽しかったですか（どの場面でも）"
+ESSAY_MAX = {"explainOwn": 600, "houdiniDef": 300, "fun": 400}  # Worker（pilotTasks.ts の ESSAY_MAX）と同じ
+LEARNING_NOTE = {"profile": "約 2 分", "fixed": "約 4 分", "free": "約 1 分"}  # 1 コマ（約 90 分）に収めるための目安（画面に出す）
+
 SELF_MISTAKE_QUESTION = ("selfMistakes", "ビジュアル操作（ビューポートでの操作・見た目の調整）での操作ミスは、多かったですか", "ほとんどなかった", "とても多かった")
 
 
@@ -204,10 +226,45 @@ def survey_questions(condition: str) -> list[tuple]:
     return [q for q in SURVEY_QUESTIONS if not (q[0] == "sourceUseful" and condition == "docs_only")]
 
 
-def build_end_payload(session_id: str, reached, cook_nodes, self_mistakes, answers: dict, comment: str, paused_sec: int = 0) -> dict:
+def pre_questions() -> list[tuple]:
+    """事前アンケートの、学びの確認の 1〜5 の質問（キー, 質問, 1 の意味, 5 の意味）。キーは、事後と区別するため Pre を付ける。"""
+    return [GOAL_PRE_QUESTION, *[(f"{key}Pre", question, low, high) for key, question, low, high in SELF_ITEMS]]
+
+
+def learning_questions(condition: str, kind: str) -> list[tuple]:
+    """課題後アンケートの、学びの確認の 1〜5 の質問。固定課題だけ（自由課題は、任意で時間が余った人だけなので、楽しかったことだけ聞く）。
+    本システムの使い方は、本システムを使わない回（ドキュメントのみ）には聞かない。"""
+    if kind != "fixed":
+        return []
+    questions = [GOAL_POST_QUESTION, GOAL_USED_QUESTION, *SELF_ITEMS, LEARNED_QUESTION]
+    return [q for q in questions if not (q[0] == "goalUsed" and condition == "docs_only")]
+
+
+def essay_questions(kind: str) -> list[tuple]:
+    """課題後アンケートの自由記述（キー, 質問）。固定課題は、Houdini とは何か・自分の言葉での説明・楽しかったこと。自由課題は、楽しかったことだけ。"""
+    fun = ("fun", FUN_QUESTION)
+    return [("houdiniDef", HOUDINI_DEF_QUESTION), ("explainOwn", EXPLAIN_OWN_QUESTION), fun] if kind == "fixed" else [fun]
+
+
+LEARNING_KEYS = frozenset({"goalPost", "goalUsed", "selfHow", "selfExplore", "selfWhat", "learned"})  # 課題後（Worker の LEARNING_FIELDS と同じ）
+PRE_KEYS = frozenset({"goalPre", "selfHowPre", "selfExplorePre", "selfWhatPre"})  # 事前
+
+
+def _likert_only(values: dict | None, allowed=None) -> dict:
+    """1〜5 の答えだけ。allowed があれば、そのキーだけ（知らないキーは送らない）。"""
+    return {k: int(v) for k, v in (values or {}).items() if v in (1, 2, 3, 4, 5) and (allowed is None or k in allowed)}
+
+
+def _essays_only(essays: dict | None) -> dict:
+    return {k: str(v).strip()[:ESSAY_MAX[k]] for k, v in (essays or {}).items() if k in ESSAY_MAX and str(v or "").strip()}
+
+
+def build_end_payload(session_id: str, reached, cook_nodes, self_mistakes, answers: dict, comment: str, paused_sec: int = 0,
+                      learning: dict | None = None, essays: dict | None = None) -> dict:
     """課題を終えるときの送信内容。答えなかった項目は、送らない（空欄のまま）。
 
-    paused_sec は、Houdini が閉じていた秒数（所要時間から引く）。振り返りの回答に使った秒数（surveySec）は、送る直前に足す。"""
+    paused_sec は、Houdini が閉じていた秒数（所要時間から引く）。振り返りの回答に使った秒数（surveySec）は、送る直前に足す。
+    learning は学びの確認の 1〜5（goalPost・goalUsed・selfHow・selfExplore・selfWhat・learned）、essays は自由記述（houdiniDef・explainOwn・fun）。"""
     survey = {k: int(v) for k, v in (answers or {}).items() if v in (1, 2, 3, 4, 5)}
     payload: dict = {
         "sessionId": session_id,
@@ -218,16 +275,23 @@ def build_end_payload(session_id: str, reached, cook_nodes, self_mistakes, answe
         "comment": (comment or "").strip()[:1000],
         "pausedSec": max(0, int(paused_sec or 0)),
     }
+    if _likert_only(learning, LEARNING_KEYS):
+        payload["learning"] = _likert_only(learning, LEARNING_KEYS)
+    if _essays_only(essays):
+        payload["essays"] = _essays_only(essays)
     return payload
 
 
 PROFILE_LEVELS = ("初心者", "初級", "中級", "上級")
 
 
-def build_profile_payload(years: float, level: str, background: str, practice: str, tools: str, months: int = 0) -> dict:
-    """事前アンケートの送信内容。経験は、年と月で聞き、合計の月数（experienceMonths）と、年（月数 ÷ 12。分析の既存の列）で送る。"""
+def build_profile_payload(years: float, level: str, background: str, practice: str, tools: str, months: int = 0,
+                          learning: dict | None = None, houdini_def: str = "") -> dict:
+    """事前アンケートの送信内容。経験は、年と月で聞き、合計の月数（experienceMonths）と、年（月数 ÷ 12。分析の既存の列）で送る。
+    learning は学びの確認の事前の 1〜5（goalPre・selfHowPre・selfExplorePre・selfWhatPre）、houdini_def は「Houdini とは」の自由記述。
+    答えなかった項目は、送らない（サーバーは、すでにある値を消さない）。"""
     total = max(0, min(720, round(float(years) * 12) + int(months)))
-    return {
+    payload = {
         "experienceMonths": total,
         "experienceYears": round(total / 12, 4),
         "selfLevel": level if level in PROFILE_LEVELS else "",
@@ -235,3 +299,7 @@ def build_profile_payload(years: float, level: str, background: str, practice: s
         "practice": (practice or "").strip()[:400],
         "toolHistory": (tools or "").strip()[:400],
     }
+    payload.update(_likert_only(learning, PRE_KEYS))
+    if str(houdini_def or "").strip():
+        payload["houdiniDefPre"] = str(houdini_def).strip()[:ESSAY_MAX["houdiniDef"]]
+    return payload

@@ -66,6 +66,16 @@ const SURVEY_COLUMN: Record<SurveyField, string> = {
   reuse: "reuse",
 };
 
+// 学びの確認（2026-11-22。migrations/0039）。同じ3つの自己評価を、事前と事後に聞き、差（伸び）を見る。
+//   goal  … 得たいもの（事前）/ いま学びたいもの（事後）。1 = 完成物を手早く作れるように … 5 = Houdini の仕組みを理解
+//   goalUsed … 本システムの使い方。1 = 答え・完成物を出してもらうため … 5 = 作られた中身を追って、仕組みを理解するため（本システムを使わない回は聞かない）
+//   selfHow / selfExplore / selfWhat … ノードのつながりを説明できる / 初めてのノードを調べて判断できる / Houdini が何かを説明できる
+//   learned … この時間で、新しく理解できたことがあった
+export const LEARNING_FIELDS = ["goalPost", "goalUsed", "selfHow", "selfExplore", "selfWhat", "learned"] as const;
+type LearningField = (typeof LEARNING_FIELDS)[number];
+// 自由記述の最大文字数（理解の証拠になる explainOwn は長め）
+export const ESSAY_MAX = { explainOwn: 600, houdiniDef: 300, fun: 400 } as const;
+
 export function slotForPid(pid: number): number {
   return ((pid - 1) % SLOTS) + 1;
 }
@@ -183,6 +193,21 @@ export interface TaskRow {
   sourceUseful: number | null;
   reuse: number | null;
   comment: string;
+  // 学びの確認（固定課題の終了時）と、その事前の値（事前アンケート）。無い（答えなかった・旧版）は null / ""
+  goalPost?: number | null;
+  goalUsed?: number | null;
+  selfHow?: number | null;
+  selfExplore?: number | null;
+  selfWhat?: number | null;
+  learned?: number | null;
+  explainOwn?: string;
+  houdiniDef?: string;
+  fun?: string;
+  goalPre?: number | null;
+  selfHowPre?: number | null;
+  selfExplorePre?: number | null;
+  selfWhatPre?: number | null;
+  houdiniDefPre?: string;
   redoCount?: number; // やり直した回数（この課題を、破棄して取り直した数）
   startedAt?: number; // 開始・終了の時刻（秒）。管理画面の「回答の一覧」用
   endedAt?: number;
@@ -209,12 +234,27 @@ const participantLabel = (pid: number) => "P" + String(pid).padStart(2, "0");
 const withMistake = (r: TaskRow) => mistakeScore(r.cookErrorNodes, r.selfMistakes);
 const minutes = (r: TaskRow) => (r.durationSec == null ? null : Math.round((r.durationSec / 60) * 10) / 10);
 
+// 伸び = 事後 − 事前。どちらかが無ければ null（片方だけで代用しない）
+export function gain(post: number | null | undefined, pre: number | null | undefined): number | null {
+  return typeof post === "number" && typeof pre === "number" ? post - pre : null;
+}
+const goalShift = (r: TaskRow) => gain(r.goalPost, r.goalPre);
+const howGain = (r: TaskRow) => gain(r.selfHow, r.selfHowPre);
+const exploreGain = (r: TaskRow) => gain(r.selfExplore, r.selfExplorePre);
+const whatGain = (r: TaskRow) => gain(r.selfWhat, r.selfWhatPre);
+
 const COMPARE_METRICS: Array<{ key: string; label: string; better: "lower" | "higher"; value: (r: TaskRow) => number | null }> = [
   { key: "difficulty", label: "難しさ（1〜5）", better: "lower", value: (r) => r.difficulty },
   { key: "clarity", label: "わかりやすさ（1〜5）", better: "higher", value: (r) => r.clarity },
   { key: "durationMin", label: "所要時間（分）", better: "lower", value: minutes },
   { key: "mistake", label: "操作ミス（0〜1）", better: "lower", value: withMistake },
   { key: "reached", label: "到達（0/1）", better: "higher", value: (r) => r.reached },
+  // 学びの確認。本システムの目的は、生成物を作れるようになることではなく、中身を理解すること（2026-11-22）
+  { key: "learned", label: "新しく理解できたこと（1〜5）", better: "higher", value: (r) => r.learned ?? null },
+  { key: "selfHowGain", label: "ノードのつながりを説明できる（事後−事前）", better: "higher", value: howGain },
+  { key: "selfExploreGain", label: "初めてのノードを調べて判断できる（事後−事前）", better: "higher", value: exploreGain },
+  { key: "selfWhatGain", label: "Houdini が何かを説明できる（事後−事前）", better: "higher", value: whatGain },
+  { key: "goalShift", label: "学びたいものの変化（事後−事前。+は、仕組みの理解へ）", better: "higher", value: goalShift },
 ];
 
 export function summarizeTasks(rows: TaskRow[]) {
@@ -242,6 +282,13 @@ export function summarizeTasks(rows: TaskRow[]) {
           accuracyWorry: median(items.map((i) => i.accuracyWorry)),
           sourceUseful: median(items.map((i) => i.sourceUseful)),
           reuse: median(items.map((i) => i.reuse)),
+          learned: median(items.map((i) => i.learned)),
+          goalPost: median(items.map((i) => i.goalPost)),
+          goalUsed: median(items.map((i) => i.goalUsed)),
+          selfHowGain: median(items.map(howGain)),
+          selfExploreGain: median(items.map(exploreGain)),
+          selfWhatGain: median(items.map(whatGain)),
+          goalShift: median(items.map(goalShift)),
           durationMin: median(items.map(minutes)),
           queries: median(items.map((i) => i.queryCount)),
           mistake: median(items.map(withMistake)),
@@ -296,6 +343,10 @@ export function summarizeTasks(rows: TaskRow[]) {
     comparison,
     contaminated: [...new Set(contaminated)].sort((a, b) => a - b),
     comments: rows.filter((r) => r.comment).map((r) => ({ pid: r.pid, round: r.round, kind: r.kind, condition: r.condition, comment: r.comment })),
+    // 楽しかったこと・自分の言葉での説明（自由記述。分析では、コーディングして集計する）
+    fun: rows.filter((r) => r.fun).map((r) => ({ pid: r.pid, round: r.round, kind: r.kind, condition: r.condition, fun: r.fun })),
+    // 「本システムを、どう使ったか」の分布（1 = 答え・完成物を出してもらうため … 5 = 中身を追って理解するため）。本システムを使った固定課題だけ
+    goalUsedDistribution: [1, 2, 3, 4, 5].map((v) => ({ value: v, n: fixed.filter((r) => r.condition === "system" && r.goalUsed === v).length })),
   };
 }
 
@@ -391,10 +442,22 @@ export async function handlePilotProfile(req: Request, env: Env, user: AuthedUse
     practice: text(body.practice, 400),
     tool_history: text(body.toolHistory, 400),
   };
+  // 学びの確認の事前の値（2026-11-22）。答えなかった項目は NULL。旧版のパネルは送らないので、更新のときは、すでにある値を消さない（COALESCE）。
+  const pre = {
+    goal_pre: likert(body.goalPre),
+    self_how_pre: likert(body.selfHowPre),
+    self_explore_pre: likert(body.selfExplorePre),
+    self_what_pre: likert(body.selfWhatPre),
+    houdini_def_pre: text(body.houdiniDefPre, ESSAY_MAX.houdiniDef) || null,
+  };
   const existing = await loadProfile(env, user.userId);
   if (existing) {
-    await env.DB.prepare("UPDATE pilot_profile SET experience_years = ?, self_level = ?, background = ?, practice = ?, tool_history = ? WHERE user_id = ?")
-      .bind(fields.experience_years, fields.self_level, fields.background, fields.practice, fields.tool_history, user.userId)
+    await env.DB.prepare(
+      `UPDATE pilot_profile SET experience_years = ?, self_level = ?, background = ?, practice = ?, tool_history = ?,
+         goal_pre = COALESCE(?, goal_pre), self_how_pre = COALESCE(?, self_how_pre), self_explore_pre = COALESCE(?, self_explore_pre),
+         self_what_pre = COALESCE(?, self_what_pre), houdini_def_pre = COALESCE(?, houdini_def_pre) WHERE user_id = ?`,
+    )
+      .bind(fields.experience_years, fields.self_level, fields.background, fields.practice, fields.tool_history, pre.goal_pre, pre.self_how_pre, pre.self_explore_pre, pre.self_what_pre, pre.houdini_def_pre, user.userId)
       .run();
   } else {
     const isAdmin = user.role === "admin"; // 運営のテストは、番号を取らず、集計に入れない
@@ -402,9 +465,10 @@ export async function handlePilotProfile(req: Request, env: Env, user: AuthedUse
       const next = isAdmin ? null : ((await env.DB.prepare("SELECT COALESCE(MAX(pid), 0) + 1 AS n FROM pilot_profile").first<{ n: number }>())?.n ?? 1);
       try {
         await env.DB.prepare(
-          "INSERT INTO pilot_profile (user_id, pid, slot, experience_years, self_level, background, practice, tool_history, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          `INSERT INTO pilot_profile (user_id, pid, slot, experience_years, self_level, background, practice, tool_history, created_at,
+             goal_pre, self_how_pre, self_explore_pre, self_what_pre, houdini_def_pre) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-          .bind(user.userId, next, next == null ? 1 : slotForPid(next), fields.experience_years, fields.self_level, fields.background, fields.practice, fields.tool_history, Math.floor(Date.now() / 1000))
+          .bind(user.userId, next, next == null ? 1 : slotForPid(next), fields.experience_years, fields.self_level, fields.background, fields.practice, fields.tool_history, Math.floor(Date.now() / 1000), pre.goal_pre, pre.self_how_pre, pre.self_explore_pre, pre.self_what_pre, pre.houdini_def_pre)
           .run();
         break;
       } catch (err) {
@@ -469,10 +533,21 @@ export async function handlePilotSessionEnd(req: Request, env: Env, user: Authed
   const survey = (body.survey && typeof body.survey === "object" ? body.survey : {}) as Record<string, unknown>;
   const values = Object.fromEntries(SURVEY_FIELDS.map((f) => [f, likert(survey[f])])) as Record<SurveyField, number | null>;
   if (row.condition === "docs_only") values.sourceUseful = null; // 本システムを使わない回に、出典の有用性は無い
+  // 学びの確認（2026-11-22）。答えなかった項目は NULL。本システムを使わない回に、「本システムの使い方」は無い。
+  const learning = (body.learning && typeof body.learning === "object" ? body.learning : {}) as Record<string, unknown>;
+  const learn = Object.fromEntries(LEARNING_FIELDS.map((f) => [f, likert(learning[f])])) as Record<LearningField, number | null>;
+  if (row.condition === "docs_only") learn.goalUsed = null;
+  const essays = (body.essays && typeof body.essays === "object" ? body.essays : {}) as Record<string, unknown>;
+  const essay = {
+    explainOwn: text(essays.explainOwn, ESSAY_MAX.explainOwn) || null,
+    houdiniDef: text(essays.houdiniDef, ESSAY_MAX.houdiniDef) || null,
+    fun: text(essays.fun, ESSAY_MAX.fun) || null,
+  };
   const cook = body.cookErrorNodes == null ? null : clampInt(body.cookErrorNodes, 0, 0, 9999);
   await env.DB.prepare(
     `UPDATE pilot_sessions SET ended_at = ?, duration_sec = ?, paused_sec = ?, query_count = ?, cook_error_nodes = ?, reached = ?, self_mistakes = ?,
-       difficulty = ?, clarity = ?, focus = ?, accuracy_worry = ?, source_useful = ?, reuse = ?, comment = ? WHERE id = ?`,
+       difficulty = ?, clarity = ?, focus = ?, accuracy_worry = ?, source_useful = ?, reuse = ?, comment = ?,
+       goal_post = ?, goal_used = ?, self_how = ?, self_explore = ?, self_what = ?, learned = ?, explain_own = ?, houdini_def = ?, fun = ? WHERE id = ?`,
   )
     .bind(
       endedAt,
@@ -489,6 +564,15 @@ export async function handlePilotSessionEnd(req: Request, env: Env, user: Authed
       values.sourceUseful,
       values.reuse,
       text(body.comment, 1000),
+      learn.goalPost,
+      learn.goalUsed,
+      learn.selfHow,
+      learn.selfExplore,
+      learn.selfWhat,
+      learn.learned,
+      essay.explainOwn,
+      essay.houdiniDef,
+      essay.fun,
       id,
     )
     .run();
@@ -521,6 +605,9 @@ export async function handlePilotTasks(_req: Request, env: Env, user: AuthedUser
        s.self_mistakes AS selfMistakes, s.difficulty AS difficulty, s.clarity AS clarity, s.focus AS focus,
        s.accuracy_worry AS accuracyWorry, s.source_useful AS sourceUseful, s.reuse AS reuse, COALESCE(s.comment, '') AS comment,
        s.started_at AS startedAt, s.ended_at AS endedAt, COALESCE(s.paused_sec, 0) AS pausedSec,
+       s.goal_post AS goalPost, s.goal_used AS goalUsed, s.self_how AS selfHow, s.self_explore AS selfExplore, s.self_what AS selfWhat, s.learned AS learned,
+       COALESCE(s.explain_own, '') AS explainOwn, COALESCE(s.houdini_def, '') AS houdiniDef, COALESCE(s.fun, '') AS fun,
+       p.goal_pre AS goalPre, p.self_how_pre AS selfHowPre, p.self_explore_pre AS selfExplorePre, p.self_what_pre AS selfWhatPre, COALESCE(p.houdini_def_pre, '') AS houdiniDefPre,
        (SELECT COUNT(*) FROM pilot_sessions d WHERE d.user_id = s.user_id AND d.round = s.round AND d.kind = s.kind AND d.discarded_at IS NOT NULL) AS redoCount
      FROM pilot_sessions s JOIN pilot_profile p ON p.user_id = s.user_id JOIN users u ON u.user_id = s.user_id
      WHERE s.ended_at IS NOT NULL AND s.discarded_at IS NULL AND p.pid IS NOT NULL AND u.role != 'admin'
@@ -533,11 +620,12 @@ export async function handlePilotTasks(_req: Request, env: Env, user: AuthedUser
   // 事前アンケート（自由記述を含む）。個人情報が書かれているかもしれないので、管理者だけ。氏名・ユーザー ID は出さず、番号で出す。
   const profileRes = await env.DB.prepare(
     `SELECT p.pid AS pid, p.slot AS slot, p.experience_years AS experienceYears, COALESCE(p.self_level, '') AS selfLevel,
-       COALESCE(p.background, '') AS background, COALESCE(p.practice, '') AS practice, COALESCE(p.tool_history, '') AS toolHistory, p.created_at AS createdAt
+       COALESCE(p.background, '') AS background, COALESCE(p.practice, '') AS practice, COALESCE(p.tool_history, '') AS toolHistory, p.created_at AS createdAt,
+       p.goal_pre AS goalPre, p.self_how_pre AS selfHowPre, p.self_explore_pre AS selfExplorePre, p.self_what_pre AS selfWhatPre, COALESCE(p.houdini_def_pre, '') AS houdiniDefPre
      FROM pilot_profile p JOIN users u ON u.user_id = p.user_id
      WHERE p.pid IS NOT NULL AND u.role != 'admin'
      ORDER BY p.pid`,
-  ).all<{ pid: number; slot: number; experienceYears: number | null; selfLevel: string; background: string; practice: string; toolHistory: string; createdAt: number }>();
+  ).all<{ pid: number; slot: number; experienceYears: number | null; selfLevel: string; background: string; practice: string; toolHistory: string; createdAt: number; goalPre: number | null; selfHowPre: number | null; selfExplorePre: number | null; selfWhatPre: number | null; houdiniDefPre: string }>();
   const config = await loadPilotConfig(env);
   return jsonResponse(200, {
     status: "ok",
@@ -546,7 +634,7 @@ export async function handlePilotTasks(_req: Request, env: Env, user: AuthedUser
     profiles: (profileRes.results ?? []).map((p) => ({ ...p, participant: participantLabel(p.pid) })),
     mistakeFormula: { cook: MISTAKE_WEIGHT_COOK, self: MISTAKE_WEIGHT_SELF, cookCap: COOK_ERROR_CAP },
     ...summarizeTasks(rows),
-    rows: rows.map((r) => ({ ...r, participant: participantLabel(r.pid), mistake: withMistake(r), durationMin: minutes(r), pausedMin: r.pausedSec == null ? null : Math.round((r.pausedSec / 60) * 10) / 10 })),
+    rows: rows.map((r) => ({ ...r, participant: participantLabel(r.pid), mistake: withMistake(r), selfHowGain: howGain(r), selfExploreGain: exploreGain(r), selfWhatGain: whatGain(r), goalShift: goalShift(r), durationMin: minutes(r), pausedMin: r.pausedSec == null ? null : Math.round((r.pausedSec / 60) * 10) / 10 })),
   });
 }
 

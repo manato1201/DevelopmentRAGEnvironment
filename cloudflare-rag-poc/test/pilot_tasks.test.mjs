@@ -354,6 +354,122 @@ assert.equal(r.status, 200, "an optional free task can still be done after the r
 plan7 = await call(pt.handlePilotSessionEnd, u7, { sessionId: r.body.sessionId, reached: false });
 assert.equal(plan7.body.finished, true);
 
+const { chatUiHtml: chatUiHtmlFn } = await import("../src/chatUi");
+const chatUiHtmlEarly = chatUiHtmlFn();
+// ---- 学びの確認（2026-11-22。migrations/0039）: 事前と事後の同じ質問・使い方・自由記述 ----
+assert.deepEqual(pt.LEARNING_FIELDS, ["goalPost", "goalUsed", "selfHow", "selfExplore", "selfWhat", "learned"]);
+assert.equal(pt.gain(4, 2), 2);
+assert.equal(pt.gain(2, 4), -2);
+assert.equal(pt.gain(null, 2), null, "a gain needs both values");
+assert.equal(pt.gain(3, undefined), null);
+
+const u8 = mkUser("u8"), u9 = mkUser("u9");
+// 事前: 値の範囲外・自由記述の長さ。旧版（学びの項目を送らない）の再送で、すでにある値を消さない
+let lp = await call(pt.handlePilotProfile, u8, { experienceMonths: 6, goalPre: 2, selfHowPre: 1, selfExplorePre: 3, selfWhatPre: 9, houdiniDefPre: "  ノードで作る 3DCG ツール  " });
+assert.equal(lp.status, 200);
+let pre = db.prepare("SELECT * FROM pilot_profile WHERE user_id='u8'").get();
+assert.equal(pre.goal_pre, 2);
+assert.equal(pre.self_how_pre, 1);
+assert.equal(pre.self_explore_pre, 3);
+assert.equal(pre.self_what_pre, null, "out of range → null");
+assert.equal(pre.houdini_def_pre, "ノードで作る 3DCG ツール");
+await call(pt.handlePilotProfile, u8, { experienceMonths: 7 }); // 旧版のパネル（学びの項目を送らない）
+pre = db.prepare("SELECT * FROM pilot_profile WHERE user_id='u8'").get();
+assert.equal(pre.goal_pre, 2, "an old panel's re-send does not erase the pre answers");
+assert.equal(pre.houdini_def_pre, "ノードで作る 3DCG ツール");
+await call(pt.handlePilotProfile, u8, { goalPre: 4 });
+assert.equal(db.prepare("SELECT goal_pre AS g FROM pilot_profile WHERE user_id='u8'").get().g, 4, "a new answer replaces the old one");
+await call(pt.handlePilotProfile, u9, {}); // 何も答えない人は、すべて空欄
+pre = db.prepare("SELECT * FROM pilot_profile WHERE user_id='u9'").get();
+assert.deepEqual([pre.goal_pre, pre.self_how_pre, pre.houdini_def_pre], [null, null, null]);
+await call(pt.handlePilotProfile, u8, { goalPre: 2, selfHowPre: 1, selfExplorePre: 3 });
+
+// 事後（本システムの群）: 使い方・自己評価・自由記述が保存され、長すぎる記述は切る
+await call(pt.handlePilotConfig, admin, { openRound: 2 });
+await call(pt.handlePilotConfig, admin, { conditionMode: "system" });
+r = await call(pt.handlePilotSessionStart, u8, { kind: "fixed" });
+assert.equal(r.body.condition, "system");
+const sid8 = r.body.sessionId;
+r = await call(pt.handlePilotSessionEnd, u8, {
+  sessionId: sid8, reached: true,
+  survey: { difficulty: 3 },
+  learning: { goalPost: 5, goalUsed: 4, selfHow: 4, selfExplore: 5, selfWhat: 4, learned: 5, bogus: 5 },
+  essays: { explainOwn: "  tag_bell は、傘の点に i@part = 1 を付けて、後ろの変形で部位ごとに動かし方を変えるための目印です  ", houdiniDef: "手続きでジオメトリを作る DCC", fun: "x".repeat(900) },
+});
+assert.equal(r.status, 200);
+let ended = db.prepare("SELECT * FROM pilot_sessions WHERE id=?").get(sid8);
+assert.deepEqual([ended.goal_post, ended.goal_used, ended.self_how, ended.self_explore, ended.self_what, ended.learned], [5, 4, 4, 5, 4, 5]);
+assert.ok(ended.explain_own.startsWith("tag_bell は、傘の点に"), "own-words explanation is saved and trimmed");
+assert.equal(ended.houdini_def, "手続きでジオメトリを作る DCC");
+assert.equal(ended.fun.length, 400, "a long free text is cut to its limit");
+assert.equal(db.prepare("PRAGMA table_info(pilot_sessions)").all().filter((c) => c.name === "bogus").length, 0);
+
+// 対照（公式ドキュメントのみ）: 本システムの使い方は聞かない・保存しない。ほかの学びの項目は保存する（学びは、両方の群で比べる）
+await call(pt.handlePilotConfig, admin, { conditionMode: "docs_only" });
+r = await call(pt.handlePilotSessionStart, u9, { kind: "fixed" });
+assert.equal(r.body.condition, "docs_only");
+r = await call(pt.handlePilotSessionEnd, u9, { sessionId: r.body.sessionId, learning: { goalUsed: 5, selfHow: 2, learned: 3, goalPost: 3 }, essays: { fun: "ドキュメントを読み解くのが楽しかった" } });
+ended = db.prepare("SELECT * FROM pilot_sessions WHERE user_id='u9'").get();
+assert.equal(ended.goal_used, null, "no 'how you used the system' for the control group");
+assert.equal(ended.self_how, 2);
+assert.equal(ended.learned, 3);
+assert.equal(ended.fun, "ドキュメントを読み解くのが楽しかった");
+assert.equal(ended.explain_own, null, "unanswered essays stay null");
+await call(pt.handlePilotConfig, admin, { conditionMode: "auto" });
+
+// 旧版のパネル（learning・essays を送らない）でも、これまでどおり終えられる
+const u10 = mkUser("u10");
+await call(pt.handlePilotProfile, u10, {});
+r = await call(pt.handlePilotSessionStart, u10, { kind: "fixed" });
+r = await call(pt.handlePilotSessionEnd, u10, { sessionId: r.body.sessionId, reached: true, survey: { difficulty: 2 } });
+assert.equal(r.status, 200);
+ended = db.prepare("SELECT * FROM pilot_sessions WHERE user_id='u10'").get();
+assert.deepEqual([ended.goal_post, ended.learned, ended.fun], [null, null, null]);
+
+// 管理者の一覧: 事前の値と事後の値が並び、伸び（事後 − 事前）が出る。使い方の分布は、本システムの群だけ
+const learnTasks = await call(pt.handlePilotTasks, admin);
+const row8 = learnTasks.body.rows.find((x) => x.participant === "P" + String(db.prepare("SELECT pid FROM pilot_profile WHERE user_id='u8'").get().pid).padStart(2, "0") && x.kind === "fixed");
+assert.ok(row8, "the learning row is listed");
+assert.equal(row8.goalPre, 2);
+assert.equal(row8.goalShift, 3, "5 − 2: moved toward understanding how it works");
+assert.equal(row8.selfHowGain, 3, "4 − 1");
+assert.equal(row8.selfExploreGain, 2, "5 − 3");
+assert.equal(row8.selfWhatGain, null, "no pre value → no gain");
+assert.equal(row8.houdiniDefPre, "ノードで作る 3DCG ツール");
+assert.match(row8.explainOwn, /tag_bell/);
+const dist = learnTasks.body.goalUsedDistribution;
+assert.equal(dist.length, 5);
+assert.equal(dist.find((d) => d.value === 4).n, 1, "the usage question counts only fixed tasks with the system");
+assert.equal(dist.reduce((a, d) => a + d.n, 0) >= 1, true);
+assert.ok(learnTasks.body.fun.some((f) => f.fun.includes("ドキュメントを読み解く")), "fun answers are listed for coding");
+const profile8 = learnTasks.body.profiles.find((p) => p.houdiniDefPre === "ノードで作る 3DCG ツール");
+assert.ok(profile8, "pre answers are in the profile list");
+assert.equal(profile8.goalPre, 2);
+const learnedMetric = learnTasks.body.compared.find((p) => p.key === "learned");
+assert.ok(learnedMetric && learnedMetric.better === "higher", "learning is a compared metric");
+assert.ok(["selfHowGain", "selfExploreGain", "selfWhatGain", "goalShift"].every((k) => learnTasks.body.compared.some((p) => p.key === k)));
+
+// 集計（純関数）: 伸びと中央値
+const learnRows = [
+  row(1, 1, "fixed", "system", { learned: 5, goalPost: 5, goalPre: 2, selfHow: 4, selfHowPre: 2 }),
+  row(2, 1, "fixed", "system", { learned: 4, goalPost: 4, goalPre: 3, selfHow: 3, selfHowPre: 3 }),
+  row(3, 1, "fixed", "docs_only", { learned: 2, goalPost: 3, goalPre: 3, selfHow: 2, selfHowPre: 3 }),
+];
+const learnSum = pt.summarizeTasks(learnRows);
+const sysGroup = learnSum.byGroup.find((x) => x.kind === "fixed" && x.condition === "system");
+assert.equal(sysGroup.median.learned, 4.5);
+assert.equal(sysGroup.median.selfHowGain, 1, "median of +2 and 0");
+assert.equal(sysGroup.median.goalShift, 2, "median of +3 and +1");
+const howMetric = learnSum.compared.find((p) => p.key === "selfHowGain");
+assert.equal(howMetric.medianSystem, 1);
+assert.equal(howMetric.medianDocs, -1);
+assert.equal(howMetric.medianDiff, 2);
+assert.equal(howMetric.cliffsDelta, 1);
+
+// 管理画面: 学びの確認の列・CSV
+const learnHtml = chatUiHtmlEarly;
+for (const id of ["pilotLearning", "pilotLearningNote"]) assert.ok(learnHtml.includes('id="' + id + '"'), id);
+
 // ---- 管理画面: 課題の集計の部品と、回の切り替えが入っていて、スクリプトが構文として読める ----
 const vm = await import("node:vm");
 const { chatUiHtml } = await import("../src/chatUi");
