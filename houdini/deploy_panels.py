@@ -90,6 +90,11 @@ def main() -> int:
         embedded = script.encode("utf-8").decode("latin-1")
         target.write_text(_PYPANEL_SKELETON.format(script=embedded), encoding="utf-8", newline="\n")
         print("default.pypanel を作り直しました")
+    shelf = Path(__file__).resolve().parent / "package" / "houdini" / "toolbar" / "ragreel_tutorial.shelf"
+    toolbar = dst.parent / "toolbar"
+    if shelf.exists() and toolbar.exists():  # 浮かぶパネルを出し入れするシェルフツール（配布版は、パッケージの path から読まれる）
+        shutil.copyfile(shelf, toolbar / shelf.name)
+        print(f"シェルフを配置しました: {toolbar / shelf.name}")
     print("Houdini を再起動してください（起動中はモジュールがキャッシュされています）。")
     return 0
 

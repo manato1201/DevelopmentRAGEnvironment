@@ -46,6 +46,7 @@ def collect_files() -> list[tuple[Path, str]]:
     for path in sorted(PANELS.glob("*.py")):
         files.append((path, f"python/{path.name}"))
     files.append((PACKAGE / "RAGReelTutorial.pypanel", "houdini/python_panels/RAGReelTutorial.pypanel"))
+    files.append((PACKAGE / "houdini" / "toolbar" / "ragreel_tutorial.shelf", "houdini/toolbar/ragreel_tutorial.shelf"))  # 浮かぶパネルを出し入れするシェルフツール
     files.append((PACKAGE / "install.ps1", "install.ps1"))
     files.append((PACKAGE / "install.cmd", "install.cmd"))
     readme = PACKAGE / "README.txt"

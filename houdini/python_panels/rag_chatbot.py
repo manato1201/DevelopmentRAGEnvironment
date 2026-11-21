@@ -558,6 +558,7 @@ class RAGChatbotPanel(QWidget):
 
         self._build_ui()
         self._ensure_bridge()  # Local モードなら起動確認
+        QTimer.singleShot(2000, self._setup_float_hotkey)  # シェルフツールが読み込まれたあとで、キーを割り当てる（最初の 1 回）
 
         # 接続状態ランプ: 初回チェック + 定期的な自動再チェック（タブを切り替えなくても
         # 現在の接続状態が分かるようにするため）。
@@ -1323,6 +1324,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         menu.addSeparator()
         menu.addAction("このパネルを別ウィンドウで開く（並べて見る）").triggered.connect(self._on_open_new_window)
         menu.addAction("並べて見る方法").triggered.connect(self._show_parallel_help)
+        menu.addAction("キー 1 つで、浮かぶパネルを出し入れする（設定）").triggered.connect(self._show_float_hotkey_help)
         jump = menu.addAction("ほかのパネルがあるとき、そちらで開く（Guide ⇄ Reference）")
         jump.setCheckable(True)
         jump.setChecked(_bus.enabled())
@@ -1380,6 +1382,20 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             return
         _debug.log("画面", f"別ウィンドウで開けませんでした: {reason}")
         QMessageBox.information(self, "別ウィンドウで開けませんでした", f"（{reason}）\n\n" + _nav.PARALLEL_VIEW_HELP)
+
+    def _setup_float_hotkey(self) -> None:
+        """シェルフツール「RAGReel Tutorial」に、キーを割り当てる（最初の 1 回。割り当てられた・すでにあるとき、印を残す）。"""
+        try:
+            state, detail = _nav.ensure_float_hotkey(done=bool(_ui_state_get("float_hotkey_done", False)))
+        except Exception as exc:  # noqa: BLE001
+            state, detail = "failed", str(exc)
+        if state in ("assigned", "exists"):
+            _ui_state_set("float_hotkey_done", True)
+        if state != "skipped":
+            _debug.log("画面", f"浮かぶパネルのキー: {state} {detail}")
+
+    def _show_float_hotkey_help(self) -> None:
+        QMessageBox.information(self, "キー 1 つで、浮かぶパネルを出し入れする", _nav.FLOAT_HOTKEY_HELP)
 
     def _show_parallel_help(self) -> None:
         QMessageBox.information(self, "並べて見る方法", _nav.PARALLEL_VIEW_HELP)

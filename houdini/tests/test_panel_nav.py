@@ -147,6 +147,129 @@ class _SilentWorker:
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 がありません")
+class FloatingToggleTest(unittest.TestCase):
+    """キー 1 つで、浮かぶパネルを出し入れする（panel_nav.toggle_floating / ensure_float_hotkey）。"""
+
+    class Tab:
+        def __init__(self, interface="RAGChatBot", floating=True, kind="py") -> None:
+            self._interface, self._floating, self._kind, self.closed = interface, floating, kind, False
+
+        def type(self):
+            return self._kind
+
+        def isFloating(self):
+            return self._floating
+
+        def activeInterface(self):
+            if self._interface is None:
+                raise RuntimeError("not a python panel")
+            return type("I", (), {"name": lambda s: self._interface})()
+
+        def close(self):
+            self.closed = True
+
+    class Hou:
+        class paneTabType:
+            PythonPanel = "py"
+
+        def __init__(self, tabs, interfaces=("RAGChatBot",)) -> None:
+            self.created = []
+            hou = self
+
+            class Desktop:
+                def paneTabs(self):
+                    return tabs
+
+                def createFloatingPaneTab(self, kind, **kwargs):
+                    hou.created.append((kind, kwargs))
+
+            self.ui = type("UI", (), {"curDesktop": staticmethod(lambda: Desktop())})()
+            self.pypanel = type("PP", (), {"interfaceByName": staticmethod(lambda n: object() if n in interfaces else None)})()
+
+    def test_it_opens_a_floating_panel_near_the_given_position(self) -> None:
+        hou = self.Hou([])
+        ok, message = nav.toggle_floating(hou, position=(100, 200))
+        self.assertTrue(ok, message)
+        kind, kwargs = hou.created[0]
+        self.assertEqual(kind, "py")
+        self.assertEqual(kwargs["python_panel_interface"], "RAGChatBot")
+        self.assertEqual(kwargs["position"], (100.0, 200.0))
+        self.assertEqual(kwargs["size"], nav.FLOAT_SIZE)
+
+    def test_pressing_again_closes_it(self) -> None:
+        mine, other_float, docked, not_python = self.Tab(), self.Tab("SomethingElse"), self.Tab(floating=False), self.Tab(interface=None)
+        hou = self.Hou([mine, other_float, docked, not_python])
+        ok, message = nav.toggle_floating(hou)
+        self.assertTrue(ok)
+        self.assertTrue(mine.closed)
+        self.assertFalse(other_float.closed or docked.closed or not_python.closed, "only this panel's floating windows")
+        self.assertEqual(hou.created, [])
+
+    def test_missing_definition_and_no_houdini_are_reported_not_raised(self) -> None:
+        ok, message = nav.toggle_floating(self.Hou([], interfaces=()))
+        self.assertFalse(ok)
+        self.assertIn("見つかりません", message)
+        ok, message = nav.toggle_floating(None)
+        self.assertFalse(ok)
+
+    def test_the_hotkey_avoids_a_conflicting_key_and_is_saved(self) -> None:
+        calls = []
+
+        class Hotkeys:
+            def assignments(self, symbol):
+                return []
+
+            def findConflicts(self, context, key):
+                return ["h.pane.wsheet.something"] if key == "alt+p" else []
+
+            def addAssignment(self, context, symbol, key):
+                calls.append((context, symbol, key))
+                return True
+
+            def saveOverrides(self):
+                calls.append("saved")
+
+        hou = type("H", (), {"hotkeys": Hotkeys()})()
+        self.assertEqual(nav.ensure_float_hotkey(hou), ("assigned", "ctrl+shift+p"))
+        self.assertEqual(calls[0], ("h.pane.wsheet", "h.pane.wsheet.tool:ragreel_float", "ctrl+shift+p"))
+        self.assertEqual(calls[-1], "saved")
+
+    def test_an_existing_assignment_or_a_done_flag_changes_nothing(self) -> None:
+        class Hotkeys:
+            def assignments(self, symbol):
+                return ["alt+x"]
+
+        hou = type("H", (), {"hotkeys": Hotkeys()})()
+        self.assertEqual(nav.ensure_float_hotkey(hou), ("exists", ""))
+        self.assertEqual(nav.ensure_float_hotkey(hou, done=True), ("skipped", ""))
+
+    def test_an_unregistered_tool_or_no_free_key_is_a_failure_with_a_reason(self) -> None:
+        class Hotkeys:
+            def assignments(self, symbol):
+                return []
+
+            def findConflicts(self, context, key):
+                return []
+
+            def addAssignment(self, *a):
+                return False  # シェルフツールが、まだ登録されていない
+
+        state, detail = nav.ensure_float_hotkey(type("H", (), {"hotkeys": Hotkeys()})())
+        self.assertEqual(state, "failed")
+        self.assertIn("シェルフ", detail)
+
+    def test_the_shelf_file_names_the_tool_that_the_hotkey_symbol_points_to(self) -> None:
+        import xml.etree.ElementTree as ET
+
+        shelf = Path(__file__).resolve().parents[1] / "package" / "houdini" / "toolbar" / "ragreel_tutorial.shelf"
+        root = ET.parse(shelf).getroot()
+        names = [t.get("name") for t in root.iter("tool")]
+        self.assertIn(nav.FLOAT_TOOL_NAME, names)
+        self.assertTrue(nav.FLOAT_HOTKEY_SYMBOL.endswith(":" + nav.FLOAT_TOOL_NAME))
+        script = next(t for t in root.iter("script")).text
+        compile(script, "shelf", "exec")
+
+
 class PanelLayoutTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

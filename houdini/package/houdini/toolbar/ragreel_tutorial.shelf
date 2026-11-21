@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shelfDocument>
+  <!-- RAGReel Tutorial: open / close the panel as a floating window near the mouse. -->
+  <toolshelf name="ragreel_tutorial" label="RAGReel">
+    <memberTool name="ragreel_float"/>
+  </toolshelf>
+
+  <tool name="ragreel_float" label="RAGReel Tutorial" icon="MISC_python">
+    <helpText><![CDATA[Opens the RAGReel Tutorial panel as a floating window near the mouse. Press again to close it.
+Assign a key: Edit > Preferences > Hotkeys > Network Editor > "Shelf Tool: RAGReel Tutorial".]]></helpText>
+    <toolMenuContext name="network">
+      <contextOpType>$HDA_TABLE_AND_NAME</contextOpType>
+    </toolMenuContext>
+    <script scriptType="python"><![CDATA[
+import hou
+try:
+    import panel_nav
+    from PySide6.QtGui import QCursor
+    pos = QCursor.pos()
+    ok, message = panel_nav.toggle_floating(hou, position=(pos.x() + 16, pos.y() + 16))
+except Exception as exc:
+    ok, message = False, "%s: %s" % (exc.__class__.__name__, exc)
+if not ok:
+    hou.ui.displayMessage("RAGReel Tutorial: " + message, severity=hou.severityType.Warning)
+]]></script>
+  </tool>
+</shelfDocument>

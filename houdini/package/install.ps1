@@ -253,6 +253,12 @@ Get-ChildItem -Path $srcPython -Filter *.py | ForEach-Object {
 Get-ChildItem -Path $srcPanel -Filter *.pypanel | ForEach-Object {
   Copy-Item $_.FullName (Join-Path $InstallDir "houdini\python_panels\$($_.Name)") -Force
 }
+# シェルフツール（浮かぶパネルを出し入れする）。パッケージの path（$InstallDir\houdini）の toolbar に置くと、Houdini が読む
+$srcToolbar = Join-Path $PSScriptRoot "houdini\toolbar"
+if (Test-Path $srcToolbar) {
+  New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir "houdini\toolbar") | Out-Null
+  Get-ChildItem -Path $srcToolbar -Filter *.shelf | ForEach-Object { Copy-Item $_.FullName (Join-Path $InstallDir "houdini\toolbar\$($_.Name)") -Force }
+}
 if (Test-Path (Join-Path $PSScriptRoot "VERSION")) { Copy-Item (Join-Path $PSScriptRoot "VERSION") (Join-Path $InstallDir "VERSION") -Force }
 Write-Step "$copied 個の Python ファイルを配置しました: $InstallDir"
 
