@@ -89,6 +89,7 @@ const slack = async (url, init) => {
 };
 const answers = [];
 const answer = async (_env, user, body) => {
+  assert.equal(body.answerMode, "grounded", "Slack answers from the sources only (no 'how to answer' choice there; the default for other callers is open)");
   answers.push({ user, body });
   return { ok: true, answer: "答えです", sources: [{ file: "a.md", namespace: "shared:x", cited: true }], toolCalls: body.useMcp ? [{ providerLabel: "GitHub", ok: true }] : [], pendingActions: [] };
 };

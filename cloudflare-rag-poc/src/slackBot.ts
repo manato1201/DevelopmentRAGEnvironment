@@ -231,7 +231,8 @@ export async function handleSlackCommand(req: Request, env: Env, ctx?: Execution
   const work = (async () => {
     let reply: string;
     try {
-      const result = await answerWithRetry(env, user, { query: text, limit: 5 });
+      // Slack は、資料だけで答える（従来どおり。答え方の選択欄が無いため）
+      const result = await answerWithRetry(env, user, { query: text, limit: 5, answerMode: "grounded" });
       reply = result.ok ? formatSlackAnswer(result.answer, result.sources) : `質問できませんでした: ${result.error}`;
     } catch (err) {
       reply = `質問できませんでした: ${err instanceof Error ? err.message : String(err)}`;

@@ -173,7 +173,8 @@ async function respond(env: Env, incoming: SlackIncoming, botUserId: string | un
   let text: string;
   try {
     const history = await fetchHistory(env, incoming, botUserId, fetchImpl);
-    const result = await answerWithRetry(env, user, { query: incoming.text, limit: 5, history, useMcp: incoming.isDm }, answer);
+    // Slack は、資料だけで答える（従来どおり）
+    const result = await answerWithRetry(env, user, { query: incoming.text, limit: 5, history, useMcp: incoming.isDm, answerMode: "grounded" }, answer);
     if (!result.ok) {
       text = `質問できませんでした: ${result.error}`;
     } else {
