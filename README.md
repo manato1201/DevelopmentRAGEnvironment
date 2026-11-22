@@ -28,11 +28,13 @@
 |---|---|
 | **クラウド RAG** | Cloudflare Workers + D1 + Vectorize。出典つきの回答、権限・予算・回数の制御、管理画面（旧 GAS 版は 2026-10-22 に廃止） |
 | **ローカル RAG** | 個人メモ・チャット履歴など、外に出せない情報を手元で管理（ChromaDB + HTTP ブリッジ） |
-| **Houdini 連携** | パネルに、チャット・グラフ・チュートリアル生成・動画・実証実験の「課題」タブ |
+| **Houdini 連携** | パネルに、チャット・Guide・チュートリアル生成・**Reference（ノードの説明）**・動画・実証実験の「課題」タブ。キー 1 つで、浮かぶパネルを出し入れ（Alt+P） |
+| **Reference タブ** | ノード・VEX の「何をするか・使いどころ・例」を、適用前後の画像と動き（GIF）つきで。実機の Houdini 22 で点検してから公開。関連のリンクは、HoudiniReference（別リポジトリ）から |
+| **Chat の答え方** | 資料を最優先にし、資料に無い質問には、「（推測）」と確かさ・確かめ方を付けて答える（資料だけ、にも切り替え可） |
 | **Unity 連携** | エディタ内のチャット UI・グラフビュー |
 | **チュートリアル自動生成** | 自然言語の依頼から、Houdini のノードグラフを実際に組み、cook エラーなしのチュートリアルと解説動画を作る |
 | **説明レベルと習熟度** | 質問で使った専門用語から習熟度を推定し、説明の深さを自動で選ぶ |
-| **実証実験の仕組み** | 3 回 ×（固定課題＋自由課題）の計測、やり直し、中断からの再開、氏名なしの集計 |
+| **実証実験の仕組み** | 1 人 1 回（約 90 分）の固定課題＋任意の自由課題の計測、やり直し、中断からの再開、氏名なしの集計。事前・事後の「**学びの確認**」で、Houdini の中身を理解できたかを見る |
 | **外部サービス連携（MCP）** | Notion・GitHub・Slack・Google などへ、確認つきで接続 |
 | **安全の仕組み** | 監査ログ、権限（最小権限）、トークン予算、回数制限 |
 
@@ -44,7 +46,7 @@
 
 [![システム全体の構成](docs/images/01-system-overview.svg)](docs/images/01-system-overview.svg)
 
-*図: 手元の Houdini とパネル、Cloudflare の Worker、外部の AI・サービスの関係。*
+*図: 手元の Houdini とパネル、Cloudflare の Worker、外部の AI・サービス、HoudiniReference（別リポジトリ）の関係。*
 
 ### 図で見る（番号の順に読む）
 
@@ -56,6 +58,8 @@
 | 実証実験は、どう進むか | [12 実証実験の流れ](docs/images/12-pilot-flow.svg) |
 | 課題 1 回は、どう状態が変わるか | [13 課題の状態](docs/images/13-task-states.svg) |
 | 変更してから本番に出すまで | [16 変更から本番まで](docs/images/16-change-flow.svg) |
+| **どの部品が、何でつながっているか（通信）** | [17 通信構成図](docs/images/17-communication.svg) → [解説](docs/design/communication-architecture.md) |
+| **Reference タブは、どう作られ、どう表示されるか** | [18 Reference の仕組み](docs/images/18-reference-flow.svg) → [解説](docs/design/reference-tab.md) |
 
 ---
 

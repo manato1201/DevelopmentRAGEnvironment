@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>通信構成 — どの部品が、何で、誰から誰へつながっているか</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">通信構成</span>
+  <h1>通信構成 — どの部品が、何で、誰から誰へつながっているか</h1>
+  <div class="meta">HTML生成: 2026-11-22（元: docs/design/communication-architecture.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-通信の一覧">1. 通信の一覧</a></li><li><a href="#2-https-について">2. https について</a></li><li><a href="#3-制限再試行">3. 制限・再試行</a></li><li><a href="#4-同時に走らせたとき">4. 同時に走らせたとき</a></li><li><a href="#5-関連の資料">5. 関連の資料</a></li></ol></details></nav>
+<main>
+
+<p><strong>更新日:</strong> 2026-11-22</p>
+<p><a href="../images/17-communication.svg"><img alt="通信構成図" src="../images/17-communication.svg" /></a></p>
+<p><em>図: 通信構成図。矢印は、通信を始める側から出る。常時接続（WebSocket など）は使っていない。番号は、下の表と同じ。</em></p>
+<h2 id="1-通信の一覧">1. 通信の一覧</h2>
+<p>外部との通信は、すべて <strong>HTTPS</strong> で、<strong>パネル（クライアント）が呼びに行く</strong>。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>つなぐ先</th>
+<th>方式</th>
+<th>認証・守り</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Houdini パネル → Worker（rag-poc）</td>
+<td>HTTPS の POST（JSON）。Chat は <code>/query</code>、実験の記録は <code>/pilot/*</code>、Reference は <code>/reference/*</code>、動画の音声は <code>/tts</code>、チュートリアルの生成は <code>/claude</code></td>
+<td><code>Authorization: Bearer &lt;API キー&gt;</code>。キーはハッシュで照合する。User-Agent は <code>HoudiniRAGPanel/1.0</code>（Cloudflare は、標準の User-Agent を拒否する）</td>
+</tr>
+<tr>
+<td>2</td>
+<td>パネル → 動画エンジン（RAGReel）</td>
+<td><strong>プロセスの起動</strong>（コマンドライン引数と、手順書・スクリーンショットの一覧・台本のファイル）。通信ではない。進捗は、エンジンのログを 2 秒ごとに読む</td>
+<td>同じ PC の中。音声合成の鍵は、コマンドラインではなく環境変数で渡す（プロセス一覧に出ない）</td>
+</tr>
+<tr>
+<td>3</td>
+<td>パネル → ローカルブリッジ（Local モード）</td>
+<td><code>http://localhost:8766</code>（loopback の HTTP）。ブリッジ → ローカル LLM の窓口は <code>127.0.0.1:8800</code></td>
+<td>loopback 以外の窓口は、送る前に拒否する（資料の抜粋が、この PC の外へ出ない）。ブリッジは、鍵を環境変数に持ち、Claude・Gemini へ HTTPS で直接つなぐ</td>
+</tr>
+<tr>
+<td>4</td>
+<td>動画エンジン → Worker</td>
+<td>HTTPS の POST: 音声合成 <code>/tts</code>（最大 4 本並列）</td>
+<td>Bearer キー</td>
+</tr>
+<tr>
+<td>5</td>
+<td>動画エンジン → ギャラリー（ragreel-gallery）</td>
+<td>HTTPS のアップロード。90MB を超える動画は、分けて送る</td>
+<td>ギャラリー専用のトークン</td>
+</tr>
+<tr>
+<td>6</td>
+<td>ブラウザ → Worker・ギャラリー</td>
+<td>HTTPS（管理画面・チャット UI・動画一覧）</td>
+<td>管理画面は、キーかトークン</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Slack → Worker</td>
+<td>Slack の Events API（HTTPS の POST）</td>
+<td>署名を検証する</td>
+</tr>
+<tr>
+<td>8</td>
+<td>パネル → GitHub（HoudiniReference）</td>
+<td>HTTPS の GET（<code>raw.githubusercontent.com</code>）。1 日 1 回、手元にキャッシュ</td>
+<td>認証なし（公開ファイル）。題名・URL・日付・短い抜粋だけ</td>
+</tr>
+<tr>
+<td>—</td>
+<td>Worker → Gemini・Claude・Google TTS・公式 MCP</td>
+<td>HTTPS の外部 API</td>
+<td><strong>鍵は Worker の Secrets だけ</strong>。予算つきで中継する（上限を超えると止まる）</td>
+</tr>
+<tr>
+<td>—</td>
+<td>Worker ⇔ D1・Vectorize・R2</td>
+<td>Cloudflare のバインディング（Worker 内部の呼び出し）</td>
+<td>通信の鍵は要らない（Worker にだけ紐づく）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-https-について">2. https について</h2>
+<ul>
+<li>外部との通信は、すべて https（Worker の URL は <code>https://rag-poc.manato1201m.workers.dev/</code>）。ギャラリーへのアップロードは、URL が <code>https://</code> で始まらなければ、エラーにして送らない。</li>
+<li><strong>http のままなのは、自分の PC の中だけ</strong>（Local モードの <code>localhost</code>・<code>127.0.0.1</code>）。</li>
+<li><strong>既知の弱点（未対応）</strong>: パネルの「Worker の URL」の入力欄は、<code>https://</code> かどうかを検査していない。<code>http://…</code> と入れると、リダイレクトで POST の本文が失われて失敗する（キーを含む通信が、http で出る恐れもある）。入力欄の例は https。直すなら、保存時と送信前に、「localhost 以外で <code>https://</code> で始まらない URL は拒否」を入れる。</li>
+</ul>
+<h2 id="3-制限再試行">3. 制限・再試行</h2>
+<ul>
+<li>Worker は、<strong>60 秒に 30 回まで</strong>（利用者ごと）。超えると 429。動画の台本づくり・説明の一括作成は、間隔を空け、待って再試行する。</li>
+<li>動画の音声合成は、クラウド TTS を最大 4 本並列で呼ぶ（429・エラーなし。直列の約 4 倍速い）。</li>
+<li>認証後の Worker は <strong>POST だけ</strong>を受け付ける（取得も POST。本文は空でよい）。</li>
+<li>通信に失敗したチュートリアルの評価は、未送信として手元に残し、次の起動で再送する。課題の振り返りは、答えを残して、「答えを再送する」で送り直せる。</li>
+</ul>
+<h2 id="4-同時に走らせたとき">4. 同時に走らせたとき</h2>
+<ul>
+<li>動画の作成（別プロセス）と、チュートリアルの生成は、<strong>並行できる</strong>。動画は、保存済みのファイルだけを読むので、Houdini のシーンの変化に影響されない。</li>
+<li>画面の進捗表示は、動画 1 本分だけ。2 本目を始めると、表示が新しい動画に切り替わる（古い動画は、裏で作り続けられ、「動画」タブから開ける）。</li>
+<li>重なると遅くなる（動画の描画と Houdini の cook が CPU を取り合う。Worker の 30 回 / 分の制限を、チュートリアルの生成と音声合成が分け合う）。<strong>実験の計測中は、動画の生成と重ねない運用</strong>を勧める。</li>
+</ul>
+<h2 id="5-関連の資料">5. 関連の資料</h2>
+<ul>
+<li><a href="../images/01-system-overview.svg">システム全体の構成（図 01）</a>・<a href="../images/11-request-life.svg">リクエストの一生（図 11）</a>・<a href="../images/07-security-layers.svg">セキュリティの層（図 07）</a></li>
+<li><a href="reference-tab.html">Reference タブの仕組み</a>・<a href="cloudflare-rag-technical-report.html">Cloudflare RAG 技術解説書</a></li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

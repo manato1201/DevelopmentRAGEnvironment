@@ -144,6 +144,19 @@ npx wrangler deploy
 - 参加者が「やり直す」で破棄した記録は、消えずに残ります（D1 の `pilot_sessions.discarded_at`）。集計には入りません。消去の依頼を受けたときの扱いは、[pilot-announcement.md](pilot-announcement.md) の確認事項を参照。
 - 変更の標準の流れは [図16](../images/16-change-flow.svg)。
 
+### 6.1.1 Reference と「学びの確認」を出すとき（マイグレーション 0038・0039。2026-11-22）
+
+| マイグレーション | 内容 | 順序 |
+|---|---|---|
+| 0038 | `reference_entries`（Reference タブの説明。R2 `rag-poc-reference` も使う） | 適用済み（2026-11-19） |
+| 0039 | `pilot_profile` に事前の学びの列（`goal_pre`・`self_how_pre`・`self_explore_pre`・`self_what_pre`・`houdini_def_pre`）、`pilot_sessions` に事後の列（`goal_post`・`goal_used`・`self_how`・`self_explore`・`self_what`・`learned`・`explain_own`・`houdini_def`・`fun`） | 適用済み（2026-11-22） |
+
+- 手順は、6.1 と同じ（**表を先、Worker を後**。新しい Worker が、まだ無い列を読んで失敗しないように）。0039 は列を足すだけで、既存のデータは変わらない。
+- **旧版のパネルでも動く**（学びの項目を送らない。サーバーは、すでにある事前の値を消さない）。新しい項目は、パネルを配ってから、参加者の画面に出る。
+- 管理画面「課題の記録」の下に、**学びの確認**の表と CSV が出る（見方は [ユーザーマニュアル 7.4.1](../guides/user-manual.md)、設計は [分析設計 §13](pilot-analysis-design.md)）。
+- 学びの確認に使う時間は、事前 約 2 分・固定課題の終了時 約 4 分・自由課題 約 1 分（合計 約 7 分）。1 コマ（約 90 分）に収まるように抑えている。
+- **Reference の説明を更新するとき**は、[Reference タブの設計](../design/reference-tab.md) の手順（点検 → 作る → 撮る → 公開）。実験の最中に説明を差し替えると、参加者ごとに見える内容が変わるので、受付の切り替えと合わせて行う。
+
 ## 7. 配布物を作る
 
 [![配布と、キー・予算の管理](../images/06-distribution.svg)](../images/06-distribution.svg)

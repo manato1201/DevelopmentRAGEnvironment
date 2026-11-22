@@ -137,13 +137,16 @@ def data_model() -> Diagram:
     d.box("fb", 44, 462, 420, 84, "tutorial_feedback", "チュートリアルの評価（1人1件×チュートリアル）", "ui", sub2="rating・tags・note・metrics（反復・cookエラー・費用）")
 
     d.group(510, 410, 966, 300, "実証実験", "参加者・課題の記録・アンケート（管理者のテストは集計に入れない）", "plan")
-    d.box("pp", 530, 462, 260, 96, "pilot_profile", "参加者（事前アンケート）", "plan", sub2="pid（P01…）・slot・経験年数")
-    d.box("ps", 860, 462, 596, 96, "pilot_sessions", "課題1回の記録（固定／自由 × 3回）", "plan", sub2="round・kind・condition・started／ended・duration・paused_sec")
+    d.box("pp", 530, 462, 260, 96, "pilot_profile", "参加者（事前アンケート）", "plan", sub2="pid・slot・経験・学びの事前")
+    d.box("ps", 860, 462, 596, 96, "pilot_sessions", "課題1回の記録（固定／自由。1人1回）", "plan", sub2="round・kind・condition・started／ended・duration・paused_sec")
     d.edge("pp", "r", "ps", "l", "user_id", kind="plan", label_at=(825, 496))
     d.note(530, 604, "pilot_sessions のアンケート列: difficulty・clarity・focus・accuracy_worry・source_useful・reuse・reached・self_mistakes・cook_error_nodes", "start", 12.5)
+    d.note(530, 678, "学びの確認（0039）: goal_post・goal_used・self_how・self_explore・self_what・learned・explain_own・houdini_def・fun（事前は pilot_profile の *_pre）", "start", 12.5)
     d.note(530, 630, "discarded_at が入った行は「やり直しで破棄した記録」。同じ（人・回・種類）の有効な行は 1つだけ（部分一意索引）。", "start", 12.5)
     d.note(530, 656, "質問回数は、課題の時間内の memory の数をサーバーが数える（画面の申告に頼らない）。", "start", 12.5)
 
+    d.group(24, 580, 460, 140, "Reference", "説明は開発側が作って置く（端末は読むだけ。0038）", "store")
+    d.box("ref", 44, 640, 420, 66, "reference_entries", "ノード・VEX の説明（kind＋key で 1 件）", "store", sub2="body・media（R2 の id）・version")
     d.note(24, 740, "つながり: memory・audit_log・token_budgets・user_terms・tutorial_feedback・pilot_profile は、どれも user_id で users に結ぶ。", "start", 13)
     d.note(24, 764, "表を増やす・変えるときは、migrations/ に連番の SQL を足す（既存のファイルは直さない）。講義 3・8 を参照。", "start", 13)
     return d

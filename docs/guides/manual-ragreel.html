@@ -75,9 +75,9 @@
 <header class="hero">
   <span class="badge">取扱説明書（RAGReel）</span>
   <h1>RAGReel（動画生成）取扱説明書</h1>
-  <div class="meta">HTML生成: 2026-10-31（元: docs/guides/manual-ragreel.md）</div>
+  <div class="meta">HTML生成: 2026-11-22（元: docs/guides/manual-ragreel.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-これは何か">1. これは何か</a></li><li><a href="#2-インストール">2. インストール</a></li><li><a href="#3-houdini-と一緒に使う">3. Houdini と一緒に使う</a></li><li><a href="#4-画面つきランチャーragreelexe">4. 画面つきランチャー（RAGReel.exe）</a></li><li><a href="#5-動画の保存先">5. 動画の保存先</a></li><li><a href="#6-音声">6. 音声</a></li><li><a href="#7-進み具合">7. 進み具合</a></li><li><a href="#8-困ったとき">8. 困ったとき</a></li><li><a href="#9-アンインストール">9. アンインストール</a></li><li><a href="#10-ライセンスと表記">10. ライセンスと表記</a></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-これは何か">1. これは何か</a></li><li><a href="#2-インストール">2. インストール</a></li><li><a href="#3-houdini-と一緒に使う">3. Houdini と一緒に使う</a></li><li><a href="#4-画面つきランチャーragreelexe">4. 画面つきランチャー（RAGReel.exe）</a></li><li><a href="#41-動画の長さ画面2026-11-22">4.1 動画の長さ・画面（2026-11-22）</a></li><li><a href="#5-動画の保存先">5. 動画の保存先</a></li><li><a href="#6-音声">6. 音声</a></li><li><a href="#7-進み具合">7. 進み具合</a></li><li><a href="#8-困ったとき">8. 困ったとき</a></li><li><a href="#9-アンインストール">9. アンインストール</a></li><li><a href="#10-ライセンスと表記">10. ライセンスと表記</a></li></ol></details></nav>
 <main>
 
 <p><strong>対象:</strong> 実証実験に参加する方、運営 ／ <strong>版:</strong> RAGReel 1.1.0（2026-10-21）／ 技術的な詳細は、RAGReel リポジトリの <code>docs/technical-reference.md</code></p>
@@ -154,6 +154,12 @@
 <p>下に、実行ログが出ます。右上のランプは、接続の状態です。</p>
 <ul>
 <li>手順書と同じ場所に、同名の <code>.json</code>（ノードグラフ）と <code>_screenshots.json</code>（スクリーンショットの一覧）、<code>_video_script.json</code>（台本）があれば、自動で使います。<strong>台本があると、初心者向けの説明つきの動画になります。</strong> 無いと、手順書の朗読になります（台本は、Houdini のパネルが作ります）。</li>
+</ul>
+<h2 id="41-動画の長さ画面2026-11-22">4.1 動画の長さ・画面（2026-11-22）</h2>
+<ul>
+<li>Houdini から作る動画は、既定が<strong>完全版</strong>（全部の手順を、1 手順ずつ解説）です。<strong>短縮版</strong>（<code>--short</code>。手順を約 22 場面にまとめる）は、Houdini パネルの「動画の長さ」で選びます。</li>
+<li>画面は、左の説明欄を細くし、右の画像の枠を広げました（Houdini の実画面・ノード図が、読みやすい大きさで映ります）。画像の余白を切り詰める処理と、読める大きさのノード図は、Houdini パネル側で作ります。</li>
+<li>詳しくは <a href="../design/houdini-video-script.html">動画の台本と音声の改善 §9</a>。</li>
 </ul>
 <h2 id="5-動画の保存先">5. 動画の保存先</h2>
 <div class="table-scroll"><table>

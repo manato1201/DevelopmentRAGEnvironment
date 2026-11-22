@@ -340,7 +340,7 @@ def diagram_wizard() -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 NAV = [
-    ("概要", [("overview", "システムの要点"), ("arch", "システム構成図"), ("changes", "今回の変更（2026-10）")]),
+    ("概要", [("overview", "システムの要点"), ("arch", "システム構成図"), ("comm", "通信構成と Reference（2026-11）"), ("changes", "今回の変更（2026-10）")]),
     ("Houdini チュートリアル生成", [("gen", "生成の流れ"), ("loop", "エージェントのロジック"), ("tools", "エージェントのツール"),
                                       ("domains", "対応範囲"), ("inputs", "生成条件・対象モデル"), ("feedback", "評価と学習")]),
     ("Cloudflare RAG", [("knowledge", "ナレッジ追加"), ("mcp", "公式MCP連携"), ("mcp-flow", "接続フロー"), ("mcp-chat", "チャットでの利用"),
@@ -388,6 +388,12 @@ def body() -> str:
     add('<h2 id="arch">システム構成図<small>ARCHITECTURE</small></h2>')
     add("<p>利用者はブラウザの管理画面・Webチャットと、Houdiniのパネルを使います。どちらもCloudflare Workerを通って、GeminiやClaude、公式MCPサーバーなどの外部サービスにつながります。</p>")
     add(diagram_architecture() + LEGEND)
+
+    add('<h2 id="comm">通信構成と Reference<small>COMMUNICATION</small></h2>')
+    add("<p>外部との通信はすべて<strong>HTTPS</strong>で、<strong>パネルが呼びに行く</strong>形です（常時接続は使いません）。http のままなのは、自分の PC の中の Local モード（localhost・127.0.0.1）だけです。鍵は Worker の Secrets だけが持ち、外部の AI へは予算つきで中継します。</p>")
+    add('<figure><img src="images/17-communication.svg" alt="通信構成図" style="max-width:100%"><figcaption>通信構成図（番号の意味は <a href="design/communication-architecture.html">通信構成</a>）</figcaption></figure>')
+    add("<p><strong>Reference タブ</strong>は、ノード・VEX の説明を、開発側が作って実機（Houdini 22）で点検してから、D1（説明）と R2（画像・動き）に置き、参加者の端末は読むだけです。関連のリンクだけ、HoudiniReference（別リポジトリ。GitHub の <code>data/items.json</code>）から、名前が単語として一致するものを選びます。</p>")
+    add('<figure><img src="images/18-reference-flow.svg" alt="Reference タブの仕組み" style="max-width:100%"><figcaption>Reference タブの仕組み（<a href="design/reference-tab.html">設計と運用</a>）</figcaption></figure>')
 
     add('<h2 id="changes">今回の変更（2026-10）<small>CHANGES</small></h2>')
     add(table(["領域", "変更", "状態"], [
@@ -540,6 +546,9 @@ def body() -> str:
         ["自分の情報", "<code>POST /me/namespaces</code>・<code>/me/budget</code>・<code>/me/mcp</code>", "認証済み"],
         ["MCP接続", "<code>GET /admin/oauth/mcp/&lt;notion|atlassian&gt;/start?key=</code>・<code>GET /admin/oauth/mcp/callback</code>", "admin（callbackはstateで確認）"],
         ["MCP管理", "<code>POST /admin/mcp/status</code>（editorまで）・<code>/disconnect</code>・<code>/tools</code>・<code>/set-tools</code>・<code>/set-chat</code>・<code>/call</code>", "admin"],
+        ["Chatの答え方", "<code>POST /query</code>の<code>answerMode</code>（<code>open</code>＝資料を最優先に、足りないところは「（推測）」と明示／<code>grounded</code>＝資料だけ。無い・不正は<code>open</code>。Slackは<code>grounded</code>）", "認証済み"],
+        ["Reference", "<code>POST /reference/index</code>・<code>/entry</code>・<code>/media</code>（取得）／<code>/admin/reference/put</code>・<code>media_put</code>・<code>delete</code>（公開）", "認証済み／admin"],
+        ["実証実験", "<code>POST /pilot/plan</code>・<code>/profile</code>・<code>/session/start</code>・<code>/session/end</code>・<code>/session/reset</code>（学びの確認を含む）／<code>/admin/pilot/tasks</code>・<code>/config</code>", "認証済み（自分の行のみ）／admin"],
         ["評価の送信", "<code>POST /tutorial-feedback/submit</code>（rating 1／-1／0=取り消し）", "認証済み（自分の行のみ）"],
         ["評価の閲覧", "<code>POST /admin/tutorial-feedback/list</code>・<code>/stats</code>", "admin（非adminは403）"],
         ["ナレッジ登録", "<code>/admin/kb/import-url</code>・<code>crawl-url</code>・<code>import-youtube</code>・<code>upload-doc</code>・<code>add-faq</code>・<code>import-qa-csv</code>", "editor以上"],
@@ -578,7 +587,7 @@ def body() -> str:
     # ── 運用 ──
     add('<h2 id="ops">デプロイと設定<small>OPERATIONS</small></h2>')
     add("<h3>Worker</h3>")
-    add("<pre><code>cd cloudflare-rag-poc\nnpm run db:migrate:remote   # 0017（評価）・0018（MCP）を適用\nnpm run deploy</code></pre>")
+    add("<pre><code>cd cloudflare-rag-poc\nnpm run db:migrate:remote   # 0017（評価）・0018（MCP）…0035〜0039（実証実験・Reference・学びの確認）を適用\nnpm run deploy</code></pre>")
     add("<h3>Houdiniパネル</h3>")
     add("<pre><code>python houdini/deploy_panels.py 22.0          # モジュールを配置（上書き前に自動バックアップ）\npython houdini/deploy_panels.py 22.0 --check  # 差分だけ表示\n# 配置後はHoudiniを再起動（起動中はモジュールがキャッシュされる）</code></pre>")
     add('<ol class="steps"><li>管理画面「ナレッジ登録」→「🔗 ＋ 連携するシステムを追加」。</li><li>Notion / Atlassian のカードを選び、詳細画面で「…で認証する（公式MCP）」。各社の画面で許可すると管理画面へ戻る。</li>'

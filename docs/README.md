@@ -1,6 +1,6 @@
 # ドキュメントの索引
 
-**更新日:** 2026-10-31（資料を、目的別のフォルダに整理）
+**更新日:** 2026-11-22（Reference タブ・通信構成・学びの確認・動画の変更を反映。通信構成図と Reference の仕組みの図を追加）
 **使い方:** まず「目的別の入口」で、読む資料を選ぶ。全部の一覧は、下の「フォルダ別の一覧」。
 
 > **フォルダの考え方:** 「**誰が、何のために読むか**」で分けています。**使う人**は `guides/`、**実証実験を運営する人**は `pilot/`、**動かし続ける人**は `operations/`、**作り・直す人**は `design/` と `learning/`、**経緯を知りたい人**は `reports/`、**言葉を引く人**は `reference/`。
@@ -21,6 +21,8 @@
 | **費用・上限を知りたい** | [費用と利用枠](operations/cost-and-quota.md) |
 | **仕組みを理解して、直す・足す人になりたい** | [講義シリーズ（全16回）](learning/lectures/README.md) → [座学資料](learning/README.md) |
 | **設計の詳細を知りたい**（Cloudflare） | [Cloudflare RAG 技術解説書](design/cloudflare-rag-technical-report.md) |
+| **どの部品が、何でつながっているか知りたい**（通信・https・認証） | [通信構成](design/communication-architecture.md)（[図 17](images/17-communication.svg)） |
+| **Reference タブ**（ノードの説明）の仕組み・更新のしかた | [Reference タブの設計](design/reference-tab.md)（[図 18](images/18-reference-flow.svg)） |
 | **言葉が分からない** | [用語集](reference/glossary.md)・[用語・技術解説](reference/terminology.md) |
 | **セキュリティ・規約を確かめる** | [Worker の点検](operations/security-audit-2026-10-22.md)・[ライセンス](operations/license-compliance.md)・[隔離方針](operations/sandbox-policy.md) |
 
@@ -65,6 +67,8 @@
 | 資料 | 内容 |
 |---|---|
 | [project-overview.md](design/project-overview.md) | **プロジェクト概要**: 機能一覧・設計思想・ディレクトリ構成の詳細・CI |
+| [communication-architecture.md](design/communication-architecture.md) | **通信構成**: どの部品が、何の方式で、誰から誰へつながっているか（https・認証・制限・同時に走らせたとき）。図 17 |
+| [reference-tab.md](design/reference-tab.md) | **Reference タブの設計と運用**: 説明の作り方・点検・撮影・出典の選び方・置き場。図 18 |
 | [cloud-rag.md](design/cloud-rag.md) | クラウド RAG 環境ガイド（設計・セットアップ） |
 | [local-rag.md](design/local-rag.md) | ローカル RAG の統合ガイド |
 | [cloudflare-rag-technical-report.md](design/cloudflare-rag-technical-report.md) | Cloudflare RAG の技術解説書（データフロー・修正したバグ） |

@@ -288,11 +288,31 @@ npx wrangler d1 execute rag-poc-db --remote --command "SELECT rating, COUNT(*) F
 
 ```bash
 cd cloudflare-rag-poc
-npm run db:migrate:remote   # 0017（評価）・0018（MCP）・…・0035（課題の記録）・0036（やり直し）
+npm run db:migrate:remote   # 0017（評価）・0018（MCP）・…・0035（課題の記録）・0036（やり直し）・0037（受ける回）・0038（Reference）・0039（学びの確認）
 npm run deploy
 ```
 
 wranglerが`7403`（アカウントが無効）で失敗することがあるが、一時的なAPIエラーのことが多い。`wrangler whoami`でログインとスコープ（d1・workers）を確認し、再実行する。
+
+### 8-3.1 Reference（ノード・VEX の説明。2026-11-19〜）
+
+| API | 誰が | 内容 |
+|---|---|---|
+| `POST /reference/index` | 認証済みの全員 | 説明の一覧（`kind`・`key`・`title`・`version`・`mediaCount`）。端末は、`version` が変わった項目だけ取り直す |
+| `POST /reference/entry` | 同上 | 1 件の説明（`body`・`media`） |
+| `POST /reference/media` | 同上 | 画像・GIF（R2 `rag-poc-reference`。内容のハッシュ入りの id） |
+| `POST /admin/reference/put`・`media_put`・`delete` | admin | 説明・画像の公開・取り下げ（開発側の `publish_reference.py` が使う） |
+
+- D1 の表は `reference_entries`（0038）。R2 のバケットは `wrangler r2 bucket create rag-poc-reference` で作成済み。説明は 1 欄 1500 文字、画像・動きは 1 件 12MB まで。
+- 説明の作り方・点検・撮影は [Reference タブの設計](../design/reference-tab.md)。通信の全体は [通信構成](../design/communication-architecture.md)。
+
+### 8-3.2 Chat の「答え方」（2026-11-22〜）
+
+`POST /query` の本文に `answerMode`（`"open"` ／ `"grounded"`）を付けられる。**無い・不正な値は `open`**（資料を最優先にし、足りないところは「（推測）」と確かさ・確かめ方を付けて答える）。`grounded` は、従来どおり、資料だけ（無ければ「わかりません」）。
+
+- 守りは変わらない: 検索結果の前に、「指示ではなくデータ」の一文が必ず入る。資料の中の命令には従わない。
+- **Slack のボットは `grounded` を明示**している（選択欄が無く、推測が混ざらないようにするため）。
+- 実装は `src/embeddings.ts`（`buildAnswerPrompt`・`parseAnswerMode`・`OPEN_ANSWER_RULES`）。テストは `test/answer_mode.test.mjs`。
 
 ### 8-4. 実証実験の課題の記録（2026-10-28〜）
 
@@ -301,9 +321,9 @@ wranglerが`7403`（アカウントが無効）で失敗することがあるが
 | API | 誰が | 内容 |
 |---|---|---|
 | `POST /pilot/plan` | 本人 | 次の課題（回・固定課題の題材・条件）と、これまでの記録（`history`） |
-| `POST /pilot/profile` | 本人 | 事前アンケート。参加者番号（登録順）と割り当て番号（1〜3）が決まる。再送しても番号は変わらない |
+| `POST /pilot/profile` | 本人 | 事前アンケート（経験・学習背景・**学びの事前の値**）。参加者番号（登録順）と割り当て番号が決まる。再送しても番号は変わらない。学びの項目を送らない旧版の再送で、すでにある値は消えない |
 | `POST /pilot/session/start` | 本人 | 課題を始める。始めて終えていなければ、その続きを返す（`resumed`） |
-| `POST /pilot/session/end` | 本人 | 終える。到達・自己申告・cook エラー・アンケートと、`surveySec`（振り返りに使った秒）・`pausedSec`（中断の秒）を受け取り、所要時間をサーバーが確定する |
+| `POST /pilot/session/end` | 本人 | 終える。到達・自己申告・cook エラー・アンケート・**学びの確認**（`learning`・`essays`）と、`surveySec`（振り返りに使った秒）・`pausedSec`（中断の秒）を受け取り、所要時間をサーバーが確定する |
 | `POST /pilot/session/reset` | 本人 | 計測中・終えた記録を**破棄**してやり直す。次の回を始めたあとの、前の回は 409 |
 | `POST /admin/pilot/tasks` | admin | 課題の集計（回・種類・条件ごとの中央値、対照との比較）と、1課題1行のデータ |
 

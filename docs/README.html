@@ -75,12 +75,12 @@
 <header class="hero">
   <span class="badge">資料の索引</span>
   <h1>ドキュメントの索引</h1>
-  <div class="meta">HTML生成: 2026-10-31（元: docs/README.md）</div>
+  <div class="meta">HTML生成: 2026-11-22（元: docs/README.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#目的別の入口">目的別の入口</a></li><li><a href="#フォルダ別の一覧">フォルダ別の一覧</a><ol><li><a href="#guides-使い方">guides/ — 使い方</a></li><li><a href="#pilot-実証実験">pilot/ — 実証実験</a></li><li><a href="#operations-運用安全規約">operations/ — 運用・安全・規約</a></li><li><a href="#design-設計仕様">design/ — 設計・仕様</a></li><li><a href="#reports-調査検証報告">reports/ — 調査・検証・報告</a></li><li><a href="#reference-用語">reference/ — 用語</a></li><li><a href="#learning-学習資料">learning/ — 学習資料</a></li><li><a href="#その他">その他</a></li></ol></li><li><a href="#この索引の保守">この索引の保守</a></li></ol></details></nav>
 <main>
 
-<p><strong>更新日:</strong> 2026-10-31（資料を、目的別のフォルダに整理）<br />
+<p><strong>更新日:</strong> 2026-11-22（Reference タブ・通信構成・学びの確認・動画の変更を反映。通信構成図と Reference の仕組みの図を追加）<br />
 <strong>使い方:</strong> まず「目的別の入口」で、読む資料を選ぶ。全部の一覧は、下の「フォルダ別の一覧」。</p>
 <blockquote>
 <p><strong>フォルダの考え方:</strong> 「<strong>誰が、何のために読むか</strong>」で分けています。<strong>使う人</strong>は <code>guides/</code>、<strong>実証実験を運営する人</strong>は <code>pilot/</code>、<strong>動かし続ける人</strong>は <code>operations/</code>、<strong>作り・直す人</strong>は <code>design/</code> と <code>learning/</code>、<strong>経緯を知りたい人</strong>は <code>reports/</code>、<strong>言葉を引く人</strong>は <code>reference/</code>。</p>
@@ -134,6 +134,14 @@
 <tr>
 <td><strong>設計の詳細を知りたい</strong>（Cloudflare）</td>
 <td><a href="design/cloudflare-rag-technical-report.html">Cloudflare RAG 技術解説書</a></td>
+</tr>
+<tr>
+<td><strong>どの部品が、何でつながっているか知りたい</strong>（通信・https・認証）</td>
+<td><a href="design/communication-architecture.html">通信構成</a>（<a href="images/17-communication.svg">図 17</a>）</td>
+</tr>
+<tr>
+<td><strong>Reference タブ</strong>（ノードの説明）の仕組み・更新のしかた</td>
+<td><a href="design/reference-tab.html">Reference タブの設計</a>（<a href="images/18-reference-flow.svg">図 18</a>）</td>
 </tr>
 <tr>
 <td><strong>言葉が分からない</strong></td>
@@ -260,6 +268,14 @@
 <tr>
 <td><a href="design/project-overview.html">project-overview.md</a></td>
 <td><strong>プロジェクト概要</strong>: 機能一覧・設計思想・ディレクトリ構成の詳細・CI</td>
+</tr>
+<tr>
+<td><a href="design/communication-architecture.html">communication-architecture.md</a></td>
+<td><strong>通信構成</strong>: どの部品が、何の方式で、誰から誰へつながっているか（https・認証・制限・同時に走らせたとき）。図 17</td>
+</tr>
+<tr>
+<td><a href="design/reference-tab.html">reference-tab.md</a></td>
+<td><strong>Reference タブの設計と運用</strong>: 説明の作り方・点検・撮影・出典の選び方・置き場。図 18</td>
 </tr>
 <tr>
 <td><a href="design/cloud-rag.md">cloud-rag.md</a></td>

@@ -75,7 +75,7 @@
 <header class="hero">
   <span class="badge">用語</span>
   <h1>用語集</h1>
-  <div class="meta">HTML生成: 2026-10-31（元: docs/reference/glossary.md）</div>
+  <div class="meta">HTML生成: 2026-11-22（元: docs/reference/glossary.md）</div>
 </header>
 <nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-ai生成aiの基本用語">1. AI・生成AIの基本用語</a></li><li><a href="#2-rag検索拡張生成の仕組み">2. RAG（検索拡張生成）の仕組み</a></li><li><a href="#3-このプロジェクト固有の用語">3. このプロジェクト固有の用語</a></li><li><a href="#4-インフラ技術基盤の用語">4. インフラ・技術基盤の用語</a></li><li><a href="#5-このプロジェクトのrag分類">5. このプロジェクトのRAG分類</a><ol><li><a href="#16種類のrag分類との対応">16種類のRAG分類との対応</a></li></ol></li><li><a href="#6-周辺派生手法の整理2026-08-29調査分">6. 周辺・派生手法の整理（2026-08-29調査分）</a><ol><li><a href="#60-まず結論名称が違うだけのものと本当に新しいものの見分け">6.0 まず結論：名称が違うだけのものと、本当に新しいものの見分け</a></li><li><a href="#61-①外部データの持たせ方連携〇〇-augmented-generation系">6.1 ①外部データの持たせ方・連携（〇〇-Augmented Generation系）</a></li><li><a href="#62-②検索処理プロセスの自動最適化advanced-ragagentic系">6.2 ②検索・処理プロセスの自動最適化（Advanced RAG・Agentic系）</a></li><li><a href="#63-③プロンプト推論時の拡張inference-time-scaling">6.3 ③プロンプト・推論時の拡張（Inference-Time Scaling）</a></li><li><a href="#64-④モデルの学習チューニングragとは別パラダイム">6.4 ④モデルの学習・チューニング（RAGとは別パラダイム）</a></li><li><a href="#65-カンニングペーパーの例えで整理するユーザー提供">6.5 「カンニングペーパー」の例えで整理する（ユーザー提供）</a></li><li><a href="#66-このプロジェクトへの当てはめ組み込み優先度">6.6 このプロジェクトへの当てはめ・組み込み優先度</a></li></ol></li></ol></details></nav>
 <main>
@@ -307,6 +307,34 @@
 <tr>
 <td><strong>破棄（やり直し）</strong></td>
 <td>参加者が記録を取り消して取り直すこと。消さずに <code>discarded_at</code> を入れ、集計から外す</td>
+</tr>
+<tr>
+<td><strong>Reference タブ</strong></td>
+<td>Houdini パネルの、ノード・VEX の「何をするか・使いどころ・例」を、適用前後の画像と動き（GIF）つきで見せるタブ。説明は、開発側が作って点検してから置く。<a href="../design/reference-tab.html">設計</a></td>
+</tr>
+<tr>
+<td><strong>HoudiniReference</strong></td>
+<td>Houdini の Tips・動画・ニュースの題名・URL・日付・短い抜粋を、公式のフィードから集める別のリポジトリ（GitHub）。Reference タブでは、「関連（出典）」のリンクにだけ使う（説明の材料にはしない）</td>
+</tr>
+<tr>
+<td><strong>撮影レシピ</strong></td>
+<td>Reference の画像・動きを撮る手順（入力のノード・適用後の値・動かす値）。値を初期値に戻して形が変わらないものは、「効く」と書けないので撮らない</td>
+</tr>
+<tr>
+<td><strong>答え方（資料＋推測／資料だけ）</strong></td>
+<td>Chat の、資料に無い質問への答え方。資料＋推測（既定）は、一般知識から答え、推測の部分に「（推測）」・確かさ・確かめ方を付ける</td>
+</tr>
+<tr>
+<td><strong>学びの確認</strong></td>
+<td>実証実験の事前・事後の、同じ質問。作られたものを追って、Houdini の中身を理解できたか（生成物を作れるようになることではなく）を見る</td>
+</tr>
+<tr>
+<td><strong>完全版・短縮版（動画）</strong></td>
+<td>動画の長さ。完全版（既定）は、全部の手順を 1 手順ずつ解説する。短縮版は、手順を約 22 場面にまとめる（短いが、解説は粗い）</td>
+</tr>
+<tr>
+<td><strong>通信構成図</strong></td>
+<td>どの部品が、何の方式で、誰から誰へつながっているかの図。<a href="../design/communication-architecture.html">通信構成</a></td>
 </tr>
 <tr>
 <td><strong>リクエストの一生</strong></td>

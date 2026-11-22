@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reference タブ — ノード・VEX の説明（設計と運用）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">Reference タブの設計</span>
+  <h1>Reference タブ — ノード・VEX の説明（設計と運用）</h1>
+  <div class="meta">HTML生成: 2026-11-22（元: docs/design/reference-tab.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-画面に出るものその元">1. 画面に出るもの、その元</a></li><li><a href="#2-作り方開発側">2. 作り方（開発側）</a></li><li><a href="#3-撮影適用前後動き">3. 撮影（適用前後・動き）</a></li><li><a href="#4-関連出典の選び方">4. 関連（出典）の選び方</a></li><li><a href="#5-置き場と通信">5. 置き場と通信</a></li><li><a href="#6-参加者の画面">6. 参加者の画面</a></li><li><a href="#7-既知の限界">7. 既知の限界</a></li><li><a href="#8-関連の資料">8. 関連の資料</a></li></ol></details></nav>
+<main>
+
+<p><strong>更新日:</strong> 2026-11-22 / <strong>状態:</strong> 実装済み・公開済み（ノード 132・VEX 85。うち、適用前後の画像と動きがあるノードは 33）</p>
+<p>Houdini パネルの <strong>Reference タブ</strong>は、ノードや VEX の関数の「<strong>何をするか・使いどころ・例</strong>」を、画像と動き（GIF）つきで見せる。説明は<strong>開発側が作って点検してから置き</strong>、参加者の端末は読むだけ（人ごとに内容が違う・AI の費用が際限なくかかる、を避けるため）。</p>
+<p><a href="../images/18-reference-flow.svg"><img alt="Reference タブの仕組み" src="../images/18-reference-flow.svg" /></a></p>
+<p><em>図: Reference タブの仕組み。開発側で作って点検し、Cloudflare に置き、参加者の端末が読む。HoudiniReference は、関連のリンク（出典）だけに使う。</em></p>
+<h2 id="1-画面に出るものその元">1. 画面に出るもの、その元</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>画面に出るもの</th>
+<th>元になるもの</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>何をするか・使いどころ・例・注意</td>
+<td>SideFX 公式ドキュメント（RAG に登録済み）を材料に、Claude が日本語で書いたもの。<strong>実機の Houdini 22 で点検</strong>してから公開する</td>
+</tr>
+<tr>
+<td>適用前・適用後の画像、値を動かす GIF</td>
+<td>実機（hython）で撮ったもの（§3）。ノードの図は、手順から描く</td>
+</tr>
+<tr>
+<td>関連（出典）のリンク</td>
+<td><strong>HoudiniReference</strong>（別リポジトリ）の項目から、そのノードの名前に一致するものだけ（§4）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>HoudiniReference は、説明の材料にしない。</strong> 題名・URL・日付・短い抜粋だけを使い、本文は元のページにある（権利は、それぞれの出典元）。</p>
+<h2 id="2-作り方開発側">2. 作り方（開発側）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>段階</th>
+<th>道具</th>
+<th>やること</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1. 説明を書く</td>
+<td><code>scripts/build_reference_entries.py</code></td>
+<td>資料（公式ドキュメントの抜粋）と、<strong>実機から書き出した本物のパラメータ名</strong>、撮影の手順（§3）を Claude に渡して書かせる。本物に無い名前が混ざったら、保存しない</td>
+</tr>
+<tr>
+<td>2. 点検する</td>
+<td><code>scripts/audit_reference.py</code></td>
+<td>説明の中の「」で囲んだ英字の名前が、そのノードの本物のパラメータ名・メニュー項目（hython）か、ほかのノードの名前に在るかを調べる。VEX は、vcc で関数の実在を確かめる。<strong>通らないものは公開しない</strong></td>
+</tr>
+<tr>
+<td>3. 撮る</td>
+<td><code>scripts/reference_capture/capture.py</code></td>
+<td>レシピ（<code>recipes.py</code>）から、適用前・適用後・値を動かす GIF を撮る（§3）</td>
+</tr>
+<tr>
+<td>4. 公開する</td>
+<td><code>scripts/publish_reference.py</code></td>
+<td>点検に通ったものだけを、Worker（<code>/admin/reference/*</code>）に置く。画像は、内容のハッシュ入りの名前で R2 に置く（撮り直すと、端末が取り直す）</td>
+</tr>
+</tbody>
+</table></div>
+<pre><code class="language-powershell">uv run python scripts/audit_reference.py                                  # 全部を点検（hython と vcc を使う）
+uv run python scripts/build_reference_entries.py --set all --yes          # 無いものだけ作る（--redo --keys sop/xxx で作り直し）
+uv run --with pillow --with PySide6 python scripts/reference_capture/capture.py --out build/reference_media --only sop/smooth
+uv run python scripts/publish_reference.py --media build/reference_media --dry-run   # まず、何を公開するか確認
+uv run python scripts/publish_reference.py --media build/reference_media             # 公開
+uv run python scripts/publish_reference.py --unpublish node/sop/xxx                  # 取り下げ
+</code></pre>
+<p>作った説明を公開する前に、<strong>人が読んで</strong>、効き方の説明（資料の取り違えなど）を確かめる。パラメータ名の点検では、別のノード（例: COP の同名のノード）の資料が混ざったことは見つからない。</p>
+<h2 id="3-撮影適用前後動き">3. 撮影（適用前後・動き）</h2>
+<ul>
+<li>レシピ 1 件 = 1 ノード。入力のノード（<code>input</code> / <code>inputs</code>。後ろに別のノードをつなげる <code>after</code>）、適用後の値（<code>parms</code>）、動かす値（<code>sweep</code>）を書く。<strong>33 ノード</strong>（2026-11-22 時点）。</li>
+<li>hython で、OpenGL ROP により撮る。1 回の起動で 1 枚しか撮れない（Houdini 22.0.506 の制約）。動きは連番を ffmpeg で GIF（480px・16fps）にする。</li>
+<li><strong>撮る前の検査</strong>（<code>hython_shot.py</code>）:</li>
+<li>cook が通り、適用の前後で、点・面の数、形の大きさ、位置、色（Cd）・法線（N）のどれかが変わること（色・法線は、平均だけでなく、ばらつきも見る）。</li>
+<li><strong>値を 1 つずつ初期値に戻して、形が変わらない値</strong>（効いていない値）があれば撮らない。説明に「効く」と書けないため。<code>keep</code> に挙げた値だけは例外。</li>
+<li>値を戻すと cook が失敗する値（例: sweep の Surface Shape）は、効いている値として扱う。</li>
+<li>撮っていないもの: 入力の無い生成系（box・grid・sphere など。「適用前」が作れない）、ボリューム・VDB（OpenGL ROP で見えない）、パックされた結果を返すノード（isooffset）。color・blast・delete・attribwrangle は、動き（GIF）を作らない（動かす値が無い）。</li>
+</ul>
+<h2 id="4-関連出典の選び方">4. 関連（出典）の選び方</h2>
+<p><code>reference_data.match_reference_items</code> が、HoudiniReference の項目（約 400 件）から、そのノードに関係するものを選ぶ。<strong>名前が含まれるだけでは選ばない</strong>（実データで、別の話題が当たったため）。</p>
+<ul>
+<li>名前は、<strong>単語として</strong>入っているものだけ（「scatter」は「scattering」に当たらない）。</li>
+<li>題名かタグに入っているもの。抜粋にだけあるものは、名前が長い・複数語のときだけ。</li>
+<li>「Color」「Delete」のような<strong>普通の英単語</strong>は、「Color SOP」のように、ノードだと分かる言い方が一緒にあるときだけ。</li>
+<li><strong>内部の名前</strong>（attribwrangle など）は、9 文字以上の作られた語のときだけ、名前だけで足りる。<code>primitive</code>・<code>geometry</code> のような普通の英単語は、別名として使わない。表示名が複数語でも、別名（<code>rest</code>・<code>solver</code>）は、普通の語として扱う。</li>
+<li>ノードの文脈の言い方だけを手がかりにする（SOP の Merge に、Merge LOP の動画を出さない）。<strong>Copernicus（COP）の記事は、SOP・OBJ のノードに出さない</strong>（COP にも、同名のノードがある）。</li>
+<li>VEX は、題名・抜粋・タグに、VEX の語も入っているものだけ。</li>
+</ul>
+<p>出典のリンクが生きているかは、公開前に確かめる（2026-11-22 時点: 画面に出る 16 件は、すべて生きている）。</p>
+<h2 id="5-置き場と通信">5. 置き場と通信</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>置き場</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D1 <code>reference_entries</code>（マイグレーション 0038）</td>
+<td><code>kind</code>＋<code>key</code> で 1 件。説明（<code>body</code>）、画像・動きの一覧（<code>media</code>）、<code>version</code></td>
+</tr>
+<tr>
+<td>R2 <code>rag-poc-reference</code></td>
+<td>画像・GIF（1 件 12MB まで）。id に内容のハッシュ</td>
+</tr>
+<tr>
+<td>Worker <code>src/reference.ts</code></td>
+<td>書き込みは管理者だけ（<code>/admin/reference/put</code>・<code>media_put</code>・<code>delete</code>）。取得は、認証済みの全員（<code>/reference/index</code>・<code>entry</code>・<code>media</code>）。Worker は、認証後は POST だけを受け付けるので、取得も POST</td>
+</tr>
+<tr>
+<td>端末のキャッシュ</td>
+<td><code>index</code> の <code>version</code> を見て、変わった項目だけ取り直す。古いものは整理する</td>
+</tr>
+</tbody>
+</table></div>
+<p>通信の全体は <a href="communication-architecture.html">通信構成図</a>。</p>
+<h2 id="6-参加者の画面">6. 参加者の画面</h2>
+<ul>
+<li><strong>Reference タブ</strong>: 種類（ノード・VEX）と検索で探す。Guide の手順の「ノードの説明」からも、ここへ飛べる。</li>
+<li>別のパネルが開いているときは、<strong>そちらのパネルで開く</strong>（Guide を見たまま、もう片方が Reference に切り替わる）。メニュー（≡）の「ほかのパネルがあるとき、そちらで開く」で、オフにできる。</li>
+<li>説明を作る操作（「説明を作る」）は、開発者モード（環境変数 <code>RAGREEL_REFERENCE_AUTHOR=1</code>）だけに出る。</li>
+</ul>
+<h2 id="7-既知の限界">7. 既知の限界</h2>
+<ul>
+<li>説明は AI が書いたものを、パラメータ名の点検と目視で確かめている。<strong>効き方・使いどころの内容は、機械では保証できない</strong>（資料の取り違えは、目視で見つけた）。</li>
+<li>Houdini の版が上がると、パラメータ名が変わる。版が上がったら、<code>audit_reference.py</code> を回して、通らないものを作り直す。</li>
+<li>撮影のレシピは、Houdini 22.0.506 で確かめた。別の版では、検査（§3）で落ちるレシピが出うる。</li>
+<li>参加者が見ている Reference の新しい GIF の表示は、Houdini 実機での目視は未確認（2026-11-22）。</li>
+</ul>
+<h2 id="8-関連の資料">8. 関連の資料</h2>
+<ul>
+<li><a href="../images/01-system-overview.svg">システム全体の構成（図 01）</a>・<a href="../images/17-communication.svg">通信構成図（図 17）</a></li>
+<li>HoudiniReference のリポジトリの README・<code>HoudiniReference_DESIGN.md</code>（収集の対象・利用条件・使わない情報源）</li>
+<li><a href="../operations/license-and-rights-review-2026-11-21.md">ライセンスと権利の点検</a>（SideFX の資料の扱い）</li>
+</ul>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

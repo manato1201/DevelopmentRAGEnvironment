@@ -75,14 +75,14 @@
 <header class="hero">
   <span class="badge">動画の台本と音声</span>
   <h1>Houdiniチュートリアル動画: 初心者向け台本と音声の改善</h1>
-  <div class="meta">HTML生成: 2026-11-08（元: docs/design/houdini-video-script.md）</div>
+  <div class="meta">HTML生成: 2026-11-22（元: docs/design/houdini-video-script.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-何が問題だったか実データで確認">1. 何が問題だったか（実データで確認）</a></li><li><a href="#2-どう直したか">2. どう直したか</a><ol><li><a href="#21-台本houdini側">2.1 台本（Houdini側）</a></li><li><a href="#22-動画エンジン側">2.2 動画エンジン側</a></li><li><a href="#23-音声">2.3 音声</a></li></ol></li><li><a href="#3-実データでの確認ブラックホールのチュートリアル16手順">3. 実データでの確認（ブラックホールのチュートリアル、16手順）</a></li><li><a href="#4-使い方設定">4. 使い方・設定</a></li><li><a href="#5-未確認のこと">5. 未確認のこと</a></li><li><a href="#6-関連して見つかった不具合動画エンジン">6. 関連して見つかった不具合（動画エンジン）</a></li><li><a href="#7-テスト">7. テスト</a></li><li><a href="#8-2026-10-21の追加-ぼやけた画面の解消パラメータの実画面チャットのレイアウト崩れ">8. 2026-10-21の追加: ぼやけた画面の解消、パラメータの実画面、チャットのレイアウト崩れ</a><ol><li><a href="#81-説明スライドのぼやけた画面をなくした">8.1 説明スライドの「ぼやけた画面」をなくした</a></li><li><a href="#82-パラメータ画面を実画面で見せる撮れなければ従来のカード">8.2 パラメータ画面を、実画面で見せる（撮れなければ従来のカード）</a></li><li><a href="#83-チャットのあとにレイアウトが崩れる不具合">8.3 チャットのあとにレイアウトが崩れる不具合</a></li></ol></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-何が問題だったか実データで確認">1. 何が問題だったか（実データで確認）</a></li><li><a href="#2-どう直したか">2. どう直したか</a><ol><li><a href="#21-台本houdini側">2.1 台本（Houdini側）</a></li><li><a href="#22-動画エンジン側">2.2 動画エンジン側</a></li><li><a href="#23-音声">2.3 音声</a></li></ol></li><li><a href="#3-実データでの確認ブラックホールのチュートリアル16手順">3. 実データでの確認（ブラックホールのチュートリアル、16手順）</a></li><li><a href="#4-使い方設定">4. 使い方・設定</a></li><li><a href="#5-未確認のこと">5. 未確認のこと</a></li><li><a href="#6-関連して見つかった不具合動画エンジン">6. 関連して見つかった不具合（動画エンジン）</a></li><li><a href="#7-テスト">7. テスト</a></li><li><a href="#8-2026-10-21の追加-ぼやけた画面の解消パラメータの実画面チャットのレイアウト崩れ">8. 2026-10-21の追加: ぼやけた画面の解消、パラメータの実画面、チャットのレイアウト崩れ</a><ol><li><a href="#81-説明スライドのぼやけた画面をなくした">8.1 説明スライドの「ぼやけた画面」をなくした</a></li><li><a href="#82-パラメータ画面を実画面で見せる撮れなければ従来のカード">8.2 パラメータ画面を、実画面で見せる（撮れなければ従来のカード）</a></li><li><a href="#83-チャットのあとにレイアウトが崩れる不具合">8.3 チャットのあとにレイアウトが崩れる不具合</a></li></ol></li><li><a href="#9-2026-11-22-の追加-画像の読みやすさ完全版を既定に">9. 2026-11-22 の追加: 画像の読みやすさ・完全版を既定に</a><ol><li><a href="#91-原因実際の動画-498-秒14-場面で確認">9.1 原因（実際の動画 498 秒・14 場面で確認）</a></li><li><a href="#92-直したこと">9.2 直したこと</a></li><li><a href="#93-未確認のこと">9.3 未確認のこと</a></li></ol></li></ol></details></nav>
 <main>
 
 <p><strong>作成日:</strong> 2026-10-19<br />
 <strong>対象:</strong> <code>houdini/python_panels/video_script.py</code>（新規）、<code>tutorial_view.py</code>、<code>video_factory_bridge.py</code>、動画エンジン（別リポジトリ <code>RAGReel</code>）<br />
-<strong>関連:</strong> <a href="content-generation.html">content-generation.md §2.8・§2.11</a>、RAGReelの<code>docs/narration-quality.md</code>・<code>docs/technical-reference.md §22</code></p>
+<strong>関連:</strong> <a href="content-generation.md">content-generation.md §2.8・§2.11</a>、RAGReelの<code>docs/narration-quality.md</code>・<code>docs/technical-reference.md §22</code></p>
 <hr />
 <h2 id="1-何が問題だったか実データで確認">1. 何が問題だったか（実データで確認）</h2>
 <p>保存済みのチュートリアル（<code>procedural-black-hole-particles_20261018</code>）の動画で確認した。</p>
@@ -320,6 +320,48 @@
 <ul>
 <li>折り返さないラベルは、水平方向の大きさを中身の長さと切り離す（<code>tame_label_widths</code>）。</li>
 <li>参照の表示は120文字で省略し、全文はツールチップに出す。</li>
+</ul>
+<h2 id="9-2026-11-22-の追加-画像の読みやすさ完全版を既定に">9. 2026-11-22 の追加: 画像の読みやすさ・完全版を既定に</h2>
+<p>実証実験の感想（「短縮してから、品質が大きく落ちた」「スクリーンショットが縮小されすぎて読めない」「できるだけ細かく、正確・簡潔に」「短すぎないように。全部の手順を解説する」）を受けた変更。実際の動画のフレームで、原因を確かめた。</p>
+<h3 id="91-原因実際の動画-498-秒14-場面で確認">9.1 原因（実際の動画 498 秒・14 場面で確認）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>パラメータの実画面が小さく、文字が読めない</td>
+<td>ペインを最大化して撮った画像（2560×1440）の中身が左上の 3 割で、残りは背景。それを、枠にそのまま縮めて入れていた</td>
+</tr>
+<tr>
+<td>ネットワークの実画面で、ノードの名前が読めない</td>
+<td>実画面は、全体のうち、ノードが小さい（画像の 2 割の幅）。縮めると、名前が読めない</td>
+</tr>
+<tr>
+<td>説明と、映っている画面が合わない（手順 7 の説明に、別のノードの画面）</td>
+<td>1 場面に 3〜5 手順をまとめ、最後の手順の画像 1 枚で説明していた。実画面は、そのとき選んでいたノードのパラメータを映していた</td>
+</tr>
+<tr>
+<td>見出しが「…」で途中切れ</td>
+<td>見出しを 17 文字で切り、「（手順書の 5〜8）」を足していた。左の欄が 4 行になっていた</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="92-直したこと">9.2 直したこと</h3>
+<ul>
+<li><strong>余白の切り詰め</strong>（<code>screen_capture.crop_to_content</code>）: 画像の四辺で最も多い色を背景とみなし、違う色の範囲だけを切り出して、枠いっぱいに使う。パラメータの実画面の合成と、コードのカードに使う。2560×1440 で約 0.1 秒。同じ素材で、従来（文字が潰れる）と新方式（読める）を並べて確認した。</li>
+<li><strong>動画用の読めるノード図</strong>（<code>houdini_tools</code> が、実画面のほかに <code>step_NNN_network_video.png</code> を描く。<code>video_factory_bridge.manifest_entries</code> が、動画の一覧で、<code>network</code> をそれに差し替える）。<strong>Guide・手順書は、実画面のまま</strong>。パラメータの画像は、差し替えない。図を描けなかったときは、実画面で代用する（手順の記録は残る）。</li>
+<li><strong>見出し</strong>: 文の切れ目（、・助詞の直後）で切り、「…」で途中切れにしない（<code>cut_heading</code>）。</li>
+<li><strong>動画エンジンの画面</strong>（RAGReel の <code>CloudRagScene.qml</code>）: 左の説明欄を 380 → 340、見出しの文字を 32 → 25、画像の枠の余白を 20 → 10。</li>
+<li><strong>既定を完全版にする</strong>（<code>video_short.length_mode</code>）: 全部の手順を、1 手順ずつ解説する。短縮版は、設定で選べる（手順を約 22 場面にまとめる。12 → 22 に増やした）。短縮版の場面の説明は、「1 操作 1 文・ノード名と値は入力のとおり・前置きや言い換えなし」と指示している。</li>
+</ul>
+<h3 id="93-未確認のこと">9.3 未確認のこと</h3>
+<ul>
+<li>余白の切り詰めと、読める図は、<strong>新しく撮ったチュートリアルから</strong>効く。旧い素材の動画は、レイアウトの変更だけが反映される。Houdini 実機で、新しく生成した動画の確認は、まだ（2026-11-22）。</li>
+<li>完全版の生成時間は、手順が多いと 10〜20 分。実験の 90 分に収まるかは、生成を待つ時間次第（動画の作成中に、チュートリアルを生成しても動くが、重なると遅くなる。<a href="communication-architecture.html">通信構成 §4</a>）。</li>
 </ul>
 </main>
 

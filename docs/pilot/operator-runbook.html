@@ -75,9 +75,9 @@
 <header class="hero">
   <span class="badge">運営者向け手順書</span>
   <h1>運営者向け手順書（実証実験の運営）</h1>
-  <div class="meta">HTML生成: 2026-11-17（元: docs/pilot/operator-runbook.md）</div>
+  <div class="meta">HTML生成: 2026-11-22（元: docs/pilot/operator-runbook.md）</div>
 </header>
-<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体の構成">1. 全体の構成</a></li><li><a href="#2-実証実験の前にやることチェックリスト">2. 実証実験の前にやること（チェックリスト）</a></li><li><a href="#3-テスターの鍵を発行する">3. テスターの鍵を発行する</a></li><li><a href="#4-日々の見守り">4. 日々の見守り</a></li><li><a href="#5-houdini-公式ドキュメントの登録約2000ページ">5. Houdini 公式ドキュメントの登録（約2,000ページ）</a><ol><li><a href="#51-方針なぜこうするか">5.1 方針（なぜこうするか）</a></li><li><a href="#52-手順">5.2 手順</a></li><li><a href="#53-費用と時間の目安">5.3 費用と時間の目安</a></li><li><a href="#54-注意">5.4 注意</a></li></ol></li><li><a href="#6-worker-の更新デプロイ">6. Worker の更新（デプロイ）</a><ol><li><a href="#61-実証実験の課題の機能を出すときマイグレーション-003500360037">6.1 実証実験の「課題」の機能を出すとき（マイグレーション 0035・0036・0037）</a></li></ol></li><li><a href="#7-配布物を作る">7. 配布物を作る</a></li><li><a href="#8-実験の終了後片付け">8. 実験の終了・後片付け</a></li><li><a href="#9-困ったとき">9. 困ったとき</a><ol><li><a href="#62-受け付ける回を切り替える管理画面">6.2 受け付ける回を切り替える（管理画面）</a></li><li><a href="#63-条件の割り当てを切り替えるツール使用ドキュメントのみ管理画面">6.3 条件の割り当てを切り替える（ツール使用／ドキュメントのみ。管理画面）</a></li><li><a href="#64-アンケートの回答自由記述と計測した値を見る管理画面">6.4 アンケートの回答（自由記述）と計測した値を見る（管理画面）</a></li></ol></li></ol></details></nav>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-全体の構成">1. 全体の構成</a></li><li><a href="#2-実証実験の前にやることチェックリスト">2. 実証実験の前にやること（チェックリスト）</a></li><li><a href="#3-テスターの鍵を発行する">3. テスターの鍵を発行する</a></li><li><a href="#4-日々の見守り">4. 日々の見守り</a></li><li><a href="#5-houdini-公式ドキュメントの登録約2000ページ">5. Houdini 公式ドキュメントの登録（約2,000ページ）</a><ol><li><a href="#51-方針なぜこうするか">5.1 方針（なぜこうするか）</a></li><li><a href="#52-手順">5.2 手順</a></li><li><a href="#53-費用と時間の目安">5.3 費用と時間の目安</a></li><li><a href="#54-注意">5.4 注意</a></li></ol></li><li><a href="#6-worker-の更新デプロイ">6. Worker の更新（デプロイ）</a><ol><li><a href="#61-実証実験の課題の機能を出すときマイグレーション-003500360037">6.1 実証実験の「課題」の機能を出すとき（マイグレーション 0035・0036・0037）</a></li><li><a href="#611-reference-と学びの確認を出すときマイグレーション-003800392026-11-22">6.1.1 Reference と「学びの確認」を出すとき（マイグレーション 0038・0039。2026-11-22）</a></li></ol></li><li><a href="#7-配布物を作る">7. 配布物を作る</a></li><li><a href="#8-実験の終了後片付け">8. 実験の終了・後片付け</a></li><li><a href="#9-困ったとき">9. 困ったとき</a><ol><li><a href="#62-受け付ける回を切り替える管理画面">6.2 受け付ける回を切り替える（管理画面）</a></li><li><a href="#63-条件の割り当てを切り替えるツール使用ドキュメントのみ管理画面">6.3 条件の割り当てを切り替える（ツール使用／ドキュメントのみ。管理画面）</a></li><li><a href="#64-アンケートの回答自由記述と計測した値を見る管理画面">6.4 アンケートの回答（自由記述）と計測した値を見る（管理画面）</a></li></ol></li></ol></details></nav>
 <main>
 
 <p><strong>対象:</strong> サーバー（Cloudflare）と、テスターの鍵・予算を管理する人 ／ <strong>版:</strong> 2026-10-21</p>
@@ -357,6 +357,35 @@ npx wrangler deploy
 <li><strong>導入の直後は「受付停止」です</strong>（<code>open_round</code> = 0）。次の「6.2」で、受け付ける回に切り替えるまで、参加者は課題を始められません。</li>
 <li>参加者が「やり直す」で破棄した記録は、消えずに残ります（D1 の <code>pilot_sessions.discarded_at</code>）。集計には入りません。消去の依頼を受けたときの扱いは、<a href="pilot-announcement.md">pilot-announcement.md</a> の確認事項を参照。</li>
 <li>変更の標準の流れは <a href="../images/16-change-flow.svg">図16</a>。</li>
+</ul>
+<h3 id="611-reference-と学びの確認を出すときマイグレーション-003800392026-11-22">6.1.1 Reference と「学びの確認」を出すとき（マイグレーション 0038・0039。2026-11-22）</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>マイグレーション</th>
+<th>内容</th>
+<th>順序</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0038</td>
+<td><code>reference_entries</code>（Reference タブの説明。R2 <code>rag-poc-reference</code> も使う）</td>
+<td>適用済み（2026-11-19）</td>
+</tr>
+<tr>
+<td>0039</td>
+<td><code>pilot_profile</code> に事前の学びの列（<code>goal_pre</code>・<code>self_how_pre</code>・<code>self_explore_pre</code>・<code>self_what_pre</code>・<code>houdini_def_pre</code>）、<code>pilot_sessions</code> に事後の列（<code>goal_post</code>・<code>goal_used</code>・<code>self_how</code>・<code>self_explore</code>・<code>self_what</code>・<code>learned</code>・<code>explain_own</code>・<code>houdini_def</code>・<code>fun</code>）</td>
+<td>適用済み（2026-11-22）</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>手順は、6.1 と同じ（<strong>表を先、Worker を後</strong>。新しい Worker が、まだ無い列を読んで失敗しないように）。0039 は列を足すだけで、既存のデータは変わらない。</li>
+<li><strong>旧版のパネルでも動く</strong>（学びの項目を送らない。サーバーは、すでにある事前の値を消さない）。新しい項目は、パネルを配ってから、参加者の画面に出る。</li>
+<li>管理画面「課題の記録」の下に、<strong>学びの確認</strong>の表と CSV が出る（見方は <a href="../guides/user-manual.html">ユーザーマニュアル 7.4.1</a>、設計は <a href="pilot-analysis-design.md">分析設計 §13</a>）。</li>
+<li>学びの確認に使う時間は、事前 約 2 分・固定課題の終了時 約 4 分・自由課題 約 1 分（合計 約 7 分）。1 コマ（約 90 分）に収まるように抑えている。</li>
+<li><strong>Reference の説明を更新するとき</strong>は、<a href="../design/reference-tab.html">Reference タブの設計</a> の手順（点検 → 作る → 撮る → 公開）。実験の最中に説明を差し替えると、参加者ごとに見える内容が変わるので、受付の切り替えと合わせて行う。</li>
 </ul>
 <h2 id="7-配布物を作る">7. 配布物を作る</h2>
 <p><a href="../images/06-distribution.svg"><img alt="配布と、キー・予算の管理" src="../images/06-distribution.svg" /></a></p>

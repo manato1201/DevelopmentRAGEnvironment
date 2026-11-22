@@ -15,25 +15,27 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from diagram_kit import Diagram  # noqa: E402
 from build_diagrams_lecture import LECTURE_DIAGRAMS  # noqa: E402
+from build_diagrams_reference import REFERENCE_DIAGRAMS  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[1] / "docs" / "images"
 
 
 def overview() -> Diagram:
-    d = Diagram(1440, 940, "システム全体の構成", "Houdini の手元の道具と、Cloudflare 上の検索・回答・動画の置き場、外部の AI・サービス",
+    d = Diagram(1440, 1010, "システム全体の構成", "Houdini の手元の道具と、Cloudflare 上の検索・回答・動画・Reference の置き場、外部の AI・サービス、HoudiniReference",
                 legend=["ui", "core", "store", "ext"])
     d.group(24, 80, 400, 560, "利用者のPC", "Houdini と動画エンジン", "ui")
     d.group(464, 80, 580, 560, "Cloudflare（rag-poc）", "検索・回答・Claude の中継・MCP・管理画面・実証実験。鍵は Secrets に保管", "core")
     d.group(1084, 80, 332, 640, "外部のAI・サービス", "鍵は Worker だけが持つ", "ext")
     d.group(24, 700, 1020, 200, "Cloudflare（ragreel-gallery）", "動画の置き場とダッシュボード", "core")
 
-    d.node("panel", 70, 190, "Houdini パネル", "チャット・グラフ", glyph="Hou", kind="ui", sub2="チュートリアル・設定")
+    d.node("panel", 70, 190, "Houdini パネル", "チャット・Tutorial", glyph="Hou", kind="ui", sub2="Reference・課題")
     d.node("engine", 270, 190, "RAGReel", "動画を作る .exe", glyph="RR", kind="ui")
     d.node("files", 270, 430, "保存フォルダ", "手順書・動画", glyph="FS", kind="store")
 
-    d.node("worker", 700, 190, "Worker", "/query /search /claude", glyph="W", kind="core", sub2="/tts /mcp")
-    d.node("d1", 560, 430, "D1", "全文検索・履歴・予算", glyph="D1", kind="store")
-    d.node("vec", 800, 430, "Vectorize", "意味検索", glyph="Vec", kind="store")
+    d.node("worker", 700, 190, "Worker", "/query /search /claude", glyph="W", kind="core", sub2="/tts /mcp /reference /pilot")
+    d.node("d1", 540, 430, "D1", "検索・履歴・予算", glyph="D1", kind="store", sub2="実験・Reference の説明")
+    d.node("vec", 760, 430, "Vectorize", "意味検索", glyph="Vec", kind="store")
+    d.node("r2ref", 950, 430, "R2", "Reference の画像", glyph="R2", kind="store")
 
     d.node("gemini", 1200, 190, "Gemini", "埋め込み・回答", glyph="Gem", kind="ext")
     d.node("claude", 1200, 330, "Claude", "チュートリアル生成・台本", glyph="Cl", kind="ext")
@@ -49,8 +51,9 @@ def overview() -> Diagram:
     d.note(318, 180, "音声 /tts", "start", 12.5, True)
     d.edge("panel", "r", "engine", "l", "動画を作る", kind="ui", label_at=(190, 212))
     d.edge("engine", "bb", "files", "t", "書き出す", kind="ui", label_at=(345, 400))
-    d.line([(728, 308), (728, 360), (588, 360), (588, 430)], "", kind="core")
-    d.line([(728, 360), (828, 360), (828, 430)], "", kind="core")
+    d.line([(728, 308), (728, 360), (568, 360), (568, 430)], "", kind="core")
+    d.line([(728, 360), (788, 360), (788, 430)], "", kind="core")
+    d.line([(788, 360), (978, 360), (978, 430)], "", kind="core")
     d.line([(756, 218), (1064, 218)], "", kind="ext", arrow=False)
     d.line([(1064, 218), (1064, 638)], "", kind="ext", arrow=False)
     d.line([(1064, 218), (1200, 218)], "", kind="ext")
@@ -60,6 +63,13 @@ def overview() -> Diagram:
     d.edge("files", "bb", "gal", "t", "アップロード（トークン）", kind="ui", label_at=(420, 670))
     d.edge("gal", "r", "r2", "l", "保存", kind="core")
     d.edge("r2", "r", "dash", "l", "配信", kind="core")
+
+    # HoudiniReference（別リポジトリ。2026-11-22 に構成図へ追加）: Tips・動画・ニュースの題名・URL。Reference タブの「関連（出典）」の元
+    d.group(1084, 740, 332, 170, "HoudiniReference（別リポジトリ）", "Tips・動画・ニュースの題名と URL だけ", "ext")
+    d.node("href", 1130, 786, "GitHub", "data/items.json", glyph="Ref", kind="ext", sub2="Actions で毎日 収集")
+    d.node("hsite", 1290, 786, "Vercel", "確認用の静的サイト", glyph="WEB", kind="ext")
+    d.edge("href", "r", "hsite", "l", "", kind="ext")
+    d.line([(1168, 910), (1168, 950), (444, 950), (444, 560), (426, 560)], "パネルが 1日1回 取得（HTTPS の GET）。関連の出典に使う", kind="ext", dashed=True, label_at=(800, 944))
     return d
 
 
@@ -354,6 +364,7 @@ DIAGRAMS = {
     "positioning": (positioning, "09-positioning"),
     "architecture": (comparison_arch, "10-comparison-architecture"),
     **LECTURE_DIAGRAMS,  # 11〜16（講義・保守用。build_diagrams_lecture.py）
+    **REFERENCE_DIAGRAMS,  # 17・18（通信構成図・Reference の仕組み。build_diagrams_reference.py）
 }
 
 

@@ -78,6 +78,8 @@ DEFAULT_TARGETS: list[tuple[Path, str]] = [
     (DOCS / "operations" / "security-audit-2026-10-22.md", "セキュリティ点検"),
     (DOCS / "pilot" / "pilot-test-proposal.md", "実証実験の提案書"),
     (DOCS / "design" / "project-overview.md", "プロジェクト概要"),
+    (DOCS / "design" / "reference-tab.md", "Reference タブの設計"),
+    (DOCS / "design" / "communication-architecture.md", "通信構成"),
     (DOCS / "README.md", "資料の索引"),
     (DOCS / "design" / "cloud-local-unification-plan.md", "設計・仕様"),
     (DOCS / "operations" / "claude-token-security-report.md", "運用・安全"),

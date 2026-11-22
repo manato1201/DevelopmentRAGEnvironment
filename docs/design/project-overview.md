@@ -40,6 +40,11 @@
 | **チュートリアルの評価と学習**（2026-10） | 👍👎・理由タグ・メモと、生成時の自動指標を保存。集計・教訓（承認制）・成功例として次の生成に反映。評価はCloudflareにも送られ、管理者だけが閲覧できる |
 | **説明レベルと習熟度（成長）**（2026-10） | 質問で使った専門用語の数から習熟度を推定し、basic／applied／advanced の説明を**おまかせ**で選ぶ（手動で固定もできる）。「役に立たなかった」が続くと、一段やさしくする |
 | **実証実験の仕組み**（2026-10） | Houdini の「課題」タブ（事前アンケート → 3回 ×（固定課題＋自由課題）の計測 → 課題後アンケート）。固定課題は Pyro・RBD・雲を、ラテン方格で順序をずらし、**1回だけ「公式ドキュメントのみ」の対照**にする。間違えたときの**やり直し**、Houdini が閉じても**続きから再開**できる。評価の集計画面と、未送信の評価の自動再送。管理画面「実証実験」で、氏名なしの番号（P01）で集計・CSV。設計 → [docs/pilot/pilot-analysis-design.md](../pilot/pilot-analysis-design.md) |
+| **Reference タブ**（2026-11） | ノード・VEX の説明を、開発側が作って実機（Houdini 22）で点検し、画像・動き（撮影つき 33 ノード）と一緒に Cloudflare（D1・R2）に置く。参加者は読むだけ。関連のリンクは HoudiniReference（別リポジトリ）から、名前が単語として一致するものだけを選ぶ。[設計](reference-tab.md) |
+| **Chat の答え方**（2026-11） | 資料＋推測（既定）／資料だけ。資料に無い質問には、一般知識から「（推測）」と確かさ・確かめ方を付けて答える（資料と混ぜない） |
+| **学びの確認**（2026-11） | 実証実験の事前・事後の同じ質問で、作られたものを追って Houdini の中身を理解できたか（生成物を作れるようになることではなく）を見る。[分析設計 §13](../pilot/pilot-analysis-design.md) |
+| **浮かぶパネル・複数パネルの連携**（2026-11） | シェルフ／Alt+P で、浮かぶパネルを出し入れ。パネルを 2 つ開いているとき、Guide の「ノードの説明」で、もう片方が Reference に切り替わる |
+| **動画の読みやすさ・完全版**（2026-11） | 実画面の余白を切り詰め、読めるノード図を動画に使う。既定は全手順を 1 手順ずつ解説する完全版。[台本と音声 §9](houdini-video-script.md) |
 | **待ち時間の演出**（2026-10） | 空の履歴・回答待ちに、文字で描いた生き物（動きを減らす設定では静止）。ヘッダーの「背景」で、右下に薄く出せる（選んだ人だけ） |
 | **公式MCP連携**（2026-10） | Cloudflare WorkerをMCPクライアントにして、公式MCPサーバー（Notion・GitHub・Slack・Google・Canva・Figma・Vercelなど）へ接続（自動登録・PKCE）。RAGチャットから、読み取りのツールと、**確認つきの書き込み**（本人専用の接続・明示的に許可したものだけ）を使える。選定と手順 → [docs/design/mcp-integration-guide.md](mcp-integration-guide.md) |
 | **ナレッジ追加のポップアップ**（2026-10） | ファイル・URL（YouTube・クロール）・Q&Aを3ステップでまとめて登録。クロールの最大ページ数は上限なし |
@@ -135,6 +140,11 @@ DevelopmentRAGEnvironment/
 ├── houdini/                            # Houdini プロジェクトファイル
 │   └── python_panels/
 │       ├── rag_chatbot.py              # PySide6 製チャットパネル（Chat / Docs / Tutorial / History / 動画 / Settings タブ）
+│       ├── reference_view.py          # Reference タブ（ノード・VEX の説明・画像・動き・関連の出典。2026-11）
+│       ├── reference_data.py          # Reference の部品（一覧・出典の一致のルール）
+│       ├── reference_remote.py        # Reference の取得（Worker /reference/*・端末のキャッシュ）
+│       ├── reference_author.py        # Reference の説明を作る（開発者モード）
+│       ├── panel_bus.py               # パネルを 2 つ開いたときの連携（Guide ⇄ Reference）
 │       ├── docs_view.py               # Docs タブ（ナレッジのドキュメントを探して読む。旧 Graph タブの置き換え）
 │       ├── doc_tools.py               # 生成の途中でドキュメントを引くツール（search_docs / get_doc）
 │       ├── houdini_tools.py            # ★ houラッパー17ツール（create_node〜confirm_tutorial。get_parm_schema・try_parameter・validate_network・view_viewport・promote_parameter・layout_network・press_button を含む。サンドボックス強制・監査ログ・NodeGraphAssetエクスポート）
