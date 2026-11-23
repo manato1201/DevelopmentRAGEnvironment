@@ -58,6 +58,11 @@ COST_LIMIT_USD = 5.00         # ローカル側の実測コスト打ち切り上
                                # Cloudflare側のClaudeトークン予算（管理画面で調整）が唯一の正であり、
                                # これはネットワーク断・サーバー未応答時などに暴走を防ぐための
                                # クライアント側のフェイルセーフに過ぎない
+# 経過時間の上限（秒。2026-11-22）。以前は反復（API往復）とコストしか上限が無く、ツール1回に何時間かかっても止まらなかった
+# （実機の記録: validate_network 1回が6264秒。それ以外の部分は約16分で、API応答の合計は約10分だった）。
+# 反復・コストと同じ段階（WRAPUP_*）で仕上げを促し、超えたら打ち切る。0以下なら無効。
+# 注意: 確認はAPI呼び出しの前後（ターンの区切り）だけ。ツール1回の実行中は止められない。
+WALL_LIMIT_SECONDS = 45 * 60.0
 GRACE_ITERATIONS = 5          # 反復上限までこの回数以内になったら仕上げを促す（§2.6打ち切り改善。3→5: 上限を上げたので余裕を持たせる）
 GRACE_COST_FRACTION = 0.85    # 累積コストがCOST_LIMIT_USDのこの割合を超えたら仕上げを促す
 # 仕上げの促しを3段階にした（2026-11-17）。以前は「残り5回」で1回だけ促していたため、実験の記録（76/80手で促した）では、
@@ -359,11 +364,17 @@ _RESERVE_TEXT = (
 )
 
 
-def wrapup_stage(iteration: int, max_iterations: int, cost_usd: float, cost_limit: float) -> int:
-    """仕上げを促す段階（0=なし / 1=進捗を伝える / 2=新しい要素を足さない / 3=今すぐ提出）。反復とコストの、進んでいるほうで決める。
+def wrapup_stage(
+    iteration: int, max_iterations: int, cost_usd: float, cost_limit: float,
+    elapsed_s: float = 0.0, wall_limit: float = 0.0,
+) -> int:
+    """仕上げを促す段階（0=なし / 1=進捗を伝える / 2=新しい要素を足さない / 3=今すぐ提出）。反復・コスト・経過時間の、進んでいるものできめる。
+    経過時間（elapsed_s / wall_limit）は、コストと同じ割合（WRAPUP_*_COST_FRACTION）で段階を上げる。wall_limit が0以下なら使わない。
     純粋な関数（Claude・Houdini不要）。"""
     remaining = max_iterations - iteration
     cost_ratio = (cost_usd / cost_limit) if cost_limit else 0.0
+    if wall_limit and wall_limit > 0:
+        cost_ratio = max(cost_ratio, elapsed_s / wall_limit)
     if remaining <= GRACE_ITERATIONS or cost_ratio >= GRACE_COST_FRACTION:
         return 3
     if iteration >= max_iterations * WRAPUP_FIRM_FRACTION or cost_ratio >= WRAPUP_FIRM_COST_FRACTION:
@@ -1292,6 +1303,20 @@ class TutorialAgent:
         unfinished_work_rescues = 0  # ノードは作成済みだがfinish_tutorial自体を未呼び出しのまま終了しようとした際の救済回数
         rejected_stop_rescues = 0   # confirm_tutorial(false) のあと、直さずに終了しようとした際の救済回数
         cache_marked_content: list | None = None  # ローリングキャッシュ用（下記コメント参照）
+        loop_started = time.monotonic()           # 経過時間の上限（WALL_LIMIT_SECONDS）の起点
+
+        def wall_exceeded(iteration: int) -> bool:
+            """経過時間の上限を超えたら、理由を記録して True（ターンの区切りでだけ呼ぶ。ツール1回の実行中は止められない）。"""
+            elapsed = time.monotonic() - loop_started
+            if WALL_LIMIT_SECONDS <= 0 or elapsed <= WALL_LIMIT_SECONDS:
+                return False
+            result.abort_reason = f"時間上限 {WALL_LIMIT_SECONDS / 60:.0f} 分超過（経過 {elapsed / 60:.0f} 分）"
+            self._progress(f"時間上限に達したため打ち切ります（経過 {elapsed / 60:.0f} 分）")
+            log_event = getattr(self.executor, "log_event", None)
+            if callable(log_event):
+                log_event({"event": "wall_limit", "elapsed_s": round(elapsed, 1), "limit_s": WALL_LIMIT_SECONDS, "iteration": iteration})
+            return True
+
         for iteration in range(1, MAX_ITERATIONS + FINISH_RESERVE_ITERATIONS + 1):
             if iteration > MAX_ITERATIONS and not reserve_started:
                 # 反復上限に達した。ノードを作ってあって、まだ確定していなければ、仕上げ専用の予備を数回だけ足す
@@ -1305,6 +1330,8 @@ class TutorialAgent:
                 # 救済の催促（continue）は、ターン末尾の費用の確認を通らない。上限を超えたまま、続けて呼ばないように、呼ぶ前にも確かめる
                 result.abort_reason = f"コスト上限 ${COST_LIMIT_USD:.2f} 超過"
                 self._progress(f"コスト上限に達したため打ち切ります（${result.cost_usd:.3f}）")
+                return
+            if wall_exceeded(iteration):
                 return
             # ローリングプロンプトキャッシュ: messages は反復のたびに増え続けるが、
             # cache_control は system_blocks / tools（固定部分）にしか付けていなかった
@@ -1517,7 +1544,10 @@ class TutorialAgent:
 
             # 打ち切りの前の、段階式の「仕上げの促し」（wrapup_stage 参照）。進捗を伝える → 新しい要素を足さない → 今すぐ提出、の順に、
             # 段階が上がったときだけ、1回ずつ出す。ハード打ち切りで未完成のまま終わる代わりに、多少粗くても完結したチュートリアルにする。
-            stage = wrapup_stage(iteration, MAX_ITERATIONS, result.cost_usd, COST_LIMIT_USD)
+            stage = wrapup_stage(
+                iteration, MAX_ITERATIONS, result.cost_usd, COST_LIMIT_USD,
+                elapsed_s=time.monotonic() - loop_started, wall_limit=WALL_LIMIT_SECONDS,
+            )
             remaining_iterations = max(0, MAX_ITERATIONS - iteration)
             drafted = self.executor.pending_finish is not None
             still_in_progress = self.executor.finish_data is None and not drafted
@@ -1548,6 +1578,9 @@ class TutorialAgent:
             if result.cost_usd > COST_LIMIT_USD:
                 result.abort_reason = f"コスト上限 ${COST_LIMIT_USD:.2f} 超過"
                 self._progress(f"コスト上限に達したため打ち切ります（${result.cost_usd:.3f}）")
+                return
+
+            if wall_exceeded(iteration):
                 return
 
         result.abort_reason = f"反復上限 {MAX_ITERATIONS} 回到達" + ("（仕上げ用の予備も使い切り）" if reserve_started else "")

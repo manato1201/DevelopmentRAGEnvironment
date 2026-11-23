@@ -631,6 +631,16 @@ class HoudiniToolExecutor:
     )
     _SIM_COOK_FRAME_COUNT = 10  # シミュレーション検証のため現在フレームから何フレーム進めるか
 
+    # validate_network が cook に使ってよい合計秒数（2026-11-22）。実機の記録（Vellum + File Cache のネットワーク）で、
+    # validate_network 1回が6264秒かかった（ほかのツールは1回10秒未満。通常の validate_network は0.2秒未満）。
+    # 超えたら、残りのノードの cook を省略して、その旨を結果に書く（「エラーなし」と誤解させない）。
+    # 注意: 実行中の cook 1回は途中で止められない。これは「ノードごとの cook の合計」の上限で、1ノードが何時間も
+    # 固まる場合は、そのノードの終了を待つしかない（ノードごとの秒数は step_log / 監査ログに残る）。
+    _VALIDATE_COOK_BUDGET_S = 60.0
+    _VALIDATE_SLOW_NOTE_S = 1.0       # この秒数以上かかったノードは、結果にも書く
+    _VALIDATE_LIST_MAX = 8            # 結果に名前を並べるノード数の上限
+    _VALIDATE_LOG_TOP = 20            # step_log / 監査ログに残す、遅かったノードの数
+
     # best_unconfirmed_draft() が下書きを「プレースホルダー水準」とみなして棄却する
     # 閾値（title+overview+steps+pitfalls+next_stepsの合計文字数）。実機で、モデルが
     # confirm_tutorialを一度も呼ばずに生成を終え、しかも最後のfinish_tutorial呼び出しが
@@ -793,6 +803,7 @@ class HoudiniToolExecutor:
         SandboxViolation は監査ログに violation として記録する。
         """
         handler = getattr(self, f"_tool_{tool_name}", None)
+        self.__dict__.pop("_step_extra", None)  # 前のツールの付帯情報を持ち越さない
         started = time.monotonic()
         if tool_name in DOC_TOOL_NAMES:
             # ネットワーク呼び出しなので、Houdiniのメインスレッドには載せない（画面が固まる）。hou も触らない。
@@ -819,6 +830,9 @@ class HoudiniToolExecutor:
             "result": result, "is_error": is_error,
             "elapsed_s": round(tool_seconds, 2),
         }
+        # ツールが残した付帯情報（validate_network のノードごとの cook 秒数など）。遅いノードを後から特定するために、
+        # step_log と監査ログへ載せる
+        entry.update(self.__dict__.pop("_step_extra", None) or {})
         self.step_log.append(entry)
         self._append_audit({"event": "tool_call", **entry})
 
@@ -2390,14 +2404,9 @@ class HoudiniToolExecutor:
         children = list(root.allSubChildren())
         if not children:
             return "検証NG: サンドボックスにノードがありません"
+        timings, skipped, budget_used = self._cook_for_validation(children)
         issues: list[str] = []
         for node in children:
-            category = node.type().category().name()
-            if category in ("Sop", "Cop") and self._simulation_type_hint(node) is None:
-                try:
-                    node.cook(force=False)
-                except Exception:  # noqa: BLE001 -- 失敗は errors() に出る
-                    pass
             for message in node.errors():
                 issues.append(f"[エラー] {self._rel(node)}: {message}")
             for message in node.warnings():
@@ -2419,9 +2428,75 @@ class HoudiniToolExecutor:
                     f"[つなぎ] {where} の中で末端が{len(ends)}個あります（{names}）。"
                     "表示されるのは1つだけです。Merge で1本にまとめるか、不要なノードは delete_node で消してください"
                 )
+        notes = self._validation_notes(timings, skipped, budget_used)
         if issues:
-            return f"検証NG: {len(issues)} 件\n" + "\n".join(f"  {line}" for line in issues[:30])
-        return f"検証OK: ノード {len(children)} 個、エラー・警告なし、末端は各ネットワークで1つです"
+            return f"検証NG: {len(issues)} 件\n" + "\n".join(f"  {line}" for line in issues[:30]) + notes
+        if skipped:
+            # 「エラー・警告なし」と読まれないように、OK とは言わない
+            return (
+                f"検証未完了: ノード {len(children)} 個のうち {len(skipped)} 個は cook していないため、エラー・警告が無いとは言えません"
+                f"（cook 済みのノードにエラー・警告はなく、末端は各ネットワークで1つです）" + notes
+            )
+        return f"検証OK: ノード {len(children)} 個、エラー・警告なし、末端は各ネットワークで1つです" + notes
+
+    def _cook_for_validation(self, children: list) -> tuple[list[tuple[str, float]], list, float]:
+        """
+        validate_network の cook。合計 _VALIDATE_COOK_BUDGET_S 秒を超えたら、残りのノードは cook せずに省略する。
+        戻り値: ([(ノードの相対パス, cook にかかった秒数), ...], 省略したノードのリスト, 使った合計秒数)。
+        ロックされたアセット（Vellum など）の内部ノードまで allSubChildren に入るため、浅い階層（ユーザーが作ったノード）から
+        先に cook する。予算が尽きたとき、省略されるのは深い階層（アセットの内部）のほうになる。
+        """
+        targets = [
+            node for node in children
+            if node.type().category().name() in ("Sop", "Cop") and self._simulation_type_hint(node) is None
+        ]
+        targets.sort(key=lambda node: node.path().count("/"))  # 安定ソート: 同じ深さでは、元の順序のまま
+        budget = self._VALIDATE_COOK_BUDGET_S
+        started = time.monotonic()
+        timings: list[tuple[str, float]] = []
+        skipped: list = []
+        for node in targets:
+            if time.monotonic() - started >= budget:
+                skipped.append(node)
+                continue
+            node_started = time.monotonic()
+            try:
+                node.cook(force=False)
+            except Exception:  # noqa: BLE001 -- 失敗は errors() に出る
+                pass
+            seconds = time.monotonic() - node_started
+            timings.append((self._rel(node), seconds))
+            if seconds >= self._VALIDATE_SLOW_NOTE_S:
+                # 遅い cook は、その場で監査ログに残す（検証全体が終わる前に、どのノードかを辿れるように）
+                self._append_audit({"event": "slow_cook", "tool": "validate_network", "node": self._rel(node), "elapsed_s": round(seconds, 2)})
+        used = time.monotonic() - started
+        slowest = sorted(timings, key=lambda row: row[1], reverse=True)[:self._VALIDATE_LOG_TOP]
+        self.__dict__["_step_extra"] = {
+            "cook_budget_s": budget,
+            "cook_total_s": round(used, 2),
+            "cooked": len(timings),
+            "cook_seconds": {name: round(seconds, 2) for name, seconds in slowest},
+            "cook_skipped": [self._rel(node) for node in skipped],
+        }
+        return timings, skipped, used
+
+    def _validation_notes(self, timings: list[tuple[str, float]], skipped: list, used: float) -> str:
+        """validate_network の結果に足す、cook の時間と省略の説明。何も言うことが無ければ空文字。"""
+        lines: list[str] = []
+        if skipped:
+            names = ", ".join(self._rel(node) for node in skipped[: self._VALIDATE_LIST_MAX])
+            more = len(skipped) - self._VALIDATE_LIST_MAX
+            tail = f" ほか {more} 個" if more > 0 else ""
+            lines.append(
+                f"[未検証] cook の合計が上限（{self._VALIDATE_COOK_BUDGET_S:.0f}秒）を超えたため（{used:.0f}秒使用）、"
+                f"{len(skipped)} 個のノードは cook していません: {names}{tail}。"
+                "これらのエラー・警告は未確認です。必要なら cook_node で個別に確かめてください（重いノードは、先に1つずつ）"
+            )
+        slow = sorted((row for row in timings if row[1] >= self._VALIDATE_SLOW_NOTE_S), key=lambda row: row[1], reverse=True)
+        if slow:
+            listed = ", ".join(f"{name} {seconds:.1f}秒" for name, seconds in slow[: self._VALIDATE_LIST_MAX])
+            lines.append(f"[cook時間] 1秒以上かかったノード: {listed}")
+        return "".join(f"\n  {line}" for line in lines)
 
     # ── view_viewport / promote_parameter / layout_network / press_button（2026-10-31） ──
 
