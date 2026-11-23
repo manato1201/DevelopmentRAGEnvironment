@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>COP の生成の失敗と、動画の画像の直し（前と後）</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg:#0f1117; --panel:#171a23; --border:#2a2e3a; --text:#e6e8ee; --muted:#9aa1b4;
+    --accent:#7aa2ff; --code-bg:#12151d; --warn:#e0b050; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f8fb; --panel:#ffffff; --border:#e1e4ec; --text:#1b1e27; --muted:#5b6270;
+      --accent:#3358d6; --code-bg:#f0f2f8; --warn:#9a6a00; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.85;
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:2rem 1.25rem 6rem; }
+  .series { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:1.2rem; }
+  .series a { font-size:.8rem; padding:.2rem .7rem; border:1px solid var(--border);
+    border-radius:999px; color:var(--muted); text-decoration:none; background:var(--panel); }
+  .series a.current { color:var(--accent); border-color:var(--accent); font-weight:600; }
+  header.hero { border-bottom:1px solid var(--border); padding-bottom:1.2rem; margin-bottom:1.6rem; }
+  header.hero h1 { font-size:1.6rem; line-height:1.4; margin:.4rem 0 .6rem; }
+  .badge { display:inline-block; background:var(--panel); border:1px solid var(--border);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; color:var(--accent); margin-right:.4rem; }
+  .meta { color:var(--muted); font-size:.85rem; }
+  nav.toc { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:.9rem 1.2rem; margin-bottom:2rem; }
+  nav.toc summary { cursor:pointer; font-weight:600; }
+  nav.toc ol { margin:.6rem 0 0; padding-left:1.1rem; list-style:none; }
+  nav.toc ol ol { margin:.1rem 0 .3rem; font-size:.92em; }
+  nav.toc a { color:var(--accent); text-decoration:none; }
+  nav.toc a:hover { text-decoration:underline; }
+  main h2 { font-size:1.3rem; border-left:4px solid var(--accent); padding-left:.6rem;
+    margin:2.6rem 0 1rem; line-height:1.5; }
+  main h3 { font-size:1.08rem; margin:2rem 0 .6rem; }
+  main h4 { font-size:1rem; margin:1.4rem 0 .4rem; color:var(--muted); }
+  main a { color:var(--accent); }
+  main p, main li { overflow-wrap:anywhere; }
+  hr { border:none; border-top:1px solid var(--border); margin:2rem 0; }
+  code { background:var(--code-bg); border:1px solid var(--border); border-radius:5px;
+    padding:.08rem .35rem; font-size:.88em; font-family:"Cascadia Mono",Consolas,"SFMono-Regular",monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+    padding:.9rem 1rem; overflow-x:auto; line-height:1.55; }
+  pre code { background:none; border:none; padding:0; font-size:.86rem; }
+  blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--panel);
+    border:1px solid var(--border); border-left:4px solid var(--warn); border-radius:8px; color:var(--text); }
+  blockquote p { margin:.4rem 0; }
+  .table-scroll { overflow-x:auto; margin:1rem 0; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; background:var(--panel); }
+  th, td { border:1px solid var(--border); padding:.45rem .7rem; text-align:left; vertical-align:top; }
+  th { background:var(--code-bg); white-space:nowrap; }
+  main img { display:block; height:auto; width:min(1500px, 96vw); max-width:none; position:relative; left:50%;
+    transform:translateX(-50%); margin:1.2rem 0 .4rem; border:1px solid var(--border); border-radius:12px; background:var(--panel); }
+  main a:has(> img) { display:block; }
+  @media print { main img { width:100%; left:0; transform:none; } }
+  .mermaid { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:1rem; overflow-x:auto; text-align:center; margin:1.2rem 0; }
+  ul, ol { padding-left:1.5rem; }
+  .pager { display:flex; justify-content:space-between; gap:1rem; margin-top:3rem;
+    padding-top:1.2rem; border-top:1px solid var(--border); font-size:.92rem; }
+  .pager a { color:var(--accent); text-decoration:none; }
+  footer { margin-top:2.5rem; color:var(--muted); font-size:.78rem; }
+  #top { position:fixed; right:1rem; bottom:1rem; padding:.4rem .8rem; border-radius:999px;
+    background:var(--panel); border:1px solid var(--border); color:var(--accent);
+    text-decoration:none; font-size:.8rem; }
+  @media (max-width:600px) { .wrap { padding:1.2rem .9rem 5rem; } header.hero h1 { font-size:1.35rem; } }
+  @media print { .series, #top, nav.toc { display:none; } body { background:#fff; color:#000; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="page">
+
+<header class="hero">
+  <span class="badge">資料</span>
+  <h1>COP の生成の失敗と、動画の画像の直し（前と後）</h1>
+  <div class="meta">HTML生成: 2026-11-23（元: docs/reports/cop-and-capture-fixes-2026-11-23.md）</div>
+</header>
+<nav class="toc"><details open><summary>目次</summary><ol><li><a href="#1-cop-の-opencl-のメモリ不足">1. COP の OpenCL のメモリ不足</a></li><li><a href="#2-動画の画像ノード">2. 動画の画像（ノード）</a></li><li><a href="#3-動画の画像パラメータ画面">3. 動画の画像（パラメータ画面）</a></li><li><a href="#4-直していないこと">4. 直していないこと</a></li><li><a href="#テスト">テスト</a></li></ol></details></nav>
+<main>
+
+<p><strong>日付:</strong> 2026-11-23　<strong>対象:</strong> Houdini パネル（<code>houdini_tools.py</code>・<code>pilot_task.py</code>・<code>screen_capture.py</code>）</p>
+<p>実機で、COP（Copernicus）の題材（「プロシージャルな山」）を生成したところ、(1) 「The OpenCL device has run out of memory」で、生成が止まりかけ、そのあとの撮影がすべて失敗し、(2) 動画の画像（ノード・パラメータ）が、見たい所を映していなかった。原因を調べて直した。</p>
+<p><strong>状態の読み方:</strong> 完了 = 直して、自動テストと、手元の Houdini（hython 22.0.506）で確かめた。一部 = 直したが、画面のある Houdini でしか確かめられない部分がある。</p>
+<h2 id="1-cop-の-opencl-のメモリ不足">1. COP の OpenCL のメモリ不足</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>起きたこと</strong></td>
+<td>生成の記録（<code>ai_tutorial_20261123_194816</code>）: <code>validate_network</code> 1 回が <strong>717 秒</strong>。結果は「検証NG: 69 件」（<code>mtn/erode/block_end1: Required input 1 not wired in</code> など）。Houdini のコンソールに、<code>OpenCL Context error: memory allocation failed</code>。そのあと、<code>CL_DEVICE_NOT_FOUND</code> になり、実画面の撮影（ネットワーク・パラメータ）が、すべて失敗して、描き直した簡易の図になった（capture.log: 実画面 36 回成功のうち、後半は <code>the grabbed Parm region is blank</code>・<code>something outside Houdini covers part of the pane</code>）</td>
+</tr>
+<tr>
+<td><strong>原因</strong></td>
+<td><code>validate_network</code> が、<strong>ロックされたデジタルアセットの内部のノード</strong>まで cook していた。hython 22.0.506 で再現: サンドボックスの <code>allSubChildren()</code> は <strong>207 ノード、ユーザーが作ったのは 5 個</strong>（残りの <strong>202 個が HeightField Erode・Fractal Noise などの内部</strong>）。ユーザーのノードの cook は、合計 <strong>1.6 秒</strong>。内部を 1 つずつ cook すると、<code>hou.OperationFailed</code>（前提の入力が無い）になり、<code>block_end7</code> で <strong>41 秒</strong>と、OpenCL のメモリ不足（コンソールに、実機と同じ文）。</td>
+</tr>
+<tr>
+<td><strong>前</strong></td>
+<td>内部のノードを cook し、内部のエラー（誤ったNG）も報告した。内部の cook が、GPU のメモリを使い切り、そのあとの OpenCL が使えなくなった</td>
+</tr>
+<tr>
+<td><strong>後</strong></td>
+<td>ロックされたアセットの内部のノード（<code>isInsideLockedHDA()</code>）は、cook も、エラー・警告の報告もしない。結果に「[対象外] ロックされたアセットの内部のノード N 個」と書く。実機（hython）で、同じ COP ネットワークの <code>validate_network</code> が <strong>1.8 秒・「検証OK: ノード 5 個」</strong></td>
+</tr>
+<tr>
+<td><strong>同じ原因の別の箇所</strong></td>
+<td>実験の「操作ミス」（エラーのノードの数。上限 10 で 1）の採取（<code>pilot_task.scan_error_nodes</code>）も、内部を数えていた。1 つのミスが、内部の何十個ものエラーになり、上限に張り付く。内部は数えないようにした（アセットそのもののエラーは数える）</td>
+</tr>
+<tr>
+<td><strong>別セッションの変更</strong></td>
+<td><code>validate_network</code> の cook の合計に 60 秒の上限、生成ループに 45 分の上限（コミット <code>0802760</code>）。上の直しと組み合わせて、安全網になる（1 ノードが固まる場合は、止められない）</td>
+</tr>
+<tr>
+<td><strong>状態</strong></td>
+<td>完了（自動テスト・hython）。2026-11-22 の Vellum（6264 秒）が同じ原因かは、再現していない（今回は COP で再現）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-動画の画像ノード">2. 動画の画像（ノード）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>前</strong></td>
+<td>ノードを作った手順の図が、<strong>作ったノード 1 個だけ</strong>（「表示 1/9 ノード（ほか 8 個は省略）」）。作った直後は、まだつながっていないため、つながりをたどる選び方では、周りが入らなかった。「NEW」の札も、周りのノードがあると重なりうる</td>
+</tr>
+<tr>
+<td><strong>後（近場用）</strong></td>
+<td>注目ノードを含めて最低 3 個（<code>MIN_CONTEXT_NODES</code>）になるよう、つながりが足りないときは、<strong>ネットワークでの位置が近いノード</strong>を足す。名前は、読める大きさ（12pt 以上）のまま。「NEW」などの札は、右・左・上・下の順に、画面に収まり、ほかのノードと重ならない所へ置く</td>
+</tr>
+<tr>
+<td><strong>後（全体用）</strong></td>
+<td>近場に入りきらないノードがあるとき（全体が 4 個以上）、右上に、<strong>全体の小さな図</strong>（注目ノードを強調）を添える。近場の図は、その分を空けて、左に描く。画像のメタに <code>overview_inset</code> を残す</td>
+</tr>
+<tr>
+<td><strong>実画面（ネットワークエディタ）の撮影範囲</strong></td>
+<td>範囲の計算で、ノードの箱の大きさ（<code>node.size()</code>）を使う（COP のノードは大きく、位置だけで決めると、端のノードが切れた）。つながりが少ないときは、位置の近いノードも範囲に入れる</td>
+</tr>
+<tr>
+<td><strong>状態</strong></td>
+<td>図（描き直す版）は完了（自動テスト・描画の確認）。実画面の撮影範囲は、<strong>一部</strong>（<code>node.size()</code> の値と、<code>position()</code> が箱のどの位置か（左下）は、Houdini の画面で要確認）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-動画の画像パラメータ画面">3. 動画の画像（パラメータ画面）</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>前</strong></td>
+<td>ペインを最大化して撮ると（1918 画素）、ラベルと値の欄は左の 4〜5 割で、残りはスライダーの線。全体を、変更点の一覧の隣の枠（約 770 画素）に入れると、文字は 0.4 倍に縮んで、読めなかった</td>
+</tr>
+<tr>
+<td><strong>後</strong></td>
+<td>余白を切ったあと、左の、<code>max(900, 幅の 5 割)</code> 画素だけを残す（1918 画素 → 959 画素。枠への縮小は 約 0.8 倍。<strong>約 2 倍の大きさ</strong>）。狭い画像（最大化しないとき）は、そのまま</td>
+</tr>
+<tr>
+<td><strong>状態</strong></td>
+<td>一部（切り出しの動作は、自動テスト。ラベルの欄の幅が、実機で左の 5 割に収まるかは、Houdini の画面で要確認）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="4-直していないこと">4. 直していないこと</h2>
+<ul>
+<li>実画面の撮影が失敗する原因のうち、<strong>ダイアログなどが画面に重なる</strong>ことは、避けられない（重なると、簡易の図に切り替わる）。今回は、重なった原因（OpenCL のエラーダイアログ）を、1 で防いだ。</li>
+<li>「全体用と近場用を、別の画像として、別の場面で出す」ことは、していない（動画エンジンの画面は、1 手順 1 枚）。1 枚の中で、近場を大きく、全体を右上の小さな図で出している。</li>
+<li>GPU のメモリが小さい PC で、COP の解像度が大きいときの OpenCL のメモリ不足は、防いでいない（内部を cook しなくなったので、ユーザーのノードだけを cook する。<code>HOUDINI_OCL_DEVICETYPE=CPU</code> で、CPU の実行にもできる）。</li>
+</ul>
+<h2 id="テスト">テスト</h2>
+<p><code>houdini/tests/test_cop_and_capture_20261123.py</code>（20 件）: アセットの内部を cook・報告しない／ユーザーのノードのエラーは報告する／実機の API・親をたどる代わりの両方／操作ミスの採取／作ったばかりのノードに周りが入る／位置の近いノード・箱の大きさ／パラメータ画面の切り出し／全体の小さな図（強調・重なり・小さなネットワークでは出さない）。全体: <code>uv run --with PySide6 --with pillow python -m unittest discover -s houdini/tests</code>（1187 件）。</p>
+</main>
+
+<footer>このHTMLは <code>scripts/build_docs_html.py</code> が、元のMarkdownから生成した。直接編集せず、Markdownを直して再生成する。</footer>
+</div>
+<a id="top" href="#page">▲ 先頭へ</a>
+
+</body>
+</html>

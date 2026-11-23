@@ -2399,9 +2399,34 @@ class HoudiniToolExecutor:
         )
         return "\n".join([header] + lines)
 
+    def _is_inside_locked_asset(self, node) -> bool:
+        """ロックされたデジタルアセット（HeightField Erode・Vellum Solver など）の内部のノードか。
+        内部のノードは、アセットの部品で、単独で cook すると、前提の入力が無くてエラーになり、GPU（OpenCL）のメモリも使い切る
+        （2026-11-23 の実機: COP の HeightField Erode の内部を cook して「The OpenCL device has run out of memory」。
+        hython 22.0.506 で再現: サンドボックスの 207 ノードのうち、ユーザーが作ったのは 5 個で、残りの 202 個が内部）。"""
+        try:
+            return bool(node.isInsideLockedHDA())
+        except Exception:  # noqa: BLE001 -- この API が無い版・偽物のノードでは、親をたどって確かめる
+            pass
+        try:
+            parent = node.parent()
+            for _ in range(64):  # 深さの上限（循環などで止まらなくならないため）
+                if parent is None:
+                    return False
+                if self._is_locked_asset(parent):
+                    return True
+                parent = parent.parent()
+        except Exception:  # noqa: BLE001
+            return False
+        return False
+
     def _tool_validate_network(self, args: dict) -> str:
         root = self._hou.node(self.sandbox_path)
-        children = list(root.allSubChildren())
+        all_children = list(root.allSubChildren())
+        # アセットの内部は、cook も、エラー・警告の報告もしない（ユーザーが直せない場所で、cook が重く、GPU のメモリも使う）。
+        # アセットそのもの（ユーザーが作ったノード）のエラー・警告は、これまでどおり報告する（内部の失敗は、多くの場合、アセットのエラーとして出る）。
+        children = [node for node in all_children if not self._is_inside_locked_asset(node)]
+        inner_count = len(all_children) - len(children)
         if not children:
             return "検証NG: サンドボックスにノードがありません"
         timings, skipped, budget_used = self._cook_for_validation(children)
@@ -2429,6 +2454,11 @@ class HoudiniToolExecutor:
                     "表示されるのは1つだけです。Merge で1本にまとめるか、不要なノードは delete_node で消してください"
                 )
         notes = self._validation_notes(timings, skipped, budget_used)
+        if inner_count:
+            notes += (
+                f"\n  [対象外] ロックされたアセットの内部のノード {inner_count} 個は、cook も検証もしていません"
+                "（アセットの部品なので。個別に cook すると、エラーになったり、GPU のメモリを使い切ることがあります）"
+            )
         if issues:
             return f"検証NG: {len(issues)} 件\n" + "\n".join(f"  {line}" for line in issues[:30]) + notes
         if skipped:

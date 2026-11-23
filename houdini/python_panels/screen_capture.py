@@ -160,7 +160,13 @@ def frame_network_on_focus(network_editor, network, focus_path: str, log_path: P
                 source = conn.inputNode()
                 if source is not None:
                     inputs.append(source.path())
-            items.append({"path": c.path(), "x": float(pos[0]), "y": float(pos[1]), "inputs": inputs})
+            item = {"path": c.path(), "x": float(pos[0]), "y": float(pos[1]), "inputs": inputs}
+            try:  # ノードの箱の大きさ（COP のノードは大きい）。取れなければ、位置だけで範囲を決める
+                size = c.size()
+                item["w"], item["h"] = float(size[0]), float(size[1])
+            except Exception:  # noqa: BLE001
+                pass
+            items.append(item)
         if not any(i["path"] == focus_path for i in items):
             return False
         aspect = 16 / 9
@@ -318,12 +324,23 @@ def _subset_model(model: list[dict], keep: set[str]) -> list[dict]:
     return out
 
 
+# 近場の図に、最低でも、注目ノードを含めて、この数のノードを入れる（2026-11-23）。実際の動画で、ノードを作った手順の図が、
+# 作ったノード 1 個だけ（まだつながっていないため）で、周りのノードが分からなかった。つながりが足りないときは、位置の近いノードを足す。
+MIN_CONTEXT_NODES = 3
+
+
+def _distance_sq(a: dict, b: dict) -> float:
+    return (float(a.get("x", 0.0)) - float(b.get("x", 0.0))) ** 2 + (float(a.get("y", 0.0)) - float(b.get("y", 0.0))) ** 2
+
+
 def select_focus_nodes(
     model: list[dict], focus_path: str | None, width: int = LOGICAL_WIDTH, height: int = LOGICAL_HEIGHT,
-    width_of=None, min_scale: float = MIN_FOCUS_SCALE,
+    width_of=None, min_scale: float = MIN_FOCUS_SCALE, min_context: int = MIN_CONTEXT_NODES,
 ) -> tuple[list[dict], int]:
     """注目ノードと、その前後だけを残す。戻り値: (残した model, 省いたノード数)。
     つながりの近さ（何本たどるか）が小さいノードから足し、名前の大きさの下限（min_scale）を守れる範囲で止める。
+    つながっているノードが少なくて、注目ノードを含めて min_context 個に満たないときは、ネットワークでの位置が近いノードを足す
+    （作ったばかりで、まだつながっていないノードでも、周りが分かるように）。
     focus_path が無い・model に無いときは、全部を返す（全体図）。"""
     by_path = {n["path"]: n for n in model}
     if focus_path is None or focus_path not in by_path:
@@ -362,6 +379,13 @@ def select_focus_nodes(
             if fits(keep | {path}):
                 keep.add(path)
         break
+    if len(keep) < min_context:
+        focus = by_path[focus_path]
+        for node in sorted((n for n in model if n["path"] not in keep), key=lambda n: (_distance_sq(n, focus), n["name"])):
+            if len(keep) >= min_context:
+                break
+            if fits(keep | {node["path"]}):
+                keep.add(node["path"])
     kept = _subset_model(model, keep)
     return kept, len(model) - len(kept)
 
@@ -380,9 +404,11 @@ def plan_focus_bounds(
     min_width: float = MIN_VIEW_WIDTH, max_width: float = MAX_VIEW_WIDTH, top_overlay: float = NETWORK_TOP_OVERLAY,
 ) -> tuple[tuple[float, float, float, float], list[str], list[str]]:
     """実画面のネットワークエディタで、注目ノードと、その前後を、読める大きさで映す範囲を決める。
-    items: [{"path", "x", "y", "inputs": [path...]}]。aspect: ペインの 幅/高さ。
+    items: [{"path", "x", "y", "inputs": [path...], "w"?, "h"?}]。aspect: ペインの 幅/高さ。w・h は、ノードの箱の大きさ（無ければ 0）。
+    COP のノードは、SOP より大きい（サムネイルつき）ので、位置だけで範囲を決めると、端のノードが切れて見えた（2026-11-23 の実画面）。
     戻り値: ((x0, y0, x1, y1), 映るノードの path, 範囲の外に出るノードの path)。
-    幅が max_width（これ以上広いと、名前が読めない）を超えるときは、注目ノードから遠いものを外す。min_width より狭いときは広げる。"""
+    幅が max_width（これ以上広いと、名前が読めない）を超えるときは、注目ノードから遠いものを外す。min_width より狭いときは広げる。
+    つながっているノードが少なくて、注目ノードを含めて MIN_CONTEXT_NODES 個に満たないときは、位置の近いノードも入れる。"""
     by_path = {i["path"]: i for i in items}
     focus = by_path.get(focus_path)
     if focus is None:
@@ -393,18 +419,29 @@ def plan_focus_bounds(
             related.update(p for p in item["inputs"] if p in by_path)
         elif focus_path in item["inputs"]:
             related.add(item["path"])
+    if len(related) < MIN_CONTEXT_NODES:
+        nearest = sorted((i for i in items if i["path"] not in related), key=lambda i: (_distance_sq(i, focus), i["path"]))
+        for item in nearest[: MIN_CONTEXT_NODES - len(related)]:
+            related.add(item["path"])
+
+    def right(item: dict) -> float:
+        return item["x"] + float(item.get("w") or 0.0)
+
+    def top(item: dict) -> float:
+        return item["y"] + float(item.get("h") or 0.0)
+
     # 注目ノードに近い順（横の距離＋縦の距離）に、幅の上限に収まるぶんだけ入れる
     others = sorted(related - {focus_path}, key=lambda p: abs(by_path[p]["x"] - focus["x"]) + abs(by_path[p]["y"] - focus["y"]))
     shown = [focus_path]
-    x0 = x1 = focus["x"]
-    y0 = y1 = focus["y"]
+    x0, x1 = focus["x"], right(focus)
+    y0, y1 = focus["y"], top(focus)
     for path in others:
         item = by_path[path]
-        nx0, nx1 = min(x0, item["x"]), max(x1, item["x"])
+        nx0, nx1 = min(x0, item["x"]), max(x1, right(item))
         if (nx1 - nx0) + 2 * VIEW_PAD_X > max_width:
             continue
         x0, x1 = nx0, nx1
-        y0, y1 = min(y0, item["y"]), max(y1, item["y"])
+        y0, y1 = min(y0, item["y"]), max(y1, top(item))
         shown.append(path)
     x0, x1, y0, y1 = x0 - VIEW_PAD_X, x1 + VIEW_PAD_X, y0 - VIEW_PAD_Y, y1 + VIEW_PAD_Y
     width, height = x1 - x0, y1 - y0
@@ -1156,6 +1193,24 @@ def crop_to_content(image, pad: int = CROP_PAD, min_width: int = 480, min_height
     return image.copy(x2, y2, w2, h2)
 
 
+# パラメータ画面（Parm ペイン）の切り出し。ペインを最大化して撮ると、ラベルと値の欄は、左の 4〜5 割に収まり、残りは、スライダーの
+# 線が伸びるだけになる。全体を、変更点の一覧の隣の枠に入れると、文字が半分以下に縮み、読めなかった（2026-11-23 の動画で確認:
+# 1918 画素の画像を、約 770 画素の枠に入れていた）。左の、ラベルと値の欄がある範囲だけを残す。
+PARM_CROP_MIN_WIDTH = 900
+PARM_CROP_FRACTION = 0.5
+
+
+def crop_parm_pane(image):
+    """パラメータ画面の切り出し（QImage）から、ラベルと値の欄がある、左側だけを残した QImage を返す。
+    まず、背景だけの余白を切る（crop_to_content）。そのあと、幅が PARM_CROP_MIN_WIDTH より広ければ、
+    max(PARM_CROP_MIN_WIDTH, 幅の PARM_CROP_FRACTION) 画素だけ、左から残す。狭い画像は、そのまま。"""
+    image = crop_to_content(image)
+    keep = min(image.width(), max(PARM_CROP_MIN_WIDTH, int(image.width() * PARM_CROP_FRACTION)))
+    if keep >= image.width():
+        return image
+    return image.copy(0, 0, keep, image.height())
+
+
 def shrink_saved_image(path: Path, log_path: Path | None = None) -> bool:
     """保存した画像（PNG）の余白を切り詰めて、同じ場所に保存し直す。切ったら True。失敗・切る必要が無いときは False（元のまま）。"""
     try:
@@ -1424,6 +1479,7 @@ def _collect_network_model(network, limit: int = _MAX_DIAGRAM_NODES) -> list[dic
             "bypass": bool(_safe(lambda: c.isBypassed(), False)),
             "error": bool(_safe(lambda: c.errors(), ())),
             "x": float(position[0]) if position is not None else 0.0,
+            "y": float(position[1]) if position is not None else 0.0,  # 位置の近いノードを、注目ノードの周りに足すため（2026-11-23）
             "inputs": [],
         }
         for connection in _safe(lambda: c.inputConnections(), ()):
@@ -1485,12 +1541,13 @@ def _short_callout(text: str | None) -> str:
 
 def _paint_network_diagram(
     layers, container_path, focus_path, callout, width, height, hidden: int = 0, total: int = 0,
-    min_scale: float = MIN_FOCUS_SCALE, meta_out: dict | None = None,
+    min_scale: float = MIN_FOCUS_SCALE, meta_out: dict | None = None, reserve_right: float = 0.0,
 ):
     """Houdiniのネットワークエディタ風のダーク配色で、上→下の流れの図を QImage に描く。
     hidden / total: 読める大きさを守るために省いたノードの数 / 元のノード数（上の帯に書く）。
     min_scale: 拡大率の下限（注目ノードの図は MIN_FOCUS_SCALE。全体図は OVERVIEW_MIN_SCALE）。
-    meta_out: 渡すと、描いた内容（ノード数・名前の大きさ）を書き込む（品質チェッカー用）。"""
+    meta_out: 渡すと、描いた内容（ノード数・名前の大きさ）を書き込む（品質チェッカー用）。
+    reserve_right: 右端に空ける幅（論理座標）。全体の小さな図（paint_overview_inset）を置くとき、近場の図がそこに重ならないようにする。"""
     from PySide6.QtCore import QPointF, QRectF, Qt
     from PySide6.QtGui import (
         QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen,
@@ -1542,7 +1599,8 @@ def _paint_network_diagram(
 
     layout_w, layout_h, row_widths = layout_extent(layers, width_of)
     # 以前は、拡大率の下限が 0.35 で、40 ノードの一本道だと、名前は 3.85pt になり、図が画面の高さを超えて、はみ出した。
-    scale, fits = diagram_scale(layout_w, layout_h, width, height, min_scale)
+    usable_w = max(1.0, width - reserve_right)  # 図を置ける幅（右端に、全体の小さな図を置くときは、その分を除く）
+    scale, fits = diagram_scale(layout_w, layout_h, int(usable_w), height, min_scale)
     node_count = sum(len(members) for members in layers)
     if meta_out is not None:
         meta_out.update({
@@ -1550,7 +1608,7 @@ def _paint_network_diagram(
             "scale": round(scale, 3), "name_pt": round(DIAGRAM_NAME_PT * scale, 1), "fits": bool(fits),
             "overview": focus_path is None, "readable": DIAGRAM_NAME_PT * scale >= MIN_NAME_PT,
         })
-    offset_x = (width - layout_w * scale) / 2.0
+    offset_x = (usable_w - layout_w * scale) / 2.0
     offset_y = DIAGRAM_BAR_H + (height - DIAGRAM_BAR_H - layout_h * scale) / 2.0
     if hidden > 0:
         painter.setPen(QColor("#ffb000"))
@@ -1635,11 +1693,28 @@ def _paint_network_diagram(
     if label and focus_rect is not None:
         painter.setFont(tag_font)
         tag_w = QFontMetricsF(tag_font).horizontalAdvance(label) + 24.0
-        tag_rect = QRectF(focus_rect.right() + 40, focus_rect.center().y() - 15, tag_w, 30)
-        top_left = painter.transform().map(tag_rect.topLeft())
-        overflow = top_left.x() + tag_w * scale - (width - 8)
-        if overflow > 0:
-            tag_rect = QRectF(focus_rect.left() - 40 - tag_w, tag_rect.top(), tag_w, 30)
+        mid_y = focus_rect.center().y() - 15
+        # 札の置き場所: 右 → 左 → 上 → 下の順に、画面に収まり、ほかのノードと重ならない所を選ぶ（周りのノードを入れたので、
+        # 左に置くと、隣のノードの名前に重なった。2026-11-23）。どこも合わなければ、従来どおり（右。収まらなければ左）。
+        candidates = [
+            QRectF(focus_rect.right() + 40, mid_y, tag_w, 30),
+            QRectF(focus_rect.left() - 40 - tag_w, mid_y, tag_w, 30),
+            QRectF(focus_rect.center().x() - tag_w / 2, focus_rect.top() - 50, tag_w, 30),
+            QRectF(focus_rect.center().x() - tag_w / 2, focus_rect.bottom() + 20, tag_w, 30),
+        ]
+        others = [r.adjusted(-10, -10, 10, 10) for path, r in rects.items() if path != focus_path]
+        to_screen = painter.transform()
+
+        def on_screen(rect) -> bool:
+            # to_screen は、画素（論理座標の RENDER_SCALE 倍）への変換。上の帯・端との比較は、論理座標でする
+            top_left_px, bottom_right_px = to_screen.map(rect.topLeft()), to_screen.map(rect.bottomRight())
+            left, top = top_left_px.x() / RENDER_SCALE, top_left_px.y() / RENDER_SCALE
+            right, bottom = bottom_right_px.x() / RENDER_SCALE, bottom_right_px.y() / RENDER_SCALE
+            return left >= 8 and right <= usable_w - 8 and top >= DIAGRAM_BAR_H and bottom <= height - 8
+
+        tag_rect = next((c for c in candidates if on_screen(c) and not any(c.intersects(o) for o in others)), None)
+        if tag_rect is None:
+            tag_rect = next((c for c in candidates[:2] if on_screen(c)), candidates[0])
         painter.setPen(QPen(QColor("#ffb000"), 1.6))
         painter.setBrush(QColor("#1e1e20"))
         painter.drawRoundedRect(tag_rect, 6, 6)
@@ -1648,6 +1723,101 @@ def _paint_network_diagram(
 
     painter.end()
     return image
+
+
+# ─── 近場の図に添える、全体の小さな図（2026-11-23）────────────────────────────────────────────────────────
+# 実際の動画で、近場の図（注目ノードと周り）だけでは、ネットワーク全体の中のどこかが分からなかった。「全体用」と「近場用」を分け、
+# 近場の図を大きく（名前を読める大きさで）、全体は、右上の小さな図で添える（注目ノードを強調）。全体の名前は読めなくてよい（構成と位置が分かればよい）。
+INSET_WIDTH_FRACTION = 0.27
+INSET_HEIGHT_FRACTION = 0.36
+INSET_MARGIN = 16.0
+INSET_TITLE_H = 24.0
+INSET_MIN_NODES = 4        # 全体のノード数がこれ未満なら、近場の図に全部が入るので、添えない
+INSET_NAME_MIN_PT = 7.0    # 小さな図でも、名前がこの大きさ以上なら書く（それ未満は、読めないので書かない）
+
+
+def overview_inset_width(width: int) -> float:
+    """全体の小さな図に使う、右端の幅（論理座標。余白を含む）。近場の図は、この分を空けて描く（reserve_right）。"""
+    return width * INSET_WIDTH_FRACTION + INSET_MARGIN
+
+
+def paint_overview_inset(image, model: list[dict], focus_path: str | None, width: int = LOGICAL_WIDTH, height: int = LOGICAL_HEIGHT) -> dict:
+    """image（QImage。論理座標 width x height を RENDER_SCALE 倍の画素で描いたもの）の右上に、ネットワーク全体の小さな図を描き足す。
+    戻り値: 描いた内容の要約（meta 用）。ノードが INSET_MIN_NODES 個未満・描けないときは {}。"""
+    if len(model) < INSET_MIN_NODES:
+        return {}
+    from PySide6.QtCore import QPointF, QRectF, Qt
+    from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen
+
+    box_w, box_h = width * INSET_WIDTH_FRACTION, height * INSET_HEIGHT_FRACTION
+    x0, y0 = width - box_w - INSET_MARGIN, DIAGRAM_BAR_H + 12.0
+    layers = _assign_layers(model)
+    node_w = DIAGRAM_BOX_MIN_W
+    layout_w, layout_h, row_widths = layout_extent(layers, lambda _n: node_w)
+    area = QRectF(x0 + 12, y0 + INSET_TITLE_H + 6, box_w - 24, box_h - INSET_TITLE_H - 18)
+    if layout_w <= 0 or layout_h <= 0 or area.width() <= 0 or area.height() <= 0:
+        return {}
+    scale = min(area.width() / layout_w, area.height() / layout_h, 0.8)
+    offset_x = area.x() + (area.width() - layout_w * scale) / 2.0
+    offset_y = area.y() + (area.height() - layout_h * scale) / 2.0
+
+    painter = QPainter(image)
+    try:
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
+        painter.scale(RENDER_SCALE, RENDER_SCALE)
+        painter.setPen(QPen(QColor("#4a4a4f"), 1.2))
+        painter.setBrush(QColor(28, 28, 30, 235))
+        painter.drawRoundedRect(QRectF(x0, y0, box_w, box_h), 8, 8)
+        title_font = QFont("Segoe UI", 10)
+        title_font.setBold(True)
+        painter.setFont(title_font)
+        painter.setPen(QColor("#ffb000"))
+        painter.drawText(QRectF(x0 + 12, y0 + 2, box_w - 24, INSET_TITLE_H), Qt.AlignVCenter | Qt.AlignLeft, f"全体（{len(model)} ノード）")
+
+        rects: dict[str, QRectF] = {}
+        for depth, members in enumerate(layers):
+            cursor = offset_x + (layout_w - row_widths[depth]) * scale / 2.0
+            y = offset_y + depth * (DIAGRAM_BOX_H + DIAGRAM_GAP_Y) * scale
+            for n in members:
+                rects[n["path"]] = QRectF(cursor, y, node_w * scale, DIAGRAM_BOX_H * scale)
+                cursor += (node_w + DIAGRAM_GAP_X) * scale
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor("#8d8d92"), 1.0))
+        for n in model:
+            dest = rects.get(n["path"])
+            for source_path, _idx in n["inputs"]:
+                src = rects.get(source_path)
+                if src is not None and dest is not None:
+                    painter.drawLine(QPointF(src.center().x(), src.bottom()), QPointF(dest.center().x(), dest.top()))
+
+        name_pt = DIAGRAM_NAME_PT * scale
+        name_font = QFont("Segoe UI")
+        name_font.setPointSizeF(max(1.0, name_pt))
+        name_font.setBold(True)
+        metrics = QFontMetricsF(name_font)
+        show_names = name_pt >= INSET_NAME_MIN_PT
+        for n in model:
+            rect = rects.get(n["path"])
+            if rect is None:
+                continue
+            r, g, b = (max(0.0, min(1.0, float(c))) for c in n.get("color", (0.8, 0.8, 0.8)))
+            is_focus = focus_path is not None and n["path"] == focus_path
+            if is_focus:
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QColor(255, 176, 0, 90))
+                painter.drawRoundedRect(rect.adjusted(-4, -4, 4, 4), 5, 5)
+            painter.setPen(QPen(QColor("#ffb000") if is_focus else QColor("#141416"), 2.2 if is_focus else 1.0))
+            painter.setBrush(QColor.fromRgbF(r, g, b))
+            painter.drawRoundedRect(rect, 3, 3)
+            if show_names:
+                painter.setFont(name_font)
+                luminance = 0.299 * r + 0.587 * g + 0.114 * b
+                painter.setPen(QColor("#1b1b1d") if luminance > 0.55 else QColor("#f2f2f4"))
+                painter.drawText(rect, Qt.AlignCenter, _fit_text(metrics, n["name"], rect.width() - 4))
+    finally:
+        painter.end()
+    return {"overview_inset": True, "inset_nodes": len(model), "inset_names": bool(show_names)}
 
 
 def render_network_diagram(
@@ -1663,6 +1833,9 @@ def render_network_diagram(
     container_path のネットワーク直下のノード構成を、Houdiniのネットワークエディタ風の図として
     output_path に描く（ベストエフォート、失敗時は False）。
 
+    2026-11-23: 注目ノード（focus_path）の図は、近場（注目ノードと周り。名前を読める大きさ）を大きく描き、近場に入りきらないノードがあるときは、
+    右上に、全体の小さな図（paint_overview_inset）を添える。「全体用」と「近場用」を、1 枚の中で分ける。
+
     実画面のキャプチャ（_grab_network_pane）が成立しない環境でも、ノード画面を確実に
     動画素材として出すためのフォールバック。実画面と違い、hou のデータから描き直した
     「図」であること、そのぶんレイアウトが安定して読みやすく、対象ノードを強調できることが
@@ -1677,12 +1850,19 @@ def render_network_diagram(
         # 注目ノードと、その前後だけを、読める大きさで描く（ノードが多くても、名前の大きさの下限 MIN_NAME_PT を守る）。
         # 注目ノードが分からないとき（None）は、全部を描く（全体図）。
         shown, hidden = select_focus_nodes(model, focus_path, width, height)
+        reserve = 0.0
+        if focus_path and hidden > 0 and len(model) >= INSET_MIN_NODES:
+            # 近場に入りきらないノードがある。右上に全体の小さな図を置くので、その分を空けて、近場を選び直す（名前の大きさの下限は守る）
+            reserve = overview_inset_width(width)
+            shown, hidden = select_focus_nodes(model, focus_path, int(width - reserve), height)
         layers = _assign_layers(shown)
         meta: dict = {}
         image = _paint_network_diagram(
             layers, container_path, focus_path, callout, width, height, hidden=hidden, total=len(model),
-            min_scale=MIN_FOCUS_SCALE if focus_path else OVERVIEW_MIN_SCALE, meta_out=meta,
+            min_scale=MIN_FOCUS_SCALE if focus_path else OVERVIEW_MIN_SCALE, meta_out=meta, reserve_right=reserve,
         )
+        if reserve > 0:
+            meta.update(paint_overview_inset(image, model, focus_path, width, height))
         if not image.save(str(output_path), "PNG"):
             _log(f"render_network_diagram: image.save() returned False for {output_path}", log_path)
             return False
@@ -2133,7 +2313,7 @@ def _compose_parameter_screen(
         p.setPen(QColor("#c9c9cc"))
         p.drawText(QRectF(16, 0, width - 32, bar_h), Qt.AlignVCenter | Qt.AlignLeft, f"{container_path}  ›  {node_name}")
 
-        pane_image = crop_to_content(pane_image)  # ペイン全体ではなく、パラメータの行がある範囲だけを大きく使う（読めなかった。2026-11-22）
+        pane_image = crop_parm_pane(pane_image)  # ペイン全体ではなく、パラメータの行がある範囲だけを大きく使う（読めなかった。2026-11-22・23）
         pane_w = int(width * 0.60)
         area = QRectF(12, bar_h + 12, pane_w - 12, height - bar_h - 24)
         # 切り出した画像は、先に縮小せず、元の画素のまま、描画先の矩形へ直接描く（2倍の画素で描くので、細かさを保つ）。

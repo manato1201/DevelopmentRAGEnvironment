@@ -92,11 +92,23 @@ def scan_error_nodes(hou, roots=SCAN_ROOTS, limit: int = SCAN_LIMIT, budget_sec:
             if scanned > limit or (scanned % 64 == 0 and clock() > deadline):
                 return found
             try:
+                # ロックされたアセットの内部のノードは数えない（アセットの部品で、ユーザーが直せない。1 つのミスが、内部の何十個もの
+                # エラーになり、操作ミスの数（上限 10 で 1）を、実際より大きくしてしまう。アセットそのもののエラーは数える）。
+                if _inside_locked_asset(node):
+                    continue
                 if node.errors():
                     found.add(node.path())
             except Exception:  # noqa: BLE001
                 continue
     return found
+
+
+def _inside_locked_asset(node) -> bool:
+    """ロックされたデジタルアセットの内部のノードか。この API が無い版・偽物のノードでは False（従来どおり数える）。"""
+    try:
+        return bool(node.isInsideLockedHDA())
+    except Exception:  # noqa: BLE001
+        return False
 
 
 class ErrorSampler:
