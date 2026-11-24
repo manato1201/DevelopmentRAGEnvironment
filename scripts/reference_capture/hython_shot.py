@@ -171,6 +171,33 @@ def build_chain(geo, spec: dict, name: str):
     return last
 
 
+def advance_simulation(node, frames: int) -> None:
+    """2 枚目から frames 枚目まで、1 枚ずつ cook して、シミュレーションを進める（飛ばして cook すると、途中の状態が作られない）。"""
+    for f in range(2, frames + 1):
+        hou.setFrame(f)
+        node.cook(force=True)
+        if node.errors():
+            fail(f"{node.name()} の cook エラー（{f} 枚目）: {node.errors()[0][:120]}")
+
+
+def make_camera(obj, lo, hi):
+    """lo〜hi の範囲が収まるカメラを作る（斜め上から見る。向きを決める null も作る）。"""
+    center = hou.Vector3([(lo[i] + hi[i]) / 2 for i in range(3)])
+    size = max(hi[i] - lo[i] for i in range(3)) or 1.0
+    radius = 0.5 * math.sqrt(sum((hi[i] - lo[i]) ** 2 for i in range(3))) or 0.5
+    distance = max(size * 2.4, radius * 4.0)  # 16:9（縦の画角が 26 度ほどで狭い）でも、背の高い形・立方体の角が、はみ出さない距離
+    direction = hou.Vector3((0.45, 0.4, 1.0)).normalized()
+    look = obj.createNode("null", "look")
+    look.parmTuple("t").set(center)
+    look.setDisplayFlag(False)  # 向きを決めるだけの null。表示したままだと、軸の緑の線が絵の中央に映る（2026-11-20 に確認）
+    cam = obj.createNode("cam", "cam1")
+    cam.parmTuple("t").set(center + direction * distance)
+    cam.parm("lookatpath").set(look.path())
+    cam.parm("resx").set(WIDTH)
+    cam.parm("resy").set(HEIGHT)
+    return cam
+
+
 def main() -> None:
     recipe = json.loads(open(sys.argv[1], encoding="utf-8").read())
     mode, out = sys.argv[2], sys.argv[3]
@@ -227,11 +254,7 @@ def main() -> None:
     before_geo = geometry_of(before_node)
     before_sig, before_box = signature(before_geo), before_geo.boundingBox()  # 値で持つ（このあとフレームを進めると、形の参照が古くなる）
     if sim:
-        for f in range(2, sim + 1):
-            hou.setFrame(f)
-            node.cook(force=True)
-            if node.errors():
-                fail(f"{node.name()} の cook エラー（{f} 枚目）: {node.errors()[0][:120]}")
+        advance_simulation(node, sim)
     after_geo = geometry_of(node)
     after_sig = signature(after_geo)
     after_box = after_geo.boundingBox()
@@ -255,19 +278,7 @@ def main() -> None:
     view = recipe.get("view")  # {"lo": [...], "hi": [...]} = 構図を、この範囲で決める（シミュレーションの箱は、煙より大きいため）
     if view:
         lo, hi = list(view["lo"]), list(view["hi"])
-    center = hou.Vector3([(lo[i] + hi[i]) / 2 for i in range(3)])
-    size = max(hi[i] - lo[i] for i in range(3)) or 1.0
-    radius = 0.5 * math.sqrt(sum((hi[i] - lo[i]) ** 2 for i in range(3))) or 0.5
-    distance = max(size * 2.4, radius * 4.0)  # 16:9（縦の画角が 26 度ほどで狭い）でも、背の高い形・立方体の角が、はみ出さない距離
-    direction = hou.Vector3((0.45, 0.4, 1.0)).normalized()
-    target = obj.createNode("null", "look")
-    target.parmTuple("t").set(center)
-    target.setDisplayFlag(False)  # 向きを決めるだけの null。表示したままだと、軸の緑の線が絵の中央に映る（2026-11-20 に確認）
-    cam = obj.createNode("cam", "cam1")
-    cam.parmTuple("t").set(center + direction * distance)
-    cam.parm("lookatpath").set(target.path())
-    cam.parm("resx").set(WIDTH)
-    cam.parm("resy").set(HEIGHT)
+    cam = make_camera(obj, lo, hi)
 
     shown = before_node if mode == "before" else node
     shown.setDisplayFlag(True)

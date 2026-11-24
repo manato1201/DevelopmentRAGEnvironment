@@ -9,9 +9,7 @@
 
 from __future__ import annotations
 
-GRID = {"type": "grid", "parms": {"rows": 60, "cols": 60, "size": [4, 4]}}
-GRID_COARSE = {"type": "grid", "parms": {"rows": 10, "cols": 10, "size": [3, 3]}}
-SPHERE = {"type": "sphere", "parms": {"type": 2, "rows": 40, "cols": 80}}
+from recipe_common import GRID, GRID_COARSE, SPHERE  # noqa: E402
 SPHERE_SMALL = {"type": "sphere", "parms": {"type": 2, "rows": 24, "cols": 48, "rad": [0.8, 0.8, 0.8]}}
 SPHERE_SIDE = {"type": "sphere", "parms": {"type": 2, "rows": 24, "cols": 48, "t": [1.2, 0.6, 0]}}  # 右上にずらした球（向きを変える関数で、動いたことが分かる）
 BOX_FLAT = {"type": "box", "parms": {"size": [2, 0.6, 1]}}

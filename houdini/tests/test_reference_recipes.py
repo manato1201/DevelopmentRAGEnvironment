@@ -93,6 +93,34 @@ class RecipeShapeTest(unittest.TestCase):
                 self.assertNotIn("inputs", recipe, recipe["key"])
                 self.assertFalse(recipe.get("sweep"), recipe["key"])
 
+    def test_simulation_recipes_set_the_frame_count_and_the_view(self) -> None:
+        """sim = 進めるフレーム数、view = 構図の範囲（シミュレーションの箱は、煙より大きい）。sim のレシピだけが持つ。"""
+        sims = [r for r in RECIPES if r.get("sim")]
+        self.assertGreaterEqual(len(sims), 3)  # sop/pyrosolver と、シェルフの 2 件
+        for r in sims:
+            self.assertIsInstance(r["sim"], int, r["key"])
+            self.assertGreater(r["sim"], 1, r["key"])
+            view = r.get("view")
+            self.assertTrue(view and all(a < b for a, b in zip(view["lo"], view["hi"])), r["key"])
+            self.assertFalse(r.get("sweep"), r["key"])  # 動かす値と、シミュレーションは、一緒にしない
+        for r in RECIPES:
+            if not r.get("sim"):
+                self.assertNotIn("view", r, r["key"])
+
+    def test_the_constants_are_shared_not_copied(self) -> None:
+        import recipe_common
+        import recipes_more
+        import recipes_vex
+
+        self.assertIs(recipes_more.GRID_COARSE, recipe_common.GRID_COARSE)
+        self.assertIs(recipes_vex.SPHERE, recipe_common.SPHERE)
+
+    def test_primitive_vex_recipes_keep_the_run_over_value(self) -> None:
+        by_key = {r["key"]: r for r in RECIPES}
+        r = by_key["vex/setprimattrib"]
+        self.assertEqual(r["parms"]["class"], 1)
+        self.assertIn("class", r["keep"])
+
     def test_at_least_a_dozen_recipes_cover_the_common_nodes(self) -> None:
         self.assertGreaterEqual(len(RECIPES), 15)
 

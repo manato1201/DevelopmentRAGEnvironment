@@ -40,6 +40,17 @@ class UnknownTermsTest(unittest.TestCase):
         self.assertEqual(ar.unknown_terms({"what": "Fractal type を選ぶ"}, ["Height"]), [])
 
 
+class MergeParmsTest(unittest.TestCase):
+    def test_a_partial_audit_keeps_the_earlier_results(self) -> None:
+        before = {"sop/box": {"type": "box"}, "sop/old": {"type": "old"}, "__vex__": {"vex/a": True}}
+        now = {"sop/box": {"type": "box2"}, "__vex__": {"vex/b": False}}
+        merged = ar.merge_parms(before, now)
+        self.assertEqual(merged["sop/box"], {"type": "box2"})  # 同じキーは、今回の分
+        self.assertIn("sop/old", merged)  # 今回の対象でないキーは、残る
+        self.assertEqual(merged["__vex__"], {"vex/a": True, "vex/b": False})
+        self.assertEqual(ar.merge_parms(None, now), now)
+
+
 class EntryProblemsTest(unittest.TestCase):
     def test_node_entries_are_checked_against_the_dump(self) -> None:
         self.assertEqual(ar.entry_problems("node", "sop/mountain", {"what": "「Height」を上げる"}, PARMS), [])

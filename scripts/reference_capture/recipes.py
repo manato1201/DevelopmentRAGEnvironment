@@ -8,9 +8,7 @@
 
 from __future__ import annotations
 
-GRID = {"type": "grid", "parms": {"rows": 60, "cols": 60, "size": [4, 4]}}
-GRID_COARSE = {"type": "grid", "parms": {"rows": 10, "cols": 10, "size": [3, 3]}}  # 面が 100 枚（面の番号で、消す範囲を言える）
-SPHERE = {"type": "sphere", "parms": {"type": 2, "rows": 40, "cols": 80}}  # 多角形メッシュの球（rows・cols が効く種類。面が約 3000 枚）
+from recipe_common import GRID, GRID_COARSE, SPHERE  # noqa: E402,F401
 BOX_FLAT = {"type": "box", "parms": {"size": [2, 0.6, 1]}}  # 平たい箱（回すと、向きが変わったことが分かる）
 OPEN_ARC = {"type": "circle", "parms": {"type": 1, "arc": 1, "angle": [0, 270], "divs": 32, "r": 1}}  # 多角形の開いた円弧（面を持たない線）
 

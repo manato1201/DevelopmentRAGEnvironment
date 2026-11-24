@@ -6,9 +6,8 @@ from __future__ import annotations
 
 import copy
 
-GRID_COARSE = {"type": "grid", "parms": {"rows": 10, "cols": 10, "size": [3, 3]}}
-GRID = {"type": "grid", "parms": {"rows": 60, "cols": 60, "size": [4, 4]}}
-SPHERE = {"type": "sphere", "parms": {"type": 2, "rows": 40, "cols": 80}}
+from recipe_common import GRID, GRID_COARSE, SPHERE  # noqa: E402,F401
+
 VEX_GRID = {"type": "grid", "parms": {"rows": 40, "cols": 40, "size": [3, 3]}}
 
 
@@ -45,14 +44,20 @@ NODE_MORE = [
 ]
 
 # VEX: 色・点・面を、関数で読み書きして、形や色に出るもの
-def _v(name: str, snippet: str, see: str, input_: dict | None = None, **extra) -> dict:
-    return {"kind": "vex", "key": f"vex/{name}", "type": ["attribwrangle"], "parms": {"snippet": snippet}, "see": see, "input": input_ or VEX_GRID, **extra}
+def _v(name: str, snippet: str, see: str, input_: dict | None = None, primitives: bool = False) -> dict:
+    """primitives=True は、Run Over を Primitives（class = 1）にする。"""
+    parms: dict = {"snippet": snippet}
+    extra: dict = {}
+    if primitives:
+        parms["class"] = 1
+        extra["keep"] = ["class"]
+    return {"kind": "vex", "key": f"vex/{name}", "type": ["attribwrangle"], "parms": parms, "see": see, "input": input_ or VEX_GRID, **extra}
 
 
 VEX_MORE = [
     _v("setpointattrib", "setpointattrib(0, 'Cd', @ptnum, set(@P.x*0.5+0.5, 0.2, @P.z*0.5+0.5));", "点ごとに、色（Cd）を書き込むので、板が、位置に応じて赤〜青に塗り分けられる"),
     _v("setattrib", "setattrib(0, 'point', 'Cd', @ptnum, 0, set(@P.z*0.5+0.5, @P.x*0.5+0.5, 0.2));", "setattrib で、点の色（Cd）を、位置から決めて書き込むので、板が色づく"),
-    _v("setprimattrib", "vector c = set(rand(@primnum), rand(@primnum+7), rand(@primnum+13)); setprimattrib(0, 'Cd', @primnum, c);", "面ごとに、ばらばらの色（Cd）が書き込まれ、板が、モザイクのように塗り分けられる", parms_class=1),
+    _v("setprimattrib", "vector c = set(rand(@primnum), rand(@primnum+7), rand(@primnum+13)); setprimattrib(0, 'Cd', @primnum, c);", "面ごとに、ばらばらの色（Cd）が書き込まれ、板が、モザイクのように塗り分けられる", primitives=True),
     _v("fresnel", "float kr, kt; fresnel(normalize(@P - {0,0,5}), normalize(@N), 0.75, kr, kt); @Cd = set(kr, kr, kr);", "フレネル反射の強さが、灰色の濃さになり、球の縁が明るく、中央が暗くなる", input_=SPHERE),
     _v("refract", "@Cd = refract(normalize(@P - {0,0,5}), normalize(@N), 0.75) * 0.5 + 0.5;", "球の面で屈折した向きが色になり、場所によって色が変わる", input_=SPHERE),
     _v("cross", "@Cd = cross(normalize(@N), {0,1,0}) * 0.5 + 0.5;", "法線と上向きの外積（どちらにも垂直な向き）が、色になる", input_=SPHERE),
@@ -65,12 +70,6 @@ VEX_MORE = [
     _v("nrandom", "float n = nrandom('twister'); @Cd = set(n, n, n);", "0〜1 の乱数を点ごとに出し、色にする（点ごとに違う灰色）", ),
     _v("determinant", "matrix3 m = set(1.5,0,0, 0,0.7,0, 0,0,1); float d = determinant(m); @P *= m; @Cd = set(d, 0.4, 0.4);", "行列の行列式（体積の変わる倍率）は 1.05。板が、行列で X に伸び、Y に縮む"),
 ]
-
-# parms_class=1 は、Run Over を Primitives にする
-for _r in VEX_MORE:
-    if _r.pop("parms_class", None):
-        _r["parms"]["class"] = 1
-        _r["keep"] = ["class"]
 
 
 def build() -> list[dict]:

@@ -184,6 +184,15 @@ def saved_shelf_keys(base_dir: str, only: set[str]) -> list[str]:
     return [k for k in keys if not only or k in only]
 
 
+def merge_parms(previous: dict | None, new: dict) -> dict:
+    """前に点検した結果（previous）に、今回の分（new）を重ねる（同じキーは、今回の分が勝つ。__vex__ は、中身を重ねる）。"""
+    if not previous:
+        return new
+    merged = {**previous, **{k: v for k, v in new.items() if k != "__vex__"}}
+    merged["__vex__"] = {**(previous.get("__vex__") or {}), **(new.get("__vex__") or {})}
+    return merged
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="書き出し先（既定: build/reference_parms.json）")
@@ -204,9 +213,11 @@ def main(argv: list[str] | None = None) -> int:
         print("点検する説明がありません")
         return 0
     out = Path(args.out)
+    previous = load_parms(out) if only else None  # --only のときは、前に点検した分を残す（上書きすると、公開の点検が、前の分を「項目がありません」と断る。2026-11-24 に起きた）
     parms = dump_parms([*keys, *apex_keys, *shelf_keys], out) if (keys or apex_keys or shelf_keys) else {}
     vcc = find_vcc()
     parms["__vex__"] = {key: vex_function_exists(key.split("/", 1)[1], vcc, out.parent / "_vcc") for key in vex_keys}
+    parms = merge_parms(previous, parms)
     out.write_text(json.dumps(parms, ensure_ascii=False), encoding="utf-8")
     problems = 0
     for kind, kind_keys in (("node", keys), ("apex", apex_keys), ("shelf", shelf_keys), ("vex", vex_keys)):
