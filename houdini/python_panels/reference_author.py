@@ -88,7 +88,7 @@ def fetch_docs(cfg: dict, item: dict) -> list[str]:
 
 
 def make_entry(cfg: dict, complete: Callable, item: dict, references: list[dict] | None = None,
-               docs: list[str] | None = None, parm_names: list[str] | None = None, verified: str = "") -> tuple[dict, dict, int, int]:
+               docs: list[str] | None = None, parm_names: list[str] | None = None, verified: str = "", facts: str = "") -> tuple[dict, dict, int, int]:
     """1 項目の説明を作る。戻り値: (説明, usage, 使った資料の数, 使った参考の数)。
     返事を読み取れなければ UnreadableAnswer、AI の例外は、そのまま出す（呼び出し側が、画面・ログに出す）。
     references・docs を渡すと、取得を省く（テスト・まとめて作るとき）。"""
@@ -97,7 +97,7 @@ def make_entry(cfg: dict, complete: Callable, item: dict, references: list[dict]
         references = rd.match_reference_items(fetch_reference_items(str((cfg or {}).get("local_bridge_dir") or "")), label, item.get("kind", ""), aliases=rd.item_aliases(item), context=rd.item_context(item))
     if docs is None:
         docs = fetch_docs(cfg, item)
-    system, user = rd.build_prompt(item.get("kind", ""), label, docs, references, parm_names=parm_names, verified=verified)
+    system, user = rd.build_prompt(item.get("kind", ""), label, docs, references, parm_names=parm_names, verified=verified, facts=facts)
     # 短い要約なので、出力の上限と思考の深さを抑える（費用と時間を、減らす）
     text, usage = complete(system, user, max_tokens=rd.REFERENCE_MAX_TOKENS, effort=rd.REFERENCE_EFFORT)
     entry = rd.parse_entry(text)

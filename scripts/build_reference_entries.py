@@ -3,7 +3,8 @@
   uv run python scripts/build_reference_entries.py --set recipes --limit 2     # まず少しだけ試す
   uv run python scripts/build_reference_entries.py --set all --yes             # 優先の全部（ノード + VEX + 撮影レシピ）
 
-  --set   recipes（撮影レシピのノード）/ nodes（よく使うノード）/ vex（VEX の関数）/ all（全部。既定）
+  --set   recipes（撮影レシピのノード）/ nodes（よく使うノード。追加分を含む）/ extra（2026-11-24 に足したノードだけ）/ vex（VEX の関数）/
+          apex（APEX のノード）/ shelf（シェルフツール）/ all（全部。既定）
   --redo  保存済みの説明も、作り直す（既定は、保存済みを飛ばす）
   --keys  このキーだけ（カンマ区切り。例: sop/scatter,vex/chf）
   --workers  同時に呼ぶ数（既定 3）
@@ -29,6 +30,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "reference_capture"))
 import reference_author as ra  # noqa: E402
 import reference_data as rd  # noqa: E402
 from publish_reference import DEFAULT_CONFIG, load_config, make_item  # noqa: E402
+from reference_sets import APEX_KEYS, EXTRA_NODES, SHELF_TOOLS  # noqa: E402
 
 # よく使うノード（初学者向けの実験・固定課題 Pyro / RBD / 雲 で出てくるもの）。一覧データに無いものは、キーから作る（make_item）。
 COMMON_NODES = (
@@ -124,16 +126,30 @@ def complete_in_thread(cfg: dict):
     return limited
 
 
+def shelf_items() -> list[dict]:
+    """シェルフツールの項目（reference_sets.SHELF_TOOLS）。キーは shelf/<ツールの内部名の slug>、context はシェルフの内部名。"""
+    return [{"kind": "shelf", "key": key, "name": key.split("/", 1)[1], "label": label, "context": shelf, "doc_url": rd.SEARCH_BASE + label.replace(" ", "+")}
+            for key, label, shelf in SHELF_TOOLS]
+
+
 def resolve(key: str) -> dict:
-    kind = "vex" if key.startswith("vex/") else "node"
+    if key.startswith("shelf/"):
+        return next((i for i in shelf_items() if i["key"] == key), None) or rd.custom_item("shelf", key.split("/", 1)[1])
+    kind = "vex" if key.startswith("vex/") else "apex" if key.startswith("apex/") else "node"
     return rd.find_item(kind, key) or make_item(kind, key)
 
 
 def select_items(which: str, keys: set[str]) -> list[dict]:
-    node_keys = list(dict.fromkeys(RECIPE_KEYS if which == "recipes" else COMMON_NODES if which == "nodes" else RECIPE_KEYS + COMMON_NODES if which == "all" else ()))
+    node_keys = list(dict.fromkeys(
+        RECIPE_KEYS if which == "recipes" else COMMON_NODES + EXTRA_NODES if which == "nodes" else EXTRA_NODES if which == "extra"
+        else RECIPE_KEYS + COMMON_NODES + EXTRA_NODES if which == "all" else ()))
     items = [resolve(k) for k in node_keys]
     if which in ("vex", "all"):
         items += rd.catalog("vex")
+    if which in ("apex", "all"):
+        items += [resolve(k) for k in APEX_KEYS]
+    if which in ("shelf", "all"):
+        items += shelf_items()
     if keys:
         items = [i for i in items if i["key"] in keys]
     seen: set[tuple[str, str]] = set()
@@ -182,6 +198,21 @@ def verified_steps(key: str) -> str:
     return ""
 
 
+def facts_for(item: dict, info: dict | None) -> str:
+    """実機で確かめた事実を、説明の材料の文にする。APEX は、入出力のポートの名前と型。シェルフは、属するシェルフと内部名。それ以外は、空。"""
+    if not info:
+        return ""
+    if item["kind"] == "apex":
+        ports = info.get("ports") or []
+        ins = "、".join(f"{p['name']}（{p['type'] or '型なし'}）" for p in ports if p["direction"] == "input")
+        outs = "、".join(f"{p['name']}（{p['type'] or '型なし'}）" for p in ports if p["direction"] == "output")
+        return "\n".join([f"APEX のノード名: {info.get('type', '')}", f"入力のポート: {ins or 'なし'}", f"出力のポート: {outs or 'なし'}"])
+    if item["kind"] == "shelf":
+        return (f"シェルフツール「{info.get('label', '')}」（内部名 {info.get('type', '')}）は、シェルフ「{info.get('shelf', '')}」にある。"
+                "資料に書かれた操作（クリック・ドラッグなど）と、作られるものだけを書く。パラメータの名前は書かない（作られるノードの説明で見られる）")
+    return ""
+
+
 def make_one(cfg: dict, item: dict, parms: dict | None = None) -> dict:
     """1 件を作って保存する。例外は、結果に入れる（1 件の失敗で、全体を止めない）。
     parms は、実機から書き出した本物のパラメータ名（audit_reference.dump_parms）。ノードは、これを材料に渡し、作った説明も、同じ点検にかける
@@ -189,10 +220,14 @@ def make_one(cfg: dict, item: dict, parms: dict | None = None) -> dict:
     from audit_reference import entry_problems
 
     try:
-        info = (parms or {}).get(item["key"]) if item["kind"] == "node" else None
-        if item["kind"] == "node" and parms is not None and info is None:
-            return {"key": item["key"], "ok": False, "why": "Houdini 22 に、この種類のノードがありません（キーが違う）", "usage": {}}
-        entry, usage, docs_n, refs_n = ra.make_entry(cfg, complete_in_thread(cfg), item, parm_names=(info or {}).get("names"), verified=verified_steps(item["key"]))
+        if item["kind"] == "vex" and parms is not None and not (parms.get("__vex__") or {}).get(item["key"]):
+            # 関数が在るか確かめていない・無いものは、AI を呼ぶ前に止める（呼んでから落とすと、費用が無駄になる。2026-11-24: 118 件を無駄にした）
+            return {"key": item["key"], "ok": False, "why": "VEX の関数が実在するか、確かめていない・無い（vcc）", "usage": {}}
+        info = (parms or {}).get(item["key"]) if item["kind"] in ("node", "apex", "shelf") else None
+        if item["kind"] in ("node", "apex", "shelf") and parms is not None and info is None:
+            return {"key": item["key"], "ok": False, "why": "Houdini 22 に、この項目がありません（キーが違う）", "usage": {}}
+        entry, usage, docs_n, refs_n = ra.make_entry(cfg, complete_in_thread(cfg), item, parm_names=(info or {}).get("names"),
+                                                     verified=verified_steps(item["key"]), facts=facts_for(item, info))
         problems = entry_problems(item["kind"], item["key"], entry, parms) if parms is not None else []
         if problems:
             return {"key": item["key"], "ok": False, "why": "; ".join(problems)[:200], "usage": usage}
@@ -206,7 +241,7 @@ def make_one(cfg: dict, item: dict, parms: dict | None = None) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--set", default="all", choices=("recipes", "nodes", "vex", "all"))
+    parser.add_argument("--set", default="all", choices=("recipes", "nodes", "extra", "vex", "apex", "shelf", "all"))
     parser.add_argument("--keys", default="")
     parser.add_argument("--limit", type=int, default=0, help="作る件数の上限（試すとき）")
     parser.add_argument("--redo", action="store_true")
@@ -232,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
     from audit_reference import DEFAULT_OUT, dump_parms
     from tutorial_agent import usage_cost_for
 
-    node_keys = [i["key"] for i in todo if i["kind"] == "node"]
+    node_keys = [i["key"] for i in todo if i["kind"] in ("node", "apex", "shelf")]
     # 公開の点検（publish_reference.py）が読む build/reference_parms.json は、全部の項目の書き出し。一部のキーだけを作るときに、
     # それを上書きしないよう、作るときの書き出しは、別のファイルに置く（上書きすると、公開が「点検の結果に無い」と止まる。2026-11-20）。
     parms = dump_parms(node_keys, DEFAULT_OUT.with_name("reference_parms_build.json")) if node_keys else None  # 実機の本物のパラメータ名（説明に、無い名前を書かせない・書いたら保存しない）
@@ -244,6 +279,17 @@ def main(argv: list[str] | None = None) -> int:
     if full.get("__vex__"):
         parms = dict(parms or {})
         parms["__vex__"] = {**(full.get("__vex__") or {}), **(parms.get("__vex__") or {})}
+
+    # 作る VEX の関数が、本当に在るかを、AI を呼ぶ前に、vcc で確かめる（audit_reference.py の結果に無い分）
+    vex_todo = [i["key"] for i in todo if i["kind"] == "vex" and i["key"] not in ((parms or {}).get("__vex__") or {})]
+    if vex_todo:
+        from audit_reference import find_vcc, vex_function_exists
+
+        parms = dict(parms or {})
+        known = dict(parms.get("__vex__") or {})
+        vcc = find_vcc()
+        known.update({key: vex_function_exists(key.split("/", 1)[1], vcc, DEFAULT_OUT.parent / "_vcc") for key in vex_todo})
+        parms["__vex__"] = known
 
     total_in = total_out = failed = 0
     cost = 0.0

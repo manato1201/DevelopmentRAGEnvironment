@@ -55,6 +55,22 @@ VEX_FUNCTIONS = (
     "smooth", "sort", "sqrt", "trunc", "xnoise", "snoise", "anoise", "curlnoise", "volumesample", "volumegradient", "xyzdist", "pointattrib",
     "hasattrib", "getbbox", "invert", "ident", "slerp", "qrotate", "quaternion", "dihedral", "maketransform", "matrix", "transpose",
     "tolower", "toupper", "strlen", "sprintf", "split", "join", "find", "atof", "atoi", "len", "push", "pop", "foreach",
+    # 2026-11-24 に足した分（vcc で、関数が在ることを確かめた）
+    "acos", "asin", "atan", "cbrt", "cosh", "sinh", "tanh", "sign",
+    "log", "log10", "radians", "avg", "sum", "reflect", "refract", "fresnel",
+    "distance2", "lookat", "cracktransform", "scale", "translate", "determinant", "outerproduct", "qconvert",
+    "qmultiply", "eulertoquaternion", "quaterniontoeuler", "prim", "primattrib", "vertex", "vertexattrib", "primpoints",
+    "pointprims", "pointvertices", "vertexpoint", "vertexprim", "primvertices", "vertexindex", "vertexnext", "vertexprev",
+    "neighbourcount", "neighbour", "intersect", "uvsample", "minpos", "nvertices", "npointsgroup", "nprimitivesgroup",
+    "inpointgroup", "inprimgroup", "setpointgroup", "setprimgroup", "setvertexpoint", "setdetailattrib", "detail", "detailattrib",
+    "hasdetailattrib", "haspointattrib", "hasprimattrib", "getattrib", "setattrib", "addattrib", "attribsize", "pointattribsize",
+    "findattribval", "findattribvalcount", "uniqueval", "uniquevals", "nuniqueval", "setprimintrinsic", "primintrinsic", "re_find",
+    "re_match", "re_replace", "re_split", "startswith", "endswith", "strip", "itoa", "concat",
+    "insert", "removeindex", "removevalue", "resize", "reverse", "slice", "array", "isvalidindex",
+    "rgbtohsv", "hsvtorgb", "ctransform", "luminance", "colormap", "random", "nrandom", "onoise",
+    "pnoise", "wnoise", "curlnoise2d", "flownoise", "pcfilter", "pcnumfound", "pciterate", "chp",
+    "getpointbbox", "relbbox", "relpointbbox", "sample_direction_uniform", "sample_hemisphere", "isnan", "isfinite", "ptransform",
+    "vtransform", "ntransform", "tan", "nametopoint",
 )
 
 _KEY_RE = re.compile(r"[^0-9a-zA-Z_]+")
@@ -383,10 +399,11 @@ MAX_PARM_NAMES = 150
 
 
 def build_prompt(kind: str, label: str, doc_texts: list[str], references: list[dict],
-                 parm_names: list[str] | None = None, verified: str = "") -> tuple[str, str]:
+                 parm_names: list[str] | None = None, verified: str = "", facts: str = "") -> tuple[str, str]:
     """(system, user)。資料は、空白を詰めて（公式ページの先頭は、空白だらけ）、1 件 1800 文字・合計 7000 文字までに切る。
     parm_names: 実機（Houdini）の、そのノードの本物のパラメータ名・メニュー項目（説明に、無い名前を書かせないため）。
-    verified: 実機で実行して確かめた手順（撮影のレシピ）。あれば、実例は、これだけで書かせる。"""
+    verified: 実機で実行して確かめた手順（撮影のレシピ）。あれば、実例は、これだけで書かせる。
+    facts: 実機で確かめた事実（APEX の入出力のポートの名前と型、シェルフツールの所属など）。あれば、その表記のまま使わせ、食い違うことは書かせない。"""
     docs: list[str] = []
     total = 0
     for text in doc_texts or []:
@@ -404,6 +421,8 @@ def build_prompt(kind: str, label: str, doc_texts: list[str], references: list[d
     if parm_names:
         names = sorted({str(n) for n in parm_names if n}, key=lambda n: (not (n != n.lower() or " " in n), n))[:MAX_PARM_NAMES]  # 表示名（大文字・空白を含む）を先に
         user += "\n\n【実在するパラメータ名（Houdini 22 の実機。この表記のまま使う）】\n" + " / ".join(names)
+    if facts:
+        user += "\n\n【実機（Houdini 22）で確かめた事実。この内容と食い違うことは、書かない】\n" + facts
     if verified:
         user += "\n\n【検証済みの手順（実機で実行して、結果を確かめたもの）】\n" + verified
     return SYSTEM_PROMPT, user

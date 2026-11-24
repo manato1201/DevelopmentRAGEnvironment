@@ -9,7 +9,8 @@
 
 点検に通らない説明は、公開しない（publish_reference.py が、この出力 build/reference_parms.json を読んで、公開前に同じ点検をかける）。
 VEX は、関数が本当に在るか（vcc で、その名前の関数を呼ぶコードをコンパイルして、「未定義の関数」と言われないか）だけを点検する。
-APEX・シェルフは、この点検の対象外（実機にパラメータの一覧が無い）。そのことは、結果にも表示する。
+APEX（2026-11-24 から）: レジストリ（apex.Registry）に、そのノードが在るか、説明の「」の英字が、本物のポート名・ほかの APEX ノードの名前か。
+シェルフツール（同）: hou.shelves.tools() に、そのツールが在るか、説明の「」の英字が、ツール・シェルフ・ノードの名前か。
 """
 
 from __future__ import annotations
@@ -72,13 +73,13 @@ def recipe_names(key: str) -> list[str]:
 
 
 def entry_problems(kind: str, key: str, entry: dict | None, parms: dict | None, extra_names: list[str] | None = None) -> list[str]:
-    """この説明を公開してよいかの点検。問題の一覧（空なら、通過）。node と vex が対象（apex・シェルフは、点検の対象外で、空）。parms は dump_parms.py の出力（vex は "__vex__"）。
+    """この説明を公開してよいかの点検。問題の一覧（空なら、通過）。node・vex・apex・shelf が対象。parms は dump_parms.py の出力（vex は "__vex__"）。
     extra_names: このノード以外で、説明が挙げてよい名前（撮影のレシピで、つなぐ前のノードに設定した値の名前など）。"""
     if kind == "vex":
         if not isinstance(parms, dict) or key not in (parms.get("__vex__") or {}):
             return ["VEX の関数が実在するか、確かめていません（scripts/audit_reference.py を先に実行してください）"]
         return [] if parms["__vex__"][key] else ["VEX に、この名前の関数がありません（vcc が、未定義の関数と言いました）"]
-    if kind != "node":
+    if kind not in ("node", "apex", "shelf"):
         return []
     if not isinstance(parms, dict):
         return ["本物の Houdini と突き合わせていません（scripts/audit_reference.py を先に実行してください）"]
@@ -86,10 +87,17 @@ def entry_problems(kind: str, key: str, entry: dict | None, parms: dict | None, 
         return ["突き合わせの結果に、この項目がありません（scripts/audit_reference.py をもう一度実行してください）"]
     info = parms[key]
     if info is None:
-        return ["Houdini 22 に、この種類のノードがありません（キーが違う・別の文脈のノードの可能性）"]
+        what = {"node": "この種類のノード", "apex": "この APEX のノード", "shelf": "このシェルフツール"}[kind]
+        return [f"Houdini 22 に、{what}がありません（キーが違う・別の文脈のものの可能性）"]
     extra = list(extra_names) if extra_names is not None else recipe_names(key)
-    bad = unknown_terms(entry or {}, list(info.get("names") or []) + extra, parms.get("__node_types__") or [])
-    return [f"「{t}」は、このノードの本物のパラメータ名・メニュー項目にありません" for t in bad]
+    others = list(parms.get("__node_types__") or [])
+    if kind == "apex":
+        others += list(parms.get("__apex_names__") or [])
+    elif kind == "shelf":
+        others += list(parms.get("__shelf_labels__") or [])
+    bad = unknown_terms(entry or {}, list(info.get("names") or []) + extra, others)
+    what = {"node": "このノードの本物のパラメータ名・メニュー項目", "apex": "この APEX ノードの本物のポート名・ほかの APEX ノードの名前", "shelf": "このシェルフツール・ノードの本物の名前"}[kind]
+    return [f"「{t}」は、{what}にありません" for t in bad]
 
 
 def load_parms(path: Path) -> dict | None:
@@ -158,6 +166,24 @@ def saved_node_keys(base_dir: str, only: set[str]) -> list[str]:
     return [k for k in keys if not only or k in only]
 
 
+def saved_apex_keys(base_dir: str, only: set[str]) -> list[str]:
+    """保存した APEX の説明のキー。ファイル名は、キーを小文字にして "/"・"-" を "_" にしたもの（apex_skel_getparent）なので、
+    一覧データ（catalog）のキー（apex/skel--GetParent）と、ファイル名の形で突き合わせて、本物のキーに戻す。"""
+    folder = Path(base_dir) / "localRAG" / "reference" / "apex"
+    if not folder.is_dir():
+        return []
+    by_slug = {rd.slug(i["key"]): i["key"] for i in rd.catalog("apex")}
+    keys = [by_slug.get(p.stem, p.stem.replace("_", "/", 1)) for p in sorted(folder.glob("*.json"))]
+    return [k for k in keys if not only or k in only]
+
+
+def saved_shelf_keys(base_dir: str, only: set[str]) -> list[str]:
+    """保存したシェルフツールの説明のキー（shelf/<ツールの内部名の slug>。ファイル名 shelf_sop_box → shelf/sop_box）。"""
+    folder = Path(base_dir) / "localRAG" / "reference" / "shelf"
+    keys = [p.stem.replace("_", "/", 1) for p in sorted(folder.glob("*.json"))] if folder.is_dir() else []
+    return [k for k in keys if not only or k in only]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="書き出し先（既定: build/reference_parms.json）")
@@ -171,17 +197,19 @@ def main(argv: list[str] | None = None) -> int:
     base_dir = str(os.environ.get("RAGREEL_BRIDGE_DIR") or cfg.get("local_bridge_dir") or "")
     only = {k.strip() for k in args.only.split(",") if k.strip()}
     keys = saved_node_keys(base_dir, only)
+    apex_keys = saved_apex_keys(base_dir, only)
+    shelf_keys = saved_shelf_keys(base_dir, only)
     vex_keys = saved_vex_keys(base_dir, only)
-    if not keys and not vex_keys:
+    if not keys and not vex_keys and not apex_keys and not shelf_keys:
         print("点検する説明がありません")
         return 0
     out = Path(args.out)
-    parms = dump_parms(keys, out) if keys else {}
+    parms = dump_parms([*keys, *apex_keys, *shelf_keys], out) if (keys or apex_keys or shelf_keys) else {}
     vcc = find_vcc()
     parms["__vex__"] = {key: vex_function_exists(key.split("/", 1)[1], vcc, out.parent / "_vcc") for key in vex_keys}
     out.write_text(json.dumps(parms, ensure_ascii=False), encoding="utf-8")
     problems = 0
-    for kind, kind_keys in (("node", keys), ("vex", vex_keys)):
+    for kind, kind_keys in (("node", keys), ("apex", apex_keys), ("shelf", shelf_keys), ("vex", vex_keys)):
         for key in kind_keys:
             found = entry_problems(kind, key, rd.load_entry(base_dir, kind, key), parms)
             if found:
@@ -189,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  NG  {key}")
                 for line in found:
                     print(f"        {line}")
-    print(f"点検 ノード {len(keys)} 件・VEX {len(vex_keys)} 件 / 問題あり {problems} 件（APEX・シェルフは、点検の対象外）")
+    print(f"点検 ノード {len(keys)} 件・VEX {len(vex_keys)} 件・APEX {len(apex_keys)} 件・シェルフ {len(shelf_keys)} 件 / 問題あり {problems} 件")
     return 1 if problems else 0
 
 

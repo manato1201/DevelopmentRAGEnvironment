@@ -54,9 +54,10 @@ class EntryProblemsTest(unittest.TestCase):
         self.assertTrue(ar.entry_problems("node", "sop/mountain", {"what": "x"}, None))
         self.assertTrue(ar.entry_problems("node", "sop/other", {"what": "x"}, PARMS))
 
-    def test_apex_and_shelf_are_not_audited(self) -> None:
-        self.assertEqual(ar.entry_problems("apex", "apex/x", {"what": "「anything」"}, None), [])
-        self.assertEqual(ar.entry_problems("shelf", "shelf/x", {"what": "x"}, None), [])
+    def test_apex_and_shelf_are_audited_too_since_2026_11_24(self) -> None:
+        """前: APEX・シェルフは、点検の対象外で、何でも通った。後: node と同じく、本物の Houdini との突き合わせが要る（test_reference_expansion_20261124.py に詳しい）。"""
+        self.assertTrue(ar.entry_problems("apex", "apex/x", {"what": "「anything」"}, None), "突き合わせの結果が無ければ、通らない")
+        self.assertTrue(ar.entry_problems("shelf", "shelf/x", {"what": "x"}, None))
 
     def test_a_vex_function_must_exist(self) -> None:
         parms = {"__vex__": {"vex/chf": True, "vex/nope": False}}
