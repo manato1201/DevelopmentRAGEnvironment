@@ -193,8 +193,9 @@ def _graph_steps(recipe: dict) -> str:
         type_name = spec["type"] if isinstance(spec["type"], str) else spec["type"][0].split("::")[0]
         refs = [(r, 0) if isinstance(r, str) else tuple(r) if r is not None else None for r in spec.get("inputs") or []]
         wiring = "、".join(f"{i + 1} 番目の入力に {r[0]}" + (f"（{r[1] + 1} 番目の出力）" if r[1] else "") for i, r in enumerate(refs) if r)
-        parms = {k: (f"/stage の {v[1:]} ノード" if isinstance(v, str) and v.startswith("@") else v) for k, v in (spec.get("parms") or {}).items()}
-        place = "（/stage に置く）" if spec.get("context") == "stage" else ""
+        parms = {k: (f"{v[1:]} のパス" if isinstance(v, str) and v.startswith("@") else v) for k, v in (spec.get("parms") or {}).items()}
+        context = str(spec.get("context") or "")
+        place = "（/stage に置く）" if context == "stage" else f"（DOP ネットワーク {context[4:]} の中に置く）" if context.startswith("dop:") else ""
         lines.append(f"{len(lines) + 1}. {type_name} ノード {spec['name']}{place} を作る（{_fmt(parms)}）" + (f"。{wiring}をつなぐ" if wiring else ""))
     for spec in recipe.get("lights") or []:
         type_name = spec["type"] if isinstance(spec["type"], str) else spec["type"][0]

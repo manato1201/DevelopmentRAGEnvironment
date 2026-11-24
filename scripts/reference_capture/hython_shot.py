@@ -180,8 +180,19 @@ def build_graph(geo, graph: dict):
     """graph のノードを、書いた順に作ってつなぐ。(最後のノード, 適用前に映すノード) を返す。"""
     made: dict = {}
     for spec in graph["nodes"]:
-        # "context": "stage" = /stage（LOP）に置く（2026-11-25）。それ以外は、撮影用の geo の中（SOP）
-        parent = hou.node("/stage") if spec.get("context") == "stage" else geo
+        # "context": "stage" = /stage（LOP）に置く（2026-11-25）。"dop:<名前>" = /obj の DOP ネットワーク <名前> の中（無ければ作る。
+        # 表示は切る: 読み込みは、SOP の dopimport で行う）。それ以外は、撮影用の geo の中（SOP）
+        context = str(spec.get("context") or "")
+        if context == "stage":
+            parent = hou.node("/stage")
+        elif context.startswith("dop:"):
+            net_name = context[4:]
+            if net_name not in made:
+                made[net_name] = hou.node("/obj").createNode("dopnet", net_name)
+                made[net_name].setDisplayFlag(False)
+            parent = made[net_name]
+        else:
+            parent = geo
         node = make_node(parent, spec["type"], spec["name"])
         made[spec["name"]] = node
         for i, ref in enumerate(spec.get("inputs") or []):
@@ -194,6 +205,8 @@ def build_graph(geo, graph: dict):
         # 値が "@名前" の文字列は、そのノードのパスに置き換える（lopimport の loppath に、/stage のノードを指すときなど）
         parms = {k: (made[v[1:]].path() if isinstance(v, str) and v.startswith("@") and v[1:] in made else v) for k, v in (spec.get("parms") or {}).items()}
         set_parms(node, parms)
+        if spec.get("display"):  # DOP ネットワークは、表示フラグの付いたノード（output）までを、シミュレーションする
+            node.setDisplayFlag(True)
     return made[graph["node"]], made[graph.get("before") or graph["nodes"][0]["name"]]
 
 
@@ -300,13 +313,15 @@ def shoot_cop(geo, recipe: dict, mode: str, out: str) -> None:
     print("OK")
 
 
-def advance_simulation(node, frames: int) -> None:
-    """2 枚目から frames 枚目まで、1 枚ずつ cook して、シミュレーションを進める（飛ばして cook すると、途中の状態が作られない）。"""
+def advance_simulation(node, frames: int, also=None) -> None:
+    """2 枚目から frames 枚目まで、1 枚ずつ cook して、シミュレーションを進める（飛ばして cook すると、途中の状態が作られない）。
+    also: 一緒に進める、もう 1 つのノード（適用前も、同じフレームまで動かすとき）。"""
     for f in range(2, frames + 1):
         hou.setFrame(f)
-        node.cook(force=True)
-        if node.errors():
-            fail(f"{node.name()} の cook エラー（{f} 枚目）: {node.errors()[0][:120]}")
+        for target in [n for n in (node, also) if n is not None]:
+            target.cook(force=True)
+            if target.errors():
+                fail(f"{target.name()} の cook エラー（{f} 枚目）: {target.errors()[0][:120]}")
 
 
 def make_camera(obj, lo, hi, orbit_frames: int = 0):
@@ -402,12 +417,17 @@ def main() -> None:
             before_node.setInput(i, src)
     before_geo = geometry_of(before_node)
     before_sig, before_box = signature(before_geo), before_geo.boundingBox()  # 値で持つ（このあとフレームを進めると、形の参照が古くなる）
+    # "compare_at_end": true = 適用前も、同じフレームまで動かして比べる（DOP の、重力なし・地面なし など。2026-11-25）
+    compare_end = bool(recipe.get("compare_at_end")) and sim
     if sim:
-        advance_simulation(node, sim)
+        advance_simulation(node, sim, also=before_node if compare_end else None)
+    if compare_end:
+        before_geo = geometry_of(before_node)
+        before_sig, before_box = signature(before_geo), before_geo.boundingBox()
     after_geo = geometry_of(node)
     after_sig = signature(after_geo)
     after_box = after_geo.boundingBox()
-    if sim and mode == "before":
+    if sim and mode == "before" and not compare_end:
         hou.setFrame(1)
     if before_sig == after_sig and not create and not lighting:
         fail("適用の前後で、形が何も変わりません（効果が見えない絵になるので、撮りません）")

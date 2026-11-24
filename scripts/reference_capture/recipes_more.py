@@ -43,6 +43,26 @@ NODE_MORE = [
        "球の SDF（距離のボリューム）の中に、点を詰める"),
 ]
 
+# 2026-11-25 の追加: Heightfield（地形）と、形が変わる SOP
+HF_FLAT = {"type": "heightfield", "parms": {"sizex": 100, "sizey": 100, "gridspacing": 1}}
+HF_NOISE = {**HF_FLAT, "after": [{"type": "heightfield_noise", "parms": {"amp": 30, "elementsize": 30}}]}  # 凸凹の地形（高さ 30 ほど）
+OPEN_ARC = {"type": "circle", "parms": {"type": 1, "arc": 1, "angle": [0, 270], "divs": 64, "r": 1}}
+
+NODE_MORE += [
+    _c("sop/heightfield", ["heightfield"], {"sizex": 100, "sizey": 100, "gridspacing": 1}, "Heightfield を置く（100 x 100、1 マス 1）。平らな地形（高さのボリューム）ができる"),
+    _n("sop/heightfield_noise", ["heightfield_noise"], HF_FLAT, {"amp": 30, "elementsize": 30}, "平らな地形に、高さ 30 ほどのノイズを足す（elementsize = 30 は、凸凹の大きさ）",
+       sweep={"parm": "amp", "from": 0, "to": 30}),
+    _n("sop/heightfield_blur", ["heightfield_blur"], HF_NOISE, {}, "凸凹の地形を、ぼかして、なだらかにする（パラメータは、初期値のまま）"),
+    _n("sop/resample", ["resample"], OPEN_ARC, {"length": 0.6}, "細かく分割した円弧を、0.6 の長さごとに、点を置き直す。角ばった、粗い円弧になる",
+       sweep={"parm": "length", "from": 0.05, "to": 0.6}),
+    _n("sop/primitive", ["primitive"], GRID_COARSE, {"doxform": 1, "rx": 50}, "板の面を、それぞれの中心で、X に 50 度、回す（doxform = 1 で、回転などが効く）",
+       keep=["doxform"], sweep={"parm": "rx", "from": 0, "to": 50}),
+    _n("sop/matchsize", ["matchsize"], {"type": "box", "parms": {"size": [2, 0.6, 1], "t": [2.5, 1.5, 0]}}, {},
+       "原点から離れた、平たい箱を、Match Size で、原点の中心へ動かす（パラメータは、初期値のまま）"),
+    _n("sop/shrinkwrap", ["shrinkwrap::2.0", "shrinkwrap"], {"type": "torus", "parms": {"rows": 24, "cols": 48}}, {},
+       "ドーナツを、外から包む形（凸包）にする。真ん中の穴が、ふさがる"),
+]
+
 # VEX: 色・点・面を、関数で読み書きして、形や色に出るもの
 def _v(name: str, snippet: str, see: str, input_: dict | None = None, primitives: bool = False) -> dict:
     """primitives=True は、Run Over を Primitives（class = 1）にする。"""
@@ -75,6 +95,29 @@ VEX_MORE = [
 for _r in NODE_MORE:
     if _r.get("create") and create_sweep(_r["type"][0]):
         _r["sweep"] = create_sweep(_r["type"][0])
+
+
+# 2026-11-25 の追加（VEX）
+_VOLUME_SPHERE = {"type": "sphere", "parms": {"type": 2, "rad": [1.2, 1.2, 1.2]}, "after": [{"type": "isooffset", "parms": {}}]}  # 球から作った密度のボリューム（Iso Offset の初期値）
+_BUMPY = {"type": "grid", "parms": {"rows": 60, "cols": 60, "size": [3, 3]}, "after": [{"type": "mountain::2.0", "parms": {"height": 0.6}}]}
+_HALF_GROUP = {"type": "grid", "parms": {"rows": 40, "cols": 40, "size": [3, 3]},
+               "after": [{"type": "attribwrangle", "parms": {"snippet": "i@group_half = @P.x > 0;"}}]}  # 右半分の点を、グループ half にした板
+VEX_MORE += [
+    _v("colormap", "@Cd = colormap('Mandril.pic', set(@P.x / 3 + 0.5, @P.z / 3 + 0.5, 0));",
+       "Houdini 付属の画像（Mandril.pic）の色を、板の位置から読み取って、色（Cd）にする。板に、画像が貼られたように見える"),
+    {**_v("volumesample", "float d = volumesample(1, 0, @P); @Cd = d > 0.1 ? set(1, 0.4, 0.1) : set(0.15, 0.15, 0.2);",
+          "2 番目の入力（球から作った密度のボリューム）の値を、板の位置で読む。球の中（密度がある所）だけが、橙色になる"),
+     "inputs": [GRID, _VOLUME_SPHERE]},
+    _v("pcfilter", "int h = pcopen(0, 'P', @P, 0.3, 40); @P = pcfilter(h, 'P');",
+       "近くの点（半径 0.3・最大 40 個）の位置の平均へ、各点を動かす。凸凹の板が、なめらかになる", _BUMPY),
+    _v("invert", "matrix3 m = ident(); rotate(m, radians(40), {0,1,0}); @P *= invert(m);",
+       "Y 軸まわりに 40 度回す行列を作り、その逆行列（invert）を掛ける。平たい箱は、反対向きに 40 度回る", {"type": "box", "parms": {"size": [2, 0.6, 1]}}),
+    _v("inpointgroup", "@Cd = inpointgroup(0, 'half', @ptnum) ? set(1, 0.3, 0.2) : set(0.2, 0.2, 0.25);",
+       "点がグループ half（右半分）に入っているかを調べ、入っている点だけを、赤くする", _HALF_GROUP),
+]
+for _r in VEX_MORE:
+    if "inputs" in _r:
+        _r.pop("input", None)
 
 
 def build() -> list[dict]:

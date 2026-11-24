@@ -36,6 +36,8 @@ SHELF_FROM_NODE = {
     "shelf/geometry_mountain": "sop/mountain",
     "shelf/sop_ripple_2_0": "sop/ripple",
     "shelf/sop_fractal": "sop/fractal",
+    "shelf/sop_heightfield": "sop/heightfield",  # 2026-11-25
+    "shelf/sop_heightfield_noise": "sop/heightfield_noise",
 }
 
 CREATE_RECIPES: list[dict] = [
@@ -55,6 +57,13 @@ CREATE_RECIPES: list[dict] = [
 for _r in CREATE_RECIPES:
     if create_sweep(_r["type"][0]):
         _r["sweep"] = create_sweep(_r["type"][0])
+
+
+# Knife（シェルフだけ。ノードの説明は無い）: 球を、平面で切って、上だけを残す（2026-11-25）
+KNIFE = {"kind": "shelf", "key": "shelf/geometry_knife", "type": ["knife"], "input": {"type": "sphere", "parms": {"type": 2, "rows": 40, "cols": 80}},
+         "parms": {"dirx": 0.4}, "sweep": {"parm": "originy", "from": -0.8, "to": 0.2},
+         "note": "球を、少し傾いた平面（向き (0.4, 1, 0)）で切り、knifeop は初期値（メニューの「Primitives Above the Plane」）で、平面の上の面だけを残す。動きは、平面の高さ originy を -0.8 から 0.2 へ"}
+CREATE_RECIPES.append(KNIFE)
 
 
 def build(node_recipes: list[dict]) -> list[dict]:

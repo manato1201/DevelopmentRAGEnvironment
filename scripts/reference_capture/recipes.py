@@ -146,10 +146,6 @@ from recipes_vex import VEX_RECIPES  # noqa: E402
 
 RECIPES.extend(VEX_RECIPES)
 
-# シェルフツール（recipes_shelf.py）を足す（同じ働きのノードのレシピを使う）
-from recipes_shelf import build as _build_shelf  # noqa: E402
-
-RECIPES.extend(_build_shelf(RECIPES))
 
 # シミュレーション（recipes_sim.py）を足す
 from recipes_sim import build as _build_sim  # noqa: E402
@@ -180,3 +176,14 @@ RECIPES.extend(_build_lop())
 from recipes_cop import build as _build_cop  # noqa: E402
 
 RECIPES.extend(_build_cop())
+
+# DOP（recipes_dop.py）を足す
+from recipes_dop import build as _build_dop  # noqa: E402
+
+RECIPES.extend(_build_dop())
+
+# シェルフツール（recipes_shelf.py）を足す（同じ働きのノードのレシピを使う）。ノードのレシピが全部そろってから（いちばん最後に）
+from recipes_shelf import build as _build_shelf  # noqa: E402
+
+_have = {r["key"] for r in RECIPES}
+RECIPES.extend(r for r in _build_shelf(RECIPES) if r["key"] not in _have)

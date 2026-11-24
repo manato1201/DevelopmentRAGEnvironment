@@ -25,6 +25,7 @@ CREATE_SWEEPS = {
     "box": ("scale", 0.2, 1.0), "sphere": ("scale", 0.2, 1.0), "tube": ("height", 0.2, 1.0), "torus": ("scale", 0.2, 1.0),
     "grid": ("sizex", 0.5, 3.0), "line": ("dist", 0.2, 2.0), "circle": ("scale", 0.2, 1.0), "platonic": ("radius", 0.2, 1.0),
     "lsystem": ("generations", 1, 7), "metaball": ("radx", 0.3, 1.0), "font": ("fontsize", 0.3, 1.0), "spiral": ("turns", 1, 6),
+    "heightfield": ("sizex", 30, 100),
 }
 
 
