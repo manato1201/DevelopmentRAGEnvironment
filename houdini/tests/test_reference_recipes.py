@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "houdini" / "python_panels"))
 sys.path.insert(0, str(ROOT / "scripts" / "reference_capture"))
 sys.modules.setdefault("hou", types.ModuleType("hou"))
 
+from recipe_common import input_specs  # noqa: E402
 from recipes import RECIPES  # noqa: E402
 
 
@@ -36,8 +37,8 @@ class RecipeShapeTest(unittest.TestCase):
     def test_every_recipe_has_a_source_and_valid_parts(self) -> None:
         for recipe in RECIPES:
             self.assertIsInstance(recipe["type"], list, recipe["key"])
-            specs = [] if recipe.get("create") else (recipe.get("inputs") or [recipe["input"]])  # create = 入力を持たない（Box など）
-            self.assertTrue(specs or recipe.get("create"), recipe["key"])
+            specs = input_specs(recipe)  # create・graph は、入力の鎖を持たない
+            self.assertTrue(specs or recipe.get("create") or recipe.get("graph"), recipe["key"])
             for spec in specs:
                 self.assertIn("type", spec)
                 for step in spec.get("after") or []:
@@ -58,7 +59,7 @@ class RecipeShapeTest(unittest.TestCase):
                 continue
             match = re.fullmatch(r"in(\d+)(?:_(\d+))?", name)
             self.assertTrue(match, f"{recipe['key']}: {name}")
-            inputs = recipe.get("inputs") or [recipe["input"]]
+            inputs = input_specs(recipe)
             spec = inputs[int(match.group(1))]
             if match.group(2) is not None:
                 self.assertLess(int(match.group(2)), len(spec.get("after") or []), f"{recipe['key']}: {name} is not in the chain")
@@ -106,6 +107,28 @@ class RecipeShapeTest(unittest.TestCase):
         for r in RECIPES:
             if not r.get("sim"):
                 self.assertNotIn("view", r, r["key"])
+
+    def test_graph_recipes_wire_earlier_nodes_and_name_the_shown_nodes(self) -> None:
+        """graph = つなぎ方を書くレシピ。入力は、先に書いたノードだけ。node・before は、nodes の中の名前。lights を持つものは、lighting も持つ。"""
+        graphs = [r for r in RECIPES if r.get("graph")]
+        self.assertGreaterEqual(len(graphs), 6)  # Vellum 3・RBD 2・ライト 3 ほか
+        for r in graphs:
+            nodes = r["graph"]["nodes"]
+            names = [n["name"] for n in nodes]
+            self.assertEqual(len(names), len(set(names)), r["key"])
+            self.assertIn(r["graph"]["node"], names, r["key"])
+            self.assertIn(r["graph"].get("before", names[0]), names, r["key"])
+            seen: set[str] = set()
+            for n in nodes:
+                for ref in n.get("inputs") or []:
+                    if ref is not None:
+                        self.assertIn(ref if isinstance(ref, str) else ref[0], seen, f"{r['key']}: {n['name']} の入力は、先に書く")
+                seen.add(n["name"])
+            self.assertNotIn("input", r, r["key"])
+        for r in RECIPES:
+            if r.get("lights"):
+                self.assertTrue(r.get("lighting"), r["key"])
+                self.assertTrue(r.get("graph"), r["key"])
 
     def test_the_constants_are_shared_not_copied(self) -> None:
         import recipe_common

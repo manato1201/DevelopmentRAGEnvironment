@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "houdini" / "python_panels"))
 sys.path.insert(0, str(ROOT / "scripts" / "reference_capture"))
 
 import reference_data as rd  # noqa: E402
+from recipe_common import input_specs  # noqa: E402
 from recipes_more import VEX_MORE  # noqa: E402
 from recipes_vex import VEX_RECIPES  # noqa: E402
 
@@ -37,7 +38,7 @@ def describe(spec: dict) -> str:
 
 def example_text(recipe: dict) -> str:
     code = " ".join(line.strip() for line in recipe["parms"]["snippet"].splitlines())
-    inputs = recipe.get("inputs") or [recipe["input"]]
+    inputs = input_specs(recipe)
     if len(inputs) == 1:
         source = f"入力は、{describe(inputs[0])}です。"
     else:

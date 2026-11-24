@@ -160,3 +160,8 @@ RECIPES.extend(_build_sim())
 from recipes_more import build as _build_more  # noqa: E402
 
 RECIPES.extend(_build_more())
+
+# Vellum・RBD・ライト（recipes_dyn.py）を足す
+from recipes_dyn import build as _build_dyn  # noqa: E402
+
+RECIPES.extend(_build_dyn())

@@ -165,6 +165,24 @@ def _fmt(parms: dict) -> str:
     return "、".join(f"{k} = {v}" for k, v in parms.items()) or "初期値のまま"
 
 
+def _graph_steps(recipe: dict) -> str:
+    """つなぎ方を書くレシピ（graph。Vellum・RBD・ライトなど）を、説明の材料の文にする。"""
+    lines: list[str] = []
+    for spec in recipe["graph"]["nodes"]:
+        type_name = spec["type"] if isinstance(spec["type"], str) else spec["type"][0].split("::")[0]
+        refs = [(r, 0) if isinstance(r, str) else tuple(r) if r is not None else None for r in spec.get("inputs") or []]
+        wiring = "、".join(f"{i + 1} 番目の入力に {r[0]}" + (f"（{r[1] + 1} 番目の出力）" if r[1] else "") for i, r in enumerate(refs) if r)
+        lines.append(f"{len(lines) + 1}. {type_name} ノード {spec['name']} を作る（{_fmt(spec.get('parms') or {})}）" + (f"。{wiring}をつなぐ" if wiring else ""))
+    for spec in recipe.get("lights") or []:
+        type_name = spec["type"] if isinstance(spec["type"], str) else spec["type"][0]
+        lines.append(f"{len(lines) + 1}. /obj に、ライト（{type_name}）を置く（{_fmt(spec.get('parms') or {})}）")
+    if recipe.get("sim"):
+        lines.append(f"{len(lines) + 1}. 1 フレームから {recipe['sim']} フレームまで、順に進める（適用前は、1 フレーム目）")
+    if recipe.get("note"):
+        lines.append(f"補足: {recipe['note']}")
+    return "\n".join(lines)
+
+
 def verified_steps(key: str) -> str:
     """撮影のレシピ（実機で実行して、画像にしたもの）を、説明の材料の文にする。レシピが無い項目は、空。
     入力が複数のもの（inputs）や、入力の後ろに別のノードをつなぐもの（after）にも対応する。"""
@@ -174,6 +192,8 @@ def verified_steps(key: str) -> str:
         if recipe["key"] != key:
             continue
         name = key.split("/")[-1]
+        if recipe.get("graph"):
+            return _graph_steps(recipe)
         specs = [] if recipe.get("create") else (recipe.get("inputs") or [recipe["input"]])  # create = 入力を持たず、置くだけで形ができるノード
         lines: list[str] = []
         outputs: list[str] = []

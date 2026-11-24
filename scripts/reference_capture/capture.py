@@ -27,6 +27,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "houdini" / "python_panels"))
 
+from recipe_common import graph_nodes, input_specs  # noqa: E402
 from recipes import RECIPES  # noqa: E402
 
 # screen_capture は、モジュールの先頭で hou を読み込む。この道具は、Houdini の外（普通の Python）で動くので、空の hou を差し込む
@@ -95,6 +96,28 @@ def make_gif(frames_dir: Path, gif_path: Path) -> tuple[bool, str]:
     return proc.returncode == 0 and gif_path.is_file(), proc.stderr.strip()[:200]
 
 
+def graph_diagram(recipe: dict) -> dict:
+    """graph（つなぎ方を書くレシピ）のノード図。元のノードが上、後ろにつなぐほど下（深さは、入力の深さの最大 + 1）。"""
+    depth: dict[str, int] = {}
+    for spec in graph_nodes(recipe):
+        refs = [r if isinstance(r, str) else r[0] for r in spec.get("inputs") or [] if r is not None]
+        depth[spec["name"]] = 1 + max((depth[r] for r in refs), default=-1)
+    levels = max(depth.values(), default=0)
+    used: dict[int, int] = {}
+    nodes, edges = [], []
+    for spec in graph_nodes(recipe):
+        level = depth[spec["name"]]
+        column = used.get(level, 0)
+        used[level] = column + 1
+        kind = (spec["type"] if isinstance(spec["type"], str) else spec["type"][-1]).split("::")[0]
+        nodes.append({"id": f"/obj/ref/{spec['name']}", "label": kind, "kind": kind, "parent": "/obj/ref", "position": [column * 160.0, float(levels - level)]})
+        for i, ref in enumerate(spec.get("inputs") or []):
+            if ref is not None:
+                source, output = (ref, 0) if isinstance(ref, str) else ref
+                edges.append({"source": f"/obj/ref/{source}", "target": f"/obj/ref/{spec['name']}", "targetInput": i, "sourceOutput": output})
+    return {"sandbox": "/obj/ref", "nodes": nodes, "edges": edges}
+
+
 def render_node_image(recipe: dict, path: Path) -> bool:
     """ノード図（入力 → ノード）。保存済みグラフの描画を使う（Qt。Houdini は不要）。"""
     from PySide6.QtGui import QGuiApplication
@@ -103,9 +126,11 @@ def render_node_image(recipe: dict, path: Path) -> bool:
     app = QGuiApplication.instance() or QGuiApplication([])  # noqa: F841
     types = recipe["type"] if isinstance(recipe["type"], list) else [recipe["type"]]
     node_label = recipe["key"].split("/")[-1] if recipe["kind"] == "node" else types[-1].split("::")[0]  # VEX・シェルフの図は、実際に置くノードの名前（attribwrangle など）
-    inputs = [] if recipe.get("create") else (recipe.get("inputs") or [recipe["input"]])
+    inputs = input_specs(recipe)
     nodes: list[dict] = []
     edges: list[dict] = []
+    if recipe.get("graph"):
+        return sc.render_graph_diagram(graph_diagram(recipe), path, width=960, height=360)
     for i, spec in enumerate(inputs):
         chain = [spec, *(spec.get("after") or [])]  # 元のノード → 後ろにつなぐノード…（hython_shot.py の build_chain と同じ並び）
         for k, step in enumerate(chain):

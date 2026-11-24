@@ -58,14 +58,17 @@ def unknown_terms(entry: dict, names: list[str], node_types: list[str] | None = 
 def recipe_names(key: str) -> list[str]:
     """撮影のレシピで設定する値の名前（つなぐ前のノードのものも含む）。説明が、これを挙げても、嘘とは見なさない。"""
     sys.path.insert(0, str(ROOT / "scripts" / "reference_capture"))
+    from recipe_common import graph_nodes, input_specs
     from recipes import RECIPES
 
     for recipe in RECIPES:
         if recipe["key"] == key:
             names: list[str] = [*recipe["parms"]]
-            for spec in [] if recipe.get("create") else (recipe.get("inputs") or [recipe["input"]]):  # create = 入力を持たない（Box など）
+            for spec in input_specs(recipe):  # create・graph は、入力の鎖を持たない
                 for part in (spec, *(spec.get("after") or [])):
                     names += [*(part.get("parms") or {}), part["type"]]
+            for part in [*graph_nodes(recipe), *(recipe.get("lights") or [])]:
+                names += [*(part.get("parms") or {}), *([part["type"]] if isinstance(part["type"], str) else part["type"])]
             if recipe.get("sweep"):
                 names.append(recipe["sweep"]["parm"])
             return names

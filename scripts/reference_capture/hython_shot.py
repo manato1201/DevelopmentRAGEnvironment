@@ -11,6 +11,9 @@
     "parms": {...適用後の値}, "sweep": {"parm": "height", "from": 0.0, "to": 1.2}}
   "input" / "inputs" の各項目は、{"type", "parms"} に加えて、"after": [{"type", "parms"}, …] を持てる（元のノードの後ろに、順に直列につなぐ。
     例: 凸凹の板 = grid の後ろに mountain）。その最後のノードが、その入力になる。
+  "graph": {"nodes": [{"name", "type", "parms", "inputs": [名前 または [名前, 出力の番号] または null, ...]}, ...], "node": 最後のノード, "before": 適用前に映すノード}
+    = つなぎ方を書くレシピ（入力が複数・出力が複数のもの。Vellum・RBD など）。nodes は、書いた順に作る。"input" の代わりに使う。
+  "lights": [{"name", "type", "parms"}, ...] = /obj に置くライト。「適用後」にだけ置く。"lighting": true と一緒に使う（形は前後で同じなので、形の変化の点検をしない）。
 終了コード: 0 = 撮れた / 2 = レシピの不備（ノードが作れない・cook エラー・形が空・適用の前後で何も変わらない）。理由は、標準出力の最後の行（REASON: …）。
   「適用の前後で何も変わらない」は、点の数・面の数・形の大きさ・位置の合計・色（Cd）・法線（N）のどれも、前後で同じとき。
   何も変わらない絵を、「適用した結果」として載せない（読んだ人が、同じ手順で何も起きないと困るため）。
@@ -171,6 +174,23 @@ def build_chain(geo, spec: dict, name: str):
     return last
 
 
+def build_graph(geo, graph: dict):
+    """graph のノードを、書いた順に作ってつなぐ。(最後のノード, 適用前に映すノード) を返す。"""
+    made: dict = {}
+    for spec in graph["nodes"]:
+        node = make_node(geo, spec["type"], spec["name"])
+        made[spec["name"]] = node
+        for i, ref in enumerate(spec.get("inputs") or []):
+            if ref is None:
+                continue
+            name, output = (ref, 0) if isinstance(ref, str) else ref
+            if name not in made:
+                fail(f"{spec['name']} の入力 {name} が、まだ作られていません（nodes は、元のものから順に書く）")
+            node.setInput(i, made[name], output)
+        set_parms(node, spec.get("parms"))
+    return made[graph["node"]], made[graph.get("before") or graph["nodes"][0]["name"]]
+
+
 def advance_simulation(node, frames: int) -> None:
     """2 枚目から frames 枚目まで、1 枚ずつ cook して、シミュレーションを進める（飛ばして cook すると、途中の状態が作られない）。"""
     for f in range(2, frames + 1):
@@ -209,13 +229,21 @@ def main() -> None:
     create = bool(recipe.get("create"))
     if create and mode == "before":
         fail("形を作るノードには、適用前がありません")
-    inputs = [] if create else (recipe.get("inputs") or [recipe["input"]])
+    graph = recipe.get("graph")
     sources = []
-    for i, spec in enumerate(inputs):
-        sources.append(build_chain(geo, spec, f"in{i}"))
-    node = make_node(geo, recipe["type"], "node")
-    for i, src in enumerate(sources):
-        node.setInput(i, src)
+    if graph:
+        node, before_source = build_graph(geo, graph)
+        sources = [before_source]
+    else:
+        for i, spec in enumerate([] if create else (recipe.get("inputs") or [recipe["input"]])):
+            sources.append(build_chain(geo, spec, f"in{i}"))
+        node = make_node(geo, recipe["type"], "node")
+        for i, src in enumerate(sources):
+            node.setInput(i, src)
+    lighting = bool(recipe.get("lighting"))
+    if mode != "before":  # ライト（/obj に置く）は、「適用後」にだけ置く
+        for spec in recipe.get("lights") or []:
+            set_parms(make_node(obj, spec["type"], spec["name"]), spec.get("parms"))
     parms = dict(recipe.get("parms") or {})
     sweep = recipe.get("sweep")
     # 動かすパラメータは、ノード自身のほか、入力のノード（"node": "in1" = 2 番目の入力の元のノード、"in1_0" = そのあとの 1 つ目）でもよい
@@ -260,7 +288,7 @@ def main() -> None:
     after_box = after_geo.boundingBox()
     if sim and mode == "before":
         hou.setFrame(1)
-    if before_sig == after_sig and not create:
+    if before_sig == after_sig and not create and not lighting:
         fail("適用の前後で、形が何も変わりません（効果が見えない絵になるので、撮りません）")
     if mode != "clip" and not sim:
         idle = ineffective_parms(node, parms, after_sig, recipe.get("keep") or ())
