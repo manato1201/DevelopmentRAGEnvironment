@@ -14,6 +14,82 @@ import panel_debug as pd  # noqa: E402
 import panel_info as pi  # noqa: E402
 
 
+class GuardTest(unittest.TestCase):
+    """Qt のスロットの例外で、ボタンが無効のまま残る不具合（2026-11-24）への備え。"""
+
+    def setUp(self):
+        pd.clear()
+
+    def test_an_exception_is_logged_and_the_restore_method_runs(self):
+        class Panel:
+            def __init__(self):
+                self.restored = None
+
+            def _restore(self, exc):
+                self.restored = exc
+
+            @pd.guard("生成", restore="_restore")
+            def done(self, value):
+                raise ValueError("record_usage が失敗")
+
+        panel = Panel()
+        self.assertIsNone(panel.done(1))  # 例外は、ここで止まる
+        self.assertIsInstance(panel.restored, ValueError)
+        text = pd.as_text()
+        self.assertIn("done: 開始", text)
+        self.assertIn("ValueError: record_usage が失敗", text)
+        self.assertNotIn("done: 終了", text)
+
+    def test_a_normal_call_returns_its_value_and_logs_start_and_end(self):
+        class Panel:
+            @pd.guard("生成")
+            def done(self, a, b=2):
+                return a + b
+
+        self.assertEqual(Panel().done(1, b=4), 5)
+        text = pd.as_text()
+        self.assertIn("done: 開始", text)
+        self.assertIn("done: 終了", text)
+
+    def test_a_failing_restore_does_not_hide_the_original_error(self):
+        class Panel:
+            def _restore(self, exc):
+                raise RuntimeError("戻せない")
+
+            @pd.guard("生成", restore="_restore")
+            def done(self):
+                raise ValueError("元の例外")
+
+        Panel().done()
+        text = pd.as_text()
+        self.assertIn("元の例外", text)
+        self.assertIn("戻す処理でも例外", text)
+
+    def test_the_summary_names_the_file_and_line(self):
+        try:
+            raise KeyError("x")
+        except KeyError as exc:
+            self.assertIn("test_panel_debug.py", pd.exception_summary(exc))
+
+    def test_the_excepthook_logs_and_keeps_the_previous_hook(self):
+        calls = []
+        old = sys.excepthook
+        sys.excepthook = lambda *a: calls.append(a[0])
+        pd._HOOK_INSTALLED = False
+        try:
+            pd.install_excepthook()
+            pd.install_excepthook()  # 2 回呼んでも、重ならない
+            try:
+                raise OSError("disk")
+            except OSError as exc:
+                sys.excepthook(type(exc), exc, exc.__traceback__)
+            self.assertEqual(calls, [OSError])
+            self.assertIn("OSError: disk", pd.as_text())
+        finally:
+            sys.excepthook = old
+            pd._HOOK_INSTALLED = False
+
+
 class MaskTest(unittest.TestCase):
     def test_secrets_are_masked(self):
         cases = {

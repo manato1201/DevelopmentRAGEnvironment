@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import copy
 
-from recipe_common import GRID, GRID_COARSE, SPHERE  # noqa: E402,F401
+from recipe_common import GRID, GRID_COARSE, SPHERE, create_sweep  # noqa: E402,F401
 
 VEX_GRID = {"type": "grid", "parms": {"rows": 40, "cols": 40, "size": [3, 3]}}
 
@@ -70,6 +70,11 @@ VEX_MORE = [
     _v("nrandom", "float n = nrandom('twister'); @Cd = set(n, n, n);", "0〜1 の乱数を点ごとに出し、色にする（点ごとに違う灰色）", ),
     _v("determinant", "matrix3 m = set(1.5,0,0, 0,0.7,0, 0,0,1); float d = determinant(m); @P *= m; @Cd = set(d, 0.4, 0.4);", "行列の行列式（体積の変わる倍率）は 1.05。板が、行列で X に伸び、Y に縮む"),
 ]
+
+
+for _r in NODE_MORE:
+    if _r.get("create") and create_sweep(_r["type"][0]):
+        _r["sweep"] = create_sweep(_r["type"][0])
 
 
 def build() -> list[dict]:

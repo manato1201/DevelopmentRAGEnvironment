@@ -6,8 +6,11 @@ panel_debug.py — デバッグ情報の記録（Qt に依存しない。単体�
 """
 from __future__ import annotations
 
+import functools
 import re
+import sys
 import time
+import traceback
 from collections import deque
 
 _MAX_ENTRIES = 500
@@ -55,3 +58,62 @@ def clear() -> None:
 def as_text(limit: int = 200) -> str:
     rows = list(_ENTRIES)[-limit:]
     return "\n".join(f"{time.strftime('%H:%M:%S', time.localtime(ts))} [{kind}] {msg}" for ts, kind, msg in rows)
+
+
+def exception_summary(exc: BaseException) -> str:
+    """例外を 1 行にする（型・メッセージ・どこで起きたか）。"""
+    frames = traceback.extract_tb(exc.__traceback__) if exc.__traceback__ else []
+    where = f" @ {frames[-1].filename.replace(chr(92), '/').split('/')[-1]}:{frames[-1].lineno} {frames[-1].name}" if frames else ""
+    return f"{type(exc).__name__}: {exc}{where}"
+
+
+def guard(kind: str, restore: str | None = None):
+    """Qt のスロット（完了・失敗の処理）を守る（2026-11-24。「生成のあとに、タブ以外が効かなくなる」への備え）。
+
+    Qt のスロットの中の例外は、画面に何も出さずに、処理を途中で止める。そのとき、ボタンが無効のまま残ると、タブの切り替えしか効かなくなる。
+    このデコレータは、入口・出口を記録し、例外が出たら、記録に残して（メニュー ≡ →「デバッグ」で見られる）、
+    restore に挙げた名前の（引数が例外 1 つだけの）メソッドを呼んで、ボタンなどを元に戻す。例外は、ここで止める（Houdini のコンソールには、続けて出す）。"""
+
+    def decorate(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            log(kind, f"{fn.__name__}: 開始")
+            try:
+                result = fn(*args, **kwargs)
+            except Exception as exc:  # noqa: BLE001 -- ここで記録して、元に戻す
+                log(kind, f"{fn.__name__}: 例外 {exception_summary(exc)}")
+                traceback.print_exc()
+                if restore and args:
+                    try:
+                        getattr(args[0], restore)(exc)
+                    except Exception as inner:  # noqa: BLE001 -- 元に戻す処理が失敗しても、続ける
+                        log(kind, f"{fn.__name__}: 元に戻す処理でも例外 {exception_summary(inner)}")
+                return None
+            log(kind, f"{fn.__name__}: 終了")
+            return result
+
+        return wrapper
+
+    return decorate
+
+
+_HOOK_INSTALLED = False
+
+
+def install_excepthook() -> None:
+    """どこにも捕まらなかった例外（Qt のスロットから出たもの）を、記録に残す。前の処理は、そのまま続ける。何度呼んでもよい。"""
+    global _HOOK_INSTALLED
+    if _HOOK_INSTALLED:
+        return
+    _HOOK_INSTALLED = True
+    previous = sys.excepthook
+
+    def hook(exc_type, exc, tb):
+        try:
+            exc.__traceback__ = tb
+            log("例外", exception_summary(exc))
+        except Exception:  # noqa: BLE001 -- 記録できなくても、前の処理は呼ぶ
+            pass
+        previous(exc_type, exc, tb)
+
+    sys.excepthook = hook

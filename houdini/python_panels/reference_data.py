@@ -495,7 +495,7 @@ def save_entry(base_dir: str | Path, kind: str, key: str, entry: dict, meta: dic
 _SECTIONS = (("what", "何をする・どんなもの"), ("use", "どういったものに使うか"), ("example", "実例"), ("example_point", "実例のポイント"), ("when", "使いどころ"))
 
 
-_MEDIA_TITLES = {"before": "適用前", "after": "適用後", "node": "ノード画面"}
+_MEDIA_TITLES = {"where": "操作する場所（シェルフ）", "before": "適用前", "after": "適用後", "node": "ノード画面"}
 
 
 _TEXT_MUTED = "#cbd5e1"   # 補足の文字（暗い背景で読める明るさ）
@@ -521,12 +521,16 @@ def media_html(media: list[dict] | None, sources: dict[str, str] | None, width: 
     usable = max(120, int(width) - 36) if width else None   # 余白・スクロールバーの分を引く
     pair = 260 if usable is None else max(60, min(260, (usable - 24) // 2))
     wide = 420 if usable is None else max(100, min(420, usable))
+    out = ""
+    if by_role.get("where"):  # シェルフツールの、操作する場所（いちばん上。横に長い図なので、幅いっぱいに出す）
+        m = by_role["where"][0]
+        out += f"<p style='margin-bottom:0;color:{_TEXT_MUTED}'>{_MEDIA_TITLES['where']}</p><p style='margin-top:2px'><img src='{esc(sources[m['id']])}' width='{wide}'></p>"
     cells = []
     for role in ("before", "after"):
         if by_role.get(role):
             m = by_role[role][0]
             cells.append(f"<td align='center'><span style='color:{_TEXT_MUTED}'>{_MEDIA_TITLES[role]}</span><br><img src='{esc(sources[m['id']])}' width='{pair}'></td>")
-    out = f"<table cellspacing='6'><tr>{''.join(cells)}</tr></table>" if cells else ""
+    out += f"<table cellspacing='6'><tr>{''.join(cells)}</tr></table>" if cells else ""
     if by_role.get("node"):
         m = by_role["node"][0]
         out += f"<p style='margin-bottom:0;color:{_TEXT_MUTED}'>{_MEDIA_TITLES['node']}</p><p style='margin-top:2px'><img src='{esc(sources[m['id']])}' width='{wide}'></p>"

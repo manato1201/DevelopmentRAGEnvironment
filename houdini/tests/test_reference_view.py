@@ -136,6 +136,41 @@ class ReferenceWidgetTest(unittest.TestCase):
         for _ in range(20):
             self.app.processEvents()
 
+    def _wait_refresh(self) -> None:
+        deadline = time.time() + 10
+        while not self.widget._refresh_btn.isEnabled() and time.time() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+
+    def test_reload_drops_the_saved_entry_and_reports_the_result(self) -> None:
+        """「再読み込み」: 保存してある説明を消し、一覧を待ち時間なしで取り直し、結果を出す（公開した修正が、すぐ反映される）。"""
+        import reference_remote as rr
+
+        item = self.widget._items[0]
+        self.widget._show(item)
+        path = rr._entry_path(self.cfg, item["kind"], item["key"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"entry": {"what": "古い説明"}, "media": [], "title": "t", "version": 1}), encoding="utf-8")
+        index = {"node|sop/other": {"kind": "node", "key": "sop/other", "title": "t", "version": 1, "mediaCount": 0}}  # 見ている項目は、含めない（含めると、説明の取り直しの通信が走る）
+        with mock.patch.object(rr, "fetch_index", lambda cfg, **kw: index), mock.patch.object(rr, "index_fetched_at", lambda cfg: time.time() + 5):
+            self.widget._on_refresh()
+            self.assertFalse(self.widget._refresh_btn.isEnabled(), "取っている間は、押せない")
+            self._wait_refresh()
+        self.assertTrue(self.widget._refresh_btn.isEnabled())
+        self.assertIn("再読み込みしました", self.widget._status.text())
+        self.assertIn("1 件", self.widget._status.text())
+        self.assertFalse(path.exists(), "保存してあった古い説明は、消えている")
+
+    def test_reload_says_so_when_the_server_cannot_be_reached(self) -> None:
+        import reference_remote as rr
+
+        self.widget._show(self.widget._items[0])
+        with mock.patch.object(rr, "fetch_index", lambda cfg, **kw: {}), mock.patch.object(rr, "index_fetched_at", lambda cfg: 0.0):
+            self.widget._on_refresh()
+            self._wait_refresh()
+        self.assertTrue(self.widget._refresh_btn.isEnabled(), "失敗しても、もう一度押せる")
+        self.assertIn("再読み込みできませんでした", self.widget._status.text())
+
     def test_the_list_starts_with_nodes_and_search_narrows_it(self) -> None:
         self.assertGreater(self.widget._list.count(), 100)
         self.widget._search.setText("scatter")

@@ -32,8 +32,8 @@ import reference_remote as rr  # noqa: E402
 from audit_reference import DEFAULT_OUT as DEFAULT_PARMS  # noqa: E402
 from audit_reference import entry_problems, load_parms  # noqa: E402
 
-ROLE_FILES = (("before", "before.png"), ("after", "after.png"), ("node", "node.png"), ("clip", "clip.gif"))
-ROLE_LABELS = {"before": "適用前", "after": "適用後", "node": "ノード画面", "clip": "適用の動き"}
+ROLE_FILES = (("where", "where.png"), ("before", "before.png"), ("after", "after.png"), ("node", "node.png"), ("clip", "clip.gif"))
+ROLE_LABELS = {"where": "操作する場所", "before": "適用前", "after": "適用後", "node": "ノード画面", "clip": "適用の動き"}
 DEFAULT_CONFIG = Path.home() / ".houdini" / "rag_chatbot_config.json"
 
 

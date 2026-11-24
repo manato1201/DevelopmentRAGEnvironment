@@ -57,6 +57,7 @@ from PySide6.QtWidgets import (
 )
 
 import gallery_upload
+import panel_debug as _debug
 import panel_paths
 import token_usage
 import video_progress
@@ -772,6 +773,13 @@ class TutorialGeneratePanel(QWidget):
         self._refresh_usage()
         layout.addWidget(card)
 
+        # 生成中の注意（2026-11-24。生成は、Houdini のシーンを操作し、画面を撮る。その最中に触ると、撮り直しや崩れの元になる）
+        self._busy_banner = QLabel("生成中です。Houdini の画面（ネットワーク・ビューポート・時間）は、触らないでください。終わると、この表示が消えます。")
+        self._busy_banner.setWordWrap(True)
+        self._busy_banner.setStyleSheet("QLabel{background:#7c4a03;color:#fef3c7;border-radius:%dpx;padding:%dpx %dpx;}" % (px(4), px(6), px(8)))
+        self._busy_banner.setVisible(False)
+        layout.addWidget(self._busy_banner)
+
         # ── 4. 進行ログとプレビューを縦分割（ペインが低いときは、全体のスクロールで見る）─
         splitter = QSplitter(Qt.Vertical)
         splitter.setChildrenCollapsible(False)
@@ -1046,6 +1054,7 @@ class TutorialGeneratePanel(QWidget):
         for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn, self._discard_chain_btn, self._followup_btn):
             btn.setEnabled(False)
         self._generate_btn.setEnabled(False)
+        self._set_busy(True)
 
         if self._chain_checkbox.isChecked() and not followup:
             self._status.setText("3段階連続生成中（basic→applied→advanced）...")
@@ -1121,7 +1130,9 @@ class TutorialGeneratePanel(QWidget):
         sb = self._progress_log.verticalScrollBar()
         sb.setValue(sb.maximum())
 
+    @_debug.guard("生成", restore="_restore_after_error")
     def _on_done(self, result) -> None:
+        self._set_busy(False)
         self._result = result
         bridge_dir = self._cfg_getter().get("local_bridge_dir", "")
         token_usage.record_usage(bridge_dir, self._topic_edit.text().strip(), result)
@@ -1181,6 +1192,7 @@ class TutorialGeneratePanel(QWidget):
         except Exception:  # noqa: BLE001
             return ""
 
+    @_debug.guard("生成", restore="_restore_after_error")
     def _on_chain_done(self, results: list) -> None:
         """
         3段階連続生成（build_level_chain）の完了コールバック。単発生成と違い、
@@ -1188,6 +1200,7 @@ class TutorialGeneratePanel(QWidget):
         その場で自動的に localRAG/tutorials/ へ保存する（チェックボックスの
         ツールチップで事前に明示している仕様）。
         """
+        self._set_busy(False)
         self._generate_btn.setEnabled(True)
         if not results:
             self._status.setText("3段階連続生成: すべてのレベルが失敗しました（進行ログを確認してください）")
@@ -1247,7 +1260,25 @@ class TutorialGeneratePanel(QWidget):
             if guide_note:
                 self._status.setText(f"{self._status.text()} | {guide_note}")
 
+    def _set_busy(self, busy: bool) -> None:
+        """生成中の注意書き（Houdini を触らないで）を、出す・消す。"""
+        banner = getattr(self, "_busy_banner", None)
+        if banner is not None:
+            banner.setVisible(busy)
+
+    def _restore_after_error(self, exc: BaseException) -> None:
+        """完了・失敗の処理の途中で例外が出たとき、ボタンを使える状態に戻す（無効のまま残ると、タブの切り替えしか効かなくなる。2026-11-24）。
+        結果が既にあれば、保存・破棄なども使えるようにする。例外の内容は、デバッグの記録（メニュー ≡ →「デバッグ」）に残っている。"""
+        self._set_busy(False)
+        self._generate_btn.setEnabled(True)
+        if self._result is not None:
+            for btn in (self._save_btn, self._discard_btn, self._delete_sandbox_btn, self._followup_btn):
+                btn.setEnabled(True)
+        self._status.setText(f"生成の後処理でエラーが出ました（内容は、メニュー ≡ →「デバッグ」）: {type(exc).__name__}: {str(exc)[:120]}")
+
+    @_debug.guard("生成", restore="_restore_after_error")
     def _on_failed(self, msg: str) -> None:
+        self._set_busy(False)
         self._progress_log.append(f"エラー: {msg}")
         self._status.setText(f"生成失敗: {msg}")
         self._generate_btn.setEnabled(True)
@@ -1358,14 +1389,20 @@ class TutorialGeneratePanel(QWidget):
         self._script_workers.append(worker)
 
         def on_done(script_path: str, message: str, w: VideoScriptWorker = worker) -> None:
-            self._script_timer.stop()
-            self._set_video_bar(video_progress.SCRIPT_END, "動画エンジンを起動")
-            if w in self._script_workers:
-                self._script_workers.remove(w)
-            status = self._start_video_process(
-                result, md_path, json_path, Path(script_path) if script_path else None, video_steps=video_steps, mode=mode)
-            note = getattr(self, "_video_length_note", "")
-            self._video_progress.setText(f"{message} / {status}" + (f" / {note}" if note else ""))
+            self._script_timer.stop()  # 例外が出ても、台本づくりの進み方の表示は、止める
+            try:
+                _debug.log("動画", "台本づくり: 完了")
+                self._set_video_bar(video_progress.SCRIPT_END, "動画エンジンを起動")
+                if w in self._script_workers:
+                    self._script_workers.remove(w)
+                status = self._start_video_process(
+                    result, md_path, json_path, Path(script_path) if script_path else None, video_steps=video_steps, mode=mode)
+                note = getattr(self, "_video_length_note", "")
+                self._video_progress.setText(f"{message} / {status}" + (f" / {note}" if note else ""))
+            except Exception as exc:  # noqa: BLE001 -- 画面に何も出ないまま止まらないように、記録して、表示する
+                _debug.log("動画", f"台本づくりの完了の処理で例外 {_debug.exception_summary(exc)}")
+                self._set_video_bar(0, "失敗", failed=True)
+                self._video_progress.setText(f"動画生成: 起動の処理でエラーが出ました（内容は、メニュー ≡ →「デバッグ」）: {type(exc).__name__}")
 
         worker.done.connect(on_done)
         worker.start()
@@ -1467,6 +1504,13 @@ class TutorialGeneratePanel(QWidget):
         self._set_video_bar(video_progress.ENGINE_START, "動画エンジンを準備中")
 
         def poll() -> None:
+            try:
+                poll_once()
+            except Exception as exc:  # noqa: BLE001 -- 例外で、進捗の表示が止まったまま、何も出ない状態にしない
+                _debug.log("動画", f"進捗の確認で例外 {_debug.exception_summary(exc)}")
+                self._video_progress.setText(f"動画生成: 進捗の表示でエラーが出ました（動画は、できているかもしれません。{log_path.name} を確認してください）")
+
+        def poll_once() -> None:
             state["polls"] += 1
             try:
                 text = log_path.read_text(encoding="utf-8", errors="replace")
@@ -1509,7 +1553,7 @@ class TutorialGeneratePanel(QWidget):
             )
 
             if state["polls"] < self._VIDEO_PROGRESS_MAX_POLLS:
-                QTimer.singleShot(self._VIDEO_PROGRESS_POLL_MS, poll)
+                QTimer.singleShot(self._VIDEO_PROGRESS_POLL_MS, poll)  # poll_once が例外で止まっても、次は呼ばない（poll が記録して表示する）
             else:
                 self._video_progress.setText(f"動画生成: 進捗表示を終了しました（{log_path.name}を直接確認してください）")
 

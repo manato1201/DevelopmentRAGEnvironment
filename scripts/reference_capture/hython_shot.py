@@ -200,8 +200,9 @@ def advance_simulation(node, frames: int) -> None:
             fail(f"{node.name()} の cook エラー（{f} 枚目）: {node.errors()[0][:120]}")
 
 
-def make_camera(obj, lo, hi):
-    """lo〜hi の範囲が収まるカメラを作る（斜め上から見る。向きを決める null も作る）。"""
+def make_camera(obj, lo, hi, orbit_frames: int = 0):
+    """lo〜hi の範囲が収まるカメラを作る（斜め上から見る。向きを決める null も作る）。
+    orbit_frames > 0 のときは、1〜orbit_frames 枚目で、対象のまわりを 1 周する（入力が無く、置くだけで形ができるノードの、動き）。"""
     center = hou.Vector3([(lo[i] + hi[i]) / 2 for i in range(3)])
     size = max(hi[i] - lo[i] for i in range(3)) or 1.0
     radius = 0.5 * math.sqrt(sum((hi[i] - lo[i]) ** 2 for i in range(3))) or 0.5
@@ -212,6 +213,12 @@ def make_camera(obj, lo, hi):
     look.setDisplayFlag(False)  # 向きを決めるだけの null。表示したままだと、軸の緑の線が絵の中央に映る（2026-11-20 に確認）
     cam = obj.createNode("cam", "cam1")
     cam.parmTuple("t").set(center + direction * distance)
+    if orbit_frames:
+        radius_xz = distance * math.hypot(direction[0], direction[2])
+        start = math.degrees(math.atan2(direction[0], direction[2]))
+        angle = f"rad({start:.4f} + 360 * ($F - 1) / {orbit_frames})"
+        cam.parm("tx").setExpression(f"{center[0]:.5f} + {radius_xz:.5f} * sin({angle})", hou.exprLanguage.Hscript)
+        cam.parm("tz").setExpression(f"{center[2]:.5f} + {radius_xz:.5f} * cos({angle})", hou.exprLanguage.Hscript)
     cam.parm("lookatpath").set(look.path())
     cam.parm("resx").set(WIDTH)
     cam.parm("resy").set(HEIGHT)
@@ -306,7 +313,7 @@ def main() -> None:
     view = recipe.get("view")  # {"lo": [...], "hi": [...]} = 構図を、この範囲で決める（シミュレーションの箱は、煙より大きいため）
     if view:
         lo, hi = list(view["lo"]), list(view["hi"])
-    cam = make_camera(obj, lo, hi)
+    cam = make_camera(obj, lo, hi, orbit_frames=frames if (create and mode == "clip" and not sweep) else 0)  # 動かす値が無い、置くだけで形ができるものは、まわりを 1 周する
 
     shown = before_node if mode == "before" else node
     shown.setDisplayFlag(True)

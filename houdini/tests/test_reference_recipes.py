@@ -92,7 +92,7 @@ class RecipeShapeTest(unittest.TestCase):
             if recipe.get("create"):
                 self.assertNotIn("input", recipe, recipe["key"])
                 self.assertNotIn("inputs", recipe, recipe["key"])
-                self.assertFalse(recipe.get("sweep"), recipe["key"])
+                self.assertTrue(recipe.get("sweep"), recipe["key"])  # 置くだけで形ができるものにも、動き（GIF）を付ける（2026-11-24。recipe_common.CREATE_SWEEPS）
 
     def test_simulation_recipes_set_the_frame_count_and_the_view(self) -> None:
         """sim = 進めるフレーム数、view = 構図の範囲（シミュレーションの箱は、煙より大きい）。sim のレシピだけが持つ。"""

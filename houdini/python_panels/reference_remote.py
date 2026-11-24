@@ -101,6 +101,15 @@ def fetch_index(cfg: dict, now: float | None = None, opener: Callable | None = N
     return items
 
 
+def index_fetched_at(cfg: dict) -> float:
+    """保存してある一覧を、Cloudflare から取った時刻（無ければ 0）。「再読み込み」が、通信できたかを調べるのに使う。"""
+    root = _cache_root(cfg)
+    try:
+        return float(json.loads((root / "_index.json").read_text(encoding="utf-8")).get("fetched_at", 0)) if root else 0.0
+    except (OSError, ValueError, AttributeError, TypeError):
+        return 0.0
+
+
 def index_key(kind: str, key: str) -> str:
     return f"{kind}|{key}"
 
@@ -119,6 +128,18 @@ def load_cached_entry(cfg: dict, kind: str, key: str) -> dict | None:
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) and isinstance(data.get("entry"), dict) else None
+
+
+def drop_cached_entry(cfg: dict, kind: str, key: str) -> bool:
+    """保存してある 1 項目の説明を消す（次に開くとき、Cloudflare から取り直す）。消せたら True。画像・動画は、消さない（名前に版が入っていて、古くならない）。"""
+    path = _entry_path(cfg, kind, key)
+    try:
+        if path is not None and path.is_file():
+            path.unlink()
+            return True
+    except OSError:
+        pass
+    return False
 
 
 def fetch_entry(cfg: dict, kind: str, key: str, version: int | None = None, opener: Callable | None = None) -> dict | None:

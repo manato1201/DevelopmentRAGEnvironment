@@ -283,6 +283,14 @@ class HtmlTest(unittest.TestCase):
         self.assertIn("まだ用意していません", participant)
         self.assertIn("読み込んでいます", rd.entry_html(self.ITEM, None, loading=True))
 
+    def test_media_html_puts_the_shelf_location_first(self) -> None:
+        """シェルフツールの「操作する場所」の図は、いちばん上（適用前後より先）に出る（2026-11-24）。"""
+        media = [{"id": "b.png", "role": "before"}, {"id": "w.png", "role": "where"}, {"id": "a.png", "role": "after"}]
+        text = rd.media_html(media, {"b.png": "file:///b", "w.png": "file:///w", "a.png": "file:///a"})
+        self.assertIn("操作する場所", text)
+        self.assertLess(text.index("file:///w"), text.index("file:///b"))
+        self.assertLess(text.index("file:///b"), text.index("file:///a"))
+
     def test_media_html_places_before_after_and_node_images(self) -> None:
         media = [{"id": "a/before.png", "role": "before"}, {"id": "a/after.png", "role": "after"}, {"id": "a/node.png", "role": "node"},
                  {"id": "a/clip.gif", "role": "clip"}, {"id": "a/lost.png", "role": "after"}]

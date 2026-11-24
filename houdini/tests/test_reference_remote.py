@@ -97,6 +97,25 @@ class RemoteTest(unittest.TestCase):
         self.assertEqual(offline["entry"]["what"], "点を散らす", "the saved one is used when offline")
         self.assertIsNone(rr.fetch_entry(self.cfg, "node", "sop/none", version=1, opener=FakeServer({}, fail=True)))
 
+    def test_a_saved_entry_can_be_dropped_so_the_next_open_fetches_it_again(self) -> None:
+        server = FakeServer({"/reference/entry": ENTRY})
+        rr.fetch_entry(self.cfg, "node", "sop/scatter", version=2, opener=server)
+        self.assertTrue(rr.drop_cached_entry(self.cfg, "node", "sop/scatter"))
+        self.assertIsNone(rr.load_cached_entry(self.cfg, "node", "sop/scatter"))
+        self.assertFalse(rr.drop_cached_entry(self.cfg, "node", "sop/scatter"), "もう無い")
+        rr.fetch_entry(self.cfg, "node", "sop/scatter", version=2, opener=server)  # 版が同じでも、保存が無いので、取り直す
+        self.assertEqual(len(server.calls), 2)
+        self.assertFalse(rr.drop_cached_entry({}, "node", "x"))
+
+    def test_the_index_time_tells_whether_a_forced_reload_reached_the_server(self) -> None:
+        self.assertEqual(rr.index_fetched_at(self.cfg), 0.0)
+        rr.fetch_index(self.cfg, now=5000.0, opener=FakeServer({"/reference/index": INDEX}))
+        self.assertEqual(rr.index_fetched_at(self.cfg), 5000.0)
+        rr.fetch_index(self.cfg, now=9000.0, opener=FakeServer({}, fail=True), force=True)  # 通信できない: 時刻は、変わらない
+        self.assertEqual(rr.index_fetched_at(self.cfg), 5000.0)
+        rr.fetch_index(self.cfg, now=9100.0, opener=FakeServer({"/reference/index": INDEX}), force=True)
+        self.assertEqual(rr.index_fetched_at(self.cfg), 9100.0)
+
     def test_a_missing_entry_is_none(self) -> None:
         def not_found(req, timeout):
             raise urllib.error.HTTPError(req.full_url, 404, "nf", {}, io.BytesIO(b'{"error": "none"}'))

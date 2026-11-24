@@ -541,6 +541,7 @@ class RAGChatbotPanel(QWidget):
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
+        _debug.install_excepthook()  # スロットから出た例外を、デバッグの記録に残す（2026-11-24）
         super().__init__(parent)
         _bus.register(self)  # ほかのパネルから、Guide ⇄ Reference の移動を受けるため（panel_bus.py）
         self._cfg           = _load_config()
@@ -1633,6 +1634,16 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             row.deleteLater()
             self._thinking_row = None
 
+    def _restore_after_query_error(self, exc: BaseException) -> None:
+        """回答の処理の途中で例外が出たとき、送信ボタンを使える状態に戻す（無効のまま残ると、質問できなくなる。2026-11-24）。"""
+        try:
+            self._hide_thinking()
+        except Exception:  # noqa: BLE001 -- 表示の片づけに失敗しても、ボタンは戻す
+            pass
+        self._send_btn.setEnabled(True)
+        self._set_status(f"回答の表示でエラーが出ました（内容は、メニュー ≡ →「デバッグ」）: {type(exc).__name__}")
+
+    @_debug.guard("質問", restore="_restore_after_query_error")
     def _on_query_done(self, result: dict) -> None:
         """クエリ成功時のコールバック。回答バブルを追加し参照ドキュメントをステータスに表示する。"""
         self._hide_thinking()
@@ -1650,6 +1661,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         if self._cfg["mode"] == "local" and uid:
             threading.Thread(target=self._post_score, args=(uid, True), daemon=True).start()
 
+    @_debug.guard("質問", restore="_restore_after_query_error")
     def _on_query_error(self, msg: str) -> None:
         """クエリ失敗時のコールバック。エラーをバブルとステータスに表示する。"""
         self._hide_thinking()

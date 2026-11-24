@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import copy
 
+from recipe_common import create_sweep
+
 # シェルフのキー → 同じ働きのノードのキー
 SHELF_FROM_NODE = {
     "shelf/sop_polyextrude_2_0": "sop/polyextrude",
@@ -48,6 +50,11 @@ CREATE_RECIPES: list[dict] = [
     {"kind": "shelf", "key": "shelf/sop_lsystem", "type": ["lsystem"], "create": True, "parms": {}, "note": "L-System。パラメータは、初期値のまま"},
     {"kind": "shelf", "key": "shelf/sop_metaball", "type": ["metaball"], "create": True, "parms": {}, "note": "Metaball。パラメータは、初期値のまま"},
 ]
+
+
+for _r in CREATE_RECIPES:
+    if create_sweep(_r["type"][0]):
+        _r["sweep"] = create_sweep(_r["type"][0])
 
 
 def build(node_recipes: list[dict]) -> list[dict]:

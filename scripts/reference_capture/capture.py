@@ -118,6 +118,54 @@ def graph_diagram(recipe: dict) -> dict:
     return {"sandbox": "/obj/ref", "nodes": nodes, "edges": edges}
 
 
+def _caption_font(size: int):
+    from PIL import ImageFont
+
+    for name in ("YuGothB.ttc", "meiryob.ttc", "msgothic.ttc", "arial.ttf"):
+        try:
+            return ImageFont.truetype(f"C:/Windows/Fonts/{name}", size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def make_toggle_gif(before: Path, after: Path, gif_path: Path) -> bool:
+    """適用前と適用後を、交互に見せる GIF（動かせる値が無く、動きを撮れないものの、動き。2026-11-24）。左上に「適用前」「適用後」を書く。"""
+    from PIL import Image, ImageDraw
+
+    frames = []
+    for label, source in (("適用前", before), ("適用後", after)):
+        with Image.open(source) as opened:
+            image = opened.convert("RGB")
+        height = round(image.height * GIF_WIDTH / image.width)
+        image = image.resize((GIF_WIDTH, height), Image.LANCZOS)
+        draw = ImageDraw.Draw(image)
+        font = _caption_font(22)
+        box = draw.textbbox((12, 10), label, font=font)
+        draw.rectangle((box[0] - 8, box[1] - 5, box[2] + 8, box[3] + 5), fill=(0, 0, 0))
+        draw.text((12, 10), label, font=font, fill=(255, 255, 255))
+        frames.append(image)
+    frames[0].save(gif_path, save_all=True, append_images=frames[1:], duration=[1300, 1300], loop=0, optimize=True)
+    return gif_path.is_file()
+
+
+def fill_toggle_gifs(out: Path, only: set[str]) -> None:
+    """撮ってある、適用前・適用後の画像があって、動き（clip.gif）が無い項目に、交互に見せる GIF を作る（Houdini は、使わない）。"""
+    made = skipped = 0
+    for folder in sorted(out.glob("*/*")):
+        key = f"{folder.parent.name}/{folder.name}"
+        if only and not any(key.endswith(k.replace("/", "_")) for k in only):
+            continue
+        before, after, clip = folder / "before.png", folder / "after.png", folder / "clip.gif"
+        if clip.is_file() or not before.is_file() or not after.is_file():
+            skipped += 1
+            continue
+        ok = make_toggle_gif(before, after, clip)
+        made += 1 if ok else 0
+        print(("OK  " if ok else "NG  ") + key)
+    print(f"作った {made} 件 / 飛ばした {skipped} 件")
+
+
 def render_node_image(recipe: dict, path: Path) -> bool:
     """ノード図（入力 → ノード）。保存済みグラフの描画を使う（Qt。Houdini は不要）。"""
     from PySide6.QtGui import QGuiApplication
@@ -162,7 +210,7 @@ def capture_one(hython: str, recipe: dict, out: Path, clip: bool = True) -> dict
                 flatten(target / f"{mode}.png")
             else:
                 meta["errors"].append(reason)
-        if clip and not meta["errors"] and (recipe.get("sweep") or recipe.get("animate") or recipe.get("sim")):
+        if clip and not meta["errors"] and (recipe.get("sweep") or recipe.get("animate") or recipe.get("sim") or recipe.get("create")):
             frames = Path(tmp) / "frames"
             ok, reason, seconds = run_shot(hython, recipe_path, "clip", frames)
             meta["seconds"]["clip"] = round(seconds, 1)
@@ -184,18 +232,78 @@ def capture_one(hython: str, recipe: dict, out: Path, clip: bool = True) -> dict
     return meta
 
 
+def capture_clip_only(hython: str, recipe: dict, out: Path) -> dict:
+    """動き（clip.gif）だけを撮る。静止画・ノード図は、そのまま残す。"""
+    target = slug_dir(out, recipe["kind"], recipe["key"])
+    target.mkdir(parents=True, exist_ok=True)
+    meta: dict = {"ok": True, "errors": []}
+    with tempfile.TemporaryDirectory() as tmp:
+        recipe_path = Path(tmp) / "recipe.json"
+        recipe_path.write_text(json.dumps(recipe, ensure_ascii=False), encoding="utf-8")
+        frames = Path(tmp) / "frames"
+        ok, reason, _seconds = run_shot(hython, recipe_path, "clip", frames)
+        if ok:
+            good, why = make_gif(frames, target / "clip.gif")
+            if not good:
+                meta["errors"].append(f"gif: {why}")
+        else:
+            meta["errors"].append(reason)
+    meta["ok"] = not meta["errors"]
+    return meta
+
+
+def capture_where(hython: str, out: Path, only: set[str]) -> None:
+    """シェルフツール（recipes に無いものも含めた、保存してある全部）の、操作する場所の図を、<out>/shelf/<キー>/where.png に描く。"""
+    import shelf_where
+
+    base = ROOT / "localRAG" / "reference" / "shelf"
+    keys = sorted(p.name[len("shelf_"):-len(".json")] for p in base.glob("shelf_*.json"))
+    keys = [k for k in keys if not only or f"shelf/{k}" in only]
+    with tempfile.TemporaryDirectory() as tmp:
+        keys_file, info_file = Path(tmp) / "keys.json", Path(tmp) / "info.json"
+        keys_file.write_text(json.dumps(keys), encoding="utf-8")
+        proc = subprocess.run([hython, str(HERE / "dump_shelf.py"), str(keys_file), str(info_file)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+        if proc.returncode != 0 or not info_file.is_file():
+            raise SystemExit(f"シェルフの情報を取り出せませんでした: {(proc.stderr or proc.stdout)[-300:]}")
+        info = json.loads(info_file.read_text(encoding="utf-8"))
+    done = 0
+    for key in keys:
+        if key not in info:
+            print(f"--  shelf/{key}: Houdini に、このツールがありません")
+            continue
+        target = slug_dir(out, "shelf", f"shelf/{key}") / "where.png"
+        ok = shelf_where.render(info[key], target)
+        done += 1 if ok else 0
+        print(("OK  " if ok else "NG  ") + f"shelf/{key}")
+    print(f"描いた {done} / {len(keys)} 件")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", required=True, help="出力先のフォルダ")
     parser.add_argument("--only", default="", help="撮るキー（カンマ区切り。例: sop/mountain,sop/scatter）。省略すると、全部")
     parser.add_argument("--no-clip", action="store_true", help="動き（GIF）を撮らない")
     parser.add_argument("--check", action="store_true", help="撮らずに、レシピだけを調べる（cook が通り、前後で形が変わり、値が全部効くか）。レシピを足すときの確かめ用")
+    parser.add_argument("--toggles", action="store_true", help="適用前・適用後の画像があって、動き（clip.gif）が無い項目に、交互に見せる GIF を作る（Houdini は使わない）。--only で、キーを絞る")
+    parser.add_argument("--clip-only", action="store_true", help="動き（clip.gif）だけを撮り直す（--only で絞る。入力が無いノードは、まわりを 1 周する）")
+    parser.add_argument("--where", action="store_true", help="シェルフツールの「操作する場所」の図（where.png）だけを描く（Houdini は、シェルフの情報を取り出すときだけ使う）。--only で、キーを絞る")
     parser.add_argument("--kind", default="", help="撮る種類（node / vex / shelf。カンマ区切り）。省略すると、全部")
     args = parser.parse_args()
     only = {k.strip() for k in args.only.split(",") if k.strip()}
     kinds = {k.strip() for k in args.kind.split(",") if k.strip()}
     recipes = [r for r in RECIPES if (not only or r["key"] in only) and (not kinds or r["kind"] in kinds)]
+    if args.toggles:
+        fill_toggle_gifs(Path(args.out), only)
+        return
     hython = find_hython()
+    if args.clip_only:
+        for recipe in recipes:
+            meta = capture_clip_only(hython, recipe, Path(args.out))
+            print(("OK  " if meta["ok"] else "NG  ") + f"{recipe['key']:<30} {meta['errors'] or ''}", flush=True)
+        return
+    if args.where:
+        capture_where(hython, Path(args.out), only)
+        return
     if args.check:
         bad = 0
         for recipe in recipes:

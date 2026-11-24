@@ -53,7 +53,7 @@ _USED_MARK = "● "
 _MEDIA_MARK = "▶ "  # 撮影した画像・動きがある項目（一覧の頭に付ける）
 _MAX_LIST = 200
 _INDEX_REFRESH_SECONDS = 60
-_STILL_ROLES = ("before", "after", "node")
+_STILL_ROLES = ("where", "before", "after", "node")
 _MOVIE_SUFFIXES = (".gif", ".webp")
 _VIDEO_SUFFIXES = (".webm", ".mp4")
 
@@ -199,6 +199,7 @@ class ReferenceWidget(QWidget):
         self._remote: dict[str, dict] = rr.load_cached_index(self._cfg_getter() or {})  # Cloudflare にある説明の一覧（保存してあるもの。最新は、タブを開いたときに取る）
         self._index_worker: _IndexWorker | None = None
         self._index_at = 0.0
+        self._refresh_requested_at = 0.0  # 「再読み込み」を押した時刻（0 = 押していない）
         self._fetch_worker: _EntryFetchWorker | None = None
         self._fetch_tried: set[tuple[str, str, int]] = set()
         self._movie: QMovie | None = None
@@ -314,8 +315,12 @@ class ReferenceWidget(QWidget):
         self._doc_btn = QPushButton("公式ドキュメントを開く")
         self._doc_btn.setEnabled(False)
         self._doc_btn.clicked.connect(self._on_open_doc)
+        self._refresh_btn = QPushButton("再読み込み")
+        self._refresh_btn.setToolTip("Cloudflare から、説明の一覧と、いま見ている説明を取り直します（公開された修正が、すぐ反映されます。1 時間待たなくて済みます）")
+        self._refresh_btn.clicked.connect(self._on_refresh)
         actions.addWidget(self._make_btn)
         actions.addWidget(self._doc_btn)
+        actions.addWidget(self._refresh_btn)
         actions.addStretch()
         root.addLayout(actions)
 
@@ -370,14 +375,43 @@ class ReferenceWidget(QWidget):
         self._index_worker.done.connect(self._on_index)
         _start_detached(self._index_worker)
 
+    def _on_refresh(self) -> None:
+        """「再読み込み」: 一覧を、待ち時間（1 時間・1 分）を飛ばして取り直し、見ている説明も取り直す（公開した修正が、反映されない、をなくす）。"""
+        cfg = self._cfg_getter() or {}
+        self._fetch_tried.clear()  # 前に取れなかった版も、もう一度
+        if self._current is not None:
+            rr.drop_cached_entry(cfg, self._current["kind"], self._current["key"])  # 版が同じでも、取り直す
+        self._refresh_requested_at = time.time()
+        self._refresh_btn.setEnabled(False)
+        self._status.setText("再読み込み中…")
+        if self._index_worker is not None and self._index_worker.isRunning():
+            self._index_worker.wait(3000)  # 取りかけの一覧があれば、終わるのを少し待つ（終わらなければ、次の再読み込みで）
+        self._index_at = 0.0
+        self._refresh_index(force=True)
+        if self._current is not None:
+            self._show(self._current)  # 説明を消したので、取り直しが始まる
+
+    def _finish_refresh(self, index: dict) -> None:
+        """「再読み込み」の結果を、画面の下に出す（通信できたか・何件か）。"""
+        requested = self._refresh_requested_at
+        self._refresh_requested_at = 0.0
+        self._refresh_btn.setEnabled(True)
+        reached = rr.index_fetched_at(self._cfg_getter() or {}) >= requested - 1
+        if reached and index:
+            self._status.setText(f"再読み込みしました（説明のある項目 {len(index)} 件）")
+        else:
+            self._status.setText("再読み込みできませんでした（通信を確かめてください）。保存してある説明を表示しています")
+        # 見ている説明の取り直しは、_on_refresh が始めてある（終わると _after_fetch が、表示し直す）
+
     def _on_index(self, index: dict) -> None:
-        if not isinstance(index, dict) or not index:
-            return  # 取れなかった（保存したものを、そのまま使う）
-        changed = index != self._remote
-        self._remote = index
-        if changed:
+        refreshing = bool(self._refresh_requested_at)
+        valid = isinstance(index, dict) and bool(index)  # 取れなかったときは、保存したものを、そのまま使う
+        if valid and index != self._remote:
+            self._remote = index
             self._pull_used()  # 公開済みの項目が増えると、使った印の照合も変わる
             self._reload(keep_key=self._current_key())  # 見ている項目を、動かさない
+        if refreshing:
+            self._finish_refresh(index if valid else {})  # 一覧の件数の表示より後に、結果を出す
 
     def _guide(self) -> dict | None:
         """同じタブの中の Guide に、いま読み込まれているチュートリアル。"""
