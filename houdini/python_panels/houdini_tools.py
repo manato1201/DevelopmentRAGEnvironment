@@ -805,14 +805,19 @@ class HoudiniToolExecutor:
         handler = getattr(self, f"_tool_{tool_name}", None)
         self.__dict__.pop("_step_extra", None)  # 前のツールの付帯情報を持ち越さない
         started = time.monotonic()
+        marks: dict = {}
         if tool_name in DOC_TOOL_NAMES:
             # ネットワーク呼び出しなので、Houdiniのメインスレッドには載せない（画面が固まる）。hou も触らない。
             result, is_error = self._run_doc_tool(tool_name, tool_input)
         elif handler is None:
             result, is_error = f"未知のツールです: {tool_name}", True
         else:
+            def run_handler():
+                marks["start"] = time.monotonic()  # メインスレッドで、実際に動き始めた時刻（待ちと、本体の時間を分けるため）
+                return handler(tool_input)
+
             try:
-                result, is_error = _run_in_main_thread(lambda: handler(tool_input)), False
+                result, is_error = _run_in_main_thread(run_handler), False
             except SandboxViolation as exc:
                 result, is_error = f"[サンドボックス違反] {exc}", True
                 self._append_audit({
@@ -823,6 +828,9 @@ class HoudiniToolExecutor:
                 result, is_error = f"エラー: {exc}", True
 
         tool_seconds = time.monotonic() - started
+        # メインスレッドの空きを待った時間（2026-11-25）。Houdini が別の処理（再生・cook・ダイアログ）で塞がっていると、ここが伸びる。
+        # 「止まった」とき、ツールが遅いのか、Houdini が塞がっていたのかを分ける
+        wait_seconds = max(0.0, marks["start"] - started) if "start" in marks else 0.0
         # 各段階の所要時間（2026-11-17）。以前は、監査ログの時刻の差から推測するしかなく、ツールのあとの画面の撮影
         # （cook_node のクリップなど）の時間が、次のツール呼び出しの時間に混ざって見えていた。ツール本体と撮影を分けて測る。
         entry = {
@@ -830,6 +838,8 @@ class HoudiniToolExecutor:
             "result": result, "is_error": is_error,
             "elapsed_s": round(tool_seconds, 2),
         }
+        if wait_seconds >= 0.5:
+            entry["wait_s"] = round(wait_seconds, 2)
         # ツールが残した付帯情報（validate_network のノードごとの cook 秒数など）。遅いノードを後から特定するために、
         # step_log と監査ログへ載せる
         entry.update(self.__dict__.pop("_step_extra", None) or {})
@@ -838,6 +848,9 @@ class HoudiniToolExecutor:
 
         capture_seconds = 0.0
         capture_started = time.monotonic()
+        if not is_error and (tool_name in self._SCREENSHOT_WORTHY_TOOLS or tool_name == "finish_tutorial"):
+            # 撮影の始まりも残す（2026-11-25。11/24 に、ツールのあとで止まった生成が 3 回あった。終わりの記録だけだと、撮影で止まったのか分からない）
+            self._append_audit({"event": "capture_start", "tool": tool_name})
         if not is_error and tool_name in self._SCREENSHOT_WORTHY_TOOLS:
             self._capture_step_screenshot(tool_name, tool_input, result)
         if not is_error and tool_name == "finish_tutorial":

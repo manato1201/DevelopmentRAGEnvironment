@@ -13,6 +13,7 @@
     例: 凸凹の板 = grid の後ろに mountain）。その最後のノードが、その入力になる。
   "graph": {"nodes": [{"name", "type", "parms", "inputs": [名前 または [名前, 出力の番号] または null, ...]}, ...], "node": 最後のノード, "before": 適用前に映すノード}
     = つなぎ方を書くレシピ（入力が複数・出力が複数のもの。Vellum・RBD など）。nodes は、書いた順に作る。"input" の代わりに使う。
+  "vop": {"nodes": [...], "wires": [[元, 出力, 先, 入力], ...]} = type の Attribute VOP の中に作る VOP（build_vop）。
   "lights": [{"name", "type", "parms"}, ...] = /obj に置くライト。「適用後」にだけ置く。"lighting": true と一緒に使う（形は前後で同じなので、形の変化の点検をしない）。
 終了コード: 0 = 撮れた / 2 = レシピの不備（ノードが作れない・cook エラー・形が空・適用の前後で何も変わらない）。理由は、標準出力の最後の行（REASON: …）。
   「適用の前後で何も変わらない」は、点の数・面の数・形の大きさ・位置の合計・色（Cd）・法線（N）のどれも、前後で同じとき。
@@ -156,7 +157,8 @@ def signature(geometry) -> dict:
             elif owner == "prim":
                 values = geometry.primFloatAttribValues(name)
             else:
-                values = [v for point in geometry.points() for v in point.attribValue(name)] if len(geometry.points()) < 20000 else []
+                # 頂点の属性は、点ではなく、面の頂点から読む（以前は点から読んでいて、Normal SOP の頂点法線で落ちた。2026-11-25）
+                values = [v for prim in geometry.prims() for vertex in prim.vertices() for v in vertex.attribValue(name)] if len(geometry.points()) < 20000 else []
             sig[f"{name}_{owner}"] = round(sum(values), 3)
             sig[f"{name}_{owner}_sq"] = round(sum(v * v for v in values), 3)  # 平均が保たれる処理（ぼかし）でも、ばらつきの変化が分かる
     return sig
@@ -178,7 +180,9 @@ def build_graph(geo, graph: dict):
     """graph のノードを、書いた順に作ってつなぐ。(最後のノード, 適用前に映すノード) を返す。"""
     made: dict = {}
     for spec in graph["nodes"]:
-        node = make_node(geo, spec["type"], spec["name"])
+        # "context": "stage" = /stage（LOP）に置く（2026-11-25）。それ以外は、撮影用の geo の中（SOP）
+        parent = hou.node("/stage") if spec.get("context") == "stage" else geo
+        node = make_node(parent, spec["type"], spec["name"])
         made[spec["name"]] = node
         for i, ref in enumerate(spec.get("inputs") or []):
             if ref is None:
@@ -187,8 +191,113 @@ def build_graph(geo, graph: dict):
             if name not in made:
                 fail(f"{spec['name']} の入力 {name} が、まだ作られていません（nodes は、元のものから順に書く）")
             node.setInput(i, made[name], output)
-        set_parms(node, spec.get("parms"))
+        # 値が "@名前" の文字列は、そのノードのパスに置き換える（lopimport の loppath に、/stage のノードを指すときなど）
+        parms = {k: (made[v[1:]].path() if isinstance(v, str) and v.startswith("@") and v[1:] in made else v) for k, v in (spec.get("parms") or {}).items()}
+        set_parms(node, parms)
     return made[graph["node"]], made[graph.get("before") or graph["nodes"][0]["name"]]
+
+
+VOP_ALIASES = {"global": "geometryvopglobal1", "out": "geometryvopoutput1"}
+
+
+def build_vop(node, vop: dict) -> None:
+    """Attribute VOP（node）の中に、VOP のノードを作って、つなぐ（2026-11-25）。
+    vop = {"nodes": [{"name", "type", "parms"}], "wires": [[元, 出力（名前 か 番号）, 先, 入力（名前 か 番号）], ...]}
+    global・out は、最初からある Geometry VOP Global / Output のこと。"""
+    made = {alias: node.node(child) for alias, child in VOP_ALIASES.items()}
+    for spec in vop.get("nodes") or []:
+        made[spec["name"]] = make_node(node, spec["type"], spec["name"])
+        set_parms(made[spec["name"]], spec.get("parms"))
+    for src_name, output, dst_name, input_ in vop.get("wires") or []:
+        src, dst = made.get(src_name), made.get(dst_name)
+        if src is None or dst is None:
+            fail(f"VOP のつなぎの相手がありません: {src_name} → {dst_name}")
+        out_index = output if isinstance(output, int) else src.outputIndex(output)
+        in_index = input_ if isinstance(input_, int) else dst.inputIndex(input_)
+        if out_index < 0 or in_index < 0:
+            fail(f"VOP の入出力の名前がありません: {src_name}.{output} → {dst_name}.{input_}")
+        dst.setInput(in_index, src, out_index)
+
+
+COP_MAX_EDGE = 540  # COP の画像を書き出す、長辺の上限（px）
+COP_CLIP_FRAMES = 24  # COP の動き（値を動かす）の枚数
+
+
+def write_cop_layer(node, out: str) -> None:
+    """COP ノードの画像（層）を、PGM（1 チャンネル）か PPM（3 チャンネル以上）で書く（2026-11-25）。
+    Houdini の Python には Pillow が無いので、外の capture.py が、開いて PNG に直す。値は 0〜1 に収め、表示用のガンマ（1/2.2）を掛ける。"""
+    from array import array
+
+    layer = node.layer()
+    width, height = layer.bufferResolution()
+    channels = layer.channelCount()
+    data = array("f")
+    data.frombytes(layer.allBufferElements())
+    step = max(1, -(-max(width, height) // COP_MAX_EDGE))
+    shown = min(channels, 3) if channels >= 3 else 1
+    pixels = bytearray()
+    for y in range(height - 1, -1, -step):  # 画像の原点は左下。ファイルは上の行から
+        row = y * width * channels
+        for x in range(0, width, step):
+            base = row + x * channels
+            for c in range(shown):
+                value = data[base + c]
+                value = 0.0 if value != value or value < 0 else (1.0 if value > 1 else value)  # NaN・範囲外
+                pixels.append(int(round((value ** (1 / 2.2)) * 255)))
+    out_w, out_h = len(range(0, width, step)), len(range(height - 1, -1, -step))
+    header = ("P5" if shown == 1 else "P6") + f" {out_w} {out_h} 255" + chr(10)
+    header = header.encode("ascii")
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    with open(out, "wb") as handle:
+        handle.write(header + bytes(pixels))
+
+
+def shoot_cop(geo, recipe: dict, mode: str, out: str) -> None:
+    """COP のレシピ: copnet の中に作って、適用前・適用後の画像を書く（OpenGL ROP は使わない）。"""
+    cop = recipe["cop"]
+    net = geo.createNode("copnet", "cops")
+    made: dict = {}
+    for spec in cop["nodes"]:
+        node = make_node(net, spec["type"], spec["name"])
+        made[spec["name"]] = node
+        for i, ref in enumerate(spec.get("inputs") or []):
+            if ref is not None:
+                name, output = (ref, 0) if isinstance(ref, str) else ref
+                node.setInput(i, made[name], output)
+        set_parms(node, spec.get("parms"))
+    after = made[cop["node"]]
+    before = made.get(cop.get("before") or "")
+    for node in [n for n in (before, after) if n is not None]:
+        try:
+            node.cook(force=True)
+        except hou.OperationFailed:
+            pass
+        if node.errors():
+            fail(f"{node.name()} の cook エラー: {node.errors()[0][:120]}")
+    if before is not None and before.layer().allBufferElements() == after.layer().allBufferElements():
+        fail("適用の前後で、画像が何も変わりません（効果が見えない絵になるので、撮りません）")
+    if mode == "check":
+        print("OK")
+        return
+    if mode == "before":
+        if before is None:
+            fail("形を作るノードには、適用前がありません")
+        write_cop_layer(before, out)
+    elif mode == "after":
+        write_cop_layer(after, out)
+    elif recipe.get("sweep"):  # 動き: 値を from から to へ動かした画像を、連番で書く（COP_CLIP_FRAMES 枚）
+        sweep = recipe["sweep"]
+        parm = after.parm(sweep["parm"])
+        if parm is None:
+            fail(f"動かすパラメータ {sweep['parm']} がありません")
+        os.makedirs(out, exist_ok=True)
+        for i in range(COP_CLIP_FRAMES):
+            parm.set(sweep["from"] + (sweep["to"] - sweep["from"]) * i / (COP_CLIP_FRAMES - 1))
+            after.cook(force=True)
+            write_cop_layer(after, os.path.join(out, f"frame.{i + 1:04d}.png"))
+    else:
+        fail("動かす値の無い COP の動き（clip）は、撮りません（適用前・適用後を交互に見せる GIF を作ります）")
+    print("OK")
 
 
 def advance_simulation(node, frames: int) -> None:
@@ -232,6 +341,9 @@ def main() -> None:
     geo = obj.createNode("geo", "ref")
     for child in geo.children():
         child.destroy()
+    if recipe.get("cop"):
+        shoot_cop(geo, recipe, mode, out)
+        return
     # "create": true = 入力を持たず、ノードを置くだけで形ができるもの（Box・Sphere・Torus などのシェルフツール）。「適用前」は無く、「適用後」だけを撮る
     create = bool(recipe.get("create"))
     if create and mode == "before":
@@ -247,6 +359,8 @@ def main() -> None:
         node = make_node(geo, recipe["type"], "node")
         for i, src in enumerate(sources):
             node.setInput(i, src)
+        if recipe.get("vop"):
+            build_vop(node, recipe["vop"])
     lighting = bool(recipe.get("lighting"))
     if mode != "before":  # ライト（/obj に置く）は、「適用後」にだけ置く
         for spec in recipe.get("lights") or []:

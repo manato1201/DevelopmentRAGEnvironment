@@ -509,6 +509,21 @@ def _heading(text: str, bg: str = _HEAD_BLUE) -> str:
             f"<b><span style='color:#ffffff'>{text}</span></b></td></tr></table>")
 
 
+def media_widths(width: int | None = None) -> tuple[int, int]:
+    """詳細欄の幅から、画像の表示幅（適用前後の 2 枚並び, 1 枚で幅いっぱい）を決める。画面側は、この幅に、なめらかに縮めてから載せる。"""
+    usable = max(120, int(width) - 36) if width else None   # 余白・スクロールバーの分を引く
+    # 上限は、2 枚並び 340px・1 枚 640px（2026-11-25。以前は 260・420 で、図の文字が、広い画面でも潰れていた）
+    pair = 260 if usable is None else max(60, min(340, (usable - 24) // 2))
+    wide = 420 if usable is None else max(100, min(640, usable))
+    return pair, wide
+
+
+def media_display_width(role: str, width: int | None = None) -> int:
+    """その役割の画像を、何 px の幅で出すか（適用前・適用後は 2 枚並び、ほかは 1 枚で幅いっぱい）。"""
+    pair, wide = media_widths(width)
+    return pair if role in ("before", "after") else wide
+
+
 def media_html(media: list[dict] | None, sources: dict[str, str] | None, width: int | None = None) -> str:
     """適用前後・ノード画面の画像（静止画）を並べる HTML。sources: {メディアの id: <img> の src}（読み込めたものだけ）。動画・GIF は、画面側が別に出す。
     width: 詳細欄の幅（px）。狭い所に置かれても、画像が欠けないように、幅に合わせて縮める（無ければ、既定の大きさ）。"""
@@ -518,22 +533,22 @@ def media_html(media: list[dict] | None, sources: dict[str, str] | None, width: 
     for m in media or []:
         if isinstance(m, dict) and m.get("id") in sources and m.get("role") in _MEDIA_TITLES:
             by_role.setdefault(str(m["role"]), []).append(m)
-    usable = max(120, int(width) - 36) if width else None   # 余白・スクロールバーの分を引く
-    pair = 260 if usable is None else max(60, min(260, (usable - 24) // 2))
-    wide = 420 if usable is None else max(100, min(420, usable))
+    pair, wide = media_widths(width)
     out = ""
     if by_role.get("where"):  # シェルフツールの、操作する場所（いちばん上。横に長い図なので、幅いっぱいに出す）
         m = by_role["where"][0]
-        out += f"<p style='margin-bottom:0;color:{_TEXT_MUTED}'>{_MEDIA_TITLES['where']}</p><p style='margin-top:2px'><img src='{esc(sources[m['id']])}' width='{wide}'></p>"
+        out += f"<p style='margin-bottom:0;color:{_TEXT_MUTED}'>{_MEDIA_TITLES['where']}</p><p style='margin-top:2px'><a href='refopen:{esc(m['id'])}'><img src='{esc(sources[m['id']])}' width='{wide}'></a></p>"
     cells = []
     for role in ("before", "after"):
         if by_role.get(role):
             m = by_role[role][0]
-            cells.append(f"<td align='center'><span style='color:{_TEXT_MUTED}'>{_MEDIA_TITLES[role]}</span><br><img src='{esc(sources[m['id']])}' width='{pair}'></td>")
+            cells.append(f"<td align='center'><span style='color:{_TEXT_MUTED}'>{_MEDIA_TITLES[role]}</span><br><a href='refopen:{esc(m['id'])}'><img src='{esc(sources[m['id']])}' width='{pair}'></a></td>")
     out += f"<table cellspacing='6'><tr>{''.join(cells)}</tr></table>" if cells else ""
     if by_role.get("node"):
         m = by_role["node"][0]
-        out += f"<p style='margin-bottom:0;color:{_TEXT_MUTED}'>{_MEDIA_TITLES['node']}</p><p style='margin-top:2px'><img src='{esc(sources[m['id']])}' width='{wide}'></p>"
+        out += f"<p style='margin-bottom:0;color:{_TEXT_MUTED}'>{_MEDIA_TITLES['node']}</p><p style='margin-top:2px'><a href='refopen:{esc(m['id'])}'><img src='{esc(sources[m['id']])}' width='{wide}'></a></p>"
+    if out:
+        out += f"<p style='margin-top:0;color:{_TEXT_MUTED}'><small>画像を押すと、元の大きさで開きます</small></p>"
     return out
 
 

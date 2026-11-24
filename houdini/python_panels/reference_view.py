@@ -68,6 +68,18 @@ def _start_detached(thread: QThread) -> None:
     thread.start()
 
 
+def _sharp_scaled(image: QImage, width: int, ratio: float = 1.0) -> QImage:
+    """表示する幅に、なめらかに縮めた画像（2026-11-25）。
+    QTextDocument に元の大きさのまま渡して width で縮めさせると、粗い縮め方になり、図の文字が潰れて読めなかった。
+    先に SmoothTransformation で、表示の幅（高 DPI の画面では、その倍率ぶん大きく）に縮めておく。広げることは、しない。"""
+    target = max(1, int(round(width * max(1.0, ratio))))
+    if image.width() <= target:
+        return image
+    scaled = image.scaledToWidth(target, Qt.SmoothTransformation)
+    scaled.setDevicePixelRatio(max(1.0, ratio))
+    return scaled
+
+
 def houdini_shelf_tools() -> list[tuple[str, str, str]]:
     """Houdini のシェルフツール [(シェルフの名前, ツールの内部名, 表示名), ...]。Houdini の外（hou が無い）では、空。"""
     try:
@@ -202,6 +214,7 @@ class ReferenceWidget(QWidget):
         self._refresh_requested_at = 0.0  # 「再読み込み」を押した時刻（0 = 押していない）
         self._fetch_worker: _EntryFetchWorker | None = None
         self._fetch_tried: set[tuple[str, str, int]] = set()
+        self._media_files: dict[str, Path] = {}  # 画像の id → 端末に保存した元の画像（押すと開く）
         self._movie: QMovie | None = None
         self._media_width = 0
         self._relayout = QTimer(self)
@@ -564,6 +577,7 @@ class ReferenceWidget(QWidget):
             return ""
         document = self._detail.document()
         sources: dict[str, str] = {}
+        self._media_files = {}
         clip_path, clip_is_video = None, False
         for media in (record.get("media") or [])[:6]:
             media_id = str(media.get("id") or "")
@@ -575,8 +589,10 @@ class ReferenceWidget(QWidget):
                 image = QImage(str(path))
                 if not image.isNull():
                     url = f"refmedia:{media_id}"
+                    image = _sharp_scaled(image, rd.media_display_width(str(media.get("role")), self._detail.viewport().width()), self.devicePixelRatioF())
                     document.addResource(QTextDocument.ImageResource, QUrl(url), image)
                     sources[media_id] = url
+                    self._media_files[media_id] = path
             elif media.get("role") == "clip" and clip_path is None and suffix in _MOVIE_SUFFIXES + _VIDEO_SUFFIXES:
                 clip_path, clip_is_video = path, suffix in _VIDEO_SUFFIXES
         if clip_path is not None:
@@ -709,6 +725,10 @@ class ReferenceWidget(QWidget):
     def _on_link(self, url: QUrl) -> None:
         if url.scheme() in ("http", "https"):
             QDesktopServices.openUrl(url)
+        elif url.scheme() == "refopen":  # 画像を押した: 元の大きさの画像を、OS の画像ビューアで開く（縮めた画像の文字が読めないとき）
+            path = self._media_files.get(url.toString()[len("refopen:"):])
+            if path is not None and Path(path).is_file():
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         elif url.scheme() == "step":  # このチュートリアルで使っている場所 → Guide のその手順へ
             try:
                 index = int(url.path() or url.host())

@@ -30,7 +30,8 @@ class RecipeShapeTest(unittest.TestCase):
             self.assertRegex(recipe["key"], r"^[a-z0-9]+/[a-z0-9_]+$")
             self.assertIn(recipe["kind"], ("node", "vex", "shelf"))
             if recipe["kind"] == "node":
-                self.assertTrue(recipe["type"][0].split("::")[0] == recipe["key"].split("/")[1] or recipe["key"] == "sop/xform", recipe["key"])
+                self.assertTrue(recipe["type"][0].split("::")[0] == recipe["key"].split("/")[1] or recipe["key"] == "sop/xform"
+                                or (recipe["key"].startswith("vop/") and recipe["type"] == ["attribvop"]), recipe["key"])  # VOP は、Attribute VOP の中に置く
             else:  # vex・shelf（2026-11-24）: キーの頭は種類名
                 self.assertTrue(recipe["key"].startswith(recipe["kind"] + "/"), recipe["key"])
 
@@ -38,7 +39,7 @@ class RecipeShapeTest(unittest.TestCase):
         for recipe in RECIPES:
             self.assertIsInstance(recipe["type"], list, recipe["key"])
             specs = input_specs(recipe)  # create・graph は、入力の鎖を持たない
-            self.assertTrue(specs or recipe.get("create") or recipe.get("graph"), recipe["key"])
+            self.assertTrue(specs or recipe.get("create") or recipe.get("graph") or recipe.get("cop"), recipe["key"])
             for spec in specs:
                 self.assertIn("type", spec)
                 for step in spec.get("after") or []:

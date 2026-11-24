@@ -72,10 +72,13 @@ class PureTest(unittest.TestCase):
         creates = [r for r in RECIPES if r.get("create")]
         self.assertGreaterEqual(len(creates), 22)
         for r in creates:
+            if r.get("graph"):  # つなぎ方を書くもの（LOP など）は、まわりを 1 周する動き
+                continue
             sweep = r.get("sweep")
             self.assertTrue(sweep, f"{r['key']}: 置くだけで形ができるものにも、動き（GIF）を付ける")
             self.assertNotEqual(sweep["from"], sweep["to"], r["key"])
-            self.assertEqual(sweep, create_sweep(r["type"][0]), r["key"])
+            if not r.get("cop"):  # COP は、recipes_cop.py に、それぞれの動かす値がある
+                self.assertEqual(sweep, create_sweep(r["type"][0]), r["key"])
         self.assertIsNone(create_sweep("nosuchnode"))
         self.assertIn("box", CREATE_SWEEPS)
 

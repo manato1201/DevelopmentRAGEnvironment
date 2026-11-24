@@ -642,6 +642,7 @@ class Target:
     note: str = ""         # 画面に出す、補足や、見つからない理由
     container: object = None  # 見つからないとき、代わりに開くネットワーク
     expected: str = ""     # 手順が指す、自分のネットワークでのパス
+    container_exact: bool = False  # container が、手順の階層そのものか（False = 手順の階層が無く、近い祖先で代用した）
 
 
 def _bases(mode: str, sandbox_path: str, create: bool) -> list[tuple[str, str]]:
@@ -683,7 +684,8 @@ def _search_base(hou, root_path: str, label: str, name: str, rel: str, type_name
     parent_rel = _parent_rel(rel)
     parent_path = f"{root_path.rstrip('/')}/{parent_rel}" if parent_rel else root_path
     if create:  # 作る手順: すでにあるほかのノードを示さない。作る場所（ネットワーク）だけ開く
-        return Target(container=_deepest_existing(hou, parent_path), where=label), notes
+        container = _deepest_existing(hou, parent_path)
+        return Target(container=container, where=label, container_exact=_path_of(container) == parent_path.rstrip("/")), notes
     # 2. 名前（と種類）が一致するものが、ほかの場所に1つだけある
     budget = [_MAX_SEARCH]
     if name:
@@ -712,7 +714,32 @@ def _search_base(hou, root_path: str, label: str, name: str, rel: str, type_name
                               note=f"名前が違う同じ種類のノードを示しました: {same[0].path()}（手順の名前は {name}）"), notes
             if len(same) > 1:
                 notes.append(f"{container.path()} に同じ種類のノードが複数あります（{'、'.join(c.name() for c in same[:6])}）。名前を {name} にすると、案内できます")
-    return Target(container=_deepest_existing(hou, parent_path), where=label), notes
+    container = _deepest_existing(hou, parent_path)
+    return Target(container=container, where=label, container_exact=_path_of(container) == parent_path.rstrip("/")), notes
+
+
+def _path_of(node) -> str:
+    try:
+        return node.path().rstrip("/") if node is not None else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _is_own_workplace(path: str) -> bool:
+    """学習者が、自分で作業している場所か（/obj の下で、/obj そのものでも、サンドボックスの中でもない）。"""
+    if not path.startswith(OWN_ROOT + "/"):
+        return False
+    top = path[len(OWN_ROOT) + 1:].split("/", 1)[0]
+    return not top.startswith(SANDBOX_PREFIX)
+
+
+def keep_workplace(current: str, container: str, exact: bool) -> bool:
+    """作る手順で、表示を動かさないか（2026-11-24。実証実験の「新しいノードを作ると、obj 階層に戻る」）。
+    手順の階層が無く（exact でない）、近い祖先（多くは /obj）で代用したとき、学習者が自分の作業場所にいるなら、そこから動かさない。
+    （手順のパスは、サンドボックスの名前。学習者が、違う名前のオブジェクトで作業していると、手順の階層は無い）"""
+    if exact or not _is_own_workplace(current):
+        return False
+    return current == container or current.startswith(container.rstrip("/") + "/")
 
 
 def resolve_step_target(hou, step: dict, sandbox_path: str = "", mode: str = "auto") -> Target:
@@ -736,6 +763,7 @@ def resolve_step_target(hou, step: dict, sandbox_path: str = "", mode: str = "au
     bases = _bases(mode, sandbox_path, create)
     notes: list[str] = []
     container = None
+    container_exact = False
     if mode == "sandbox" and not sandbox_path:
         notes.append("この案内データには、サンドボックスのパスがありません（以前の保存）。「自分のネットワーク」で案内します")
         bases = _bases("own", sandbox_path, create)
@@ -744,6 +772,7 @@ def resolve_step_target(hou, step: dict, sandbox_path: str = "", mode: str = "au
         notes += why
         if container is None and found.container is not None:
             container = found.container
+            container_exact = found.container_exact
         if found.node is not None:
             if label == "sandbox" and mode == "auto":
                 found.note = (f"自分のネットワークには見つからないので、サンドボックスの実物 {found.node.path()} を示しました（見本です）"
@@ -755,7 +784,7 @@ def resolve_step_target(hou, step: dict, sandbox_path: str = "", mode: str = "au
     reason = f"「{name or step.get('node_label') or '？'}」" + (f"（{expected}）" if expected else "") + "は見つかりません"
     if create:
         reason = f"「{step.get('node_label') or step.get('node_type') or name}」" + (f"（{expected}）" if expected else "") + "は、まだありません"
-    return Target(container=container, expected=expected, note=reason + ("。" + "。".join(notes) if notes else ""))
+    return Target(container=container, expected=expected, container_exact=container_exact, note=reason + ("。" + "。".join(notes) if notes else ""))
 
 
 def find_node(hou, name: str, type_name: str = ""):
@@ -970,7 +999,12 @@ def apply_step(hou, step: dict, sandbox_path: str = "", mode: str = "auto") -> l
         if h.node is None and h.container is not None and not found:
             editor = _pane(hou, "network")
             try:
-                if editor is not None and editor.pwd().path() != h.container.path():
+                current = editor.pwd().path() if editor is not None else ""
+                if keep_workplace(current, h.container.path(), h.container_exact):
+                    if tool == "create_node":
+                        messages.append(f"いまの {current} で、Tab を押して作れます（手順の場所 {h.expected.rsplit('/', 1)[0] or OWN_ROOT} は無いので、表示は動かしません）")
+                    continue
+                if editor is not None and current != h.container.path():
                     editor.setPwd(h.container)
                 if tool == "create_node":
                     messages.append(f"{h.container.path()} を開きました。ここで Tab を押して作ります")

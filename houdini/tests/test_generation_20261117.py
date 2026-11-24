@@ -969,7 +969,7 @@ class TimingTest(unittest.TestCase):
         self.ex._screenshot_dir = None
 
     def test_tool_and_capture_time_are_recorded_separately(self):
-        clock = iter([0.0, 2.0, 2.0, 7.0])  # 本体 2秒 → 撮影 5秒
+        clock = iter([0.0, 0.0, 2.0, 2.0, 7.0])  # 開始 → メインスレッドで動き始め（待ち 0 秒。2026-11-25 に足した計測）→ 本体 2秒 → 撮影 5秒
         self.ex._tool_cook_node = lambda args: "cook 成功: a"
         self.ex._capture_step_screenshot = lambda *a: None
         with mock.patch.object(ht.time, "monotonic", side_effect=lambda: next(clock)):

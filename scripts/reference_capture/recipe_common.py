@@ -9,14 +9,14 @@ SPHERE = {"type": "sphere", "parms": {"type": 2, "rows": 40, "cols": 80}}  # 多
 
 def input_specs(recipe: dict) -> list[dict]:
     """レシピの「入力の鎖」（元のノード + 後ろにつなぐノード）の一覧。入力を持たないもの（create）と、つなぎ方を書くもの（graph）は、空。"""
-    if recipe.get("create") or recipe.get("graph"):
+    if recipe.get("create") or recipe.get("graph") or recipe.get("cop"):
         return []
     return recipe.get("inputs") or [recipe["input"]]
 
 
 def graph_nodes(recipe: dict) -> list[dict]:
     """graph（つなぎ方を書くレシピ）のノードの一覧。無ければ、空。"""
-    return list((recipe.get("graph") or {}).get("nodes") or [])
+    return list((recipe.get("graph") or recipe.get("cop") or {}).get("nodes") or [])  # COP（cop）も、同じ形
 
 
 # 入力が無く、置くだけで形ができるノード（Box・Sphere など）の動き: 大きさ・長さ・回数のパラメータを、小さい値から最後の値まで動かす（2026-11-24）。

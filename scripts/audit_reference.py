@@ -67,7 +67,7 @@ def recipe_names(key: str) -> list[str]:
             for spec in input_specs(recipe):  # create・graph は、入力の鎖を持たない
                 for part in (spec, *(spec.get("after") or [])):
                     names += [*(part.get("parms") or {}), part["type"]]
-            for part in [*graph_nodes(recipe), *(recipe.get("lights") or [])]:
+            for part in [*graph_nodes(recipe), *(recipe.get("lights") or []), *((recipe.get("vop") or {}).get("nodes") or [])]:
                 names += [*(part.get("parms") or {}), *([part["type"]] if isinstance(part["type"], str) else part["type"])]
             if recipe.get("sweep"):
                 names.append(recipe["sweep"]["parm"])

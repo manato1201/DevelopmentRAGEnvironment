@@ -165,14 +165,37 @@ def _fmt(parms: dict) -> str:
     return "、".join(f"{k} = {v}" for k, v in parms.items()) or "初期値のまま"
 
 
+def _vop_steps(recipe: dict) -> str:
+    """VOP のレシピ（Attribute VOP の中の配線）を、説明の材料の文にする（2026-11-25）。"""
+    spec = recipe.get("input") or {}
+    lines = [f"1. {spec.get('type', '?')} ノードを作り（{_fmt(spec.get('parms') or {})}）、その出力に Attribute VOP ノードをつなぐ",
+             "2. Attribute VOP の中に入る（geometryvopglobal1 と geometryvopoutput1 が、最初からある）"]
+    alias = {"global": "geometryvopglobal1", "out": "geometryvopoutput1"}
+    for node in recipe["vop"].get("nodes") or []:
+        type_name = node["type"] if isinstance(node["type"], str) else node["type"][0]
+        lines.append(f"{len(lines) + 1}. {type_name} ノードを置く（{_fmt(node.get('parms') or {})}）")
+        alias[node["name"]] = type_name
+    for src, output, dst, input_ in recipe["vop"].get("wires") or []:
+        out_text = f"{output} 出力" if isinstance(output, str) else f"{output + 1} 番目の出力"
+        in_text = f"{input_} 入力" if isinstance(input_, str) else f"{input_ + 1} 番目の入力"
+        lines.append(f"{len(lines) + 1}. {alias.get(src, src)} の {out_text}を、{alias.get(dst, dst)} の {in_text}につなぐ")
+    if recipe.get("note"):
+        lines.append(f"補足: {recipe['note']}")
+    return "\n".join(lines)
+
+
 def _graph_steps(recipe: dict) -> str:
     """つなぎ方を書くレシピ（graph。Vellum・RBD・ライトなど）を、説明の材料の文にする。"""
     lines: list[str] = []
-    for spec in recipe["graph"]["nodes"]:
+    if recipe.get("cop"):
+        lines.append("1. COP ネットワーク（copnet）を作り、その中で、次のノードを置く（できた画像を、そのまま撮った）")
+    for spec in (recipe.get("graph") or recipe.get("cop"))["nodes"]:
         type_name = spec["type"] if isinstance(spec["type"], str) else spec["type"][0].split("::")[0]
         refs = [(r, 0) if isinstance(r, str) else tuple(r) if r is not None else None for r in spec.get("inputs") or []]
         wiring = "、".join(f"{i + 1} 番目の入力に {r[0]}" + (f"（{r[1] + 1} 番目の出力）" if r[1] else "") for i, r in enumerate(refs) if r)
-        lines.append(f"{len(lines) + 1}. {type_name} ノード {spec['name']} を作る（{_fmt(spec.get('parms') or {})}）" + (f"。{wiring}をつなぐ" if wiring else ""))
+        parms = {k: (f"/stage の {v[1:]} ノード" if isinstance(v, str) and v.startswith("@") else v) for k, v in (spec.get("parms") or {}).items()}
+        place = "（/stage に置く）" if spec.get("context") == "stage" else ""
+        lines.append(f"{len(lines) + 1}. {type_name} ノード {spec['name']}{place} を作る（{_fmt(parms)}）" + (f"。{wiring}をつなぐ" if wiring else ""))
     for spec in recipe.get("lights") or []:
         type_name = spec["type"] if isinstance(spec["type"], str) else spec["type"][0]
         lines.append(f"{len(lines) + 1}. /obj に、ライト（{type_name}）を置く（{_fmt(spec.get('parms') or {})}）")
@@ -192,8 +215,10 @@ def verified_steps(key: str) -> str:
         if recipe["key"] != key:
             continue
         name = key.split("/")[-1]
-        if recipe.get("graph"):
+        if recipe.get("graph") or recipe.get("cop"):
             return _graph_steps(recipe)
+        if recipe.get("vop"):
+            return _vop_steps(recipe)
         specs = [] if recipe.get("create") else (recipe.get("inputs") or [recipe["input"]])  # create = 入力を持たず、置くだけで形ができるノード
         lines: list[str] = []
         outputs: list[str] = []

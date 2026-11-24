@@ -25,8 +25,8 @@ BUTTON = QColor("#3a3d44")
 TARGET = QColor("#ef4444")
 TEXT = QColor("#e5e7eb")
 MUTED = QColor("#9ca3af")
-CELL_W, CELL_H, ICON = 88, 96, 44
-MAX_BUTTONS = 10  # 横に並べるボタンの数（多いシェルフは、ツールを中心に前後を切り出す）
+CELL_W, CELL_H, ICON = 122, 124, 56
+MAX_BUTTONS = 7  # 横に並べるボタンの数（多いシェルフは、ツールを中心に前後を切り出す）
 
 
 def find_icons_zip() -> Path | None:
@@ -78,12 +78,13 @@ def render(info: dict, path: Path, zip_path: Path | None = None) -> bool:
 def _draw(info: dict, path: Path, archive: zipfile.ZipFile | None) -> bool:
     names = set(archive.namelist()) if archive else set()
 
+    # 文字は大きめ（2026-11-25。パネルで縮めて出すと、小さい文字が潰れて読めなかった）
     font = QFont()
-    font.setPixelSize(15)
+    font.setPixelSize(20)
     small = QFont()
-    small.setPixelSize(12)
+    small.setPixelSize(16)
     big = QFont()
-    big.setPixelSize(17)
+    big.setPixelSize(22)
     big.setBold(True)
     fm = QFontMetrics(font)
 
@@ -93,7 +94,7 @@ def _draw(info: dict, path: Path, archive: zipfile.ZipFile | None) -> bool:
     buttons, more_before, more_after = window_of(info["tools"], next((t["name"] for t in info["tools"] if t["label"] == info["label"]), ""))
     target_name = next((t["name"] for t in info["tools"] if t["label"] == info["label"]), "")
 
-    tab_h = 30
+    tab_h = 38
     height = MARGIN + 28 + len(rows) * (tab_h + 4) + 14 + 44 + CELL_H + 18 + 34 + MARGIN
     image = QImage(WIDTH, height, QImage.Format_ARGB32)
     image.fill(BG)
@@ -142,7 +143,7 @@ def _draw(info: dict, path: Path, archive: zipfile.ZipFile | None) -> bool:
         p.setFont(small)
         p.setPen(QColor("#ffffff") if is_target else TEXT)
         label = QFontMetrics(small).elidedText(tool["label"], Qt.ElideRight, CELL_W - 8)
-        p.drawText(QRectF(x + 4, y + ICON + 14, CELL_W - 8, 32), Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, tool["label"] if QFontMetrics(small).horizontalAdvance(tool["label"]) < (CELL_W - 8) * 2 else label)
+        p.drawText(QRectF(x + 4, y + ICON + 14, CELL_W - 8, 44), Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, tool["label"] if QFontMetrics(small).horizontalAdvance(tool["label"]) < (CELL_W - 8) * 2 else label)
         if is_target:
             p.setPen(TARGET)
             p.setFont(big)

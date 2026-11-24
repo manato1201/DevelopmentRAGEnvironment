@@ -184,5 +184,45 @@ class ApplyStepTest(unittest.TestCase):
         self.assertTrue(any("まだありません" in m and "/obj/geo1" in m for m in messages), messages)
 
 
+
+class CreateStepKeepsTheWorkplaceTest(unittest.TestCase):
+    """実証実験（2026-11-24）: 「新しいノードを作ると、表示が obj 階層に戻る」。
+    作る手順の階層（サンドボックスの名前 geo1）が無いと、一番深い既存の階層 /obj へ移していた。"""
+
+    STEP = {"tool": "create_node", "tab": "network", "node": "scatter2", "node_path": "geo1/scatter2",
+            "node_type": "scatter::2.0", "node_label": "Scatter"}
+
+    def _pwd(self, world) -> str:
+        return world.hou.ui.paneTabOfType(world.hou.paneTabType.NetworkEditor).pwd().path()
+
+    def test_working_in_an_own_object_with_another_name_stays_there(self):
+        world = make_world({"/obj/pyro_geo/box1": "box"}, pwd="/obj/pyro_geo")
+        messages = gm.apply_step(world.hou, dict(self.STEP))
+        self.assertEqual(self._pwd(world), "/obj/pyro_geo", "the editor must not jump back to /obj")
+        self.assertTrue(any("いまの /obj/pyro_geo" in m for m in messages), messages)
+
+    def test_when_the_step_network_exists_it_is_opened_as_before(self):
+        world = make_world({"/obj/geo1/box1": "box", "/obj/other": "geo"}, pwd="/obj/other")
+        messages = gm.apply_step(world.hou, dict(self.STEP))
+        self.assertEqual(self._pwd(world), "/obj/geo1")
+        self.assertTrue(any("/obj/geo1 を開きました" in m for m in messages), messages)
+
+    def test_outside_the_own_network_it_still_moves(self):
+        """/obj そのもの・サンドボックスの中・/obj の外にいるときは、これまでどおり、作る場所を開く。"""
+        for pwd, nodes in (("/obj", {}), (f"{OLD_SANDBOX}/geo1", {f"{OLD_SANDBOX}/geo1/x": "box"})):
+            world = make_world(nodes, pwd=pwd)
+            gm.apply_step(world.hou, dict(self.STEP))
+            self.assertEqual(self._pwd(world), "/obj", pwd)
+
+    def test_keep_workplace_rules(self):
+        self.assertTrue(gm.keep_workplace("/obj/pyro_geo", "/obj", exact=False))
+        self.assertTrue(gm.keep_workplace("/obj/pyro_geo/inner", "/obj/pyro_geo", exact=False))
+        self.assertFalse(gm.keep_workplace("/obj/pyro_geo", "/obj", exact=True), "the step network exists: open it")
+        self.assertFalse(gm.keep_workplace("/obj", "/obj", exact=False), "/obj itself is not a workplace")
+        self.assertFalse(gm.keep_workplace("/obj/ai_tutorial_1/geo1", "/obj", exact=False), "a sandbox is not a workplace")
+        self.assertFalse(gm.keep_workplace("/stage", "/obj", exact=False))
+        self.assertFalse(gm.keep_workplace("/obj/a", "/obj/b", exact=False), "only an ancestor container is replaced")
+
+
 if __name__ == "__main__":
     unittest.main()

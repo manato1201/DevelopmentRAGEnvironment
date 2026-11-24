@@ -165,3 +165,18 @@ RECIPES.extend(_build_more())
 from recipes_dyn import build as _build_dyn  # noqa: E402
 
 RECIPES.extend(_build_dyn())
+
+# VOP（recipes_vop.py）を足す
+from recipes_vop import build as _build_vop  # noqa: E402
+
+RECIPES.extend(_build_vop())
+
+# LOP（recipes_lop.py）を足す
+from recipes_lop import build as _build_lop  # noqa: E402
+
+RECIPES.extend(_build_lop())
+
+# COP（recipes_cop.py）を足す
+from recipes_cop import build as _build_cop  # noqa: E402
+
+RECIPES.extend(_build_cop())

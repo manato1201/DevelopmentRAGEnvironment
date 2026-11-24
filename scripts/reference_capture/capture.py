@@ -76,7 +76,11 @@ def flatten(path: Path) -> None:
     from PIL import Image
     import screen_capture as sc
 
-    image = Image.open(path)
+    import io
+
+    # バイト列から開く（ファイルから開くと、PGM・PPM は、ファイルを mmap したままになり、Windows では、同じファイルに書けない。COP で起きた）
+    image = Image.open(io.BytesIO(path.read_bytes()))
+    image.load()
     if image.mode == "RGBA":
         background = Image.new("RGBA", image.size, tuple(sc.VIEWPORT_BACKGROUND_RGB) + (255,))
         image = Image.alpha_composite(background, image)
@@ -166,6 +170,31 @@ def fill_toggle_gifs(out: Path, only: set[str]) -> None:
     print(f"作った {made} 件 / 飛ばした {skipped} 件")
 
 
+def vop_diagram(recipe: dict) -> dict:
+    """VOP のレシピ（Attribute VOP の中）の図。Global が上、Output が下、そのあいだに、つないだ順のノード。"""
+    vop = recipe["vop"]
+    names = ["global", *[n["name"] for n in vop.get("nodes") or []], "out"]
+    labels = {"global": "geometryvopglobal", "out": "geometryvopoutput"}
+    labels.update({n["name"]: (n["type"] if isinstance(n["type"], str) else n["type"][0]) for n in vop.get("nodes") or []})
+    depth = {"global": 0}
+    for _ in names:  # つなぎから、深さ（上からの段）を決める
+        for src, _out, dst, _in in vop.get("wires") or []:
+            depth[dst] = max(depth.get(dst, 1), depth.get(src, 0) + 1)
+    depth["out"] = max(depth.values()) + (0 if "out" in depth and depth["out"] > max(v for k, v in depth.items() if k != "out") else 1)
+    levels = max(depth.values())
+    used: dict[int, int] = {}
+    nodes, edges = [], []
+    for name in names:
+        level = depth.get(name, 1)
+        column = used.get(level, 0)
+        used[level] = column + 1
+        nodes.append({"id": f"/obj/ref/node/{name}", "label": labels[name], "kind": labels[name], "parent": "/obj/ref/node",
+                      "position": [column * 180.0, float(levels - level)]})
+    for i, (src, out, dst, inp) in enumerate(vop.get("wires") or []):
+        edges.append({"source": f"/obj/ref/node/{src}", "target": f"/obj/ref/node/{dst}", "targetInput": inp if isinstance(inp, int) else i})
+    return {"sandbox": "/obj/ref/node", "nodes": nodes, "edges": edges}
+
+
 def render_node_image(recipe: dict, path: Path) -> bool:
     """ノード図（入力 → ノード）。保存済みグラフの描画を使う（Qt。Houdini は不要）。"""
     from PySide6.QtGui import QGuiApplication
@@ -177,8 +206,10 @@ def render_node_image(recipe: dict, path: Path) -> bool:
     inputs = input_specs(recipe)
     nodes: list[dict] = []
     edges: list[dict] = []
-    if recipe.get("graph"):
-        return sc.render_graph_diagram(graph_diagram(recipe), path, width=960, height=360)
+    if recipe.get("graph") or recipe.get("cop"):
+        return sc.render_graph_diagram(graph_diagram(recipe), path, width=720, height=300)
+    if recipe.get("vop"):
+        return sc.render_graph_diagram(vop_diagram(recipe), path, width=720, height=300)
     for i, spec in enumerate(inputs):
         chain = [spec, *(spec.get("after") or [])]  # 元のノード → 後ろにつなぐノード…（hython_shot.py の build_chain と同じ並び）
         for k, step in enumerate(chain):
@@ -193,7 +224,7 @@ def render_node_image(recipe: dict, path: Path) -> bool:
         last = f"in{i}" if not spec.get("after") else f"in{i}_{len(spec['after']) - 1}"
         edges.append({"source": f"/obj/ref/{last}", "target": "/obj/ref/node", "targetInput": i})
     graph = {"sandbox": "/obj/ref", "nodes": nodes, "edges": edges}
-    return sc.render_graph_diagram(graph, path, width=960, height=360)
+    return sc.render_graph_diagram(graph, path, width=720, height=300)  # 小さめの画面に描く: パネルで縮めても、ノード名が読める（2026-11-25）
 
 
 def capture_one(hython: str, recipe: dict, out: Path, clip: bool = True) -> dict:
@@ -210,7 +241,7 @@ def capture_one(hython: str, recipe: dict, out: Path, clip: bool = True) -> dict
                 flatten(target / f"{mode}.png")
             else:
                 meta["errors"].append(reason)
-        if clip and not meta["errors"] and (recipe.get("sweep") or recipe.get("animate") or recipe.get("sim") or recipe.get("create")):
+        if clip and not meta["errors"] and (recipe.get("sweep") or recipe.get("animate") or recipe.get("sim") or recipe.get("create")) and (not recipe.get("cop") or recipe.get("sweep")):
             frames = Path(tmp) / "frames"
             ok, reason, seconds = run_shot(hython, recipe_path, "clip", frames)
             meta["seconds"]["clip"] = round(seconds, 1)
