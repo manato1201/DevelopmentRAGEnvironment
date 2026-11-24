@@ -106,6 +106,7 @@ export interface TaskPlanItem {
   done: boolean;
   active: boolean; // 開始したが、まだ終えていない
   optional: boolean; // 任意（自由課題。1コマに収めるため、固定課題だけで参加は完了。2026-11-13）
+  locked: boolean; // まだ始められない（自由課題は、必須の固定課題を終えたあと、時間が余ったときだけ。2026-11-24）
 }
 
 export interface TaskPlan {
@@ -140,8 +141,8 @@ export function buildPlan(slot: number, sessions: PlanSession[], openRound = 0, 
     canStart: joined != null || accepting,
     completed: done("fixed"),
     finished: done("fixed") && done("free"),
-    fixed: { kind: "fixed", taskId, label: TASKS[taskId], condition, done: done("fixed"), active: active("fixed"), optional: false },
-    free: { kind: "free", taskId: "free", label: "自分の作りたいもの", condition: "system", done: done("free"), active: active("free"), optional: true },
+    fixed: { kind: "fixed", taskId, label: TASKS[taskId], condition, done: done("fixed"), active: active("fixed"), optional: false, locked: false },
+    free: { kind: "free", taskId: "free", label: "自分の作りたいもの", condition: "system", done: done("free"), active: active("free"), optional: true, locked: !done("fixed") },
     criterion: CRITERION,
   };
 }
@@ -492,6 +493,8 @@ export async function handlePilotSessionStart(req: Request, env: Env, user: Auth
   if (plan.finished) return jsonResponse(409, { error: "課題は、すべて完了しています" });  // 自由課題は任意。固定課題だけを終えた人は、自由課題を始められる
   if (!plan.canStart || plan.round == null) return jsonResponse(409, { error: "いま、課題は受け付けていません。運営からの案内をお待ちください", code: "closed" });
   const item = kind === "fixed" ? plan.fixed : plan.free;
+  // 固定課題は必須、自由課題は、固定課題を終えたあと、1 コマ（約 90 分）の時間が余ったときだけの任意（先に自由課題を始めて、必須の課題の時間を使わない）
+  if (item.locked) return jsonResponse(409, { error: "自由課題は、固定課題（必須）を終えたあとに、時間が余ったときだけ行えます。先に固定課題を行ってください", code: "fixed_first" });
   if (item.done) return jsonResponse(409, { error: `第${plan.round}回の${kind === "fixed" ? "固定" : "自由"}課題は、完了しています` });
   const open = sessions.find((s) => s.round === plan.round && s.kind === kind && s.ended_at == null);
   if (open) {

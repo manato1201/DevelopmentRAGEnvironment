@@ -211,8 +211,9 @@ def format_history_line(item: dict) -> str:
 
 
 def format_task_title(kind: str, item: dict) -> str:
-    """課題カードの見出し。条件（ツール使用／ドキュメントのみ）を、題材と並べてはっきり出す。自由課題は任意。"""
-    optional = "（任意）" if item.get("optional") else ""
+    """課題カードの見出し。条件（ツール使用／ドキュメントのみ）を、題材と並べてはっきり出す。
+    固定課題は「必須」、自由課題は「任意（時間が余ったとき）」と出す（2026-11-24。optional が無い古い応答は、何も付けない）。"""
+    optional = "（任意・時間が余ったとき）" if item.get("optional") else "（必須）" if item.get("optional") is False else ""
     label = CONDITION_LABEL.get(item.get("condition"))
     return f"{KIND_TEXT.get(kind, kind)}{optional}: {item.get('label', '')}" + (f"［{label}］" if label else "")
 

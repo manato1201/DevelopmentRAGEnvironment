@@ -1435,6 +1435,7 @@ export function chatUiHtml(): string {
       <div class="section">
         <h2>受け付ける回の切り替え</h2>
         <p class="hint">回 = 募集期間です。<b>いま新しく参加できる回</b>を選びます（「受付停止」にもできます）。参加者は、受け付けている回に<b>1回だけ</b>参加します。すでに参加している人は、受付を止めても、自分の回を最後まで続けられます。表の「完了した人」は、<b>固定課題を終えた人</b>です（自由課題は任意）。</p>
+        <p class="hint" id="pilotRoundNow">いま受け付けている回（サーバーの値）: -</p>
         <div class="field-row"><label for="pilotRoundOpen">いま受け付ける回</label>
           <select id="pilotRoundOpen"><option value="0">受付停止</option><option value="1">第1回</option><option value="2">第2回</option></select></div>
         <div class="field-row"><label for="pilotRoundLabel1">第1回の期間（表示）</label><input type="text" id="pilotRoundLabel1" maxlength="40" placeholder="例: 11/16〜11/21"></div>
@@ -3555,10 +3556,16 @@ ${ASCII_ART_JS}
     loadPilotTasks();
   }
   // 受け付ける回の切り替え（/admin/pilot/config。管理者だけ）。何も送らなければ、いまの状態だけ返る
+  // 2026-11-24: 自動更新（管理画面の更新。オンのとき 1 分ごと）が、この関数を呼び、選んだだけの「いま受け付ける回」を、サーバーの値（受付停止）に
+  // 戻していた。選んで「保存」を押す前に更新が入ると、選択が消えて、受付停止のまま保存される（「切り替えができない・保存できていない」の原因）。
+  // 選んだ・書いたあと、保存するまでは（dirty）、更新で、画面の値を上書きしない。
+  const pilotDirty = { rounds: false, mode: false };
   async function loadPilotRounds(update) {
     try {
       const data = await api("/admin/pilot/config", update || {});
       const select = $("pilotRoundOpen");
+      const keepRounds = pilotDirty.rounds && !update;
+      const chosen = select.value;
       select.innerHTML = "";
       const stop = document.createElement("option");
       stop.value = "0";
@@ -3570,14 +3577,21 @@ ${ASCII_ART_JS}
         opt.textContent = "第" + r.round + "回" + (r.label ? "（" + r.label + "）" : "");
         select.appendChild(opt);
         const input = $("pilotRoundLabel" + r.round);
-        if (input && document.activeElement !== input) input.value = r.label || "";
+        if (input && !keepRounds && document.activeElement !== input) input.value = r.label || "";
       });
-      select.value = String(data.openRound);
+      select.value = keepRounds ? chosen : String(data.openRound);
+      if (update) pilotDirty.rounds = false;
+      // いま、サーバーが受け付けている回（画面の選択ではなく、サーバーの値）。選んだだけで、保存していないときの食い違いが、見て分かる
+      const nowOpen = data.rounds.find((r) => r.open);
+      const nowEl = $("pilotRoundNow");
+      if (nowEl) nowEl.textContent = "いま受け付けている回（サーバーの値）: " + (nowOpen ? "第" + nowOpen.round + "回" + (nowOpen.label ? "（" + nowOpen.label + "）" : "") : "受付停止")
+        + (keepRounds && chosen !== String(data.openRound) ? "　※ 選んだだけで、まだ保存していません（「保存」を押してください）" : "");
       const tbody = $("pilotRoundTable").querySelector("tbody");
       tbody.innerHTML = "";
       data.rounds.forEach((r) => appendRow(tbody, ["第" + r.round + "回", r.label || "-", r.open ? "受付中" : "-", r.joined + "人", r.finished + "人"]));
       const modeSelect = $("pilotConditionMode");
-      if (modeSelect && document.activeElement !== modeSelect) modeSelect.value = data.conditionMode || "auto";
+      if (modeSelect && !(pilotDirty.mode && !update) && document.activeElement !== modeSelect) modeSelect.value = data.conditionMode || "auto";
+      if (update) pilotDirty.mode = false;
       const modeNames = { auto: "自動（参加者番号から、半々）", system: "全員ツール使用（本システム）", docs_only: "全員ドキュメントのみ" };
       const cc = data.conditionCounts || { system: 0, docs_only: 0 };
       $("pilotConditionNote").textContent = "いまの割り当て: " + (modeNames[data.conditionMode] || modeNames.auto) + "。これまでに始めた固定課題: ツール使用 " + cc.system + "人／ドキュメントのみ " + cc.docs_only + "人。"
@@ -3585,12 +3599,21 @@ ${ASCII_ART_JS}
       return true;
     } catch (e) { showToast("回の状態を読み込めませんでした: " + e.message, "error"); return false; }
   }
+  $("pilotRoundOpen").addEventListener("change", () => { pilotDirty.rounds = true; });
+  $("pilotRoundLabel1").addEventListener("input", () => { pilotDirty.rounds = true; });
+  $("pilotRoundLabel2").addEventListener("input", () => { pilotDirty.rounds = true; });
+  $("pilotConditionMode").addEventListener("change", () => { pilotDirty.mode = true; });
   $("pilotRoundSave").addEventListener("click", async () => {
     const open = Number($("pilotRoundOpen").value) || 0;
     const label = (n) => $("pilotRoundLabel" + n).value.trim();
     const names = open === 0 ? "受付を止めます" : "第" + open + "回を受け付けます";
     if (!confirm(names + "。よろしいですか？（新しく参加する人が、この回に入ります。参加済みの人は、自分の回を続けられます）")) return;
-    if (await loadPilotRounds({ openRound: open, labels: { 1: label(1), 2: label(2) } })) showToast("保存しました: " + names, "success");
+    if (await loadPilotRounds({ openRound: open, labels: { 1: label(1), 2: label(2) } })) {
+      // サーバーが返した値で、保存できたかを確かめる（保存した値と、サーバーの値が違えば、成功と言わない）
+      const saved = Number($("pilotRoundOpen").value) || 0;
+      if (saved === open) showToast("保存しました: " + names, "success");
+      else showToast("保存できませんでした（サーバーの値は、第" + saved + "回のままです）", "error");
+    }
   });
   $("pilotConditionSave").addEventListener("click", async () => {
     const mode = $("pilotConditionMode").value;

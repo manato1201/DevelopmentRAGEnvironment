@@ -127,8 +127,10 @@ await call(pt.handlePilotConfig, admin, { conditionMode: "docs_only" });
 r = await call(pt.handlePilotSessionStart, users[0], { kind: "fixed" }); // slot 1（自動なら本システム）
 assert.equal(r.body.condition, "docs_only");
 const sid1 = r.body.sessionId;
+assert.equal((await call(pt.handlePilotPlan, users[0])).body.free.condition, "system", "the free task always uses the system");
 r = await call(pt.handlePilotSessionStart, users[0], { kind: "free" });
-assert.equal(r.body.condition, "system", "the free task always uses the system");
+assert.equal(r.status, 409, "the free task cannot be started before the required fixed task is done (2026-11-24)");
+assert.equal(r.body.code, "fixed_first");
 // 終えた課題も、そのまま（中断が所要時間を超えないよう、開始を 1 時間前にしておく）
 db.prepare("UPDATE pilot_sessions SET started_at = ? WHERE id = ?").run(Math.floor(Date.now() / 1000) - 3600, sid5);
 await call(pt.handlePilotSessionEnd, users[4], {
@@ -226,5 +228,17 @@ assert.equal(csv.pilotCsvText(null), null);
 assert.deepEqual(csv.pilotCsvRow(["P01", 1, "=HYPERLINK(1)", 2.5, ""]), ["P01", 1, "'=HYPERLINK(1)", 2.5, ""], "every column goes through it");
 // 両方の CSV が、行の全体に対策をかけている
 assert.equal((js.match(/pilotCsvRow\(\[/g) || []).length, 3, "all three pilot CSVs (tasks, learning, profiles) wrap their rows");
+
+// 受け付ける回の選択は、自動更新で、サーバーの値（受付停止）に戻されない（2026-11-24。選んで「保存」を押す前に更新が入ると、受付停止のまま保存されていた）
+{
+  const fn = js.slice(js.indexOf("async function loadPilotRounds(update)"), js.indexOf('$("pilotRoundSave").addEventListener'));
+  assert.match(js, /const pilotDirty = \{ rounds: false, mode: false \}/, "dirty flags exist before loadPilotRounds");
+  assert.match(fn, /const keepRounds = pilotDirty\.rounds && !update;/, "a refresh without an update keeps what the admin picked");
+  assert.match(fn, /select\.value = keepRounds \? chosen : String\(data\.openRound\)/, "the picked round is restored after the options are rebuilt");
+  assert.match(fn, /if \(update\) pilotDirty\.rounds = false/, "a save clears the dirty flag");
+  assert.match(js, /\$\("pilotRoundOpen"\)\.addEventListener\("change", \(\) => \{ pilotDirty\.rounds = true; \}\)/, "choosing a round marks it dirty");
+  assert.match(js, /\$\("pilotRoundNow"\)/, "the server's current round is always shown");
+  assert.match(js, /保存できませんでした（サーバーの値は/, "a save that did not take is reported, not called a success");
+}
 
 console.log("pilot_admin tests passed");

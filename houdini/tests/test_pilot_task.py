@@ -280,10 +280,11 @@ class TextTest(unittest.TestCase):
 
     def test_task_title_carries_the_condition_from_the_server(self):
         item = {"label": "Pyro", "condition": "system", "optional": False}
-        self.assertEqual(pt.format_task_title("fixed", item), "固定課題: Pyro［ツール使用］")
-        self.assertEqual(pt.format_task_title("fixed", {**item, "condition": "docs_only"}), "固定課題: Pyro［ドキュメントのみ］")
+        self.assertEqual(pt.format_task_title("fixed", item), "固定課題（必須）: Pyro［ツール使用］")
+        self.assertEqual(pt.format_task_title("fixed", {**item, "condition": "docs_only"}), "固定課題（必須）: Pyro［ドキュメントのみ］")
         free = pt.format_task_title("free", {"label": "自分の作りたいもの", "condition": "system", "optional": True})
-        self.assertEqual(free, "自由課題（任意）: 自分の作りたいもの［ツール使用］")
+        self.assertEqual(free, "自由課題（任意・時間が余ったとき）: 自分の作りたいもの［ツール使用］")
+        self.assertEqual(pt.format_task_title("fixed", {**item, "optional": False}), "固定課題（必須）: Pyro［ツール使用］", "the fixed task is required")
         self.assertEqual(pt.format_task_title("fixed", {"label": "Pyro"}), "固定課題: Pyro", "no label for an unknown condition")
 
     def test_started_task_overrides_a_stale_plan(self):

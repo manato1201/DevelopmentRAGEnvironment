@@ -394,14 +394,15 @@ class PilotTaskPanel(QWidget):
             card["title"].setText(pt.format_task_title(kind, item))  # 条件（ツール使用／ドキュメントのみ）は、サーバーの値のまま出す
             card["condition"].setText(pt.CONDITION_TEXT.get(item["condition"], ""))
             card["condition"].setStyleSheet("color:#fbbf24;font-weight:bold;" if item["condition"] == "docs_only" else "color:#34d399;font-weight:bold;")
-            card["criterion"].setText(f"到達の基準: {plan.get('criterion', '')}" if kind == "fixed" else "自分が作りたいものを題材にしてください。")
+            card["criterion"].setText(f"到達の基準: {plan.get('criterion', '')}" if kind == "fixed" else "時間が余ったときだけ、自分が作りたいものを題材にしてください。")
             running = bool(self._active and self._active["kind"] == kind)
+            locked = bool(item.get("locked"))  # 自由課題は、必須の固定課題を終えたあとに、時間が余ったときだけ（サーバーも、先には始めさせない）
             card["start"].setText("続きから開始" if item.get("active") and not running else "開始")
-            card["start"].setEnabled(not item["done"] and not running and self._active is None)
+            card["start"].setEnabled(not item["done"] and not running and self._active is None and not locked)
             card["finish"].setEnabled(running)
             card["finish"].setText("答えを再送する" if running and self._pending_end else _FINISH_TEXT)
             card["restart"].setEnabled(running)
-            card["status"].setText("完了しました" if item["done"] else ("" if not running else "記録中…"))
+            card["status"].setText("完了しました" if item["done"] else ("記録中…" if running else "固定課題（必須）を終えると、時間が余ったときに行えます" if locked else ""))
 
     def _rebuild_history(self, history: list) -> None:
         """完了した記録の一覧。「やり直す」が出る（計測中の記録は、カードの「計測をやり直す」）。"""
