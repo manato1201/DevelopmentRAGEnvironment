@@ -15,7 +15,7 @@ assert.deepEqual(pt.assignmentForSlot(4), { taskId: "pyro", condition: "docs_onl
 assert.deepEqual(pt.assignmentForSlot(4, "auto"), pt.assignmentForSlot(4));
 assert.deepEqual(pt.assignmentForSlot(4, "system"), { taskId: "pyro", condition: "system" }, "all-system keeps the subject, changes only the condition");
 assert.deepEqual(pt.assignmentForSlot(2, "docs_only"), { taskId: "rbd", condition: "docs_only" });
-assert.deepEqual([1, 2, 3, 4, 5, 6].map((s) => pt.assignmentForSlot(s, "system").taskId), ["pyro", "rbd", "cloud", "pyro", "rbd", "cloud"], "subjects still rotate");
+assert.deepEqual([1, 2, 3, 4, 5, 6].map((s) => pt.assignmentForSlot(s, "system").taskId), ["pyro", "rbd", "rbd", "pyro", "rbd", "rbd"], "no cloud any more");
 assert.deepEqual(pt.assignmentForSlot(4, "bogus"), pt.assignmentForSlot(4), "an unknown mode falls back to auto");
 assert.deepEqual(pt.CONDITION_MODES, ["auto", "system", "docs_only"]);
 

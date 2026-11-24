@@ -37,7 +37,8 @@ export const TASKS: Record<TaskId, string> = {
   cloud: "雲（パーティクルでの雲の制作）",
 };
 // 固定課題の題材の並び。slot 1〜3 が本システム、4〜6 が対照（公式ドキュメント・Web検索のみ）で、題材は同じ順に当たる。
-export const TASK_ORDER: TaskId[] = ["pyro", "rbd", "cloud"];
+// 2026-11-24: 雲を外し、割り当て 3・6 の番も RBD にする（運営の指示）。TaskId の "cloud" は、すでに記録した課題を表示するために残す。
+export const TASK_ORDER: TaskId[] = ["pyro", "rbd", "rbd"];
 export const SLOTS = 6;
 
 // slot から、固定課題の題材と条件を決める（登録順の6人ごとに、3題材 × 2条件が1度ずつ当たる）。

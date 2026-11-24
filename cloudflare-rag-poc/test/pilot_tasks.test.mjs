@@ -10,8 +10,9 @@ const pt = await import("../src/pilotTasks");
 // ---- 割り当て（3題材 × 2条件 = 6通りを、登録順に回す） ----
 assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8].map(pt.slotForPid), [1, 2, 3, 4, 5, 6, 1, 2]);
 const cells = [1, 2, 3, 4, 5, 6].map(pt.assignmentForSlot);
-assert.deepEqual(cells.map((c) => `${c.taskId}/${c.condition}`), ["pyro/system", "rbd/system", "cloud/system", "pyro/docs_only", "rbd/docs_only", "cloud/docs_only"]);
-assert.equal(new Set(cells.map((c) => `${c.taskId}/${c.condition}`)).size, 6, "each task × condition cell once per 6 participants");
+assert.deepEqual(cells.map((c) => `${c.taskId}/${c.condition}`), ["pyro/system", "rbd/system", "rbd/system", "pyro/docs_only", "rbd/docs_only", "rbd/docs_only"], "雲は外した（2026-11-24）。割り当て 3・6 も RBD");
+assert.equal(cells.filter((c) => c.taskId === "cloud").length, 0, "no new participant gets the cloud task");
+assert.equal(cells.filter((c) => c.condition === "system").length, 3, "system / docs_only stay balanced");
 assert.deepEqual(pt.assignmentForSlot(7), pt.assignmentForSlot(1), "the cells repeat");
 assert.deepEqual(pt.assignmentForSlot(0), pt.assignmentForSlot(6), "odd slots stay inside the table");
 assert.equal(pt.ROUNDS, 2);
@@ -256,8 +257,8 @@ assert.ok(saved.ended_at >= saved.started_at);
 
 // ---- やり直し ----
 // 計測中の記録を破棄 → 同じ課題を、新しい記録で始め直せる
-r = await call(pt.handlePilotSessionStart, u3, { kind: "fixed" }); // slot 3: 固定課題は、雲（本システム）
-assert.equal(r.body.taskId, "cloud");
+r = await call(pt.handlePilotSessionStart, u3, { kind: "fixed" }); // slot 3: 固定課題は、RBD（本システム。2026-11-24 に、雲から変えた）
+assert.equal(r.body.taskId, "rbd");
 const run1 = r.body.sessionId;
 let plan3 = await call(pt.handlePilotSessionReset, u3, { sessionId: run1 });
 assert.equal(plan3.status, 200);
