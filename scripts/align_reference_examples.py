@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "houdini" / "python_panels"))
 sys.path.insert(0, str(ROOT / "scripts" / "reference_capture"))
 
 import reference_data as rd  # noqa: E402
+from recipes_more import VEX_MORE  # noqa: E402
 from recipes_vex import VEX_RECIPES  # noqa: E402
 
 DEFAULT_CONFIG = Path.home() / ".houdini" / "rag_chatbot_config.json"
@@ -55,7 +56,7 @@ def main() -> int:
     base_dir = str(os.environ.get("RAGREEL_BRIDGE_DIR") or cfg.get("local_bridge_dir") or "")
     only = {k.strip() for k in args.only.split(",") if k.strip()}
     done = missing = 0
-    for recipe in VEX_RECIPES:
+    for recipe in [*VEX_RECIPES, *VEX_MORE]:
         if only and recipe["key"] not in only:
             continue
         path = rd.entry_path(base_dir, "vex", recipe["key"])

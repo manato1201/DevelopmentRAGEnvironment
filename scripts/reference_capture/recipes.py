@@ -152,3 +152,13 @@ RECIPES.extend(VEX_RECIPES)
 from recipes_shelf import build as _build_shelf  # noqa: E402
 
 RECIPES.extend(_build_shelf(RECIPES))
+
+# シミュレーション（recipes_sim.py）を足す
+from recipes_sim import build as _build_sim  # noqa: E402
+
+RECIPES.extend(_build_sim())
+
+# ノード・VEX の追加分（recipes_more.py）を足す
+from recipes_more import build as _build_more  # noqa: E402
+
+RECIPES.extend(_build_more())

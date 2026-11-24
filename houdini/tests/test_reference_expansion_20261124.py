@@ -209,7 +209,7 @@ class RecipeTest(unittest.TestCase):
     def test_eight_recipes_were_added_to_the_capture_list(self) -> None:
         keys = [r["key"] for r in RECIPES if r["kind"] == "node"]  # VEX・シェルフのレシピ（2026-11-24）は、別に数える
         self.assertEqual(len(keys), len(set(keys)))
-        self.assertEqual(len(keys), 41)
+        self.assertEqual(len(keys), 56)  # 41 + 2026-11-24 の 2 回目に足した 15（recipes_more.py・recipes_sim.py）
         for key in self.NEW:
             self.assertIn(key, keys)
 

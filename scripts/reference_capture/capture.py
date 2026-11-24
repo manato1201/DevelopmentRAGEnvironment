@@ -137,7 +137,7 @@ def capture_one(hython: str, recipe: dict, out: Path, clip: bool = True) -> dict
                 flatten(target / f"{mode}.png")
             else:
                 meta["errors"].append(reason)
-        if clip and not meta["errors"] and (recipe.get("sweep") or recipe.get("animate")):
+        if clip and not meta["errors"] and (recipe.get("sweep") or recipe.get("animate") or recipe.get("sim")):
             frames = Path(tmp) / "frames"
             ok, reason, seconds = run_shot(hython, recipe_path, "clip", frames)
             meta["seconds"]["clip"] = round(seconds, 1)

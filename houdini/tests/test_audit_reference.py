@@ -114,7 +114,8 @@ class BatchTest(unittest.TestCase):
         text = bre.verified_steps("sop/mountain")
         self.assertIn("grid", text)
         self.assertIn("height = 1.2", text)
-        self.assertEqual(bre.verified_steps("sop/box"), "")
+        self.assertEqual(bre.verified_steps("sop/merge"), "")  # レシピが無い項目は、空
+        self.assertIn("置く", bre.verified_steps("sop/box"))  # 形を作るノード（create）は、入力なしの文になる
 
 
 if __name__ == "__main__":

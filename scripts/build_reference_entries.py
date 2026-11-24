@@ -174,7 +174,7 @@ def verified_steps(key: str) -> str:
         if recipe["key"] != key:
             continue
         name = key.split("/")[-1]
-        specs = recipe.get("inputs") or [recipe["input"]]
+        specs = [] if recipe.get("create") else (recipe.get("inputs") or [recipe["input"]])  # create = 入力を持たず、置くだけで形ができるノード
         lines: list[str] = []
         outputs: list[str] = []
         for spec in specs:
@@ -184,7 +184,9 @@ def verified_steps(key: str) -> str:
                 lines.append(f"{len(lines) + 1}. その出力に、{step['type']} ノードをつなぐ（{_fmt(step.get('parms') or {})}）")
                 last = step["type"]
             outputs.append(last)
-        if len(outputs) == 1:
+        if not outputs:
+            lines.append(f"1. {name} ノードを置く（{_fmt(recipe['parms'])}）。入力は要らず、置くだけで形ができる")
+        elif len(outputs) == 1:
             lines.append(f"{len(lines) + 1}. {outputs[0]} の出力に、{name} ノードをつなぎ、{_fmt(recipe['parms'])} にする")
         else:
             ports = "、".join(f"{o} を {i + 1} 番目の入力" for i, o in enumerate(outputs))

@@ -208,12 +208,16 @@ def main() -> None:
         parm = target.parm(sweep["parm"])
         if parm is None:
             fail(f"動かすパラメータ {sweep['parm']} がありません")
-        parm.setExpression(f"fit($F,1,{FRAMES},{sweep['from']},{sweep['to']})")
+        parm.setExpression(f"fit($F,1,{int(recipe.get('sim') or 0) or FRAMES},{sweep['from']},{sweep['to']})")
 
     # 前後の両方を、最後の状態で cook して、同じ構図のカメラを決める
     # "animate": true = 式が時間（@Frame・@Time）で動くレシピ。静止画の「適用後」は、動きの最後（FRAMES 枚目）で撮り、動きは、1〜FRAMES 枚目を連番で撮る
     animate = bool(recipe.get("animate"))
-    hou.setFrame(FRAMES if ((sweep and mode == "clip") or animate) else 1)
+    # "sim": N = シミュレーション（Pyro など）。1〜N 枚目を順に cook して進め、静止画の「適用後」は N 枚目、動きは 1〜N 枚目を連番で撮る（2026-11-24）。
+    #   「適用前」は、シミュレーションの入力（1 枚目の元の形）。値を 1 つずつ戻す点検は、シミュレーションを毎回やり直すので、しない（効き目は、絵で確かめる）
+    sim = int(recipe.get("sim") or 0)
+    frames = sim or FRAMES
+    hou.setFrame(1 if sim else (FRAMES if ((sweep and mode == "clip") or animate) else 1))
     # 入力が複数のノード（boolean・copytopoints など）の「適用前」は、入力を全部並べた絵にする（1 つだけ映すと、材料が見えない）
     before_node = node if create else sources[0]
     if len(sources) > 1:
@@ -221,11 +225,21 @@ def main() -> None:
         for i, src in enumerate(sources):
             before_node.setInput(i, src)
     before_geo = geometry_of(before_node)
+    before_sig, before_box = signature(before_geo), before_geo.boundingBox()  # 値で持つ（このあとフレームを進めると、形の参照が古くなる）
+    if sim:
+        for f in range(2, sim + 1):
+            hou.setFrame(f)
+            node.cook(force=True)
+            if node.errors():
+                fail(f"{node.name()} の cook エラー（{f} 枚目）: {node.errors()[0][:120]}")
     after_geo = geometry_of(node)
-    before_sig, after_sig = signature(before_geo), signature(after_geo)
+    after_sig = signature(after_geo)
+    after_box = after_geo.boundingBox()
+    if sim and mode == "before":
+        hou.setFrame(1)
     if before_sig == after_sig and not create:
         fail("適用の前後で、形が何も変わりません（効果が見えない絵になるので、撮りません）")
-    if mode != "clip":
+    if mode != "clip" and not sim:
         idle = ineffective_parms(node, parms, after_sig, recipe.get("keep") or ())
         if sweep:
             idle += ineffective_sweep(node, target, sweep)
@@ -236,8 +250,11 @@ def main() -> None:
         print("CHANGED: " + ", ".join(changed))
         print("OK")
         return
-    lo = [min(before_geo.boundingBox().minvec()[i], after_geo.boundingBox().minvec()[i]) for i in range(3)]
-    hi = [max(before_geo.boundingBox().maxvec()[i], after_geo.boundingBox().maxvec()[i]) for i in range(3)]
+    lo = [min(before_box.minvec()[i], after_box.minvec()[i]) for i in range(3)]
+    hi = [max(before_box.maxvec()[i], after_box.maxvec()[i]) for i in range(3)]
+    view = recipe.get("view")  # {"lo": [...], "hi": [...]} = 構図を、この範囲で決める（シミュレーションの箱は、煙より大きいため）
+    if view:
+        lo, hi = list(view["lo"]), list(view["hi"])
     center = hou.Vector3([(lo[i] + hi[i]) / 2 for i in range(3)])
     size = max(hi[i] - lo[i] for i in range(3)) or 1.0
     radius = 0.5 * math.sqrt(sum((hi[i] - lo[i]) ** 2 for i in range(3))) or 0.5
@@ -265,7 +282,7 @@ def main() -> None:
         os.makedirs(out, exist_ok=True)
         rop.parm("trange").set(1)
         rop.parm("f1").set(1)
-        rop.parm("f2").set(FRAMES)
+        rop.parm("f2").set(frames)
         rop.parm("f3").set(1)
         rop.parm("picture").set(os.path.join(out, "frame.$F4.png").replace("\\", "/"))
     else:
