@@ -27,14 +27,17 @@ class RecipeShapeTest(unittest.TestCase):
         self.assertEqual(len(keys), len(set(keys)))
         for recipe in RECIPES:
             self.assertRegex(recipe["key"], r"^[a-z0-9]+/[a-z0-9_]+$")
-            self.assertEqual(recipe["kind"], "node")
-            self.assertTrue(recipe["type"][0].split("::")[0] == recipe["key"].split("/")[1] or recipe["key"] == "sop/xform", recipe["key"])
+            self.assertIn(recipe["kind"], ("node", "vex", "shelf"))
+            if recipe["kind"] == "node":
+                self.assertTrue(recipe["type"][0].split("::")[0] == recipe["key"].split("/")[1] or recipe["key"] == "sop/xform", recipe["key"])
+            else:  # vex・shelf（2026-11-24）: キーの頭は種類名
+                self.assertTrue(recipe["key"].startswith(recipe["kind"] + "/"), recipe["key"])
 
     def test_every_recipe_has_a_source_and_valid_parts(self) -> None:
         for recipe in RECIPES:
             self.assertIsInstance(recipe["type"], list, recipe["key"])
-            specs = recipe.get("inputs") or [recipe["input"]]
-            self.assertTrue(specs, recipe["key"])
+            specs = [] if recipe.get("create") else (recipe.get("inputs") or [recipe["input"]])  # create = 入力を持たない（Box など）
+            self.assertTrue(specs or recipe.get("create"), recipe["key"])
             for spec in specs:
                 self.assertIn("type", spec)
                 for step in spec.get("after") or []:
@@ -64,6 +67,31 @@ class RecipeShapeTest(unittest.TestCase):
         for recipe in RECIPES:
             for name in recipe.get("keep") or []:
                 self.assertIn(name, recipe.get("parms") or {}, f"{recipe['key']}: keep {name} is not a value of the recipe")
+
+    def test_vex_recipes_run_a_wrangler_and_say_what_to_look_at(self) -> None:
+        """VEX のレシピ（2026-11-24）: attribwrangle の式を、説明の「例」にそのまま載せる。see は、絵の見どころ。"""
+        vex = [r for r in RECIPES if r["kind"] == "vex"]
+        self.assertGreaterEqual(len(vex), 70)
+        for recipe in vex:
+            self.assertEqual(recipe["type"], ["attribwrangle"], recipe["key"])
+            self.assertTrue(str(recipe["parms"].get("snippet") or "").strip(), recipe["key"])
+            self.assertTrue(str(recipe.get("see") or "").strip(), recipe["key"])
+            name = recipe["key"].split("/")[1]
+            self.assertIn(name, recipe["parms"]["snippet"], f"{recipe['key']}: the snippet must use the function it explains")
+
+    def test_shelf_recipes_reuse_node_recipes_or_create_a_shape(self) -> None:
+        node_keys = {r["key"] for r in RECIPES if r["kind"] == "node"}
+        shelf = [r for r in RECIPES if r["kind"] == "shelf"]
+        self.assertGreaterEqual(len(shelf), 30)
+        from recipes_shelf import SHELF_FROM_NODE
+
+        for node_key in SHELF_FROM_NODE.values():
+            self.assertIn(node_key, node_keys)
+        for recipe in shelf:
+            if recipe.get("create"):
+                self.assertNotIn("input", recipe, recipe["key"])
+                self.assertNotIn("inputs", recipe, recipe["key"])
+                self.assertFalse(recipe.get("sweep"), recipe["key"])
 
     def test_at_least_a_dozen_recipes_cover_the_common_nodes(self) -> None:
         self.assertGreaterEqual(len(RECIPES), 15)

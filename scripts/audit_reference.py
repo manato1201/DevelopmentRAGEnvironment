@@ -63,7 +63,7 @@ def recipe_names(key: str) -> list[str]:
     for recipe in RECIPES:
         if recipe["key"] == key:
             names: list[str] = [*recipe["parms"]]
-            for spec in recipe.get("inputs") or [recipe["input"]]:
+            for spec in [] if recipe.get("create") else (recipe.get("inputs") or [recipe["input"]]):  # create = 入力を持たない（Box など）
                 for part in (spec, *(spec.get("after") or [])):
                     names += [*(part.get("parms") or {}), part["type"]]
             if recipe.get("sweep"):

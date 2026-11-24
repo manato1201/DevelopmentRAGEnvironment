@@ -119,7 +119,10 @@ def make_node(parent, type_names, name: str):
 
 
 def geometry_of(node):
-    node.cook(force=True)
+    try:
+        node.cook(force=True)
+    except hou.OperationFailed:  # VEX のコンパイルエラーなど。理由を出して終わる（例外のまま終わると、理由が残らない）
+        fail(f"{node.name()} の cook に失敗: {(list(node.errors()) or list(node.warnings()) or ['原因不明'])[0][:160]}")
     errors = node.errors()
     if errors:
         fail(f"{node.name()} の cook エラー: {errors[0][:120]}")
@@ -175,7 +178,11 @@ def main() -> None:
     geo = obj.createNode("geo", "ref")
     for child in geo.children():
         child.destroy()
-    inputs = recipe.get("inputs") or [recipe["input"]]
+    # "create": true = 入力を持たず、ノードを置くだけで形ができるもの（Box・Sphere・Torus などのシェルフツール）。「適用前」は無く、「適用後」だけを撮る
+    create = bool(recipe.get("create"))
+    if create and mode == "before":
+        fail("形を作るノードには、適用前がありません")
+    inputs = [] if create else (recipe.get("inputs") or [recipe["input"]])
     sources = []
     for i, spec in enumerate(inputs):
         sources.append(build_chain(geo, spec, f"in{i}"))
@@ -204,9 +211,11 @@ def main() -> None:
         parm.setExpression(f"fit($F,1,{FRAMES},{sweep['from']},{sweep['to']})")
 
     # 前後の両方を、最後の状態で cook して、同じ構図のカメラを決める
-    hou.setFrame(FRAMES if (sweep and mode == "clip") else 1)
+    # "animate": true = 式が時間（@Frame・@Time）で動くレシピ。静止画の「適用後」は、動きの最後（FRAMES 枚目）で撮り、動きは、1〜FRAMES 枚目を連番で撮る
+    animate = bool(recipe.get("animate"))
+    hou.setFrame(FRAMES if ((sweep and mode == "clip") or animate) else 1)
     # 入力が複数のノード（boolean・copytopoints など）の「適用前」は、入力を全部並べた絵にする（1 つだけ映すと、材料が見えない）
-    before_node = sources[0]
+    before_node = node if create else sources[0]
     if len(sources) > 1:
         before_node = geo.createNode("merge", "before_merge")
         for i, src in enumerate(sources):
@@ -214,7 +223,7 @@ def main() -> None:
     before_geo = geometry_of(before_node)
     after_geo = geometry_of(node)
     before_sig, after_sig = signature(before_geo), signature(after_geo)
-    if before_sig == after_sig:
+    if before_sig == after_sig and not create:
         fail("適用の前後で、形が何も変わりません（効果が見えない絵になるので、撮りません）")
     if mode != "clip":
         idle = ineffective_parms(node, parms, after_sig, recipe.get("keep") or ())

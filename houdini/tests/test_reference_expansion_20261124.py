@@ -207,7 +207,7 @@ class RecipeTest(unittest.TestCase):
     NEW = ("sop/pointwrangle", "sop/polycap", "sop/polyexpand2d", "sop/polyfill", "sop/ray", "sop/skin", "sop/carve", "sop/convertline")
 
     def test_eight_recipes_were_added_to_the_capture_list(self) -> None:
-        keys = [r["key"] for r in RECIPES]
+        keys = [r["key"] for r in RECIPES if r["kind"] == "node"]  # VEX・シェルフのレシピ（2026-11-24）は、別に数える
         self.assertEqual(len(keys), len(set(keys)))
         self.assertEqual(len(keys), 41)
         for key in self.NEW:

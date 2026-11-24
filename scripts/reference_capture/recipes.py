@@ -142,3 +142,13 @@ RECIPES: list[dict] = [
     {"kind": "node", "key": "sop/convertline", "type": ["convertline"], "input": {"type": "box", "parms": {}}, "parms": {},
      "note": "入力は、初期値の箱。convertline は、面（ポリゴン）を、その縁を通る線（ポリライン）に置き換える。パラメータは、初期値のまま"},
 ]
+
+# VEX の関数（recipes_vex.py）を足す
+from recipes_vex import VEX_RECIPES  # noqa: E402
+
+RECIPES.extend(VEX_RECIPES)
+
+# シェルフツール（recipes_shelf.py）を足す（同じ働きのノードのレシピを使う）
+from recipes_shelf import build as _build_shelf  # noqa: E402
+
+RECIPES.extend(_build_shelf(RECIPES))

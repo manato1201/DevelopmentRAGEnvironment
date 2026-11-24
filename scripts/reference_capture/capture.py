@@ -102,8 +102,8 @@ def render_node_image(recipe: dict, path: Path) -> bool:
 
     app = QGuiApplication.instance() or QGuiApplication([])  # noqa: F841
     types = recipe["type"] if isinstance(recipe["type"], list) else [recipe["type"]]
-    node_label = recipe["key"].split("/")[-1]
-    inputs = recipe.get("inputs") or [recipe["input"]]
+    node_label = recipe["key"].split("/")[-1] if recipe["kind"] == "node" else types[-1].split("::")[0]  # VEX・シェルフの図は、実際に置くノードの名前（attribwrangle など）
+    inputs = [] if recipe.get("create") else (recipe.get("inputs") or [recipe["input"]])
     nodes: list[dict] = []
     edges: list[dict] = []
     for i, spec in enumerate(inputs):
@@ -130,14 +130,14 @@ def capture_one(hython: str, recipe: dict, out: Path, clip: bool = True) -> dict
     with tempfile.TemporaryDirectory() as tmp:
         recipe_path = Path(tmp) / "recipe.json"
         recipe_path.write_text(json.dumps(recipe, ensure_ascii=False), encoding="utf-8")
-        for mode in ("before", "after"):
+        for mode in (("after",) if recipe.get("create") else ("before", "after")):
             ok, reason, seconds = run_shot(hython, recipe_path, mode, target / f"{mode}.png")
             meta["seconds"][mode] = round(seconds, 1)
             if ok:
                 flatten(target / f"{mode}.png")
             else:
                 meta["errors"].append(reason)
-        if clip and not meta["errors"] and recipe.get("sweep"):
+        if clip and not meta["errors"] and (recipe.get("sweep") or recipe.get("animate")):
             frames = Path(tmp) / "frames"
             ok, reason, seconds = run_shot(hython, recipe_path, "clip", frames)
             meta["seconds"]["clip"] = round(seconds, 1)
@@ -164,10 +164,24 @@ def main() -> None:
     parser.add_argument("--out", required=True, help="出力先のフォルダ")
     parser.add_argument("--only", default="", help="撮るキー（カンマ区切り。例: sop/mountain,sop/scatter）。省略すると、全部")
     parser.add_argument("--no-clip", action="store_true", help="動き（GIF）を撮らない")
+    parser.add_argument("--check", action="store_true", help="撮らずに、レシピだけを調べる（cook が通り、前後で形が変わり、値が全部効くか）。レシピを足すときの確かめ用")
+    parser.add_argument("--kind", default="", help="撮る種類（node / vex / shelf。カンマ区切り）。省略すると、全部")
     args = parser.parse_args()
     only = {k.strip() for k in args.only.split(",") if k.strip()}
-    recipes = [r for r in RECIPES if not only or r["key"] in only]
+    kinds = {k.strip() for k in args.kind.split(",") if k.strip()}
+    recipes = [r for r in RECIPES if (not only or r["key"] in only) and (not kinds or r["kind"] in kinds)]
     hython = find_hython()
+    if args.check:
+        bad = 0
+        for recipe in recipes:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "recipe.json"
+                path.write_text(json.dumps(recipe, ensure_ascii=False), encoding="utf-8")
+                ok, reason, seconds = run_shot(hython, path, "check", Path(tmp) / "x")
+            bad += 0 if ok else 1
+            print(("OK " if ok else "NG ") + f"{recipe['key']:<26} {seconds:>4.1f} 秒" + ("" if ok else f"  {reason}"), flush=True)
+        print(f"確認 {len(recipes)} 件 / 不備 {bad} 件")
+        return
     out = Path(args.out)
     print(f"hython: {hython} / {len(recipes)} 件")
     total = 0.0
