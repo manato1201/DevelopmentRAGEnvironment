@@ -141,7 +141,8 @@ class MakeOneGuardTest(unittest.TestCase):
         from unittest import mock
 
         item = {"kind": "vex", "key": "vex/avg", "name": "avg", "label": "avg", "context": "vex"}
-        entry = {k: "x" for k in rd.SECTION_KEYS}
+        entry = {"what": "avg は、数の並びの平均を返す VEX の関数です。", "use": "点の値をならすときに使います。", "example": "avg の結果を属性に入れます。",
+                 "example_point": "平均の変化を見てください。", "when": "複数の値の中心を知りたいときに向いています。外れ値が多いときは向きません。"}
         with mock.patch.object(bre.ra, "make_entry", return_value=(entry, {}, 5, 0)) as made, mock.patch.object(bre.ra, "save_made", return_value=True):
             result = bre.make_one({}, item, {"__vex__": {"vex/avg": True}})
         made.assert_called_once()

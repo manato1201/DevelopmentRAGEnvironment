@@ -229,6 +229,10 @@ def make_one(cfg: dict, item: dict, parms: dict | None = None) -> dict:
         entry, usage, docs_n, refs_n = ra.make_entry(cfg, complete_in_thread(cfg), item, parm_names=(info or {}).get("names"),
                                                      verified=verified_steps(item["key"]), facts=facts_for(item, info))
         problems = entry_problems(item["kind"], item["key"], entry, parms) if parms is not None else []
+        # 品質の点検（check_reference_quality）の error も、保存の前にかける（欄が空・調べた経過の混入・コードブロックなど。2026-11-24: 公開の直前まで気づけなかった）
+        from check_reference_quality import check_entry
+
+        problems += [msg for level, msg in check_entry(item["kind"], item["key"], entry, {"label": str(item.get("label") or ""), "docs_found": docs_n}) if level == "error"]
         if problems:
             return {"key": item["key"], "ok": False, "why": "; ".join(problems)[:200], "usage": usage}
         ra.save_made(str(cfg.get("local_bridge_dir") or ""), item, entry, docs_n, refs_n)

@@ -4,6 +4,7 @@
 
 調べること（問題の重さ: error = 公開しない / warn = 目で確かめる）:
   error  欄が足りない（何をする・使いどころが空）／上限（700 文字）を超える／日本語が無い／コードブロック・TODO などが混ざる
+  error  調べた経過（「資料に無い」「確認できない」など）が、必須の欄に混ざる（公開のとき、publish_reference が断るものと同じ基準）
   error  本物の Houdini との点検（audit_reference.entry_problems）に通らない（パラメータ・ポート・シェルフの名前、VEX の関数の実在）
   warn   項目の名前（表示名・内部名）が、「何をする」に出てこない（別の項目の資料が混ざった疑い）
   warn   資料が 1 件も見つからなかった（docs_found = 0。AI の知識だけで書いたもの）
@@ -30,7 +31,7 @@ import reference_data as rd  # noqa: E402
 
 DEFAULT_CONFIG = Path.home() / ".houdini" / "rag_chatbot_config.json"
 _JAPANESE = re.compile(r"[぀-ヿ一-鿿]")
-_BAD_MARKS = re.compile(r"```|TODO|\bTBD\b|lorem ipsum|【|】", re.IGNORECASE)
+_BAD_MARKS = re.compile(r"```|\bTODO\b|\bTBD\b|lorem ipsum|【|】", re.IGNORECASE)  # TODO は単語として（AutoDopNetwork の「toDo」に反応しない）
 _ABSOLUTE = re.compile(r"必ず|すべての|絶対|100\s*%|完全に")
 
 
@@ -59,6 +60,12 @@ def check_entry(kind: str, key: str, entry: dict, meta: dict, problems: list[str
             out.append(("error", f"「{field}」が {len(text)} 文字（上限 {rd.MAX_FIELD_CHARS}）"))
         if text and _BAD_MARKS.search(text):
             out.append(("error", f"「{field}」に、コードブロック・TODO・【】などが混ざっています"))
+    # 調べた経過（「資料には載っていない」など）が混ざった欄は、公開のときに空にされる（publish_reference → sanitize_entry）。
+    # 必須の欄（何をする・使いどころ）なら、説明として使えないので error。ほかの欄は、空になるので warn
+    for field in rd.SECTION_KEYS:
+        if rd._PROCESS_LEAK_RE.search(str(entry.get(field) or "")):
+            required = field in ("what", "use", "when")
+            out.append(("error" if required else "warn", f"「{field}」に、調べた経過（資料に無い・確認できない など）が混ざっています" + ("" if required else "（公開のときに、この欄は空になります）")))
     whole = " ".join(str(entry.get(f) or "") for f in rd.SECTION_KEYS)
     if not _JAPANESE.search(whole):
         out.append(("error", "日本語がありません"))

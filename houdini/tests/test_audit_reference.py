@@ -90,8 +90,9 @@ class BatchTest(unittest.TestCase):
         import build_reference_entries as bre
 
         item = {"kind": "node", "key": "sop/mountain", "name": "mountain", "label": "Mountain", "context": "sop"}
-        answers = ['{"what": "「Fractal type」を選ぶ", "use": "", "example": "", "example_point": "", "when": ""}',
-                   '{"what": "「Height」を上げる", "use": "", "example": "", "example_point": "", "when": ""}']
+        rest = '"use": "地形の凸凹を作るときに使います。", "example": "grid につなぎます。", "example_point": "凸凹の変化を見てください。", "when": "山や丘を手早く作りたいときに向いています。"'
+        answers = ['{"what": "Mountain は、「Fractal type」を選んで凸凹を作るノードです。", ' + rest + '}',
+                   '{"what": "Mountain は、「Height」を上げて凸凹を作るノードです。", ' + rest + '}']
         with tempfile.TemporaryDirectory() as d:
             cfg = {"local_bridge_dir": d}
             from unittest import mock
@@ -104,7 +105,7 @@ class BatchTest(unittest.TestCase):
                 self.assertIsNone(rd.load_entry(d, "node", "sop/mountain"), "not saved")
                 with mock.patch.object(bre, "complete_in_thread", lambda c: (lambda s, u, **kw: (answers[1], {}))):
                     self.assertTrue(bre.make_one(cfg, item, PARMS)["ok"])
-                self.assertEqual(rd.load_entry(d, "node", "sop/mountain")["what"], "「Height」を上げる")
+                self.assertEqual(rd.load_entry(d, "node", "sop/mountain")["what"], "Mountain は、「Height」を上げて凸凹を作るノードです。")
                 self.assertFalse(bre.make_one(cfg, {**item, "key": "sop/missing"}, PARMS)["ok"], "a node type that does not exist is skipped")
 
     def test_the_verified_steps_come_from_the_capture_recipe(self) -> None:

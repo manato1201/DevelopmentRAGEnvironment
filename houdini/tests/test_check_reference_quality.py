@@ -46,6 +46,22 @@ class CheckEntryTest(unittest.TestCase):
         english = {k: "English only text." for k in rd.SECTION_KEYS}
         self.assertTrue(any("日本語" in m for lv, m in crq.check_entry("node", "sop/scatter", english, {"label": "Scatter"}) if lv == "error"))
 
+    def test_a_research_trail_in_a_required_field_is_an_error(self) -> None:
+        """vex/pop（2026-11-24）: 「資料には載っていない」という説明が、公開の直前まで通っていた。"""
+        leaked = dict(GOOD, what="VEX の関数としての「pop」は、資料には載っていません。")
+        found = crq.check_entry("vex", "vex/pop", leaked, {"label": "pop", "docs_found": 5})
+        self.assertTrue(any(lv == "error" and "調べた経過" in m for lv, m in found))
+        other = dict(GOOD, example="詳しい例は、資料に載っていません。")
+        found = crq.check_entry("node", "sop/scatter", other, {"label": "Scatter", "docs_found": 5})
+        self.assertEqual([lv for lv, m in found if "調べた経過" in m], ["warn"])
+
+    def test_todo_inside_a_word_is_not_a_leftover(self) -> None:
+        """AutoDopNetwork の「toDo」を、TODO と見まちがえない（shelf/dynamics_vellumgrains、2026-11-24）。"""
+        entry = dict(GOOD, example="少し待つと AutoDopNetwork が作られます。")
+        self.assertEqual(crq.check_entry("node", "sop/scatter", entry, {"label": "Scatter", "docs_found": 5}), [])
+        entry = dict(GOOD, example="TODO: あとで書く")
+        self.assertIn("error", levels(crq.check_entry("node", "sop/scatter", entry, {"label": "Scatter", "docs_found": 5})))
+
     def test_audit_problems_are_errors(self) -> None:
         found = crq.check_entry("node", "sop/scatter", GOOD, {"label": "Scatter", "docs_found": 5}, ["「Foo」は、…にありません"])
         self.assertEqual(levels(found), ["error"])
