@@ -203,6 +203,24 @@ def format_plan_header(plan: dict) -> str:
     return f"第{plan['round']}回{f'（{label}）' if label else ''}{who}"
 
 
+def basics_note(plan: dict) -> tuple[str, bool]:
+    """基本操作の練習（Guide の組み込み）の案内（2026-11-26）。戻り値: (出す文, 「練習を開く」ボタンを出すか)。
+    初心者（経験 1 年未満か、自己評価「初心者」。サーバーが決める）で、練習を終えておらず、固定課題もまだ始めていない人に勧める。
+    練習を終えた初心者には、終えたことだけを出す。それ以外（経験者・旧版のサーバー）は、何も出さない。"""
+    basics = plan.get("basics") or {}
+    if not basics.get("beginner"):
+        return "", False
+    step, total = int(basics.get("step") or 0), int(basics.get("total") or 0)
+    if basics.get("recommend"):
+        progress = f"（いま {step} / {total} まで進んでいます）" if 0 < step < total else ""
+        return ("Houdini が初めての方へ: 固定課題の前に、Guide タブの「基本操作の練習」をおすすめします。"
+                "画面の見方・ノードの作り方・線のつなぎ方・表示フラグ・パラメータを、12 の手順で、手を動かして覚えます"
+                f"（AI を使いません）。{progress}練習したかどうかは、分析のために記録します。"), True
+    if basics.get("done"):
+        return "基本操作の練習: 終えました。", False
+    return "", False
+
+
 def format_history_line(item: dict) -> str:
     """「完了した記録」の1行。"""
     seconds = item.get("durationSec")

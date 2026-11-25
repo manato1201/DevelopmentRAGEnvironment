@@ -5,7 +5,7 @@ import { requireAdmin } from "./auth";
 // 実証実験の課題の記録とアンケート（2026-10-28）。設計: docs/pilot/pilot-analysis-design.md
 //
 //   ・参加者は、事前アンケートで登録する。登録順の匿名番号（pid）から、割り当て番号 slot（1〜6）が決まる。
-//   ・回 = 募集期間（第1回・第2回）。参加者は、管理画面で受け付けている回に、1回だけ参加する（1回 3 時間ほど。2026-11-11）。
+//   ・回 = 募集期間（第1回・第2回・第3回）。参加者は、管理画面で受け付けている回に、1回だけ参加する（1回 3 時間ほど。2026-11-11）。
 //   ・1回には、固定課題（必須）と自由課題（任意。時間が余った人だけ。1コマに収めるため。2026-11-13）を1つずつ。固定課題の題材（Pyro・RBD・雲）と、条件（本システム／公式ドキュメント・Web検索のみ）は、
 //     slot で決まる（3題材 × 2条件 = 6通りを、登録順に回す）。対照は、参加者の間で比べる。
 //   ・終了時に、課題後アンケートと、到達・自己申告のミスを送る。
@@ -30,7 +30,7 @@ export function parseConditionMode(value: unknown): ConditionMode {
   return CONDITION_MODES.includes(value as ConditionMode) ? (value as ConditionMode) : "auto";
 }
 
-export const ROUNDS = 2; // 回 = 募集期間の数。管理画面で、いま受け付ける回を切り替える（pilot_config の open_round）
+export const ROUNDS = 3; // 回 = 募集期間の数。管理画面で、いま受け付ける回を切り替える（pilot_config の open_round）
 export const TASKS: Record<TaskId, string> = {
   pyro: "Pyro（煙・炎のシミュレーション）",
   rbd: "RBD（剛体・破壊のシミュレーション）",
@@ -40,14 +40,61 @@ export const TASKS: Record<TaskId, string> = {
 // 2026-11-24: 雲を外し、割り当て 3・6 の番も RBD にする（運営の指示）。TaskId の "cloud" は、すでに記録した課題を表示するために残す。
 export const TASK_ORDER: TaskId[] = ["pyro", "rbd", "rbd"];
 export const SLOTS = 6;
+// 回ごとに、固定課題の題材を全員そろえる（2026-11-26。運営の指示）。
+//   第3回 = 基本操作の練習（Guide の組み込み）を入れた回。第2回と比べられるよう、題材を RBD（剛体・破壊）1つにそろえる。
+//   条件（本システム／ドキュメントのみ）は、これまでどおり slot（と、管理画面の割り当て）で決める。
+export const ROUND_FIXED_TASK: Record<number, TaskId> = { 3: "rbd" };
 
 // slot から、固定課題の題材と条件を決める（登録順の6人ごとに、3題材 × 2条件が1度ずつ当たる）。
 // mode が system / docs_only のときは、題材は slot のまま、条件だけを全員そろえる。
-export function assignmentForSlot(slot: number, mode: ConditionMode = "auto"): { taskId: TaskId; condition: Condition } {
+// round に題材の決まった回（ROUND_FIXED_TASK）を渡すと、題材はその回のものになる（条件は slot のまま）。
+export function assignmentForSlot(slot: number, mode: ConditionMode = "auto", round: number | null = null): { taskId: TaskId; condition: Condition } {
   const i = (((Math.trunc(slot) - 1) % SLOTS) + SLOTS) % SLOTS;
   const forced = parseConditionMode(mode);
   const condition: Condition = forced !== "auto" ? forced : i >= TASK_ORDER.length ? "docs_only" : "system";
-  return { taskId: TASK_ORDER[i % TASK_ORDER.length], condition };
+  const fixedTask = round != null ? ROUND_FIXED_TASK[round] : undefined;
+  return { taskId: fixedTask ?? TASK_ORDER[i % TASK_ORDER.length], condition };
+}
+
+// ---- 基本操作の練習（Guide の組み込み。2026-11-26） ----
+// 初心者 = Houdini の経験が 1 年未満（事前アンケートの「0 年」）か、自己評価が「初心者」。固定課題の前に、練習を勧める。
+export const BEGINNER_LEVEL = "初心者";
+export function isBeginner(experienceYears: number | null | undefined, selfLevel: string | null | undefined): boolean {
+  return (typeof experienceYears === "number" && experienceYears < 1) || (selfLevel ?? "").trim() === BEGINNER_LEVEL;
+}
+
+export interface BasicsState {
+  step: number; // 進んだ手順の最大（0 = まだ開いていない）
+  total: number; // 練習の手順の数（パネルが送る）
+  startedAt: number | null;
+  doneAt: number | null; // 最後の手順まで進んだ時刻
+}
+
+export interface BasicsAdvice {
+  beginner: boolean;
+  recommend: boolean; // 初心者で、練習を終えておらず、固定課題もまだ始めていない
+  step: number;
+  total: number;
+  done: boolean;
+}
+
+export function basicsAdvice(beginner: boolean, basics: BasicsState, plan: Pick<TaskPlan, "fixed">): BasicsAdvice {
+  const done = basics.doneAt != null;
+  const fixedStarted = plan.fixed.done || plan.fixed.active;
+  return { beginner, recommend: beginner && !done && !fixedStarted, step: basics.step, total: basics.total, done };
+}
+
+// 練習の記録の更新（純関数）。手順は、戻っても減らさない（最大を残す）。最後の手順に着いた最初の時刻を、終えた時刻にする。
+export function nextBasicsState(prev: BasicsState, step: number, total: number, now: number): BasicsState {
+  const t = Math.max(1, Math.min(100, Math.trunc(total)));
+  const s = Math.max(0, Math.min(t, Math.trunc(step)));
+  const best = Math.max(prev.step, s);
+  return {
+    step: best,
+    total: t,
+    startedAt: prev.startedAt ?? now,
+    doneAt: prev.doneAt ?? (best >= t ? now : null),
+  };
 }
 export const CRITERION = "課題の題材として、作品物ができていること";
 
@@ -130,7 +177,7 @@ export function buildPlan(slot: number, sessions: PlanSession[], openRound = 0, 
   const done = (kind: Kind) => round != null && sessions.some((s) => s.round === round && s.kind === kind && s.ended_at != null);
   const active = (kind: Kind) => round != null && sessions.some((s) => s.round === round && s.kind === kind && s.ended_at == null);
   // 固定課題を始めている（終えたものを含む）なら、始めたときの題材と条件のまま。切り替えが効くのは、まだ始めていない人だけ。
-  const assigned = assignmentForSlot(slot, mode);
+  const assigned = assignmentForSlot(slot, mode, round);
   const startedFixed = round == null ? undefined : sessions.find((s) => s.round === round && s.kind === "fixed");
   const taskId: TaskId = startedFixed?.task_id && startedFixed.task_id in TASKS ? (startedFixed.task_id as TaskId) : assigned.taskId;
   const condition: Condition = startedFixed?.condition === "system" || startedFixed?.condition === "docs_only" ? startedFixed.condition : assigned.condition;
@@ -214,6 +261,10 @@ export interface TaskRow {
   startedAt?: number; // 開始・終了の時刻（秒）。管理画面の「回答の一覧」用
   endedAt?: number;
   pausedSec?: number; // 中断（Houdini が閉じていた秒数。所要時間から引いた分）
+  // 基本操作の練習（2026-11-26）。basicsBefore = この課題を始める前に、練習を最後まで終えていた（1）／いない（0）
+  beginner?: number | null;
+  basicsStep?: number | null;
+  basicsBefore?: number | null;
 }
 
 export function median(values: Array<number | null | undefined>): number | null {
@@ -258,6 +309,38 @@ const COMPARE_METRICS: Array<{ key: string; label: string; better: "lower" | "hi
   { key: "selfWhatGain", label: "Houdini が何かを説明できる（事後−事前）", better: "higher", value: whatGain },
   { key: "goalShift", label: "学びたいものの変化（事後−事前。+は、仕組みの理解へ）", better: "higher", value: goalShift },
 ];
+
+// 基本操作の練習を、固定課題の前に終えていたかで分けた中央値（2026-11-26。第3回の分析用）。
+// 回 × 条件 × 練習（済／未）ごと。練習の記録が無い回（第1・2回）は、すべて「未」に入る。初心者だけの数も並べる。
+export function summarizeBasics(rows: TaskRow[]) {
+  const groups = new Map<string, TaskRow[]>();
+  for (const r of rows.filter((x) => x.kind === "fixed")) {
+    const key = `${r.round}|${r.condition}|${r.basicsBefore === 1 ? 1 : 0}`;
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  return [...groups.entries()]
+    .map(([key, items]) => {
+      const [round, condition, basics] = key.split("|");
+      const reachedKnown = items.filter((i) => i.reached != null);
+      return {
+        round: Number(round),
+        condition,
+        basicsDone: basics === "1",
+        n: items.length,
+        beginners: items.filter((i) => i.beginner === 1).length,
+        reachedRate: reachedKnown.length ? reachedKnown.filter((i) => i.reached === 1).length / reachedKnown.length : null,
+        median: {
+          difficulty: median(items.map((i) => i.difficulty)),
+          clarity: median(items.map((i) => i.clarity)),
+          durationMin: median(items.map(minutes)),
+          queries: median(items.map((i) => i.queryCount)),
+          mistake: median(items.map(withMistake)),
+          learned: median(items.map((i) => i.learned)),
+        },
+      };
+    })
+    .sort((a, b) => a.round - b.round || a.condition.localeCompare(b.condition) || Number(a.basicsDone) - Number(b.basicsDone));
+}
 
 export function summarizeTasks(rows: TaskRow[]) {
   // 回 × 種類 × 条件ごとの中央値
@@ -341,6 +424,7 @@ export function summarizeTasks(rows: TaskRow[]) {
     sessions: rows.length,
     participants: new Set(rows.map((r) => r.pid)).size,
     byGroup,
+    byBasics: summarizeBasics(rows),
     compared,
     comparison,
     contaminated: [...new Set(contaminated)].sort((a, b) => a - b),
@@ -373,10 +457,26 @@ interface ProfileRow {
   user_id: string;
   pid: number | null;
   slot: number;
+  experience_years: number | null;
+  self_level: string | null;
+  basics_step: number | null;
+  basics_total: number | null;
+  basics_started_at: number | null;
+  basics_done_at: number | null;
 }
 
 async function loadProfile(env: Env, userId: string): Promise<ProfileRow | null> {
-  return (await env.DB.prepare("SELECT user_id, pid, slot FROM pilot_profile WHERE user_id = ?").bind(userId).first<ProfileRow>()) ?? null;
+  return (
+    (await env.DB.prepare(
+      "SELECT user_id, pid, slot, experience_years, self_level, basics_step, basics_total, basics_started_at, basics_done_at FROM pilot_profile WHERE user_id = ?",
+    )
+      .bind(userId)
+      .first<ProfileRow>()) ?? null
+  );
+}
+
+function basicsOf(profile: ProfileRow): BasicsState {
+  return { step: profile.basics_step ?? 0, total: profile.basics_total ?? 0, startedAt: profile.basics_started_at ?? null, doneAt: profile.basics_done_at ?? null };
 }
 
 type SessionRow = PlanSession & { id: string; started_at: number; task_id: string; condition: string };
@@ -423,7 +523,24 @@ async function planResponse(env: Env, userId: string): Promise<Response> {
   const config = await loadPilotConfig(env);
   const plan = buildPlan(profile.slot, sessions, config.openRound, config.conditionMode);
   const roundLabel = plan.round != null ? config.labels[plan.round] ?? "" : "";
-  return jsonResponse(200, { status: "ok", profile: true, pid: profile.pid, ...plan, roundLabel, history: buildHistory(sessions) });
+  const basics = basicsAdvice(isBeginner(profile.experience_years, profile.self_level), basicsOf(profile), plan);
+  return jsonResponse(200, { status: "ok", profile: true, pid: profile.pid, ...plan, roundLabel, basics, history: buildHistory(sessions) });
+}
+
+// POST /pilot/basics { step, total } — 基本操作の練習（Guide の組み込み）の進み具合（本人だけ。2026-11-26）。
+// 事前アンケートの前（参加者でない人）は、記録せずに { recorded: false } を返す（練習は、だれでも使えるため）。
+export async function handlePilotBasics(req: Request, env: Env, user: AuthedUser): Promise<Response> {
+  const body = await readBody(req);
+  const step = Number(body.step);
+  const total = Number(body.total);
+  if (!Number.isFinite(step) || !Number.isFinite(total) || total < 1) return jsonResponse(400, { error: "step と total（1 以上）を指定してください" });
+  const profile = await loadProfile(env, user.userId);
+  if (!profile) return jsonResponse(200, { status: "ok", recorded: false });
+  const next = nextBasicsState(basicsOf(profile), step, total, Math.floor(Date.now() / 1000));
+  await env.DB.prepare("UPDATE pilot_profile SET basics_step = ?, basics_total = ?, basics_started_at = ?, basics_done_at = ? WHERE user_id = ?")
+    .bind(next.step, next.total, next.startedAt, next.doneAt, user.userId)
+    .run();
+  return jsonResponse(200, { status: "ok", recorded: true, step: next.step, total: next.total, done: next.doneAt != null });
 }
 
 // POST /pilot/plan — 自分の次の課題（本人だけ）
@@ -612,7 +729,10 @@ export async function handlePilotTasks(_req: Request, env: Env, user: AuthedUser
        s.goal_post AS goalPost, s.goal_used AS goalUsed, s.self_how AS selfHow, s.self_explore AS selfExplore, s.self_what AS selfWhat, s.learned AS learned,
        COALESCE(s.explain_own, '') AS explainOwn, COALESCE(s.houdini_def, '') AS houdiniDef, COALESCE(s.fun, '') AS fun,
        p.goal_pre AS goalPre, p.self_how_pre AS selfHowPre, p.self_explore_pre AS selfExplorePre, p.self_what_pre AS selfWhatPre, COALESCE(p.houdini_def_pre, '') AS houdiniDefPre,
-       (SELECT COUNT(*) FROM pilot_sessions d WHERE d.user_id = s.user_id AND d.round = s.round AND d.kind = s.kind AND d.discarded_at IS NOT NULL) AS redoCount
+       (SELECT COUNT(*) FROM pilot_sessions d WHERE d.user_id = s.user_id AND d.round = s.round AND d.kind = s.kind AND d.discarded_at IS NOT NULL) AS redoCount,
+       CASE WHEN p.experience_years < 1 OR p.self_level = '初心者' THEN 1 ELSE 0 END AS beginner,
+       p.basics_step AS basicsStep,
+       CASE WHEN p.basics_done_at IS NOT NULL AND p.basics_done_at <= s.started_at THEN 1 ELSE 0 END AS basicsBefore
      FROM pilot_sessions s JOIN pilot_profile p ON p.user_id = s.user_id JOIN users u ON u.user_id = s.user_id
      WHERE s.ended_at IS NOT NULL AND s.discarded_at IS NULL AND p.pid IS NOT NULL AND u.role != 'admin'
      ORDER BY p.pid, s.round, s.kind`,
@@ -625,17 +745,18 @@ export async function handlePilotTasks(_req: Request, env: Env, user: AuthedUser
   const profileRes = await env.DB.prepare(
     `SELECT p.pid AS pid, p.slot AS slot, p.experience_years AS experienceYears, COALESCE(p.self_level, '') AS selfLevel,
        COALESCE(p.background, '') AS background, COALESCE(p.practice, '') AS practice, COALESCE(p.tool_history, '') AS toolHistory, p.created_at AS createdAt,
-       p.goal_pre AS goalPre, p.self_how_pre AS selfHowPre, p.self_explore_pre AS selfExplorePre, p.self_what_pre AS selfWhatPre, COALESCE(p.houdini_def_pre, '') AS houdiniDefPre
+       p.goal_pre AS goalPre, p.self_how_pre AS selfHowPre, p.self_explore_pre AS selfExplorePre, p.self_what_pre AS selfWhatPre, COALESCE(p.houdini_def_pre, '') AS houdiniDefPre,
+       p.basics_step AS basicsStep, p.basics_total AS basicsTotal, p.basics_started_at AS basicsStartedAt, p.basics_done_at AS basicsDoneAt
      FROM pilot_profile p JOIN users u ON u.user_id = p.user_id
      WHERE p.pid IS NOT NULL AND u.role != 'admin'
      ORDER BY p.pid`,
-  ).all<{ pid: number; slot: number; experienceYears: number | null; selfLevel: string; background: string; practice: string; toolHistory: string; createdAt: number; goalPre: number | null; selfHowPre: number | null; selfExplorePre: number | null; selfWhatPre: number | null; houdiniDefPre: string }>();
+  ).all<{ pid: number; slot: number; experienceYears: number | null; selfLevel: string; background: string; practice: string; toolHistory: string; createdAt: number; goalPre: number | null; selfHowPre: number | null; selfExplorePre: number | null; selfWhatPre: number | null; houdiniDefPre: string; basicsStep: number | null; basicsTotal: number | null; basicsStartedAt: number | null; basicsDoneAt: number | null }>();
   const config = await loadPilotConfig(env);
   return jsonResponse(200, {
     status: "ok",
     registered: registered?.n ?? 0,
     conditionMode: config.conditionMode,
-    profiles: (profileRes.results ?? []).map((p) => ({ ...p, participant: participantLabel(p.pid) })),
+    profiles: (profileRes.results ?? []).map((p) => ({ ...p, participant: participantLabel(p.pid), beginner: isBeginner(p.experienceYears, p.selfLevel) })),
     mistakeFormula: { cook: MISTAKE_WEIGHT_COOK, self: MISTAKE_WEIGHT_SELF, cookCap: COOK_ERROR_CAP },
     ...summarizeTasks(rows),
     rows: rows.map((r) => ({ ...r, participant: participantLabel(r.pid), mistake: withMistake(r), selfHowGain: howGain(r), selfExploreGain: exploreGain(r), selfWhatGain: whatGain(r), goalShift: goalShift(r), durationMin: minutes(r), pausedMin: r.pausedSec == null ? null : Math.round((r.pausedSec / 60) * 10) / 10 })),

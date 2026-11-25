@@ -26,9 +26,12 @@ from typing import Callable
 import basics_guide
 import display_isolation
 import guide_mode
+import houdini_terms
 import tool_analogies
 import guide_shortcuts
 import panel_paths
+import threading
+
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QPixmap, QTextOption
 from panel_actions import action_button, button_qss, px, type_font, type_qss
@@ -66,6 +69,37 @@ _AUTO_SWITCH_KEY = "guide_auto_switch"
 _SHORTCUTS_KEY = "guide_shortcuts_open"
 _PARM_FOCUS_KEY = "guide_parm_focus"
 _MODE_KEY = "guide_target_mode"
+_PILOT_KEY = "pilot_enabled"  # 「実証実験に参加する」（rag_chatbot）。入っているときだけ、練習の進み具合を送る
+_BASICS_SENT_KEY = "basics_sent_step"  # 送った手順の最大（同じ手順を何度も送らない）
+
+
+def report_basics_progress(cfg: dict, step: int, total: int, post=None) -> bool:
+    """基本操作の練習の進み具合を、実証実験の記録に送る（2026-11-26）。実験に参加していない・Cloudflare でない・
+    もう送った手順なら、送らない。送ったら True。送信は別スレッドで、失敗しても画面は止めない（次に進んだときに、また送る）。"""
+    if not bool(_state_get(_PILOT_KEY, False)) or (cfg or {}).get("mode") != "cloudflare":
+        return False
+    sent = int(_state_get(_BASICS_SENT_KEY, 0) or 0)
+    if step <= sent:
+        return False
+
+    def send() -> None:
+        try:
+            if post is not None:
+                result = post(step, total)
+            else:
+                from rag_client import RAGClient
+
+                result = RAGClient(cfg).pilot_basics(step, total)
+            if (result or {}).get("recorded"):  # 事前アンケートの前（記録されない）なら、覚えない（登録したあとに、また送る）
+                _state_set(_BASICS_SENT_KEY, max(step, int(_state_get(_BASICS_SENT_KEY, 0) or 0)))
+        except Exception:  # noqa: BLE001 -- 送れなくても、練習は続けられる
+            pass
+
+    if post is not None:
+        send()  # テスト用（同じスレッドで送る）
+    else:
+        threading.Thread(target=send, daemon=True).start()
+    return True
 
 
 def _connection_lines(step: dict) -> list[str]:
@@ -123,6 +157,8 @@ def render_step_html(guide: dict, index: int, step_override: dict | None = None,
     rows.append("<p>" + "<br>".join(node_bits) + "</p>")
     if step.get("tool") == "create_node" and step.get("node_type"):
         rows.append(tool_analogies.html_block(tool_analogies.for_node(str(step["node_type"]))))  # Maya・Blender でいうと（A27。無ければ空）
+    if guide.get("builtin") == basics_guide.KEY:  # 基本操作の練習では、手順に出てくる用語の意味を添える（2026-11-26）
+        rows.append(houdini_terms.html_block(houdini_terms.terms_in(f"{step.get('instruction') or ''} {step.get('hint') or ''}")))
     if lines:
         rows.append(f"<p>つなぐ線（{len(lines)}本）:</p><ul>" + "".join(f"<li>{esc(line)}</li>" for line in lines) + "</ul>")
     parms = step.get("parms") or []
@@ -481,7 +517,8 @@ class GuideWidget(QWidget):
         try:
             import reference_view  # 循環を避けるため、ここで読む（reference_view も guide_view を使う）
 
-            reference_view.TermLookup.install(self._step_view, lambda message: self._set_status([message]))  # 用語をダブルクリックで調べる（A20）
+            # 語をダブルクリックで調べる（A20）。用語の一覧にある語は、ここで意味を出す（タブを切り替えない）。無い語は Reference で探す
+            reference_view.TermLookup.install(self._step_view, lambda message: self._set_status([message]), on_term=self._show_term)
         except Exception:  # noqa: BLE001 -- 付けられなくても、案内はできる
             pass
 
@@ -493,6 +530,14 @@ class GuideWidget(QWidget):
                                  f"border-radius:{px(4)}px;padding:{px(6)}px {px(8)}px;")
         self._warn.setVisible(False)
         root.addWidget(self._warn)
+
+        # ダブルクリックした用語の意味（用語の一覧から。2026-11-26）。手順を移ると消える
+        self._term = QLabel("")
+        self._term.setWordWrap(True)
+        self._term.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._term.setStyleSheet(f"{type_qss('body', '#e0f2fe')}background:#0c4a6e;border-radius:{px(4)}px;padding:{px(6)}px {px(8)}px;")
+        self._term.setVisible(False)
+        root.addWidget(self._term)
 
         # 案内した結果（Houdini の画面を動かしたあとの、短い報告）
         self._status = QLabel("")
@@ -511,8 +556,13 @@ class GuideWidget(QWidget):
         self._ref_btn = QPushButton("ノードの説明")
         self._ref_btn.setToolTip("この手順のノードの「何をする・使いどころ・実例」を、Reference タブで開きます")
         self._ref_btn.clicked.connect(self._open_reference)
+        self._terms_btn = QPushButton("用語の一覧")
+        self._terms_btn.setCheckable(True)
+        self._terms_btn.setToolTip("ノード・表示フラグ・SOP・属性など、Houdini の画面と考え方の基本の言葉を、まとめて見ます。もう一度押すと、前提条件・TIPS に戻ります")
+        self._terms_btn.toggled.connect(self._on_terms_toggled)
         actions.addWidget(self._apply_btn)
         actions.addWidget(self._ref_btn)
+        actions.addWidget(self._terms_btn)
         actions.addWidget(self._auto, stretch=1)
         root.addLayout(actions)
 
@@ -637,9 +687,24 @@ class GuideWidget(QWidget):
         self._render()
 
     def _on_sheet_toggled(self, on: bool) -> None:
-        self._sheet_filter.setVisible(on)
-        self._extra_box.set_title("ショートカット一覧" if on else "前提条件・TIPS")
-        if on:
+        if on and self._terms_btn.isChecked():
+            self._terms_btn.setChecked(False)  # 一覧は、どちらか 1 つ
+        self._show_list("ショートカット一覧" if on else None)
+
+    def _on_terms_toggled(self, on: bool) -> None:
+        if on and self._sheet_btn.isChecked():
+            self._sheet_btn.setChecked(False)
+        self._show_list("用語の一覧" if on else None)
+
+    def _show_list(self, title: str | None) -> None:
+        """下の折りたたみに、ショートカット一覧・用語の一覧を出す。title が None なら、前提条件・TIPS に戻す（ほかの一覧が開いていなければ）。"""
+        if title is None and (self._sheet_btn.isChecked() or self._terms_btn.isChecked()):
+            return
+        self._sheet_filter.setVisible(title is not None)
+        self._sheet_filter.setPlaceholderText("用語で絞る（例: フラグ・属性・SOP）" if title == "用語の一覧"
+                                              else "キーや操作で絞る（例: Space・パラメータ・タイムライン）")
+        self._extra_box.set_title(title or "前提条件・TIPS")
+        if title is not None:
             self._extra_box.set_collapsed(False)  # 一覧を、すぐ見られるように開く
             self._render_sheet()
         else:
@@ -649,6 +714,13 @@ class GuideWidget(QWidget):
     def _render_sheet(self) -> None:
         if self._sheet_btn.isChecked():
             self._extra_view.setHtml(render_cheatsheet_html(self._sheet_filter.text()))
+        elif self._terms_btn.isChecked():
+            self._extra_view.setHtml(houdini_terms.html_list(self._sheet_filter.text()))
+
+    def _show_term(self, entry: dict) -> None:
+        """ダブルクリックした語の意味を出す（用語の一覧にある語だけ）。"""
+        self._term.setText(houdini_terms.one_line(entry) + "（ほかの言葉は「用語の一覧」）")
+        self._term.setVisible(True)
 
     def _set_enabled(self, has_guide: bool) -> None:
         self._prev_btn.setEnabled(has_guide)
@@ -741,7 +813,7 @@ class GuideWidget(QWidget):
         self._combo.blockSignals(True)
         self._combo.setCurrentIndex(index)
         self._combo.blockSignals(False)
-        if self._sheet_btn.isChecked():
+        if self._sheet_btn.isChecked() or self._terms_btn.isChecked():
             self._render_sheet()
         else:
             self._extra_view.setHtml(render_sections_html(guide))
@@ -781,6 +853,19 @@ class GuideWidget(QWidget):
                 return
         if self._paths:
             self._load(0)
+
+    def open_basics(self) -> str:
+        """基本操作の練習を開く（課題タブの「基本操作の練習を開く」から）。Guide タブへ切り替える。画面に出す 1 文を返す。"""
+        if not self._paths:
+            self.refresh()
+        if basics_guide.KEY in self._paths:
+            index = self._paths.index(basics_guide.KEY)
+            if self._guide is None or self._guide.get("builtin") != basics_guide.KEY:
+                self._load(index)
+        host = locate_in_tabs(self)
+        if host is not None:
+            host[0].setCurrentIndex(host[1])
+        return "Guide タブで、基本操作の練習を開きました"
 
     def _restore_index(self, index: int) -> None:
         """読み込み直したあとで、見ていた手順の位置へ戻す（手順の数が変わっていれば、範囲に収める）。"""
@@ -856,6 +941,9 @@ class GuideWidget(QWidget):
             return
         steps = self._guide["steps"]
         self._pos.setText(f"手順 {self._index + 1} / {len(steps)}")
+        self._term.setVisible(False)
+        if self._guide.get("builtin") == basics_guide.KEY:
+            report_basics_progress(self._cfg_getter() or {}, self._index + 1, len(steps))
         page = render_step_html(self._guide, self._index, self._current_step(), shortcuts_visible(self._index, self._sc_btn.isChecked()))
         self._step_view.setHtml(page)
         self._shots_box.setVisible(self._shots.show_shots(guide_mode.step_shots(self._guide, steps[self._index])) > 0)

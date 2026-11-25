@@ -74,7 +74,7 @@ def build() -> dict:
               purpose="箱を動かす"),
         _step(8, "connect_nodes", "network", f"【作業する部分】/obj/{GEO} の中で、ノードの線をつなぐ",
               "box1 → transform1 をつなぐ",
-              "box1 の下の丸（出力）から、transform1 の上の丸（入力）へ、ドラッグして線を引きます。上から下へ、データが流れます",
+              "box1 の下の丸（出力端子）から、transform1 の上の丸（入力端子）へ、ドラッグして線を引きます。上から下へ、データが流れます",
               _keys("net_wire", "net_cut", "undo"), node="transform1", node_path=f"{GEO}/transform1", node_type="xform",
               node_label="Transform", **{"from": "box1", "to": "transform1"}, connections=[{"from": "box1", "to": "transform1", "input": 0}]),
         _step(9, "set_parameter", "parm", f"【作業する部分】/obj/{GEO}/transform1 のパラメータを変える",
@@ -92,7 +92,8 @@ def build() -> dict:
               _keys("pn_sheet"), node="transform1", node_path=f"{GEO}/transform1", node_type="xform", node_label="Transform"),
         _step(12, "learn", "network", "【まとめ】ここまでできたら、生成したチュートリアルに進める",
               "作る（Tab）→ つなぐ（ドラッグ）→ 値を変える（パラメータ）→ 表示フラグで確かめる、の 4 つが、Guide の手順の基本です",
-              "分からない言葉は、Guide の手順の文をダブルクリックすると、Reference で探せます。詰まったら「この手順を Chat に聞く」。"
+              "分からない言葉は、手順の文でダブルクリックすると、意味が出ます（ノードの名前は Reference で探します）。"
+              "言葉をまとめて見るときは「用語の一覧」。詰まったら「この手順を Chat に聞く」。"
               "練習で作った " + GEO + " は、消してかまいません（/obj で選んで Delete）",
               _keys("net_up", "undo")),
     ]

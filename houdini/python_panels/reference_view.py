@@ -834,12 +834,16 @@ def _reference_target(source: QWidget):
 class TermLookup(QObject):
     """文の欄（QLabel・QTextBrowser）で、語をダブルクリックすると、その語を Reference で探す（A20）。
     ダブルクリックで選ばれた語（Qt の標準の選択）を使う。日本語は、続いた文字のまとまりが選ばれる（「Scatter」「ノード」など）。
-    install(widget, on_message) で付ける。on_message は、結果の 1 文を受け取る（パネルの下の欄に出す）。"""
+    install(widget, on_message) で付ける。on_message は、結果の 1 文を受け取る（パネルの下の欄に出す）。
+    2026-11-26: 用語の一覧（houdini_terms。表示フラグ・SOP・属性など、画面と考え方の言葉）にある語は、Reference へ行かず、
+    その場で意味を出す（on_term があれば項目を渡し、無ければ on_message に 1 文で）。Reference は、ノード・VEX の説明で、こうした語は引けない。"""
 
-    def __init__(self, source: QWidget, on_message: Callable[[str], None] | None = None) -> None:
+    def __init__(self, source: QWidget, on_message: Callable[[str], None] | None = None,
+                 on_term: Callable[[dict], None] | None = None) -> None:
         super().__init__(source)
         self._source = source
         self._on_message = on_message
+        self._on_term = on_term
 
     @staticmethod
     def selected_text(widget) -> str:
@@ -862,13 +866,26 @@ class TermLookup(QObject):
         term = self.selected_text(widget).strip()
         if not term or len(term) > 40:
             return
+        try:
+            import houdini_terms
+
+            entry = houdini_terms.lookup(term)
+        except Exception:  # noqa: BLE001 -- 一覧が読めなくても、Reference で探す
+            entry = None
+        if entry is not None:
+            if self._on_term is not None:
+                self._on_term(entry)
+            elif self._on_message is not None:
+                self._on_message(houdini_terms.one_line(entry))
+            return
         message = search_term(self._source, term)
         if self._on_message is not None:
             self._on_message(message)
 
     @classmethod
-    def install(cls, widget: QWidget, on_message: Callable[[str], None] | None = None) -> "TermLookup":
-        lookup = cls(widget, on_message)
+    def install(cls, widget: QWidget, on_message: Callable[[str], None] | None = None,
+                on_term: Callable[[dict], None] | None = None) -> "TermLookup":
+        lookup = cls(widget, on_message, on_term)
         widget.installEventFilter(lookup)
         viewport = getattr(widget, "viewport", None)
         if callable(viewport):

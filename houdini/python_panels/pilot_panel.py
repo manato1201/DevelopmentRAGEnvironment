@@ -288,6 +288,25 @@ class PilotTaskPanel(QWidget):
         form.addRow(self._profile_send)
         layout.addWidget(self._profile_box)
 
+        # 基本操作の練習の勧め（初心者だけ。2026-11-26）。Guide タブの組み込みの練習を開く
+        self._basics_box = QFrame()
+        self._basics_box.setObjectName("card")
+        self._basics_box.setStyleSheet("QFrame#card{background:#0c4a6e;border-radius:6px;}QLabel{background:transparent;}")
+        basics_layout = QVBoxLayout(self._basics_box)
+        self._basics_text = QLabel("")
+        self._basics_text.setWordWrap(True)
+        self._basics_text.setStyleSheet(type_qss("body", "#e0f2fe"))
+        self._basics_btn = QPushButton("基本操作の練習を開く")
+        self._basics_btn.setStyleSheet(button_qss("primary"))
+        self._basics_btn.clicked.connect(self._open_basics)
+        basics_row = QHBoxLayout()
+        basics_row.addWidget(self._basics_btn)
+        basics_row.addStretch()
+        basics_layout.addWidget(self._basics_text)
+        basics_layout.addLayout(basics_row)
+        self._basics_box.setVisible(False)
+        layout.addWidget(self._basics_box)
+
         # 課題（固定・自由）
         self._cards: dict[str, dict] = {}
         self._plan_box = QWidget()
@@ -374,6 +393,7 @@ class PilotTaskPanel(QWidget):
         self._message.setText("")
         if not plan.get("profile"):
             self._header.setText("実証実験への参加")
+            self._basics_box.setVisible(False)
             self._profile_box.setVisible(True)
             self._plan_box.setVisible(False)
             self._history_box.setVisible(False)
@@ -381,6 +401,10 @@ class PilotTaskPanel(QWidget):
         self._profile_box.setVisible(False)
         self._plan_box.setVisible(True)
         self._header.setText(pt.format_plan_header(plan))
+        note, show_button = pt.basics_note(plan)
+        self._basics_text.setText(note)
+        self._basics_btn.setVisible(show_button)
+        self._basics_box.setVisible(bool(note))
         self._rebuild_history(plan.get("history") or [])
         if plan.get("finished"):
             self._plan_box.setVisible(False)
@@ -439,6 +463,21 @@ class PilotTaskPanel(QWidget):
         note.setWordWrap(True)
         note.setStyleSheet(type_qss("caption", COLOR_MUTED))
         self._history_layout.addWidget(note)
+
+    def _open_basics(self) -> None:
+        """Guide タブで、基本操作の練習を開く（同じパネルの Guide。無ければ、知らせるだけ）。"""
+        guide = None
+        try:
+            import guide_view
+
+            host = guide_view.locate_in_tabs(self)
+            guide = host[0].findChild(guide_view.GuideWidget) if host is not None else None
+        except Exception:  # noqa: BLE001
+            guide = None
+        if guide is None:
+            self._message.setText("Guide タブが見つかりません。Guide タブの一覧の「【最初に】Houdini の基本操作」を選んでください")
+            return
+        self._message.setText(guide.open_basics())
 
     def _confirm(self, text: str) -> bool:
         return QMessageBox.question(self, "確認", text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes

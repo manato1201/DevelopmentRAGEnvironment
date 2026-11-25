@@ -15,7 +15,7 @@ assert.equal(cells.filter((c) => c.taskId === "cloud").length, 0, "no new partic
 assert.equal(cells.filter((c) => c.condition === "system").length, 3, "system / docs_only stay balanced");
 assert.deepEqual(pt.assignmentForSlot(7), pt.assignmentForSlot(1), "the cells repeat");
 assert.deepEqual(pt.assignmentForSlot(0), pt.assignmentForSlot(6), "odd slots stay inside the table");
-assert.equal(pt.ROUNDS, 2);
+assert.equal(pt.ROUNDS, 3, "第3回（2026-11-26。固定課題は全員 RBD）");
 
 // ---- 操作ミス: cookエラー7割 + 自己申告3割 ----
 assert.equal(pt.mistakeScore(0, 1), 0);
@@ -33,7 +33,7 @@ let plan = pt.buildPlan(1, [], 0);
 assert.equal(plan.round, null, "not accepting: no round yet");
 assert.equal(plan.canStart, false);
 assert.equal(plan.openRound, 0);
-assert.equal(pt.buildPlan(1, [], 3).canStart, false, "an out-of-range open round counts as closed");
+assert.equal(pt.buildPlan(1, [], 4).canStart, false, "an out-of-range open round counts as closed");
 plan = pt.buildPlan(1, [], 1);
 assert.equal(plan.round, 1);
 assert.equal(plan.canStart, true);
@@ -154,23 +154,23 @@ await assert.rejects(() => pt.handlePilotConfig(post({ openRound: 1 }), env, u1)
 // 状態を読む（何も変えない）
 let cfg = await call(pt.handlePilotConfig, admin);
 assert.equal(cfg.body.openRound, 0);
-assert.equal(cfg.body.maxRound, 2);
-assert.equal(cfg.body.rounds.length, 2);
+assert.equal(cfg.body.maxRound, 3);
+assert.equal(cfg.body.rounds.length, 3);
 assert.equal(cfg.body.registered, 4);
 // 範囲外は拒否
-assert.equal((await call(pt.handlePilotConfig, admin, { openRound: 3 })).status, 400);
+assert.equal((await call(pt.handlePilotConfig, admin, { openRound: 4 })).status, 400);
 assert.equal((await call(pt.handlePilotConfig, admin, { openRound: -1 })).status, 400);
 assert.equal((await call(pt.handlePilotConfig, admin, { openRound: "x" })).status, 400);
 assert.equal((await call(pt.handlePilotConfig, admin)).body.openRound, 0, "a rejected value changes nothing");
 // 第1回を受け付ける + 回の表示
 cfg = await call(pt.handlePilotConfig, admin, { openRound: 1, labels: { 1: "  11/16〜11/21 ", 2: "11/23〜11/28" } });
 assert.equal(cfg.body.openRound, 1);
-assert.deepEqual(cfg.body.rounds.map((x) => [x.round, x.label, x.open]), [[1, "11/16〜11/21", true], [2, "11/23〜11/28", false]]);
+assert.deepEqual(cfg.body.rounds.map((x) => [x.round, x.label, x.open]), [[1, "11/16〜11/21", true], [2, "11/23〜11/28", false], [3, "", false]]);
 plan1 = await call(pt.handlePilotPlan, u1);
 assert.equal(plan1.body.canStart, true);
 assert.equal(plan1.body.round, 1);
 assert.equal(plan1.body.roundLabel, "11/16〜11/21");
-assert.equal(plan1.body.rounds, 2);
+assert.equal(plan1.body.rounds, 3);
 
 // ---- 課題（u4 = slot 4: Pyro・対照）。初めて始めた回に参加する ----
 r = await call(pt.handlePilotSessionStart, u4, { kind: "fixed" });
@@ -236,7 +236,7 @@ assert.deepEqual(tasks.body.contaminated, [4], "the control session had a questi
 assert.equal(tasks.body.rows[0].mistake, 0.43, "cook 4/10 × 0.7 = 0.28, self (3−1)/4 × 0.3 = 0.15");
 await assert.rejects(() => pt.handlePilotTasks(post({}), env, u1), "members cannot read the aggregate");
 cfg = await call(pt.handlePilotConfig, admin);
-assert.deepEqual(cfg.body.rounds.map((x) => [x.round, x.joined, x.finished]), [[1, 1, 1], [2, 0, 0]], "the admin's own record is not counted");
+assert.deepEqual(cfg.body.rounds.map((x) => [x.round, x.joined, x.finished]), [[1, 1, 1], [2, 0, 0], [3, 0, 0]], "the admin's own record is not counted");
 
 // ---- 所要時間: 振り返りの回答の時間と、中断（Houdini が閉じていた時間）を引く ----
 r = await call(pt.handlePilotSessionStart, u2, { kind: "fixed" });
@@ -331,7 +331,7 @@ assert.equal(r.status, 200, "the second task of the joined round can be started 
 assert.equal(r.body.round, 2);
 await call(pt.handlePilotSessionEnd, u5, { sessionId: r.body.sessionId, reached: true });
 cfg = await call(pt.handlePilotConfig, admin);
-assert.deepEqual(cfg.body.rounds.map((x) => [x.round, x.joined, x.finished, x.open]), [[1, 3, 3, false], [2, 1, 1, false]]);
+assert.deepEqual(cfg.body.rounds.map((x) => [x.round, x.joined, x.finished, x.open]), [[1, 3, 3, false], [2, 1, 1, false], [3, 0, 0, false]]);
 assert.equal(cfg.body.openRound, 0);
 // 回の表示だけを変えても、受け付ける回は変わらない
 cfg = await call(pt.handlePilotConfig, admin, { labels: { 2: "11/23〜11/28（変更）" } });
@@ -356,7 +356,7 @@ assert.equal(plan7.body.completed, true, "participation is complete with the fix
 assert.equal(plan7.body.finished, false, "but not everything is done");
 assert.equal(plan7.body.free.optional, true);
 cfg = await call(pt.handlePilotConfig, admin);
-assert.deepEqual(cfg.body.rounds.map((x) => [x.round, x.joined, x.finished]), [[1, 4, 4], [2, 1, 1]], "complete = the fixed task is done, even without the free task");
+assert.deepEqual(cfg.body.rounds.map((x) => [x.round, x.joined, x.finished]), [[1, 4, 4], [2, 1, 1], [3, 0, 0]], "complete = the fixed task is done, even without the free task");
 await call(pt.handlePilotConfig, admin, { openRound: 0 });
 r = await call(pt.handlePilotSessionStart, u7, { kind: "free" });
 assert.equal(r.status, 200, "an optional free task can still be done after the round closes");

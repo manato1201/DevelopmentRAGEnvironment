@@ -1437,9 +1437,11 @@ export function chatUiHtml(): string {
         <p class="hint">回 = 募集期間です。<b>いま新しく参加できる回</b>を選びます（「受付停止」にもできます）。参加者は、受け付けている回に<b>1回だけ</b>参加します。すでに参加している人は、受付を止めても、自分の回を最後まで続けられます。表の「完了した人」は、<b>固定課題を終えた人</b>です（自由課題は任意）。</p>
         <p class="hint" id="pilotRoundNow">いま受け付けている回（サーバーの値）: -</p>
         <div class="field-row"><label for="pilotRoundOpen">いま受け付ける回</label>
-          <select id="pilotRoundOpen"><option value="0">受付停止</option><option value="1">第1回</option><option value="2">第2回</option></select></div>
+          <select id="pilotRoundOpen"><option value="0">受付停止</option><option value="1">第1回</option><option value="2">第2回</option><option value="3">第3回</option></select></div>
         <div class="field-row"><label for="pilotRoundLabel1">第1回の期間（表示）</label><input type="text" id="pilotRoundLabel1" maxlength="40" placeholder="例: 11/16〜11/21"></div>
         <div class="field-row"><label for="pilotRoundLabel2">第2回の期間（表示）</label><input type="text" id="pilotRoundLabel2" maxlength="40" placeholder="例: 11/23〜11/28"></div>
+        <div class="field-row"><label for="pilotRoundLabel3">第3回の期間（表示）</label><input type="text" id="pilotRoundLabel3" maxlength="40" placeholder="例: 11/30〜12/5"></div>
+        <p class="hint">第3回は、固定課題の題材を全員 <b>RBD（剛体・破壊のシミュレーション）</b>にそろえます（第2回の RBD と比べるため）。条件（ツール使用／ドキュメントのみ）は、下の割り当てのままです。初心者（経験 1 年未満か、自己評価「初心者」）には、課題タブで、先に Guide の「基本操作の練習」を勧めます。</p>
         <div class="field-row"><button class="btn" id="pilotRoundSave">保存</button></div>
         <div class="table-scroll"><table class="admin-table" id="pilotRoundTable"><thead><tr><th>回</th><th>期間</th><th>受付</th><th>参加した人</th><th>完了した人</th></tr></thead><tbody></tbody></table></div>
         <h3>課題の条件（ツール使用／ドキュメントのみ）の割り当て</h3>
@@ -1455,6 +1457,9 @@ export function chatUiHtml(): string {
         <div class="field-row"><button class="btn" id="pilotTasksCsv">課題ごとのCSV（P01 などの番号。氏名なし）</button></div>
         <h3>回・種類・条件ごと（中央値）</h3>
         <div class="table-scroll"><table class="admin-table" id="pilotTaskGroups"><thead><tr><th>回</th><th>種類</th><th>条件</th><th>人数</th><th>到達</th><th>難しさ</th><th>わかりやすさ</th><th>所要(分)</th><th>質問数</th><th>操作ミス</th></tr></thead><tbody></tbody></table></div>
+        <h3>基本操作の練習で分けた固定課題（第3回の分析用）</h3>
+        <p class="hint">「練習」= 固定課題を始める前に、Guide の「基本操作の練習」を最後の手順まで進めていた人。練習の記録が無い回（第1・2回）は、すべて「なし」に入ります。初心者 = 経験 1 年未満か、自己評価「初心者」。</p>
+        <div class="table-scroll"><table class="admin-table" id="pilotBasicsGroups"><thead><tr><th>回</th><th>条件</th><th>練習</th><th>人数</th><th>うち初心者</th><th>到達</th><th>難しさ</th><th>わかりやすさ</th><th>所要(分)</th><th>質問数</th><th>操作ミス</th><th>新しく理解</th></tr></thead><tbody></tbody></table></div>
         <h3>公式ドキュメントのみ（対照）と本システムの比較（固定課題・参加者の間）</h3>
         <p class="hint" id="pilotCompareNote"></p>
         <p class="hint">参加は1回だけなので、本システムを使った人と、公式ドキュメントのみで行った人の<b>2つの群</b>を比べます。差 = 本システムの中央値 − 対照の中央値。効果量は Cliff の delta（−1〜1。本システムの群が大きいほど正。0に近いほど差なし）。「良い向き」は、難しさ・所要時間・操作ミスは小さいほう、わかりやすさ・到達は大きいほどです。人数が少ないうちは、参考です。</p>
@@ -1475,7 +1480,7 @@ export function chatUiHtml(): string {
         <h3>事前アンケート（参加者ごと）</h3>
         <p class="hint">登録時に答えた内容です。自由記述（経歴・練習・使ったことのあるツール）には、個人情報が書かれているかもしれません。</p>
         <div class="field-row"><button class="btn" id="pilotProfilesCsv">事前アンケートのCSV</button></div>
-        <div class="table-scroll"><table class="admin-table pilot-answers" id="pilotProfiles"><thead><tr><th>参加者</th><th>経験（年・ヶ月）</th><th>自己評価</th><th>経歴</th><th>練習</th><th>使ったことのあるツール</th><th>Houdini とは（事前）</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-scroll"><table class="admin-table pilot-answers" id="pilotProfiles"><thead><tr><th>参加者</th><th>経験（年・ヶ月）</th><th>自己評価</th><th>経歴</th><th>練習</th><th>使ったことのあるツール</th><th>Houdini とは（事前）</th><th>基本操作の練習（Guide）</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="section">
         <h2>説明レベル別のチャット評価</h2>
@@ -3602,13 +3607,14 @@ ${ASCII_ART_JS}
   $("pilotRoundOpen").addEventListener("change", () => { pilotDirty.rounds = true; });
   $("pilotRoundLabel1").addEventListener("input", () => { pilotDirty.rounds = true; });
   $("pilotRoundLabel2").addEventListener("input", () => { pilotDirty.rounds = true; });
+  $("pilotRoundLabel3").addEventListener("input", () => { pilotDirty.rounds = true; });
   $("pilotConditionMode").addEventListener("change", () => { pilotDirty.mode = true; });
   $("pilotRoundSave").addEventListener("click", async () => {
     const open = Number($("pilotRoundOpen").value) || 0;
     const label = (n) => $("pilotRoundLabel" + n).value.trim();
     const names = open === 0 ? "受付を止めます" : "第" + open + "回を受け付けます";
     if (!confirm(names + "。よろしいですか？（新しく参加する人が、この回に入ります。参加済みの人は、自分の回を続けられます）")) return;
-    if (await loadPilotRounds({ openRound: open, labels: { 1: label(1), 2: label(2) } })) {
+    if (await loadPilotRounds({ openRound: open, labels: { 1: label(1), 2: label(2), 3: label(3) } })) {
       // サーバーが返した値で、保存できたかを確かめる（保存した値と、サーバーの値が違えば、成功と言わない）
       const saved = Number($("pilotRoundOpen").value) || 0;
       if (saved === open) showToast("保存しました: " + names, "success");
@@ -3629,6 +3635,12 @@ ${ASCII_ART_JS}
   let lastPilotLearningRows = [];
   let lastPilotProfiles = [];
   // 経験（年。月数 ÷ 12 で入っている）を、「1年7ヶ月」の形に
+  // 基本操作の練習の進み具合（「済 12/12」「途中 5/12」「-」）。初心者には ★ を付ける（練習を勧めた人）
+  function pilotBasics(p) {
+    const mark = p.beginner ? "★ " : "";
+    if (!p.basicsStep) return mark + "-";
+    return mark + (p.basicsDoneAt ? "済 " : "途中 ") + p.basicsStep + "/" + (p.basicsTotal || "?");
+  }
   function pilotExperience(years) {
     const months = Math.round(Number(years) * 12);
     if (!Number.isFinite(months)) return "-";
@@ -3676,6 +3688,11 @@ ${ASCII_ART_JS}
         g.reachedRate == null ? "-" : Math.round(g.reachedRate * 100) + "%",
         num(g.median.difficulty, 1), num(g.median.clarity, 1), num(g.median.durationMin, 1), num(g.median.queries, 0), num(g.median.mistake, 2),
       ]), 10);
+      fillRows("pilotBasicsGroups", (data.byBasics || []).map((g) => [
+        "第" + g.round + "回", conds[g.condition] || g.condition, g.basicsDone ? "あり" : "なし", g.n, g.beginners,
+        g.reachedRate == null ? "-" : Math.round(g.reachedRate * 100) + "%",
+        num(g.median.difficulty, 1), num(g.median.clarity, 1), num(g.median.durationMin, 1), num(g.median.queries, 0), num(g.median.mistake, 2), num(g.median.learned, 1),
+      ]), 12);
       // 条件が混ざっていない（片方の群が 0 件）ときは、差を出さず、「比較できない」と表示する
       const cmp = data.comparison || { comparable: true, reason: "" };
       $("pilotCompareNote").textContent = cmp.comparable
@@ -3732,10 +3749,10 @@ ${ASCII_ART_JS}
       const profilesBody = $("pilotProfiles").querySelector("tbody");
       profilesBody.innerHTML = "";
       if (lastPilotProfiles.length === 0) {
-        profilesBody.innerHTML = "<tr><td colspan=7>事前アンケートの回答はまだありません</td></tr>";
+        profilesBody.innerHTML = "<tr><td colspan=8>事前アンケートの回答はまだありません</td></tr>";
       } else {
         lastPilotProfiles.forEach((p) => {
-          const tr = appendRow(profilesBody, [p.participant, p.experienceYears == null ? "-" : pilotExperience(p.experienceYears), p.selfLevel || "-", p.background || "-", p.practice || "-", p.toolHistory || "-", p.houdiniDefPre || "-"]);
+          const tr = appendRow(profilesBody, [p.participant, p.experienceYears == null ? "-" : pilotExperience(p.experienceYears), p.selfLevel || "-", p.background || "-", p.practice || "-", p.toolHistory || "-", p.houdiniDefPre || "-", pilotBasics(p)]);
           for (let i = 3; i < 7; i++) tr.children[i].className = "pilot-comment";
         });
       }
@@ -3745,11 +3762,11 @@ ${ASCII_ART_JS}
     if (lastPilotTaskRows.length === 0) { showToast("エクスポートする課題の記録がありません", "error"); return; }
     downloadCsv(
       "pilot-tasks-" + new Date().toISOString().slice(0, 10) + ".csv",
-      ["参加者", "回", "種類", "題材", "条件", "開始", "終了", "所要(分)", "中断(分)", "質問数", "cookエラーのノード数", "操作ミス自己申告", "操作ミス(合成)", "到達", "難しさ", "わかりやすさ", "集中を妨げた", "正確性の不安", "出典が役立った", "また使いたい", "自由記述", "やり直し回数"],
+      ["参加者", "回", "種類", "題材", "条件", "開始", "終了", "所要(分)", "中断(分)", "質問数", "cookエラーのノード数", "操作ミス自己申告", "操作ミス(合成)", "到達", "難しさ", "わかりやすさ", "集中を妨げた", "正確性の不安", "出典が役立った", "また使いたい", "自由記述", "やり直し回数", "初心者", "課題の前に練習を終えた"],
       lastPilotTaskRows.map((r) => pilotCsvRow([r.participant, r.round, r.kind, r.taskId, r.condition, pilotTime(r.startedAt), pilotTime(r.endedAt), r.durationMin == null ? "" : r.durationMin, r.pausedMin == null ? "" : r.pausedMin, r.queryCount == null ? "" : r.queryCount,
         r.cookErrorNodes == null ? "" : r.cookErrorNodes, r.selfMistakes == null ? "" : r.selfMistakes, r.mistake == null ? "" : r.mistake, r.reached == null ? "" : r.reached,
         r.difficulty == null ? "" : r.difficulty, r.clarity == null ? "" : r.clarity, r.focus == null ? "" : r.focus, r.accuracyWorry == null ? "" : r.accuracyWorry,
-        r.sourceUseful == null ? "" : r.sourceUseful, r.reuse == null ? "" : r.reuse, r.comment, r.redoCount || 0])),
+        r.sourceUseful == null ? "" : r.sourceUseful, r.reuse == null ? "" : r.reuse, r.comment, r.redoCount || 0, r.beginner == null ? "" : r.beginner, r.basicsBefore == null ? "" : r.basicsBefore])),
     );
   });
   // 回答の一覧のCSV（課題ごとのCSVと同じ内容。画面の「回答の一覧」から出す）
@@ -3768,8 +3785,8 @@ ${ASCII_ART_JS}
     if (lastPilotProfiles.length === 0) { showToast("エクスポートする事前アンケートがありません", "error"); return; }
     downloadCsv(
       "pilot-profiles-" + new Date().toISOString().slice(0, 10) + ".csv",
-      ["参加者", "経験年数", "経験月数", "自己評価", "経歴", "練習", "使ったことのあるツール", "登録日時", "得たいもの(事前)", "つながりを説明(事前)", "調べて判断(事前)", "Houdiniとは説明(事前)", "Houdiniとは(事前の記述)"],
-      lastPilotProfiles.map((p) => pilotCsvRow([p.participant, p.experienceYears == null ? "" : p.experienceYears, p.experienceYears == null ? "" : Math.round(p.experienceYears * 12), p.selfLevel, p.background, p.practice, p.toolHistory, pilotTime(p.createdAt), p.goalPre == null ? "" : p.goalPre, p.selfHowPre == null ? "" : p.selfHowPre, p.selfExplorePre == null ? "" : p.selfExplorePre, p.selfWhatPre == null ? "" : p.selfWhatPre, p.houdiniDefPre])),
+      ["参加者", "経験年数", "経験月数", "自己評価", "経歴", "練習", "使ったことのあるツール", "登録日時", "得たいもの(事前)", "つながりを説明(事前)", "調べて判断(事前)", "Houdiniとは説明(事前)", "Houdiniとは(事前の記述)", "初心者", "練習の手順(最大)", "練習の手順数", "練習の開始", "練習の終了"],
+      lastPilotProfiles.map((p) => pilotCsvRow([p.participant, p.experienceYears == null ? "" : p.experienceYears, p.experienceYears == null ? "" : Math.round(p.experienceYears * 12), p.selfLevel, p.background, p.practice, p.toolHistory, pilotTime(p.createdAt), p.goalPre == null ? "" : p.goalPre, p.selfHowPre == null ? "" : p.selfHowPre, p.selfExplorePre == null ? "" : p.selfExplorePre, p.selfWhatPre == null ? "" : p.selfWhatPre, p.houdiniDefPre, p.beginner ? 1 : 0, p.basicsStep == null ? "" : p.basicsStep, p.basicsTotal == null ? "" : p.basicsTotal, pilotTime(p.basicsStartedAt), pilotTime(p.basicsDoneAt)])),
     );
   });
   $("pilotRefresh").addEventListener("click", loadPilotSummary);

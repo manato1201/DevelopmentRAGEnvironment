@@ -305,6 +305,10 @@ class RAGClient:
         """計測中・終えた課題を破棄して、やり直す（/pilot/session/reset）。次の回を始めたあとの、前の回は、サーバーが断る。"""
         return self._pilot("/pilot/session/reset", {"sessionId": session_id})
 
+    def pilot_basics(self, step: int, total: int) -> dict:
+        """基本操作の練習（Guide の組み込み）の進み具合を送る（/pilot/basics。2026-11-26）。事前アンケートの前は {"recorded": False}。"""
+        return self._pilot("/pilot/basics", {"step": int(step), "total": int(total)})
+
     def rate(self, memory_id, rating: str) -> bool:
         """
         Cloudflare モードのみ有効。回答の履歴に 👍/👎 評価を送る（/memory/rate）。
