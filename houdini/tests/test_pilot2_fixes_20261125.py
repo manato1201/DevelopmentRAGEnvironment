@@ -454,6 +454,17 @@ class TextScaleTest(unittest.TestCase):
     def test_the_scale_multiplies_every_type_size(self) -> None:
         import panel_actions as pa
 
+        self.addCleanup(pa._TEXT_SCALE_CACHE.clear)
+        real_get = pa.text_scale
+
+        def fresh():  # 覚えた値を使わず、毎回読む（下で、読む値を差し替えるため）
+            pa._TEXT_SCALE_CACHE.clear()
+            return real_get()
+
+        patcher = mock.patch.object(pa, "text_scale", fresh)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
         with mock.patch("panel_widgets.ui_state_get", lambda key, default=None: 1.3 if key == pa.TEXT_SCALE_KEY else default):
             self.assertIn("font-size:13.0pt", pa.type_qss("body"))
             self.assertIn("font-size:11.7pt", pa.pt_qss("font-size:12px;"))
@@ -463,3 +474,38 @@ class TextScaleTest(unittest.TestCase):
             self.assertEqual(pa.text_scale(), 1.0)
         with mock.patch("panel_widgets.ui_state_get", lambda key, default=None: 9):
             self.assertEqual(pa.text_scale(), 2.0, "capped")
+
+
+class TutorialModelMigrationTest(unittest.TestCase):
+    """費用: 以前の既定（claude-sonnet-5。effort を送らない）のままの設定を、1 回だけ claude-sonnet-5-5 に移す。"""
+
+    def test_the_old_default_moves_once_and_a_later_choice_is_kept(self) -> None:
+        import rag_client as rcl
+        import tutorial_agent as ta
+
+        moved = rcl.migrate_config({"mode": "cloudflare", "tutorial_model": "claude-sonnet-5"})
+        self.assertEqual(moved["tutorial_model"], "claude-sonnet-5-5")
+        self.assertTrue(moved[rcl.MODEL_MIGRATION_KEY])
+        chosen = rcl.migrate_config({**moved, "tutorial_model": "claude-sonnet-5"})  # 設定者が、あとで選び直した
+        self.assertEqual(chosen["tutorial_model"], "claude-sonnet-5")
+        other = rcl.migrate_config({"mode": "cloudflare", "tutorial_model": "claude-opus-5-5"})
+        self.assertEqual(other["tutorial_model"], "claude-opus-5-5", "a deliberate non-default choice is kept")
+        self.assertEqual(ta.DEFAULT_MODEL, rcl.DEFAULT_TUTORIAL_MODEL)
+        self.assertEqual(ta.effort_for(ta.DEFAULT_MODEL), "medium", "the default model gets an effort")
+
+
+class TextScaleCacheTest(unittest.TestCase):
+    def test_the_state_file_is_read_once_until_it_is_set_again(self) -> None:
+        import panel_actions as pa
+
+        pa._TEXT_SCALE_CACHE.clear()
+        self.addCleanup(pa._TEXT_SCALE_CACHE.clear)
+        reads = []
+        saved = {}
+        with mock.patch("panel_widgets.ui_state_get", lambda key, default=None: reads.append(key) or saved.get(key, default)), \
+                mock.patch("panel_widgets.ui_state_set", lambda key, value: saved.__setitem__(key, value)):
+            for _ in range(50):
+                pa.type_qss("body")
+            self.assertEqual(len(reads), 1, "not once per call")
+            pa.set_text_scale(1.5)
+            self.assertIn("font-size:15.0pt", pa.type_qss("body"), "a new choice is used right away")

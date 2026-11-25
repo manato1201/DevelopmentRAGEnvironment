@@ -808,20 +808,27 @@ def open_item_for_step(source: QWidget, step: dict) -> str:
 def search_term(source: QWidget, term: str) -> str:
     """Reference タブへ切り替えて、用語で探す（A20。別のパネルの Reference が見えていれば、そちらで）。戻り値: 画面に出す 1 文。"""
     try:
-        import guide_view
-
-        other = panel_bus.route(source, ReferenceWidget, panel_bus.enabled())
-        host = guide_view.locate_in_tabs(other if other is not None else source)
-        if host is None:
+        found = _reference_target(source)
+        if found is None:
             return "Reference タブが見つかりません"
-        tabs = host[0]
-        widget = other if other is not None else tabs.findChild(ReferenceWidget)
-        if widget is None:
-            return "Reference タブが見つかりません"
+        tabs, widget, _other = found
         tabs.setCurrentIndex(tabs.indexOf(_page_of(tabs, widget)))
         return widget.search_term(term)
     except Exception as exc:  # noqa: BLE001
         return f"Reference で探せませんでした（{exc}）"
+
+
+def _reference_target(source: QWidget):
+    """開く Reference タブ（別のパネルの Reference が見えていれば、そちら）。戻り値: (タブ, ReferenceWidget, 別のパネルか) / None。"""
+    import guide_view
+
+    other = panel_bus.route(source, ReferenceWidget, panel_bus.enabled())
+    host = guide_view.locate_in_tabs(other if other is not None else source)
+    if host is None:
+        return None
+    tabs = host[0]
+    widget = other if other is not None else tabs.findChild(ReferenceWidget)
+    return None if widget is None else (tabs, widget, other is not None)
 
 
 class TermLookup(QObject):
@@ -874,23 +881,17 @@ def open_item(source: QWidget, kind: str, key: str, label: str = "", shown: str 
     別のパネルの Reference が見えていれば、そちらで開く。fallback(widget) は、開く前に、項目を選び直すとき（戻り値 None なら、そのまま）。
     戻り値: 画面に出す 1 文。"""
     try:
-        import guide_view
-
-        other = panel_bus.route(source, ReferenceWidget, panel_bus.enabled())  # 別のパネルが見えていれば、そちらの Reference を開く
-        host = guide_view.locate_in_tabs(other if other is not None else source)
-        if host is None:
+        found = _reference_target(source)  # 別のパネルが見えていれば、そちらの Reference を開く
+        if found is None:
             return "Reference タブが見つかりません"
-        tabs = host[0]
-        widget = other if other is not None else tabs.findChild(ReferenceWidget)
-        if widget is None:
-            return "Reference タブが見つかりません"
+        tabs, widget, other = found
         hit = fallback(widget) if fallback is not None else None
         tabs.setCurrentIndex(tabs.indexOf(_page_of(tabs, widget)))
         if hit:
             widget.show_item(hit["kind"], hit["key"], hit["label"])
         else:
             widget.show_item(kind, key, label)
-        return f"{'別のパネルの ' if other is not None else ''}Reference タブで「{shown or label or key}」を開きました"
+        return f"{'別のパネルの ' if other else ''}Reference タブで「{shown or label or key}」を開きました"
     except Exception as exc:  # noqa: BLE001
         return f"Reference タブを開けませんでした（{exc}）"
 

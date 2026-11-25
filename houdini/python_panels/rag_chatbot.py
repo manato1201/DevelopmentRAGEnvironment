@@ -81,7 +81,7 @@ from pilot_panel import PilotTaskPanel as _PilotTaskPanel
 from rag_client import post_json as _post_json
 from rag_client import _cf_base as _cf_base_url
 from panel_thinking import ThinkingRow as _ThinkingRow
-from panel_actions import TEXT_SCALES as _TEXT_SCALES, TEXT_SCALE_KEY as _TEXT_SCALE_KEY, text_scale as _text_scale
+from panel_actions import TEXT_SCALES as _TEXT_SCALES, set_text_scale as _set_text_scale, text_scale as _text_scale
 from panel_actions import Speaker as _Speaker, action_button as _action_button, button_qss as _button_qss, make_icon as _make_icon, px as _px, type_font as _type_font, type_qss as _type_qss, normalize_fonts as _normalize_fonts, set_active as _action_set_active
 from PySide6.QtCore import Qt, QSize, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QPalette
@@ -118,9 +118,8 @@ _DEFAULT_CONFIG = {
     "local_port":       8766,      # ローカルブリッジのポート番号
     "local_bridge_dir": "",        # rag_local_bridge.py が含まれるプロジェクトのパス
     "llm_backend":      "claude",  # "claude" | "gemini"（Local モード LLM 切り替え）
-    "tutorial_model":   "claude-sonnet-5",  # チュートリアル生成（Cloudflare経由Claude）のモデル。
-                                    # "claude-sonnet-5"（高品質・高コスト）|
-                                    # "claude-haiku-4-5"（低コスト。token消費対策）
+    "tutorial_model":   "claude-sonnet-5-5",  # チュートリアル生成（Cloudflare経由Claude）のモデル。2026-11-25 に claude-sonnet-5 から変更
+                                    # （同じ単価で、effort: medium を送れる。実証実験の費用の主因。rag_client.DEFAULT_TUTORIAL_MODEL）
     "score_user_id":    "",        # 理解度スコア記録用ユーザーID
     "explain_level":    "auto",    # チャットの説明レベル: auto（おまかせ＝成長）| basic | applied | advanced
     "answer_mode":      "open",    # チャットの答え方: open（資料を最優先に、足りないところは「（推測）」と明示して答える）| grounded（資料だけ）
@@ -1209,7 +1208,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             except ImportError:
                 AVAILABLE_MODELS = ("claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-4-5")
             self._tutorial_model_combo.addItems(list(AVAILABLE_MODELS))
-            self._tutorial_model_combo.setCurrentText(self._cfg.get("tutorial_model", "claude-sonnet-5"))
+            self._tutorial_model_combo.setCurrentText(self._cfg.get("tutorial_model", "claude-sonnet-5-5"))
             box.addWidget(self._tutorial_model_combo)
             hint = QLabel(
                 "claude-sonnet-5: 既定（$2/$10 per 1Mトークン） / "
@@ -1363,11 +1362,13 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         # 文字の大きさ（実証実験の A24「文字が小さい」）。だれでも変えられる。パネルを開き直すと反映
         sizes = menu.addMenu("文字の大きさ")
         current = _text_scale()
+        self._text_scale_actions = []
         for value, label in _TEXT_SCALES:
             act = sizes.addAction(f"{label}（{int(round(value * 100))}%）")
             act.setCheckable(True)
             act.setChecked(abs(value - current) < 0.01)
             act.triggered.connect(lambda checked=False, v=value, l=label: self._on_text_scale(v, l))
+            self._text_scale_actions.append((value, act))
         menu.addAction("このパネルを別ウィンドウで開く（並べて見る）").triggered.connect(self._on_open_new_window)
         menu.addAction("並べて見る方法").triggered.connect(self._show_parallel_help)
         menu.addAction("キー 1 つで、浮かぶパネルを出し入れする（設定）").triggered.connect(self._show_float_hotkey_help)
@@ -1384,10 +1385,9 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         return button
 
     def _on_text_scale(self, value: float, label: str) -> None:
-        _ui_state_set(_TEXT_SCALE_KEY, float(value))
-        for act in self._gear_menu.findChildren(type(self._gear_menu.menuAction())):
-            if act.isCheckable() and act.text().endswith("%）"):
-                act.setChecked(act.text().startswith(label + "（"))
+        _set_text_scale(value)
+        for choice, act in getattr(self, "_text_scale_actions", []):
+            act.setChecked(abs(choice - value) < 0.01)
         self._set_status(f"文字の大きさを「{label}」にしました。パネルを開き直す（ペインタブを閉じて、もう一度開く）と反映します")
 
     def _build_sub_view(self) -> QWidget:
@@ -1736,18 +1736,21 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         try:
             import hou
 
-            for node in hou.selectedNodes()[:3]:
-                selected.append({"label": node.type().description(), "type": node.type().name(), "name": node.path()})
+            def brief(node) -> dict:
+                return {"label": node.type().description(), "type": node.type().name(), "name": node.path()}
+
+            picked = list(hou.selectedNodes() or [])[:3]
+            selected = [brief(node) for node in picked]
             here: list = []
             try:
                 editor = hou.ui.paneTabOfType(hou.paneTabType.NetworkEditor)  # いま見ているネットワークの中だけ（シーン全体は見ない。重くなるため）
                 here = list(editor.pwd().children())[:200] if editor is not None else []
             except Exception:  # noqa: BLE001 -- 画面が無い（hython など）
                 here = []
-            for node in list(hou.selectedNodes() or [])[:3] + here:
+            for node in picked + here:  # 選んでいるノードを先に。エラーの例は 1 つだけ出す
                 try:
                     if node.errors():
-                        errors.append({"label": node.type().description(), "type": node.type().name(), "name": node.path()})
+                        errors.append(brief(node))
                         break
                 except Exception:  # noqa: BLE001 -- エラーの読めないノードは飛ばす
                     continue

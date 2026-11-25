@@ -61,23 +61,29 @@ def get_json(url: str, timeout: int = 5) -> dict:
         return json.loads(resp.read())
 
 
+def _sse_payload(data: list[str]) -> dict | None:
+    """SSE の data 行（複数行は改行でつなぐ）を JSON の dict にする。JSON でない・dict でないときは None。"""
+    try:
+        payload = json.loads("\n".join(data))
+    except ValueError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def iter_sse(lines) -> "Iterator[tuple[str, dict]]":
     """Server-Sent Events（Worker の /query/stream）を、(イベント名, データ) の組にして返す。
     lines は bytes の行の並び（urlopen の応答をそのまま渡せる）。データが JSON でない行は、飛ばす。"""
     event, data = "message", []
     for raw in lines:
-        line = raw.decode("utf-8", errors="replace").rstrip("\r\n") if isinstance(raw, bytes) else str(raw).rstrip("\r\n")
-        if not line:
-            if data:
-                try:
-                    payload = json.loads("\n".join(data))
-                except ValueError:
-                    payload = None
-                if isinstance(payload, dict):
-                    yield event, payload
+        line = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+        line = line.rstrip("\r\n")
+        if not line:  # 空行: 1 つのイベントの終わり
+            payload = _sse_payload(data) if data else None
+            if payload is not None:
+                yield event, payload
             event, data = "message", []
             continue
-        if line.startswith(":"):
+        if line.startswith(":"):  # コメント（接続を保つための ping など）
             continue
         name, _, value = line.partition(":")
         value = value[1:] if value.startswith(" ") else value
@@ -85,13 +91,9 @@ def iter_sse(lines) -> "Iterator[tuple[str, dict]]":
             event = value
         elif name == "data":
             data.append(value)
-    if data:
-        try:
-            payload = json.loads("\n".join(data))
-        except ValueError:
-            payload = None
-        if isinstance(payload, dict):
-            yield event, payload
+    payload = _sse_payload(data) if data else None  # 最後の空行が無いまま、閉じられたとき
+    if payload is not None:
+        yield event, payload
 
 
 def post_stream(url: str, body: dict, api_key: str = "", timeout: int = 90,
@@ -358,13 +360,28 @@ LEGACY_KEYS = (
 )
 
 
+# チュートリアル生成の既定のモデル（2026-11-25）。以前の既定 claude-sonnet-5 は、effort（思考の深さ）を送らないため、
+# 実証実験（11/24・25、20 回の生成）で、1 回あたりの出力が中央値 65k トークン・API の往復が 78 回（上限 80）になり、約 2 ドルかかった。
+# 同じ単価の claude-sonnet-5-5（effort: medium）は、手元の同じ種類の題材（Basic の RBD など）で 0.2〜0.4 ドルだった。
+# モデルの選択は「設定」（設定者だけ）にしかないので、参加者は、以前の既定のまま動いていた → 設定を 1 回だけ移す。
+OLD_DEFAULT_TUTORIAL_MODEL = "claude-sonnet-5"
+DEFAULT_TUTORIAL_MODEL = "claude-sonnet-5-5"
+MODEL_MIGRATION_KEY = "tutorial_model_migrated"
+
+
 def migrate_config(cfg: dict) -> dict:
-    """旧設定（GAS 時代）を新設定へ変換する。mode "cloud" は "cloudflare" に読み替える。"""
+    """旧設定（GAS 時代）を新設定へ変換する。mode "cloud" は "cloudflare" に読み替える。
+    チュートリアル生成のモデルが、以前の既定（claude-sonnet-5）のままなら、1 回だけ新しい既定に移す（印を残すので、
+    そのあとで設定者が claude-sonnet-5 を選び直したときは、そのまま）。"""
     out = dict(cfg)
     if out.get("mode") not in ("cloudflare", "local"):
         out["mode"] = "cloudflare" if out.get("mode") == "cloud" else "cloudflare"
     for key in LEGACY_KEYS:
         out.pop(key, None)
+    if not out.get(MODEL_MIGRATION_KEY):
+        if out.get("tutorial_model") in (None, "", OLD_DEFAULT_TUTORIAL_MODEL):
+            out["tutorial_model"] = DEFAULT_TUTORIAL_MODEL
+        out[MODEL_MIGRATION_KEY] = "2026-11-25"
     return out
 
 

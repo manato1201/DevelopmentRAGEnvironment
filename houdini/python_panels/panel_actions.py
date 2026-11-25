@@ -19,6 +19,7 @@ panel_actions.py — パネルで共通に使う「アイコン 1 つ = 操作 1
 from __future__ import annotations
 
 import re
+import time
 
 from PySide6.QtCore import QByteArray, QSize, Qt
 from PySide6.QtGui import QFont, QGuiApplication, QIcon, QPainter, QPixmap
@@ -83,16 +84,32 @@ TEXT_SCALES: tuple[tuple[float, str], ...] = ((1.0, "標準"), (1.15, "やや大
 TEXT_SCALE_KEY = "text_scale"
 
 
+_TEXT_SCALE_CACHE: dict[str, float] = {}
+_TEXT_SCALE_TTL = 5.0  # 秒。文字の大きさを決めるたびに設定ファイルを読まないように、少しのあいだ覚えておく
+
+
 def text_scale() -> float:
     """利用者が選んだ文字の倍率（メニュー ≡ →「文字の大きさ」。2026-11-25、実証実験の A24「文字が小さい」）。既定は 1.0。
-    パネルを作るときに読む（変えたら、パネルを開き直すと反映）。"""
+    パネルを作るときに読む（変えたら、パネルを開き直すと反映）。読んだ値は _TEXT_SCALE_TTL 秒だけ覚える。"""
+    now = time.monotonic()
+    if now - _TEXT_SCALE_CACHE.get("at", -1e9) < _TEXT_SCALE_TTL:
+        return _TEXT_SCALE_CACHE["value"]
     try:
         from panel_widgets import ui_state_get
 
-        value = float(ui_state_get(TEXT_SCALE_KEY, 1.0) or 1.0)
+        value = min(2.0, max(0.8, float(ui_state_get(TEXT_SCALE_KEY, 1.0) or 1.0)))
     except Exception:  # noqa: BLE001 -- 読めなければ標準
-        return 1.0
-    return min(2.0, max(0.8, value))
+        value = 1.0
+    _TEXT_SCALE_CACHE.update(value=value, at=now)
+    return value
+
+
+def set_text_scale(value: float) -> None:
+    """文字の倍率を保存する（次にパネルを作るときから使う）。"""
+    from panel_widgets import ui_state_set
+
+    ui_state_set(TEXT_SCALE_KEY, float(value))
+    _TEXT_SCALE_CACHE.clear()
 
 
 def pt_qss(qss: str) -> str:

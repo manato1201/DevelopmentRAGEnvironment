@@ -45,8 +45,9 @@ from houdini_tools import HOUDINI_TOOLS, HoudiniToolExecutor
 
 # ─── 定数 ────────────────────────────────────────────────────────────────────────
 
-DEFAULT_MODEL = "claude-sonnet-5"  # 設計判断（§4.1）。既定値。generate()単価/品質に影響するため
-                                    # 変更時はTutorialAgent(model=...)で明示的に指定する
+DEFAULT_MODEL = "claude-sonnet-5-5"  # 設計判断（§4.1）。既定値。generate()単価/品質に影響するため
+                                      # 変更時はTutorialAgent(model=...)で明示的に指定する。2026-11-25 に claude-sonnet-5 から変更
+                                      # （effort: medium を送れる。実証実験で sonnet-5 は 1 生成 約2ドル、sonnet-5-5 は同種の題材で 0.2〜0.4 ドル）
 # 反復上限（§2.6）。初期値25 → 40 → 80（2026-10-05）。パーティクル・シミュレーション系は、
 # dopnetの中のノードが多く、cookのたびに複数フレームを評価して直す往復が増えるため、40回では
 # 仕上げの前に打ち切られやすかった。上限を上げても、finish_tutorial / confirm_tutorial に
