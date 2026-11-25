@@ -335,7 +335,7 @@ class WidgetFlowTest(unittest.TestCase):
         gm.write_guide(path, self.guide)
         note = self.gv.announce_saved(self.source, path, switch=False)
         self.assertIn("保存したものに更新", note)
-        self.assertEqual(self.guide_widget._combo.count(), 1)
+        self.assertEqual(self.guide_widget._combo.count(), 2, "the saved guide and the built-in basics practice")
         self.assertNotIn("未保存", self.guide_widget._combo.itemText(0))
         self.assertEqual(self.tabs.currentIndex(), 2, "saving does not move the user away from the Tutorial tab")
 
@@ -429,7 +429,7 @@ class TutorialViewHookTest(WidgetFlowTest):
         self.tabs.setCurrentIndex(2)
         note = self.tv.TutorialGeneratePanel._announce_guide_saved(self.source, paths[0], switch=False)
         self.assertIn("保存したものに更新", note)
-        self.assertEqual(self.guide_widget._combo.count(), 1)
+        self.assertEqual(self.guide_widget._combo.count(), 2, "the saved guide and the built-in basics practice")
 
 
 if __name__ == "__main__":

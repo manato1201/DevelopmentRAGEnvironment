@@ -23,6 +23,8 @@ reference_data.py — リファレンスタブ（ノード・VEX・APEX・シェ
 from __future__ import annotations
 
 import html
+
+import tool_analogies
 import json
 import re
 from pathlib import Path
@@ -575,6 +577,9 @@ def entry_html(item: dict, entry: dict | None, references: list[dict] | None = N
         parts.append("</ul>")
     if media:
         parts.append(media)
+    analogy = tool_analogies.for_item(item)  # Maya・Blender でいうと（手で書いた対応だけ。2026-11-25、A27）
+    if analogy:
+        parts.append(tool_analogies.html_block(analogy))
     if entry:
         for key, title in _SECTIONS:
             body = str(entry.get(key) or "").strip()

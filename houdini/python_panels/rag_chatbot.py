@@ -964,6 +964,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
                 on_connection_event=self._check_connection_async,
                 on_video_ready=self._on_video_ready,
             )
+            self._tutorial_panel.set_developer_view(self._is_setup())  # 進行ログは設定者だけ（A5。役割が確かめられたら、_apply_role_visibility で直す）
             return self._tutorial_panel
         self._tutorial_panel = None
         return self._missing_module_widget("tutorial_view.py")
@@ -1486,6 +1487,9 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         box = getattr(self, "_mode_box", None)
         if box is not None:
             box.setVisible(self._is_setup())
+        panel = getattr(self, "_tutorial_panel", None)
+        if panel is not None and hasattr(panel, "set_developer_view"):
+            panel.set_developer_view(self._is_setup())  # 進行ログは設定者だけ（A5）
 
     # ── イベント ───────────────────────────────────────────────────────────────
 

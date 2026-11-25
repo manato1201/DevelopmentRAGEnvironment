@@ -515,6 +515,31 @@ def _build_light_agent(cfg: dict):
     )
 
 
+# 利用者向けの、進み具合の言い換え（A5）。進行ログの「[12/80] create_node({...})」を、「進んでいます: 12 / 80 回目（ノードを作る）」にする
+_TOOL_WORDS = {
+    "create_node": "ノードを作る", "set_parameter": "値を設定する", "connect_nodes": "ノードをつなぐ", "delete_node": "不要なノードを消す",
+    "cook_node": "結果を確かめる", "inspect_geometry": "中身を数値で確かめる", "view_viewport": "見た目を確かめる",
+    "validate_network": "全体を点検する", "layout_network": "ノードを整列する", "try_parameter": "値を変えて試す",
+    "promote_parameter": "調整用のつまみを作る", "finish_tutorial": "手順書を書く", "confirm_tutorial": "仕上がりを確かめる",
+    "get_parm_schema": "パラメータを調べる", "get_node_info": "ノードを調べる", "list_available_node_types": "ノードを調べる",
+    "search_docs": "資料を調べる", "get_doc": "資料を読む", "press_button": "ボタンを押す",
+}
+_PROGRESS_RE = re.compile(r"^\[(\d+)/(\d+)(\+予備)?\]\s*([a-z_]+)\(")
+
+
+def friendly_progress(text: str) -> str:
+    """進行ログの 1 行を、利用者向けの 1 行にする。言い換えられない長い行は、先頭だけ。空なら空。"""
+    text = " ".join(str(text or "").split())
+    if not text:
+        return ""
+    m = _PROGRESS_RE.match(text)
+    if m:
+        what = _TOOL_WORDS.get(m.group(4), "作業する")
+        extra = "（仕上げの予備）" if m.group(3) else ""
+        return f"進んでいます: {m.group(1)} / {m.group(2)} 回目{extra}（{what}）"
+    return text if len(text) <= 60 else text[:59] + "…"
+
+
 class TutorialGeneratePanel(QWidget):
     """
     チュートリアル生成タブ。
@@ -780,6 +805,13 @@ class TutorialGeneratePanel(QWidget):
         self._busy_banner.setVisible(False)
         layout.addWidget(self._busy_banner)
 
+        # 利用者向けの、いまの進み具合（1 行）。生の進行ログは、設定者だけに出す（A5。set_developer_view）
+        self._progress_line = QLabel("")
+        self._progress_line.setStyleSheet(type_qss("caption", COLOR_ACCENT))
+        self._progress_line.setWordWrap(True)
+        self._progress_line.setVisible(False)
+        layout.addWidget(self._progress_line)
+
         # ── 4. 進行ログとプレビューを縦分割（ペインが低いときは、全体のスクロールで見る）─
         splitter = QSplitter(Qt.Vertical)
         splitter.setChildrenCollapsible(False)
@@ -799,6 +831,7 @@ class TutorialGeneratePanel(QWidget):
         self._progress_log.setMinimumHeight(px(70))
         log_layout.addWidget(self._progress_log)
         splitter.addWidget(log_box)
+        self._log_box = log_box
 
         preview_box = QWidget()
         preview_layout = QVBoxLayout(preview_box)
@@ -1129,6 +1162,14 @@ class TutorialGeneratePanel(QWidget):
         self._progress_log.append(text)
         sb = self._progress_log.verticalScrollBar()
         sb.setValue(sb.maximum())
+        line = friendly_progress(text)
+        if line:
+            self._progress_line.setText(line)
+            self._progress_line.setVisible(True)
+
+    def set_developer_view(self, on: bool) -> None:
+        """生の進行ログ（どのツールを、どんな引数で呼んだか）を出すか（A5。設定者だけ True。利用者には、1 行の進み具合だけ）。"""
+        self._log_box.setVisible(bool(on))
 
     @_debug.guard("生成", restore="_restore_after_error")
     def _on_done(self, result) -> None:

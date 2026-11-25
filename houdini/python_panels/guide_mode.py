@@ -285,10 +285,13 @@ def guide_from_result(result) -> dict:
     sandbox = str(getattr(result, "sandbox_path", "") or "")
     if sandbox:
         extras["sandbox_path"] = sandbox
-    return build_guide(
-        getattr(result, "step_screenshots", None) or [], getattr(result, "title", "") or "", getattr(result, "level", "") or "",
+    screenshots = getattr(result, "step_screenshots", None) or []
+    guide = build_guide(
+        screenshots, getattr(result, "title", "") or "", getattr(result, "level", "") or "",
         extras, purposes_from_markdown(markdown),
     )
+    guide[SHOTS_KEY] = shots_by_step(screenshots)  # 手順ごとの、お手本の画面（保存はしない。write_guide が外す）
+    return guide
 
 
 # 手順書(.md)の節のうち、案内タブにも出すもの。キー → 見出しに含まれる語
@@ -368,7 +371,43 @@ def guide_path_for(md_path: Path) -> Path:
 
 
 def write_guide(path: Path, guide: dict) -> None:
-    path.write_text(json.dumps(guide, ensure_ascii=False, indent=2), encoding="utf-8")
+    """案内を保存する。「_」で始まるキー（読み込み時に結び付ける、手順ごとの画面の画像のパスなど）は、書き出さない。"""
+    data = {k: v for k, v in guide.items() if not str(k).startswith("_")}
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# ── 手順ごとの、お手本の画面（2026-11-25、実証実験の A25「この場面の結果でこうなる、という見本がほしい」）──────────
+# 生成のときに、手順ごとに撮ったビューポート（結果）とネットワークの画像を、Guide の手順の下に出す。
+# 画像のパスは、案内のファイルには書かない（「_shots」は、読み込み・生成のときに、メモリの上でだけ結び付ける）。
+SHOTS_KEY = "_shots"
+SHOT_ROLES = (("viewport", "結果（ビューポート）"), ("network", "ノードのつながり"))
+
+
+def shots_by_step(screenshots) -> dict[int, dict]:
+    """手順の記録（step_screenshots。{"step", "viewport", "network", ...}）から、{手順の番号: {"viewport": パス, "network": パス}}。"""
+    out: dict[int, dict] = {}
+    for shot in screenshots or []:
+        if not isinstance(shot, dict) or not isinstance(shot.get("step"), int):
+            continue
+        paths = {role: str(shot[role]) for role, _label in SHOT_ROLES if shot.get(role)}
+        if paths:
+            out[shot["step"]] = paths
+    return out
+
+
+def screenshots_path_for(guide_path: Path) -> Path:
+    """案内（<名前>_guide.json）と同じ場所の、手順ごとの画面の一覧（<名前>_screenshots.json）。"""
+    name = Path(guide_path).name
+    stem = name[: -len(GUIDE_SUFFIX)] if name.endswith(GUIDE_SUFFIX) else Path(guide_path).stem
+    return Path(guide_path).with_name(f"{stem}_screenshots.json")
+
+
+def step_shots(guide: dict | None, step: dict | None) -> list[tuple[str, str]]:
+    """この手順の、お手本の画面（[(見出し, 画像のパス)]）。ファイルがあるものだけ。"""
+    if not guide or not isinstance(step, dict) or not isinstance(step.get("step"), int):
+        return []
+    paths = (guide.get(SHOTS_KEY) or {}).get(step["step"]) or {}
+    return [(label, paths[role]) for role, label in SHOT_ROLES if paths.get(role) and Path(paths[role]).is_file()]
 
 
 def md_path_for(guide_path: Path) -> Path:
@@ -411,6 +450,10 @@ def load_guide(path: Path) -> dict | None:
         data["steps"] = connect_early([s for s in data["steps"] if isinstance(s, dict)])  # 以前に保存した案内も、つなぐ手順を先にする（A15）
     except Exception:  # noqa: BLE001 -- 並べ替えに失敗しても、記録の順で案内する
         pass
+    try:
+        data[SHOTS_KEY] = shots_by_step(json.loads(screenshots_path_for(Path(path)).read_text(encoding="utf-8")))  # A25
+    except (OSError, ValueError):
+        data[SHOTS_KEY] = {}
     return data
 
 
@@ -565,6 +608,31 @@ def location_status(current_path: str, expected_path: str) -> tuple[str, bool]:
     if current_path.rstrip("/") == expected_path.rstrip("/"):
         return f"いまのネットワーク: {current_path}（この手順の場所と同じ）", True
     return f"いまのネットワーク: {current_path}\nこの手順の場所: {expected_path}（違います）", False
+
+
+def location_severity(current_path: str, expected_path: str) -> str:
+    """いまの場所と、この手順の場所のずれの大きさ（2026-11-25、A26「階層ミスなどの警告を目立たせる」）。
+      "same"    … 同じ（または、手順の場所が無い）
+      "name"    … 深さは同じで、名前だけ違う（自分の名前のオブジェクトで作業している。そのままでよいことが多い）
+      "level"   … 深さが違う（Object レベルで SOP のノードを作ろうとしている、など。本当の階層ミス）
+      "unknown" … いまの場所が分からない"""
+    if not expected_path:
+        return "same"
+    if not current_path:
+        return "unknown"
+    current, expected = current_path.rstrip("/"), expected_path.rstrip("/")
+    if current == expected:
+        return "same"
+    depth = lambda path: len([part for part in path.split("/") if part])  # noqa: E731
+    return "level" if depth(current) != depth(expected) else "name"
+
+
+def level_hint(current_path: str, expected_path: str) -> str:
+    """深さが違うときの、直し方（ネットワークエディタのキー。guide_shortcuts の net_enter・net_up と同じ）。"""
+    depth = lambda path: len([part for part in str(path).split("/") if part])  # noqa: E731
+    if depth(current_path) < depth(expected_path):
+        return "この手順は、もっと中の階層で作業します。ネットワークエディタで、入るノード（geo など）を選び、Enter（またはダブルクリック）で中に入ります"
+    return "この手順は、もっと外の階層で作業します。ネットワークエディタで U を押すと、1 つ上の階層へ出ます"
 
 
 # ── Houdini の画面を動かす（hou は引数。画面を書き換えず、示すだけ） ───────────────

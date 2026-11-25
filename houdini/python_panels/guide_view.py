@@ -23,12 +23,14 @@ import html
 from pathlib import Path
 from typing import Callable
 
+import basics_guide
 import display_isolation
 import guide_mode
+import tool_analogies
 import guide_shortcuts
 import panel_paths
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QTextOption
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QPixmap, QTextOption
 from panel_actions import action_button, button_qss, px, type_font, type_qss
 from panel_widgets import CollapsibleBox
 from PySide6.QtWidgets import (
@@ -119,6 +121,8 @@ def render_step_html(guide: dict, index: int, step_override: dict | None = None,
         node_bits.append(f"<span style='color:#94a3b8'>生成したサンドボックスの実物（見本）: {esc(places['sandbox_node'])}</span>")
     node_bits.append(f"見るタブ: <b>{esc(step.get('tab_label') or '')}</b>")
     rows.append("<p>" + "<br>".join(node_bits) + "</p>")
+    if step.get("tool") == "create_node" and step.get("node_type"):
+        rows.append(tool_analogies.html_block(tool_analogies.for_node(str(step["node_type"]))))  # Maya・Blender でいうと（A27。無ければ空）
     if lines:
         rows.append(f"<p>つなぐ線（{len(lines)}本）:</p><ul>" + "".join(f"<li>{esc(line)}</li>" for line in lines) + "</ul>")
     parms = step.get("parms") or []
@@ -294,6 +298,67 @@ def announce_saved(source: QWidget, guide_path, switch: bool | None = None) -> s
     return widget.announce(switch, saved=True, from_index=source_index)
 
 
+class _ShotLabel(QLabel):
+    """押すと、元の大きさの画像を開く画像（お手本の画面）。"""
+
+    clicked = Signal()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 -- Qt
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
+class ShotStrip(QWidget):
+    """手順ごとの、お手本の画面（生成のときに撮った、この手順のあとのビューポートとネットワーク。2026-11-25、A25）。
+    画像が無い手順では、隠れる。押すと、元の大きさで開く。"""
+
+    WIDTH = 220
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._row = QHBoxLayout(self)
+        self._row.setContentsMargins(0, 0, 0, 0)
+        self._row.setSpacing(px(6))
+        self._cache: dict[str, QPixmap] = {}  # 見せる・隠すは、外の折りたたみ（Guide の _shots_box）が決める
+
+    def _pixmap(self, path: str) -> QPixmap | None:
+        if path not in self._cache:
+            image = QPixmap(path)
+            if image.isNull():
+                return None
+            self._cache[path] = image.scaledToWidth(px(self.WIDTH), Qt.SmoothTransformation)
+            if len(self._cache) > 40:  # 長い手順書でも、覚えすぎない
+                self._cache.pop(next(iter(self._cache)))
+        return self._cache[path]
+
+    def show_shots(self, shots: list[tuple[str, str]]) -> int:
+        """[(見出し, パス)] を並べる。並べた枚数を返す（0 なら隠す）。"""
+        while self._row.count():
+            item = self._row.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        shown = 0
+        for label, path in shots:
+            image = self._pixmap(path)
+            if image is None:
+                continue
+            box = QVBoxLayout()
+            caption = QLabel(label)
+            caption.setStyleSheet(type_qss("caption", "#94a3b8"))
+            picture = _ShotLabel()
+            picture.setPixmap(image)
+            picture.setCursor(Qt.PointingHandCursor)
+            picture.setToolTip("押すと、元の大きさで開きます")
+            picture.clicked.connect(lambda p=path: QDesktopServices.openUrl(QUrl.fromLocalFile(p)))
+            box.addWidget(caption)
+            box.addWidget(picture)
+            self._row.addLayout(box)
+            shown += 1
+        self._row.addStretch()
+        return shown
+
+
 class GuideStepWindow(QWidget):
     """手順だけの、小さな別ウィンドウ。Houdini の主ウィンドウの上に重なり、ほかのタブ（Chat・Docs など）を見ながら手順を読める。"""
 
@@ -407,12 +472,27 @@ class GuideWidget(QWidget):
         _wrap_anywhere(self._step_view)
         self._step_view.setToolTip("語をダブルクリックすると、Reference で探します")
         root.addWidget(self._step_view, stretch=1)
+        # お手本の画面（この手順のあと、生成のときに撮ったもの。A25）。折りたためる。画像の無い手順では隠れる
+        self._shots = ShotStrip()
+        self._shots_box = CollapsibleBox("お手本の画面（この手順のあと。押すと大きく開く）", self._shots, collapsed=False,
+                                         state_key="guide_shots", left_align=True)
+        self._shots_box.hide()
+        root.addWidget(self._shots_box)
         try:
             import reference_view  # 循環を避けるため、ここで読む（reference_view も guide_view を使う）
 
             reference_view.TermLookup.install(self._step_view, lambda message: self._set_status([message]))  # 用語をダブルクリックで調べる（A20）
         except Exception:  # noqa: BLE001 -- 付けられなくても、案内はできる
             pass
+
+        # 注意（お手本のパスを指している、など）。小さい文字に埋もれないよう、目立つ枠で出す（A26）
+        self._warn = QLabel("")
+        self._warn.setWordWrap(True)
+        self._warn.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._warn.setStyleSheet(f"{type_qss('body', '#fff7ed')}font-weight:bold;background:#7c2d12;border:{px(2)}px solid #f97316;"
+                                 f"border-radius:{px(4)}px;padding:{px(6)}px {px(8)}px;")
+        self._warn.setVisible(False)
+        root.addWidget(self._warn)
 
         # 案内した結果（Houdini の画面を動かしたあとの、短い報告）
         self._status = QLabel("")
@@ -533,11 +613,22 @@ class GuideWidget(QWidget):
 
         self._set_enabled(False)
 
-    def _set_where_style(self, same: bool) -> None:
-        """いまのネットワークが、この手順の場所と同じなら、ふつうの色。違うときは、琥珀の帯で目立たせる。"""
-        base = type_qss("caption", "#cbd5e1" if same else "#fde68a")
-        fill = "#1e293b" if same else "#422006"
-        self._where.setStyleSheet(f"{base}background:{fill};border-radius:{px(4)}px;padding:{px(4)}px {px(6)}px;")
+    def _set_where_style(self, severity) -> None:
+        """いまのネットワークと、この手順の場所のずれに合わせた色（A26）。
+        同じ: ふつう / 名前だけ違う・分からない: 琥珀の帯 / 深さが違う（本当の階層ミス）: 赤の太い枠と大きな文字。
+        以前の呼び方（True = 同じ、False = 違う）も受ける。"""
+        if severity is True:
+            severity = "same"
+        elif severity is False:
+            severity = "name"
+        if severity == "level":
+            style = (f"{type_qss('body', '#fff7ed')}font-weight:bold;background:#7c2d12;border:{px(2)}px solid #f97316;"
+                     f"border-radius:{px(4)}px;padding:{px(6)}px {px(8)}px;")
+        else:
+            same = severity == "same"
+            style = (f"{type_qss('caption', '#cbd5e1' if same else '#fde68a')}background:{'#1e293b' if same else '#422006'};"
+                     f"border-radius:{px(4)}px;padding:{px(4)}px {px(6)}px;")
+        self._where.setStyleSheet(style)
 
     # ── ショートカット ────────────────────────────────────────────────────────
 
@@ -598,6 +689,9 @@ class GuideWidget(QWidget):
         for name, path in found:
             self._combo.addItem(name)
             self._paths.append(path)
+        # 組み込みの「基本操作の練習」（AI を使わない。いつも最後に出す。basics_guide.py）
+        self._combo.addItem(basics_guide.LABEL)
+        self._paths.append(basics_guide.KEY)
         self._combo.blockSignals(False)
         self._combo.setCurrentIndex(select if 0 <= select < len(self._paths) else 0)
 
@@ -607,6 +701,12 @@ class GuideWidget(QWidget):
         if self._transient is not None and any(name == self._transient[0] for name, _p in found):
             self._transient = None  # 同じ手順が保存されたので、保存したものに置き換える
         self._fill_combo(found)
+        if not found and self._transient is None:
+            # 保存したチュートリアルがまだ無い（はじめての人）: 基本操作の練習を開く
+            self._load(len(self._paths) - 1)
+            self._status.setText(("保存したチュートリアルは、まだありません。まず、基本操作の練習から始められます" if directory is not None
+                                  else panel_paths.SAVE_DIR_MISSING))
+            return
         if not self._paths:
             self._guide = None
             self._step_view.setHtml("")
@@ -626,7 +726,9 @@ class GuideWidget(QWidget):
 
     def _load(self, index: int) -> None:
         path = self._paths[index]
-        if path is None and self._transient is not None:
+        if path == basics_guide.KEY:
+            guide = basics_guide.build()
+        elif path is None and self._transient is not None:
             guide = self._transient[1]
         else:
             guide = guide_mode.load_guide(path) if path is not None else None
@@ -644,7 +746,9 @@ class GuideWidget(QWidget):
         else:
             self._extra_view.setHtml(render_sections_html(guide))
         self._set_enabled(True)
-        if path is None:
+        if path == basics_guide.KEY:
+            note = "基本操作の練習です。/obj に practice_geo を作って、手を動かしながら覚えます。「この手順を案内」で、見る場所を示します"
+        elif path is None:
             note = "生成した直後の手順です（まだ保存していません）。保存は Tutorial タブの「保存」から"
         else:
             note = "手順を1つずつ示します。「この手順を案内」で、Houdini の画面を動かします" if hou is not None else "Houdini の外なので、手順の表示だけできます"
@@ -754,6 +858,7 @@ class GuideWidget(QWidget):
         self._pos.setText(f"手順 {self._index + 1} / {len(steps)}")
         page = render_step_html(self._guide, self._index, self._current_step(), shortcuts_visible(self._index, self._sc_btn.isChecked()))
         self._step_view.setHtml(page)
+        self._shots_box.setVisible(self._shots.show_shots(guide_mode.step_shots(self._guide, steps[self._index])) > 0)
         self._prev_btn.setEnabled(self._index > 0)
         self._next_btn.setEnabled(self._index < len(steps) - 1)
         self._update_where()
@@ -766,18 +871,24 @@ class GuideWidget(QWidget):
         if self._guide is not None:
             expected = guide_mode.step_places(self._guide["steps"][self._index], self._sandbox_path())["network"]
         text = ""
-        same = True
+        severity = "same"
         if hou is not None:
             try:
-                text, same = guide_mode.location_status(guide_mode.current_network_path(hou), expected)
+                current = guide_mode.current_network_path(hou)
+                text, _same = guide_mode.location_status(current, expected)
+                severity = guide_mode.location_severity(current, expected)
+                if severity == "level":
+                    text = f"⚠ 階層が違います\n{text}\n{guide_mode.level_hint(current, expected)}"
+                elif severity == "name":
+                    text += "\n（名前の違う、自分の作業場所なら、そのままで構いません）"
             except Exception:  # noqa: BLE001 -- 階層が読めなくても、手順の表示は止めない
-                text, same = "", True
+                text, severity = "", "same"
             self._restore_btn.setEnabled(display_isolation.pending() > 0)
         if not text:
             text = f"この手順の作業場所: {expected}" if expected else "Houdini の外なので、いまの階層は分かりません"
         self._where_text = text
         self._where.setText(text)
-        self._set_where_style(same)
+        self._set_where_style(severity)
         if self._popup is not None and self._popup.isVisible():
             self._popup._where.setText(text)
 
@@ -868,6 +979,10 @@ class GuideWidget(QWidget):
     def _set_status(self, messages: list[str]) -> None:
         """案内の結果を、短く出す（compact_messages）。全文は、ツールチップに残す。手順の説明の欄を、押しつぶさないため、
         出すのは最大 _STATUS_MAX_LINES 行まで。"""
+        warnings = [m for m in messages if str(m).startswith(("注意", "⚠"))]
+        self._warn.setText("\n".join(f"⚠ {str(m).lstrip('⚠ ')}" for m in warnings))
+        self._warn.setVisible(bool(warnings))
+        messages = [m for m in messages if m not in warnings]
         lines = compact_messages(messages)
         self._status_lines = lines
         shown = lines[:_STATUS_MAX_LINES]
