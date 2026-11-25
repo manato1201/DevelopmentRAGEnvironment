@@ -42,7 +42,7 @@ HOUDINI_TOOLS: list[dict] = [
         "name": "create_node",
         "description": (
             "サンドボックスサブネット内に新しいノードを作成する。"
-            "node_type はカテゴリ内での正確なタイプ名（例: 'grid', 'mountain::2.0'）。"
+            "node_type はカテゴリ内での正確なタイプ名（例: 'grid', 'scatter::2.0'）。"
             "タイプ名が不確かな場合は必ず先に list_available_node_types で確認すること。"
             "parent を省略するとサンドボックス直下に作成される。"
         ),
@@ -208,7 +208,7 @@ HOUDINI_TOOLS: list[dict] = [
         "name": "list_available_node_types",
         "description": (
             "指定カテゴリで利用可能なノードタイプを検索する。"
-            "Houdini のノードタイプ名はバージョン依存（例: 'mountain' は存在せず 'mountain::2.0'）"
+            "Houdini のノードタイプ名はバージョン依存（例: 'scatter' ではなく 'scatter::2.0'）"
             "のため、create_node の前に正確な名前をこのツールで確認すること。"
         ),
         "input_schema": {
@@ -2548,6 +2548,33 @@ class HoudiniToolExecutor:
         return (f"{node_type.name()} は、{why}Houdini の Tab メニューに出ません。学習者は、手順書のとおりに作れません。"
                 + (instead or "Tab メニューに出るノードで作り直してください"))
 
+    def _display_in_the_middle(self, container) -> str:
+        """SOP・COP のネットワーク（geo・copnet など）で、表示フラグが、途中のノード（出力の先があるノード）に付いていれば、その説明。
+        （2026-11-25 の品質確認: COP の Pyro で、表示がソース（pyro_sourceshape）に残り、煙のシミュレーションが映らなかった）"""
+        try:
+            definition = getattr(container.type(), "definition", lambda: None)()
+        except Exception:  # noqa: BLE001
+            definition = None
+        if definition is not None:
+            return ""  # デジタルアセット（RBD Bullet Solver・COP の Pyro の部品など）の中は、Houdini 付属の作り。学習者が組むネットワークだけを見る
+        try:
+            shown = container.displayNode() if hasattr(container, "displayNode") else None
+            kids = list(container.children()) if shown is not None else []
+        except Exception:  # noqa: BLE001
+            return ""
+        if shown is None or not kids or shown.type().category().name() not in ("Sop", "Cop"):
+            return ""
+        try:
+            downstream = [o for o in shown.outputs() if o.parent() is not None and o.parent().path() == container.path()]
+        except Exception:  # noqa: BLE001
+            return ""
+        if not downstream:
+            return ""
+        ends = [k for k in kids if not k.outputs() and k.path() != shown.path()]
+        names = "、".join(self._rel(k) for k in ends[:4]) or "最後のノード"
+        return (f"[表示] {self._rel(container)}: 表示フラグが、途中のノード {self._rel(shown)} に付いています（この先に {len(downstream)} 本つながっている）。"
+                f"結果が映るように、最後のノード（{names}）を cook_node して、表示を移してください")
+
     def _structure_issues(self, nodes: list) -> list[str]:
         """手順書が足りなくなる作りを見つける（2026-11-25。実証実験の A14）。
           ・Tab メニューに出ない（非推奨の）ノード
@@ -2563,6 +2590,9 @@ class HoudiniToolExecutor:
             note = self._tab_hidden_note(node_type)
             if note:
                 issues.append(f"[Tab に出ない] {self._rel(node)}: {note}（delete_node で消して、作り直す）")
+            mid = self._display_in_the_middle(node)
+            if mid:
+                issues.append(mid)
             if node_type.name() != "dopnet":
                 continue
             try:

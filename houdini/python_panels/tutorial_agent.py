@@ -220,14 +220,17 @@ AVAILABLE_MODELS: tuple[str, ...] = tuple(_MODEL_PRICES.keys())
 # ことが分かっているため。ここに無い/不確かなタイプは引き続き
 # list_available_node_types で確認すること）。
 _COMMON_NODE_TYPES_BLOCK = """- 基本形状: box, sphere, grid, tube, torus
-- 変形・ノイズ: mountain::2.0, attribnoise::2.0, attribwrangle, attribrandomize
+- 変形・ノイズ: attribnoise::2.0（起伏・ノイズ。古い mountain::2.0 は Tab メニューに出ないので使わない）, attribwrangle, attribrandomize
 - 散布・複製: scatter::2.0, copytopoints::2.0
 - 結合・切り出し: merge, blast, boolean::2.0
 - 属性操作: attribwrangle, attribcreate::2.0, attribdelete, attribpromote
 - 曲線: curve::2.0, resample, sweep::2.0, polyframe
 - ボリューム/VDB: vdbfrompolygons, cloudnoise, volumewrangle, volumevop, convertvdb
 - パーティクル: POP系はDOPノードなので SOP 直下には作れない。geo の中に dopnet を作り、その中に popobject, popsolver::2.0, popsource::2.0, popforce, popdrag, popwrangle, popkill, popcollisiondetect, popadvectbyvolumes, popattract, popreplicate を作る（簡易に見せるだけなら scatter::2.0 + copytopoints::2.0 の方が確実）
-- シミュレーション(DOP): pyrosolver::2.0, dopnet, vellumsolver, rbdpackedobject, staticobject
+- Pyro（煙・炎。SOP で組む。学習者向けの基本）: pyrosource → volumerasterizeattributes → pyrosolver（SOP の Pyro Solver）。DOP の pyrosolver::2.0・smokeobject・sourcevolume は古く、Tab メニューに出ないので使わない
+- RBD（剛体・破壊。SOP で組む）: voronoifracture::3.0 / rbdmaterialfracture → assemble → rbdbulletsolver（SOP の RBD Bullet Solver）
+- クロス: vellumsolver（SOP）
+- シミュレーション(DOP。必要なときだけ): dopnet, rbdpackedobject, staticobject（dopnet を作ると、中に file_output が自動で置かれる。最後のノードをつなぐ）
 - スクリプト: python（Python SOP）
 - UV: uvunwrap, uvlayout（実体は uvlayout::3.0）, uvproject（H22以降は uvrelax, labs::autouv::1.0 も）
 - マテリアル: サンドボックス直下に matnet を作り、中に principledshader::2.0（基本色 basecolor、粗さ rough 等）を作る。SOP の material ノードの shop_materialpath1 にパス（例 `../../matnet1/principledshader1`）を設定して割り当てる
@@ -266,7 +269,7 @@ _EMPTY_HANDED_NUDGE_TEXT = (
 _EMPTY_HANDED_NUDGE_TEXT_2 = (
     "[システム通知] 依然としてノードが1つも作成されていません。トピックがHoudiniの"
     "具体的なノードタイプ名と一致しなくても構いません。完璧な再現は諦めて、"
-    "sphere/tube/torus 等の基本形状と scatter::2.0 / copytopoints::2.0 / mountain::2.0 "
+    "sphere/tube/torus 等の基本形状と scatter::2.0 / copytopoints::2.0 / attribnoise::2.0 "
     "などを組み合わせた「それらしい」見た目で妥協してください。今すぐ create_node を"
     "呼んでください。これ以上ノードタイプを探し続けることは禁止します。"
 )
@@ -410,13 +413,13 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、チ
 
 ## 絶対ルール
 - ノード操作はサンドボックス `{sandbox_path}` 内でのみ行われます。ノードパスは常にサンドボックス相対（例: `geo1/grid1`）で指定してください。
-- 以下の「よく使うノードタイプ」に無いタイプ名が少しでも不確かな場合は、create_node の前に必ず list_available_node_types で正確な名前を確認してください（例: `mountain` ではなく `mountain::2.0`）。既知のタイプ名について毎回確認する必要はありません。
+- 以下の「よく使うノードタイプ」に無いタイプ名が少しでも不確かな場合は、create_node の前に必ず list_available_node_types で正確な名前を確認してください（例: `scatter` ではなく `scatter::2.0`）。既知のタイプ名について毎回確認する必要はありません。
 - SOP を作るには、まずサンドボックス直下に Object カテゴリの `geo` ノードを作成し、その中に SOP ノードを作成します。
 - グラフを組み終えたら必ず最終ノードを cook_node で評価し、エラーがあれば修正して再 cook してください。エラーが残ったまま finish_tutorial を呼んではいけません。
 - ビューポートの表示（ディスプレイ/レンダーフラグ）はシステムが自動で管理します。connect_nodes で接続した先の末端ノード（出力先が無いノード）と、cook_node したノードが表示されます。display/render は set_parameter で設定できるパラメータではありません（試しても失敗します）。複数の要素（例: 地形と、その上に散布した岩）を同時に見せたい場合は、Merge ノードで結合して末端にしてください（片方しか見えない状態で終わらせないこと）。すべてのノードを最終的な1本の流れにつなぐこと（つなぎ忘れたノードは結果に反映されません）。
 - pyro/fire/クロス/パーティクル/流体/剛体等のシミュレーション系ノードを cook_node する際は、システム側が自動的に複数フレーム分evaluateして時間発展する挙動を検証します（1フレームだけでは正しく動くか分からないためです）。
 - list_available_node_types で調べ続けるより、最も可能性の高いタイプ名で create_node を試す方が早いことが多いです（間違っていても cook_node のエラーから自己修正できます）。ノードを1つも作らずにテキストだけで応答して終了することは禁止です。必ず何らかのツールを呼んでください。
-- トピックが「電子パーティクル」「銀河」のような、Houdiniの具体的なノードタイプ名にそのまま対応しない抽象的・比喩的な題材であっても構いません。その名前のノードタイプを探し続けるのではなく、基本形状（sphere/tube/torus等）・散布や複製（scatter::2.0, copytopoints::2.0）・ノイズや変形（mountain::2.0等）を組み合わせて「それらしい見た目」を表現する方針に切り替えてください。完璧な再現より、まず何かを組み立てて完成させることを優先してください。
+- トピックが「電子パーティクル」「銀河」のような、Houdiniの具体的なノードタイプ名にそのまま対応しない抽象的・比喩的な題材であっても構いません。その名前のノードタイプを探し続けるのではなく、基本形状（sphere/tube/torus等）・散布や複製（scatter::2.0, copytopoints::2.0）・ノイズや変形（attribnoise::2.0等）を組み合わせて「それらしい見た目」を表現する方針に切り替えてください。完璧な再現より、まず何かを組み立てて完成させることを優先してください。
 - cook_node が成功しても中身が正しいとは限りません。cook_node の後に inspect_geometry で、点が0個でないか・範囲がおかしくないか・必要な属性が付いているか・画像が一定値でないかを数値で確かめてください（SOP / COP / LOP）。
 - ランプ（グラデーション・カーブ）のパラメータは value ではなく set_parameter の ramp（pos と value の配列）で設定します（value だと点が1個に潰れます）。
 - connect_nodes の入力は、VOPなど意味が名前で決まるノードでは input_name / output_name で指定します（番号の取り違えは cook が通ってしまい気づけません）。入力名は get_node_info で分かります。
@@ -430,6 +433,8 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、チ
 - 学習者は、手順書のとおりに Tab メニューからノードを作ります。Tab メニューに出ないノード（非推奨の古いノード。例: smokeobject → smokeobject_sparse、sourcevolume → volumesource）は使いません。create_node の結果に「Tab メニューに出ません」と出たら、消して、示された代わりのノードで作り直します。
 - DOP ネットワーク（dopnet）を作ると、中に file_output（Output DOP。表示フラグ付き）が自動で置かれます。最後のノード（ソルバー）を、必ず connect_nodes で file_output の入力 0 につなぎます（つながないと、シミュレーションは空で、学習者は結果を確かめられません）。
 - ノードを作ったら、そのノードの接続（connect_nodes）は、パラメータを変える前に行います。入力がつながるまで、選べない・効かないパラメータがあります（手順書も、作る → つなぐ → 値を変える、の順になります）。
+- Pyro（煙・炎）は、SOP の pyrosource → volumerasterizeattributes → pyrosolver で組みます。参考資料に出てくる Copernicus（COP）の Pyro（pyro_sourceshape・pyro_block_begin など）は、題材が画像・2D の煙を求めるときだけ使います（SOP の一覧に `pyro_` で始まるノードが無いのは正常です。SOP の Pyro は `pyrosolver`・`pyrosource` という名前です）。
+- 表示フラグ（結果として見えるノード）は、ネットワークの最後のノードに付けます。途中のノード（ソースなど）に付いたままにしません。
 - リグ・アニメーション（KineFX）は、標準の作り方で組みます（骨の点は Skeleton SOP か、Add SOP の点と線。ダミーのジオメトリを VEX で消して作るような裏技は使わない）。手順書を読んだ学習者が、同じ操作で同じ骨を作れる形にします。
 - 速く終えるために、互いに依存しない操作（複数ノードの create_node、同じノードの複数パラメータの set_parameter、複数の connect_nodes、複数ノードの get_parm_schema など）は、1回の応答でまとめて呼びます。1回の応答に1つずつ呼ぶと、そのたびに待ち時間がかかり、反復の上限も消費します。ただし、結果を見ないと決められない操作（cook_node のあとの修正など）は、結果を見てから呼びます。
 - ノードには、役割が分かる名前を付けます（create_node の name。例: `vortex_points`、`pyro_source`。`attribwrangle1` のままにしない）。ノードは、データの流れの順（上流 → 下流）に作り、接続は、作った順に、上から下へ流れる形にします（線が交差・逆流しない）。つなぎ方の組み立てが複雑なら、先に流れを決めてから作ります。ノードが8個以上のコンテナは、layout_network の groups で、役割ごとのまとまり（例: 「渦の点を作る」「ソース」「シミュレーション」）を付けます。

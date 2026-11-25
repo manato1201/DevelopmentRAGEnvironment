@@ -509,3 +509,57 @@ class TextScaleCacheTest(unittest.TestCase):
             self.assertEqual(len(reads), 1, "not once per call")
             pa.set_text_scale(1.5)
             self.assertIn("font-size:15.0pt", pa.type_qss("body"), "a new choice is used right away")
+
+
+class DisplayInTheMiddleTest(unittest.TestCase):
+    """品質確認（2026-11-25）: COP の Pyro で、表示がソースに残り、シミュレーションが映らなかった。"""
+
+    class _Cat:
+        def __init__(self, name): self._n = name
+        def name(self): return self._n
+
+    def _node(self, path, cat="Cop", asset=False):
+        node = _Node(path, _Type("x"))
+        node._t.category = lambda c=cat: self._Cat(c)
+        node._t.definition = (lambda: object()) if asset else (lambda: None)
+        node.parent = lambda: None
+        return node
+
+    def setUp(self) -> None:
+        hou, sandbox, add, _nodes = make_tool_world()
+        self.ex = make_executor(hou, sandbox)
+        sb = self.ex.sandbox_path
+        self.net = self._node(f"{sb}/g/cops", "Sop")
+        self.src = self._node(f"{sb}/g/cops/source")
+        self.end = self._node(f"{sb}/g/cops/block_end")
+        _wire(self.src, self.end)
+        for kid in (self.src, self.end):
+            kid.parent = lambda n=self.net: n
+        self.net.kids = [self.src, self.end]
+
+    def test_a_display_left_on_the_source_is_reported(self) -> None:
+        self.net.shown = self.src
+        message = self.ex._display_in_the_middle(self.net)
+        self.assertIn("[表示] g/cops: 表示フラグが、途中のノード g/cops/source", message)
+        self.assertIn("g/cops/block_end", message)
+
+    def test_a_display_on_the_last_node_and_asset_internals_are_fine(self) -> None:
+        self.net.shown = self.end
+        self.assertEqual(self.ex._display_in_the_middle(self.net), "")
+        self.net.shown = self.src
+        self.net._t.definition = lambda: object()  # デジタルアセットの中は、見ない
+        self.assertEqual(self.ex._display_in_the_middle(self.net), "")
+
+
+class CommonNodeListTest(unittest.TestCase):
+    """生成の指示の「よく使うノード」に、Tab メニューに出ないノードを載せない（hython 22.0.506 で確かめた: mountain::2.0・pyrosolver::2.0 は非推奨）。"""
+
+    def test_no_deprecated_node_is_recommended(self) -> None:
+        import tutorial_agent as ta
+
+        block = ta._COMMON_NODE_TYPES_BLOCK
+        for line in block.splitlines():
+            for old in ("mountain::2.0", "pyrosolver::2.0", "smokeobject", "sourcevolume"):
+                if old in line:
+                    self.assertIn("使わない", line, line)
+        self.assertIn("pyrosource → volumerasterizeattributes → pyrosolver", block)

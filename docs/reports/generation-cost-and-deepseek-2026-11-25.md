@@ -45,8 +45,25 @@ Claude の呼び出しは、すべて Worker（`/claude/messages`）を通り、
 1. **既定のモデルを `claude-sonnet-5-5` に**（`tutorial_agent.DEFAULT_MODEL`・パネルの既定の設定・生成の呼び出しの既定）。effort は medium（`tutorial_agent._MODEL_EFFORT`。以前からの設定）。
 2. **以前の既定のままの設定を、1 回だけ移す**（`rag_client.migrate_config`。印 `tutorial_model_migrated` を残すので、設定者があとで `claude-sonnet-5` を選び直したときは、そのまま）。Opus など、ほかのモデルを選んでいる設定は変えない。
 
-品質への影響の確かめ（まだ、やっていない。生成 1 回ごとに費用がかかる）:
-- 実証実験の固定課題（RBD・Pyro）を、`sonnet-5-5` で 1 回ずつ生成し、指標（`*_metrics.json` の completed・cook_errors・confirm_rejections・lesson_score・node_count）と、手順書の中身（第 2 回で直した、DOP の出力のつなぎ・Tab に出ないノード）を、参加者の生成（`sonnet-5`）と比べる。見込みの費用は、合わせて 1 ドル未満。
+### 3.1 品質の確認（2026-11-25、`sonnet-5-5`・Basic で 2 回生成）
+
+hython（画面の無い Houdini 22.0.506）で、パネルと同じ生成（`TutorialAgent`）を動かした。画面が無いので、ビューポートの画像による見た目の確認はできない（AI は数値で確かめる）。題材は、参加者の作業ファイルにあった内容に合わせた。
+
+| | RBD（箱が割れて、地面に落ちて転がる） | Pyro（球から煙が立ち上る） | 参考: 参加者の生成（`sonnet-5`） |
+|---|---|---|---|
+| 費用 | **0.33 ドル** | **0.70 ドル** | 約 2 ドル |
+| API の往復 | 19 回 | 51 回 | 中央値 78 回 |
+| 出力トークン | 11,757 | 18,371 | 中央値 約 65,000 |
+| 時間 | 2 分 | 5 分 | — |
+| 完成・レッスンの点 | 完成・94 / 100 | 完成・94 / 100 | — |
+| 中身 | SOP の RBD（Voronoi Fracture → Assemble → RBD Bullet Solver）。10 個の破片が落ちて広がる（1・24・48 フレームで確認）。Tab に出ないノード・つなぎ忘れなし | **問題あり**: SOP の一覧に `pyro_` で始まるノードが無いことから「SOP には Pyro が無い」と誤って判断し、Copernicus（COP）の Pyro で組んだ。表示フラグがソース（`pyro_sourceshape1`）に残り、煙が映らない | DOP の出力のつなぎ忘れ・Tab に出ないノード（修正リストの G） |
+
+Pyro の問題を受けて直したこと:
+- 生成の指示の「よく使うノード」に、Tab に出ない `pyrosolver::2.0`（DOP）と `mountain::2.0` が載っていた（第 2 回の Pyro の見本が古い DOP で作られた一因）。SOP の Pyro（`pyrosource → volumerasterizeattributes → pyrosolver`）・SOP の RBD を載せ、古いノードは「使わない」と書いた。
+- 指示に、「Pyro は SOP で組む。COP の Pyro は、題材が画像・2D のときだけ」「SOP に `pyro_` で始まるノードが無いのは正常」「表示フラグは、最後のノードに付ける」を足した。
+- 点検（`_structure_issues`）に、「SOP・COP のネットワークで、表示フラグが途中のノードに付いている」を足した（Houdini 付属の部品の中は見ない）。今回の Pyro の結果で 1 件見つかり、RBD の結果では 0 件だった。
+
+残り: Pyro を、直したあとでもう一度生成して、SOP の Pyro で組まれ、煙が映ることを確かめる（約 0.5〜0.7 ドル）。実際の Houdini（画像の確認あり）でも、1 回ずつ確かめるとよい。
 
 ほかの候補（今回は入れない）:
 - **古い画像・大きなツール結果を、履歴から外す**: 読み込みは減るが、外した位置からあとのキャッシュが無効になり、書き込み（入力の 1.25 倍）が増える。効果が小さく、見た目の確認（画像）にも響くので、入れない。
