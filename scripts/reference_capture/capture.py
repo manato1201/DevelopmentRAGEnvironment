@@ -39,7 +39,7 @@ if "hou" not in sys.modules:
 
 GIF_WIDTH = 480
 GIF_FPS = 16
-SHOT_TIMEOUT = 180
+SHOT_TIMEOUT = 600  # シミュレーション（Pyro のレシピなど）は、動かして撮るまでに数分かかる
 
 
 def find_hython() -> str:

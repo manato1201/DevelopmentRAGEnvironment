@@ -39,6 +39,12 @@ def fail(reason: str) -> None:
 
 def set_parms(node, parms: dict) -> None:
     for name, value in (parms or {}).items():
+        if isinstance(value, dict) and "expr" in value:  # {"expr": "$F == 1"} = 式（HScript）を入れる（FLIP の出す量を、1 フレーム目だけにする、など。2026-11-25）
+            parm = node.parm(name)
+            if parm is None:
+                fail(f"{node.type().name()} に、パラメータ {name} がありません")
+            parm.setExpression(value["expr"], hou.exprLanguage.Hscript)
+            continue
         tup = node.parmTuple(name)
         if tup is None:
             single = node.parm(name)  # r の中の ry のように、組の中の 1 つの名前
@@ -119,6 +125,11 @@ def make_node(parent, type_names, name: str):
     for type_name in names:
         if hou.nodeType(category, type_name) is not None:
             return parent.createNode(type_name, name)
+    for type_name in names:  # 版の付いた名前（popsolver → popsolver::2.0 など）は、createNode が、いまの版に読み替える
+        try:
+            return parent.createNode(type_name, name)
+        except hou.OperationFailed:
+            continue
     fail(f"ノードのタイプが見つかりません: {names}")
 
 
@@ -144,6 +155,11 @@ def signature(geometry) -> dict:
         "prims": len(geometry.prims()),
         "bbox": [round(v, 4) for v in (*box.minvec(), *box.maxvec())],
     }
+    # ボリューム（Heightfield の高さなど）は、値の合計も比べる（形の大きさが同じまま、高さだけが変わる処理を、「変化なし」と見誤らないため。2026-11-25）
+    voxels = [v for prim in geometry.prims() if prim.type() == hou.primType.Volume and math.prod(prim.resolution()) <= 300000 for v in prim.allVoxels()]
+    if voxels:
+        sig["vox_sum"] = round(sum(voxels), 2)
+        sig["vox_sq"] = round(sum(v * v for v in voxels), 2)
     positions = geometry.pointFloatAttribValues("P")
     sig["sum_p"] = round(sum(positions), 3)
     sig["sum_abs_p"] = round(sum(abs(v) for v in positions), 3)
@@ -208,6 +224,37 @@ def build_graph(geo, graph: dict):
         if spec.get("display"):  # DOP ネットワークは、表示フラグの付いたノード（output）までを、シミュレーションする
             node.setDisplayFlag(True)
     return made[graph["node"]], made[graph.get("before") or graph["nodes"][0]["name"]]
+
+
+RECIPE_SKIP_TYPES = {"lopnet", "copnet", "NetworkBox", "StickyNote"}  # SOP の中に作れない・撮影に要らないもの
+
+
+def build_tool_recipe(geo, graph: dict):
+    """Houdini 付属のツールのレシピ（シェルフの Simple Fireball などが置くノードの組み立て）を、そのまま geo の中に作る（2026-11-25）。
+    graph = {"tool_recipe": レシピ名, "node": 映すノード, "before": 適用前に映すノード, "rewire": {ノード: 入力 0 につなぎ直すノード},
+             "parms": {ノード: {パラメータ: 値}}}。(映すノード, 適用前に映すノード) を返す。"""
+    data = hou.data.dataFromRecipe(graph["tool_recipe"])
+    kids = {k: v for k, v in data["children"].items() if v.get("type") not in RECIPE_SKIP_TYPES}
+    for item in kids.values():
+        item["inputs"] = [i for i in item.get("inputs", []) if i.get("from") in kids]
+    hou.data.createItemsFromData(geo, kids)
+    # 追加のパラメータ（ノードのパスなど）の値は、作ったあとで入れ直す（追加のパラメータを作る前に入れた値が、残らないことがある。
+    # 例: Simple Fireball の Volume Rasterize Attributes の pyroburstsourcepath が空になり、式が失敗する）
+    for name, item in kids.items():
+        node = geo.node(name)
+        for parm_name, value in (item.get("parms") or {}).items():
+            parm = node.parm(parm_name) if node is not None else None
+            if isinstance(value, str) and parm is not None and parm.parmTemplate().type() == hou.parmTemplateType.String and parm.unexpandedString() != value:
+                parm.set(value)
+    for name, source in (graph.get("rewire") or {}).items():
+        geo.node(name).setInput(0, geo.node(source))
+    for name, parms in (graph.get("parms") or {}).items():
+        set_parms(geo.node(name), parms)
+    node = geo.node(graph["node"])
+    before = geo.node(graph.get("before") or graph["node"])
+    if node is None or before is None:
+        fail(f"レシピ {graph['tool_recipe']} に、ノード {graph['node']} / {graph.get('before')} がありません")
+    return node, before
 
 
 VOP_ALIASES = {"global": "geometryvopglobal1", "out": "geometryvopoutput1"}
@@ -366,7 +413,7 @@ def main() -> None:
     graph = recipe.get("graph")
     sources = []
     if graph:
-        node, before_source = build_graph(geo, graph)
+        node, before_source = (build_tool_recipe if graph.get("tool_recipe") else build_graph)(geo, graph)
         sources = [before_source]
     else:
         for i, spec in enumerate([] if create else (recipe.get("inputs") or [recipe["input"]])):

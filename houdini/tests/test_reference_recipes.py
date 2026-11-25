@@ -93,7 +93,8 @@ class RecipeShapeTest(unittest.TestCase):
             if recipe.get("create"):
                 self.assertNotIn("input", recipe, recipe["key"])
                 self.assertNotIn("inputs", recipe, recipe["key"])
-                self.assertTrue(recipe.get("sweep"), recipe["key"])  # 置くだけで形ができるものにも、動き（GIF）を付ける（2026-11-24。recipe_common.CREATE_SWEEPS）
+                # 置くだけで形ができるものにも、動き（GIF）を付ける（2026-11-24。recipe_common.CREATE_SWEEPS）。シミュレーション（sim）は、それ自体が動き
+                self.assertTrue(recipe.get("sweep") or recipe.get("sim"), recipe["key"])
 
     def test_simulation_recipes_set_the_frame_count_and_the_view(self) -> None:
         """sim = 進めるフレーム数、view = 構図の範囲（シミュレーションの箱は、煙より大きい）。sim のレシピだけが持つ。"""
@@ -103,6 +104,8 @@ class RecipeShapeTest(unittest.TestCase):
             self.assertIsInstance(r["sim"], int, r["key"])
             self.assertGreater(r["sim"], 1, r["key"])
             view = r.get("view")
+            if not view and (r.get("graph") or {}).get("tool_recipe"):
+                continue  # Houdini 付属のツールのレシピ（2026-11-25）は、ソルバーの箱から構図を決める（箱は、レシピが、煙に合わせて決めている）
             self.assertTrue(view and all(a < b for a, b in zip(view["lo"], view["hi"])), r["key"])
             self.assertFalse(r.get("sweep"), r["key"])  # 動かす値と、シミュレーションは、一緒にしない
         for r in RECIPES:

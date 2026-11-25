@@ -38,6 +38,8 @@ SHELF_FROM_NODE = {
     "shelf/sop_fractal": "sop/fractal",
     "shelf/sop_heightfield": "sop/heightfield",  # 2026-11-25
     "shelf/sop_heightfield_noise": "sop/heightfield_noise",
+    "shelf/sop_heightfield_terrace": "sop/heightfield_terrace",  # 2026-11-25 の 2 回目
+    "shelf/sop_heightfield_erode_3_0": "sop/heightfield_erode",
 }
 
 CREATE_RECIPES: list[dict] = [

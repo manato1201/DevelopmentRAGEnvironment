@@ -63,6 +63,41 @@ NODE_MORE += [
        "ドーナツを、外から包む形（凸包）にする。真ん中の穴が、ふさがる"),
 ]
 
+# 2026-11-25 の 2 回目: Heightfield の残り。初期値では効き目が見えにくいので、値を強めて撮る。
+# 比べ方: 高さの値（ボリュームの値の合計）も、前後で比べる（hython_shot.signature）。以前は、地形の大きさだけを比べていて、高さだけが変わる処理を外していた
+HF_STEEP = {**HF_FLAT, "after": [{"type": "heightfield_noise", "parms": {"amp": 120, "elementsize": 25}}]}  # 急な凸凹（amp = 120 で、高さ -15〜30 ほど。凸凹の大きさ 25）
+# 崩れる土の層つき: Slump が崩すのは、mask の層（Material to Slump の初期値）に入れた、土の厚み。無いと、何も起きない
+HF_LOOSE = {**HF_FLAT, "after": [{"type": "heightfield_noise", "parms": {"amp": 120, "elementsize": 25}},
+                                 {"type": "heightfield_noise", "parms": {"layer": "mask", "amp": 30, "elementsize": 15}}]}
+NODE_MORE += [
+    _n("sop/heightfield_terrace", ["heightfield_terrace::2.0", "heightfield_terrace"], HF_STEEP,
+       {"minheight": -20, "terrace_max_step_size": 6},
+       "急な凸凹の地形を、高さ -20 から上で、6 ごとの段々（棚田のような段）にする。適用後の赤い色は、段にした範囲を示す mask の層の表示"
+       "（masklayer を空にすると、何も変わらない。2026-11-25 に確かめた）",
+       sweep={"parm": "terrace_max_step_size", "from": 1, "to": 6}),
+    _n("sop/heightfield_distort", ["heightfield_distort"], HF_STEEP, {"amp": 25, "element_size": 20},
+       "急な凸凹の地形を、ノイズ（初期値の Curl）で、横にねじるようにゆがめる。amp = 25 は、ずらす量、element_size = 20 は、ゆがみの大きさ",
+       sweep={"parm": "amp", "from": 0, "to": 25}),
+    _n("sop/heightfield_slump", ["heightfield_slump"], HF_LOOSE, {"iterations": 300, "repose_angle": 20},
+       "急な凸凹の地形の上に、mask の層で、崩れる土（厚さ 0〜8 ほど）を置き、20 度より急な斜面の土を、崩して、ふもとへ流す。"
+       "iterations = 300 は、崩す回数。流れた土は、地形の高さに足される（Add to Bedrock は、初期値でオン）",
+       sweep={"parm": "iterations", "from": 0, "to": 300}),
+    _n("sop/heightfield_erode", ["heightfield_erode::3.0", "heightfield_erode"], HF_STEEP, {"freezeframe": 40},
+       "急な凸凹の地形を、雨と流れで削る（浸食）。freezeframe = 40 は、40 フレーム分、削った結果で止める（Do Freeze は、初期値でオン）",
+       sweep={"parm": "freezeframe", "from": 1, "to": 40}),
+    _n("sop/heightfield_clip", ["heightfield_clip"], HF_STEEP, {"maxclip": 8, "dosoftclip": 0},
+       "急な凸凹の地形の、高さ 8 より上を、平らに切る（台地になる）。dosoftclip = 0 で、切り口を、なだらかにしない",
+       sweep={"parm": "maxclip", "from": 30, "to": 8}),
+    _n("sop/heightfield_pattern", ["heightfield_pattern"], HF_STEEP, {"combine": 1, "pattern": 3, "height": 15, "size": 25},
+       "急な凸凹の地形に、縞模様（pattern = 3 は、メニューの「Stripes」）の高さ 15 を、足す（combine = 1 は、メニューの「Add」）。size = 25 は、縞の幅",
+       keep=["pattern", "combine"], sweep={"parm": "height", "from": 0, "to": 15}),
+    _n("sop/heightfield_remap", ["heightfield_remap"], HF_STEEP, {"inputmin": -20, "inputmax": 20, "outputmin": 0, "outputmax": 60},
+       "急な凸凹の地形の高さを、-20〜20 から、0〜60 へ、置き換える（全体が持ち上がり、凸凹が 1.5 倍に大きくなる）",
+       sweep={"parm": "outputmax", "from": 40, "to": 60}),
+    _n("sop/heightfield_crop", ["heightfield_crop"], HF_STEEP, {"sizex": 40, "sizey": 40},
+       "100 x 100 の地形を、真ん中の 40 x 40 だけに切り取る", sweep={"parm": "sizex", "from": 100, "to": 40}),
+]
+
 # VEX: 色・点・面を、関数で読み書きして、形や色に出るもの
 def _v(name: str, snippet: str, see: str, input_: dict | None = None, primitives: bool = False) -> dict:
     """primitives=True は、Run Over を Primitives（class = 1）にする。"""

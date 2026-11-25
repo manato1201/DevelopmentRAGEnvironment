@@ -68,6 +68,7 @@
 | B2 | **対応済み（未確認）** | 完了・失敗の処理（`_on_done`・`_on_chain_done`・`_on_failed`・チャットの回答）を、`panel_debug.guard` で守った。例外が出ても、ボタンが戻り、デバッグの記録（メニュー ≡ →「デバッグ」）に残る。動画の台本・進捗の処理にも、同じ備え。**実機で、症状が出なくなったかは、未確認** |
 | A1 | **一部対応** | 生成中に、「Houdini を触らないで」の帯を出す。参加者が自分で動かすシミュレーションの最中の注意は、未対応（パネルから、検出できない） |
 | A4 | **進行中** | Reference の画像は、192 件に公開済み。シェルフの「操作する場所」・全項目の GIF を撮影済み（公開は、これから）。シミュレーション系のシェルフツールの多くは、未撮影 |
+| A4（2026-11-25 追記） | **進行中** | 282 件を公開したあと、22 件を足して公開した。Pyro のシェルフ（Fireball・Simple Fireball・Wispy Smoke・Dry Ice・Explosion。Houdini 付属のツールのレシピを、そのまま動かして撮る）、FLIP Solver（SOP）、POP（Solver・Source・Wind・Force、シェルフの Location・Wind）、Heightfield の 8 件（Terrace・Distort・Slump・Erode・Clip・Pattern・Remap・Crop）。撮らなかったもの: Candle（炎が芯から離れて映る）、Flames（煙の無い炎が、画面に映らない）、Colored Smoke（使えるレシピが無い） |
 | A9 | **対応済み** | `pilot-announcement.md` の「3 回」「ドキュメントのみ」を直した |
 | 要望 | **対応済み** | Reference タブに「再読み込み」ボタン（一覧と、見ている説明を、待ち時間なしで取り直す） |
 | A2・A3・A5〜A8・A10〜A13 | 未着手 | 優先の順は、C を参照 |

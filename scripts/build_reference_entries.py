@@ -162,7 +162,9 @@ def select_items(which: str, keys: set[str]) -> list[dict]:
 
 
 def _fmt(parms: dict) -> str:
-    return "、".join(f"{k} = {v}" for k, v in parms.items()) or "初期値のまま"
+    def value(v):  # {"expr": "..."} = 式を入れた値（撮影のレシピの書き方）
+        return f"式 {v['expr']}" if isinstance(v, dict) and "expr" in v else v
+    return "、".join(f"{k} = {value(v)}" for k, v in parms.items()) or "初期値のまま"
 
 
 def _vop_steps(recipe: dict) -> str:
@@ -189,6 +191,9 @@ def _graph_steps(recipe: dict) -> str:
     lines: list[str] = []
     if recipe.get("cop"):
         lines.append("1. COP ネットワーク（copnet）を作り、その中で、次のノードを置く（できた画像を、そのまま撮った）")
+    tool_recipe = (recipe.get("graph") or {}).get("tool_recipe")
+    if tool_recipe:  # Houdini 付属のツールのレシピを、そのまま動かしたもの（2026-11-25）。nodes は、置かれるノードのうち、主なもの
+        lines.append(f"1. ツールのレシピ {tool_recipe}（{recipe.get('tool_label', '')}）が、次のノードを置いて、つなぐ（主なものだけ。パラメータは、レシピの値のまま）")
     for spec in (recipe.get("graph") or recipe.get("cop"))["nodes"]:
         type_name = spec["type"] if isinstance(spec["type"], str) else spec["type"][0].split("::")[0]
         refs = [(r, 0) if isinstance(r, str) else tuple(r) if r is not None else None for r in spec.get("inputs") or []]

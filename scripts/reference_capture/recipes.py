@@ -182,6 +182,16 @@ from recipes_dop import build as _build_dop  # noqa: E402
 
 RECIPES.extend(_build_dop())
 
+# Pyro のシェルフツール（recipes_pyro.py。Houdini 付属のツールのレシピを、そのまま動かす）を足す
+from recipes_pyro import build as _build_pyro  # noqa: E402
+
+RECIPES.extend(_build_pyro())
+
+# FLIP・POP（recipes_particles.py）を足す
+from recipes_particles import build as _build_particles  # noqa: E402
+
+RECIPES.extend(_build_particles())
+
 # シェルフツール（recipes_shelf.py）を足す（同じ働きのノードのレシピを使う）。ノードのレシピが全部そろってから（いちばん最後に）
 from recipes_shelf import build as _build_shelf  # noqa: E402
 
