@@ -71,6 +71,7 @@
 | A4（2026-11-25 追記） | **進行中** | 282 件を公開したあと、22 件を足して公開した。Pyro のシェルフ（Fireball・Simple Fireball・Wispy Smoke・Dry Ice・Explosion。Houdini 付属のツールのレシピを、そのまま動かして撮る）、FLIP Solver（SOP）、POP（Solver・Source・Wind・Force、シェルフの Location・Wind）、Heightfield の 8 件（Terrace・Distort・Slump・Erode・Clip・Pattern・Remap・Crop）。撮らなかったもの: Candle（炎が芯から離れて映る）、Flames（煙の無い炎が、画面に映らない）、Colored Smoke（使えるレシピが無い） |
 | A9 | **対応済み** | `pilot-announcement.md` の「3 回」「ドキュメントのみ」を直した |
 | 要望 | **対応済み** | Reference タブに「再読み込み」ボタン（一覧と、見ている説明を、待ち時間なしで取り直す） |
+| 要望（2026-11-25） | **対応済み** | 「チャットの回答に、図があったほうがいい」: 回答に出てくるノード・VEX 関数・シェルフツールのうち、Reference に撮影画像があるもの（最大 3 件）を、回答の下に並べる（適用前 → 適用後の組。無ければ、操作する場所など 1 枚）。押すと、Reference タブで開く。図は AI に作らせない（`chat_figures.py`・`reference_view.ChatFigureStrip`）。設定 `chat_figures: false` で出さない |
 | A2・A3・A5〜A8・A10〜A13 | 未着手 | 優先の順は、C を参照 |
 
 ## E. A2（新しいノードを作ると、`obj` 階層に戻る）の調査（2026-11-24）

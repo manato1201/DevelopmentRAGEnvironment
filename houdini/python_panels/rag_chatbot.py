@@ -44,6 +44,7 @@ except NameError:
 
 # reference_view.py（Reference タブ: ノード・VEX・APEX・シェルフツールの説明）も同様
 try:
+    from reference_view import ChatFigureStrip as _ChatFigureStrip  # 回答の下に、Reference の絵を添える（2026-11-25）
     from reference_view import ReferenceWidget as _ReferenceWidget
     _REFERENCE_AVAILABLE = True
 except ImportError:
@@ -1835,6 +1836,16 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             node_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
             make_links_clickable(node_label)
             v.addWidget(node_label)
+
+        # 回答に出てくるノード・VEX 関数・シェルフツールのうち、Reference に撮影した画像があるものを、絵で添える（2026-11-25。実証実験の意見）。
+        # 図は AI に作らせない（誤りが、そのまま図になる）。画像は、別スレッドで取り、届いたら出す（無ければ、何も出ない）
+        if _REFERENCE_AVAILABLE and self._cfg.get("chat_figures", True):
+            try:
+                strip = _ChatFigureStrip(self._cfg, text)
+                strip.message.connect(self._set_status)
+                v.addWidget(strip)
+            except Exception as exc:  # noqa: BLE001 -- 絵が出せなくても、回答は出す
+                _debug.log("図", f"回答の絵を出せませんでした: {exc}")
 
         # 説明レベルと、今回の回答で紹介した用語（explain を付けた質問だけ）
         explain_text = _format_explain(explain)

@@ -17,6 +17,7 @@ reference_view.py — Reference タブ: ノード・VEX・APEX・シェルフツ
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import time
@@ -30,7 +31,7 @@ import reference_remote as rr
 from reference_author import fetch_reference_items  # noqa: F401 -- 画面とテストが、この名前で使う（本体は reference_author）
 from panel_actions import button_qss, px, type_font, type_qss
 from PySide6.QtCore import QEvent, QSize, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QImage, QMovie, QTextDocument
+from PySide6.QtGui import QDesktopServices, QImage, QMovie, QPixmap, QTextDocument
 from PySide6.QtWidgets import (
     QBoxLayout,
     QButtonGroup,
@@ -761,6 +762,29 @@ def open_item_for_step(source: QWidget, step: dict) -> str:
     node_type = str((step or {}).get("node_type") or "")
     if not node_type:
         return "この手順には、説明するノードがありません"
+    base = rd.base_type(node_type).lower()
+    hit = None
+    for kind in ("node", "apex"):
+        for item in rd.search(kind, base, limit=60):
+            if item["name"].split("--")[-1].lower() == base:
+                hit = item
+                break
+        if hit:
+            break
+    label = str(step.get("node_label") or base)
+    if hit:
+        return open_item(source, hit["kind"], hit["key"], hit["label"], label)
+
+    def remote_hit(widget):  # 一覧データに無い項目（Mountain など）。公開済みなら、その項目を開く
+        return next((i for i in rd.remote_items("node", widget._remote) + rd.remote_items("apex", widget._remote) if i["name"].lower() == base), None)
+
+    return open_item(source, "node", f"node/{rd.slug(base)}", label, label, fallback=remote_hit)
+
+
+def open_item(source: QWidget, kind: str, key: str, label: str = "", shown: str = "", fallback: Callable | None = None) -> str:
+    """Reference タブへ切り替えて、項目（kind・key）を開く（Guide の「ノードの説明」・チャットの回答の絵から。2026-11-25 に open_item_for_step から分けた）。
+    別のパネルの Reference が見えていれば、そちらで開く。fallback(widget) は、開く前に、項目を選び直すとき（戻り値 None なら、そのまま）。
+    戻り値: 画面に出す 1 文。"""
     try:
         import guide_view
 
@@ -772,26 +796,131 @@ def open_item_for_step(source: QWidget, step: dict) -> str:
         widget = other if other is not None else tabs.findChild(ReferenceWidget)
         if widget is None:
             return "Reference タブが見つかりません"
-        base = rd.base_type(node_type).lower()
-        hit = None
-        for kind in ("node", "apex"):
-            for item in rd.search(kind, base, limit=60):
-                if item["name"].split("--")[-1].lower() == base:
-                    hit = item
-                    break
-            if hit:
-                break
-        if hit is None:  # 一覧データに無い項目（Mountain など）。公開済みなら、その項目を開く
-            hit = next((i for i in rd.remote_items("node", widget._remote) + rd.remote_items("apex", widget._remote) if i["name"].lower() == base), None)
-        label = str(step.get("node_label") or base)
+        hit = fallback(widget) if fallback is not None else None
         tabs.setCurrentIndex(tabs.indexOf(_page_of(tabs, widget)))
         if hit:
             widget.show_item(hit["kind"], hit["key"], hit["label"])
         else:
-            widget.show_item("node", f"node/{rd.slug(base)}", label)
-        return f"{'別のパネルの ' if other is not None else ''}Reference タブで「{label}」を開きました"
+            widget.show_item(kind, key, label)
+        return f"{'別のパネルの ' if other is not None else ''}Reference タブで「{shown or label or key}」を開きました"
     except Exception as exc:  # noqa: BLE001
         return f"Reference タブを開けませんでした（{exc}）"
+
+
+# ── チャットの回答に添える絵（2026-11-25）────────────────────────────────────
+
+class _FigureWorker(QThread):
+    """回答の文から、絵を添える項目を選び（chat_figures）、その画像を、Cloudflare から取って、端末に保存する。別スレッド。
+    結果: [{"kind", "key", "title", "images": [(役割, ファイルのパス), ...]}, ...]（画像の取れた項目だけ）。"""
+
+    done = Signal(object)
+
+    def __init__(self, cfg: dict, text: str, shelf_labels: dict | None = None, parent=None) -> None:
+        super().__init__(parent)
+        self._cfg, self._text, self._shelf_labels = dict(cfg), str(text or ""), dict(shelf_labels or {})
+
+    def run(self) -> None:
+        import chat_figures
+
+        out = []
+        try:
+            index = rr.fetch_index(self._cfg)
+            for item in chat_figures.figure_items(self._text, index, shelf_labels=self._shelf_labels):
+                meta = index.get(rr.index_key(item["kind"], item["key"])) or {}
+                record = rr.fetch_entry(self._cfg, item["kind"], item["key"], meta.get("version"))
+                images = []
+                for media in chat_figures.pick_media((record or {}).get("media")):
+                    path = rr.fetch_media(self._cfg, str(media["id"]))
+                    if path is not None:
+                        images.append((str(media.get("role") or ""), str(path)))
+                if images:
+                    out.append({**item, "images": images})
+        except Exception:  # noqa: BLE001 -- 絵が取れなくても、回答は、そのまま読める
+            out = out or []
+        self.done.emit(out)
+
+
+def _shelf_labels() -> dict[str, str]:
+    """シェルフツールのキー → Houdini の表示名（Billowy Smoke など）。初めてのときは、Houdini から取る（メインスレッドで呼ぶ。hou を使うため）。"""
+    if not rd.catalog("shelf"):
+        rd.set_shelf_tools(rd.shelf_items(houdini_shelf_tools()))
+    return {item["key"]: item["label"] for item in rd.catalog("shelf")}
+
+
+class _ClickLabel(QLabel):
+    clicked = Signal()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 -- Qt
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
+class ChatFigureStrip(QWidget):
+    """チャットの回答の下に出す、Reference の絵の並び（2026-11-25。実証実験の意見「回答に図があったほうがいい」）。
+    回答に出てくるノード・VEX 関数・シェルフツールのうち、撮影した画像があるもの（最大 3 件）。押すと、Reference タブで、その項目を開く。
+    絵が 1 つも無いときは、何も出さない（隠れたまま）。message は、画面の下に出す 1 文（開いた・開けなかった）。"""
+
+    message = Signal(str)
+    PAIR_WIDTH = 150
+    SINGLE_WIDTH = 240
+
+    def __init__(self, cfg: dict, text: str, parent: QWidget | None = None, start: bool = True) -> None:
+        super().__init__(parent)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(6, 2, 6, 2)
+        self._layout.setSpacing(4)
+        self.hide()
+        if start:
+            worker = _FigureWorker(cfg, text, _shelf_labels())
+            worker.done.connect(self.show_figures)  # 画面が先に消えたら、Qt が、つなぎを外す（メソッドへのつなぎ）
+            _start_detached(worker)
+
+    def show_figures(self, figures: list) -> None:
+        if not figures:
+            return
+        import chat_figures
+
+        head = QLabel("図（Reference の撮影画像。押すと、Reference タブで開きます）")
+        head.setStyleSheet("color:#94a3b8;font-size:11px;")
+        head.setWordWrap(True)
+        self._layout.addWidget(head)
+        for figure in figures:
+            title = QLabel(f"<b>{html.escape(str(figure['title']))}</b>（{chat_figures.KIND_LABELS.get(figure['kind'], figure['kind'])}）")
+            title.setStyleSheet("color:#e2e8f0;font-size:12px;")
+            self._layout.addWidget(title)
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            images = figure.get("images") or []
+            width = self.PAIR_WIDTH if len(images) > 1 else self.SINGLE_WIDTH
+            shown = 0
+            for role, path in images:
+                image = QImage(path)
+                if image.isNull():
+                    continue
+                if shown:
+                    arrow = QLabel("→")  # 適用前 → 適用後
+                    arrow.setStyleSheet("color:#94a3b8;")
+                    row.addWidget(arrow)
+                shown += 1
+                cell = QVBoxLayout()
+                cell.setSpacing(1)
+                picture = _ClickLabel()
+                picture.setPixmap(QPixmap.fromImage(_sharp_scaled(image, width, self.devicePixelRatioF())))
+                picture.setCursor(Qt.PointingHandCursor)
+                picture.setToolTip("Reference タブで開く")
+                picture.clicked.connect(lambda f=figure: self._open(f))
+                cell.addWidget(picture)
+                caption = QLabel(chat_figures.ROLE_LABELS.get(role, role))
+                caption.setStyleSheet("color:#94a3b8;font-size:10px;")
+                cell.addWidget(caption)
+                row.addLayout(cell)
+            row.addStretch()
+            self._layout.addLayout(row)
+        self.show()
+
+    def _open(self, figure: dict) -> None:
+        self.message.emit(open_item(self, figure["kind"], figure["key"], figure["title"]))
 
 
 def _page_of(tabs, widget: QWidget) -> QWidget:
