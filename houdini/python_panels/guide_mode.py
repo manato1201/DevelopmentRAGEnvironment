@@ -189,6 +189,39 @@ def work_headline(tool: str, g: dict) -> str:
     return ""
 
 
+def _end_name(value) -> str:
+    return str(value or "").strip().rstrip("/").rsplit("/", 1)[-1]
+
+
+def connect_early(steps: list[dict]) -> list[dict]:
+    """つなぐ手順を、両端のノードができた直後へ移す（2026-11-25。実証実験の A15「先にノードを接続してほしい。そうじゃないと
+    アクティベートされないものがあって分からん」）。AI の記録は、ノードを全部作り、値を変えてから、最後にまとめてつなぐことが多い。
+    入力がつながるまで選べない・効かないパラメータがあるので、学習者の手順書では、作る → つなぐ → 値を変える、の順にする。
+      ・何本もまとめてつなぐ手順は、まとめたまま、いちばん最後にできた端のノードの直後へ移す（手順の数と番号は変えない）
+      ・つなぐ手順どうしの順序は変えない（Merge の入力の順などが変わらないように）。前へ移すだけで、後ろへは移さない
+      ・端のノードが手順の中で作られていない（自動で置かれた file_output など）ときは、ほかの端だけで決める"""
+    keys: list[float] = []
+    last_connect = -1.0
+    created: dict[str, list[int]] = {}
+    for index, step in enumerate(steps):
+        if step.get("tool") == "create_node" and step.get("node"):
+            created.setdefault(_end_name(step["node"]), []).append(index)
+        if step.get("tool") != "connect_nodes":
+            keys.append(float(index))
+            continue
+        pairs = [c for c in (step.get("connections") or []) if isinstance(c, dict)] or [{"from": step.get("from"), "to": step.get("to")}]
+        ready = -1
+        for end in (c.get(k) for c in pairs for k in ("from", "to")):
+            made = [i for i in created.get(_end_name(end), []) if i < index]
+            if made:
+                ready = max(ready, made[-1])
+        key = float(index) if ready < 0 else min(float(index), max(ready + 0.5, last_connect + 0.001))
+        last_connect = key
+        keys.append(key)
+    order = sorted(range(len(steps)), key=lambda i: (keys[i], i))
+    return [steps[i] for i in order]
+
+
 def build_guide(step_screenshots: list[dict], title: str = "", level: str = "", extras: dict | None = None,
                 purposes: dict | None = None) -> dict:
     """手順の記録（result.step_screenshots）から案内データを作る。画像のパスなどは入れない。
@@ -206,7 +239,11 @@ def build_guide(step_screenshots: list[dict], title: str = "", level: str = "", 
         g: dict = recorded if isinstance(recorded, dict) and recorded else _parse_instruction(tool, str(s.get("result") or ""))
         # コードを入れるパラメータの手順には、外部エディタのキーも足す
         has_code = any(isinstance(pm, dict) and str(pm.get("new") or "").startswith("（コード") for pm in (g.get("parms") or []))
-        shortcuts = guide_shortcuts.for_step(tool, code=has_code)
+        # ほかのノードを指す欄（soppath など。値が「/」「../」で始まるか、名前が path で終わる）には、パスを貼る・落とすキーを足す（A19）
+        has_path = any(isinstance(pm, dict) and (str(pm.get("name") or "").lower().endswith("path")
+                                                  or str(pm.get("new") or "").startswith(("/", "../", "./")))
+                       for pm in (g.get("parms") or []))
+        shortcuts = guide_shortcuts.for_step(tool, code=has_code, path=has_path)
         connections = [c for c in (g.get("connections") or []) if isinstance(c, dict)][:12]
         g_view = {**g, "connections": connections}
         instruction = str(s.get("result") or "").split("\n", 1)[0]
@@ -234,7 +271,7 @@ def build_guide(step_screenshots: list[dict], title: str = "", level: str = "", 
             "work": work_headline(tool, g_view),
             "purpose": purpose,
         })
-    guide = {"version": GUIDE_VERSION, "title": title, "level": level, "steps": steps}
+    guide = {"version": GUIDE_VERSION, "title": title, "level": level, "steps": connect_early(steps)}
     for key, value in (extras or {}).items():
         if value:
             guide[key] = value
@@ -370,6 +407,10 @@ def load_guide(path: Path) -> dict | None:
     if not isinstance(data, dict) or not isinstance(data.get("steps"), list) or not data["steps"]:
         return None
     _fill_from_markdown(data, Path(path))
+    try:
+        data["steps"] = connect_early([s for s in data["steps"] if isinstance(s, dict)])  # 以前に保存した案内も、つなぐ手順を先にする（A15）
+    except Exception:  # noqa: BLE001 -- 並べ替えに失敗しても、記録の順で案内する
+        pass
     return data
 
 
@@ -426,7 +467,20 @@ def parm_value_info(template) -> dict:
     if items:
         info.update({"kind": "menu", "items": items, "labels": labels if len(labels) == len(items) else items,
                      "int_menu": kind in ("Menu", "Int")})
+        info["preset"] = is_preset_menu(template, info["labels"])
     return info
+
+
+def is_preset_menu(template, labels: list[str] | None = None) -> bool:
+    """プリセットのメニューか（2026-11-25、実証実験の A21「値を変える手順なのに、値が変わらない」）。
+    Pyro Source の Initialize（「Initialize ↓」）のように、選ぶと、スクリプトがほかの欄をまとめて設定し、メニューの表示は先頭に戻る。
+    見分け方: スクリプトの呼び出しがあり、先頭の表示名に「↓」が付く（Houdini 22 の SOP・DOP で 17 個）。"""
+    try:
+        callback = str(template.scriptCallback() or "").strip()
+        labels = labels if labels is not None else [str(x) for x in template.menuLabels()]
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(callback) and bool(labels) and "↓" in str(labels[0])
 
 
 def menu_label_for(info: dict, value) -> str:
@@ -478,6 +532,14 @@ def describe_parm_change(parm: dict, info: dict | None = None) -> dict:
         new_text = "オン" if on else "オフ"
         old_state = _toggle_state(old_raw)
         old_text = old_raw if old_state is None else ("オン" if old_state else "オフ")
+    elif kind == "menu" and info.get("preset") and menu_label_for(info, new_raw):
+        shown = menu_label_for(info, new_raw)
+        top = (info.get("labels") or [""])[0].replace("	", " ").strip()
+        action = (f"{label} のメニューから「{shown}」を選ぶ（プリセット。選ぶと、ほかの欄がまとめて設定され、"
+                  f"メニューの表示は「{top}」に戻ります。戻っても正常です）")
+        new_text = f"「{shown}」を選ぶ（表示は「{top}」に戻る）"
+        old_text = top
+        kind = "preset"
     elif kind == "menu" and menu_label_for(info, new_raw):
         shown = menu_label_for(info, new_raw)
         action = f"{label} を {shown} にする"
@@ -486,7 +548,7 @@ def describe_parm_change(parm: dict, info: dict | None = None) -> dict:
         old_text = f"{old_label}（値: {old_raw}）" if old_label and old_label != old_raw else old_raw
     else:
         action = f"{label} を {new_raw} にする"
-    if old_raw == "":
+    if old_raw == "" and kind != "preset":
         old_text = "（空）" if kind != "code" else ""
     return {
         "label": label, "name": str(parm.get("name") or ""), "where_text": parm_where_text(str(parm.get("where") or "")),
@@ -1140,6 +1202,76 @@ def current_network_path(hou) -> str:
         return editor.pwd().path() if editor is not None else ""
     except Exception:  # noqa: BLE001
         return ""
+
+
+def sandbox_references(hou, limit: int = 3) -> list[str]:
+    """いま開いている自分のネットワークで、お手本（サンドボックス）のノードを指している欄（2026-11-25、A26）。
+    実証実験で、自分の DOP の RBD Object・Static Object が、お手本のジオメトリ（/obj/ai_tutorial_…）を読んでいた（パスを、そのまま貼った）。
+    調べるのは、開いている階層の直下のノード（最大 200）の、文字の欄だけ（重くならないように）。戻り値: 画面に出す注意の文。"""
+    where = current_network_path(hou)
+    if not _is_own_workplace(where):
+        return []
+    container = _node_at(hou, where)
+    out: list[str] = []
+    marker = f"{OWN_ROOT}/{SANDBOX_PREFIX}"
+    for node in _children_of(container)[:200] if container is not None else []:
+        try:
+            parms = node.parms()
+        except Exception:  # noqa: BLE001
+            continue
+        for parm in parms:
+            try:
+                value = parm.unexpandedString()
+            except Exception:  # noqa: BLE001 -- 文字の欄でない
+                continue
+            if marker in str(value):
+                out.append(f"注意: {node.path()} の「{parm.name()}」が、お手本（{value}）を指しています。自分のネットワークのノードを指すように直してください"
+                           "（ノードを選んで Ctrl+C → 欄で Ctrl+V、または、ノードを欄へドラッグ）")
+                break
+        if len(out) >= limit:
+            break
+    return out
+
+
+def remember_place(hou) -> dict | None:
+    """学習者が、自分の作業場所（/obj の下で、サンドボックスの外）にいれば、その場所（開いている階層・選んでいるノード）を返す。
+    Guide が画面を動かす前に覚えておき、「作業場所に戻る」で戻す（2026-11-25、A17）。作業場所でなければ None（上書きしない）。"""
+    where = current_network_path(hou)
+    if not _is_own_workplace(where):
+        return None
+    try:
+        selected = [n.path() for n in hou.selectedNodes()]
+    except Exception:  # noqa: BLE001
+        selected = []
+    return {"network": where, "selected": selected[:20]}
+
+
+def return_to_place(hou, place: dict | None) -> str:
+    """覚えておいた作業場所へ戻す（階層を開き、選んでいたノードを選び直す）。"""
+    if not place:
+        return "戻る場所がまだありません（自分のネットワークの中で作業しているときに、Guide が画面を動かすと、その場所を覚えます）"
+    target = _node_at(hou, str(place.get("network") or ""))
+    if target is None:
+        return f"作業場所（{place.get('network')}）が見つかりません（消したか、名前を変えた可能性があります）"
+    editor = _pane(hou, "network")
+    if editor is None:
+        return "ネットワークエディタが見つかりません"
+    try:
+        editor.setPwd(target)
+    except Exception as exc:  # noqa: BLE001
+        return f"作業場所を開けませんでした（{exc}）"
+    picked = [n for n in (_node_at(hou, p) for p in place.get("selected") or []) if n is not None]
+    try:
+        clear = getattr(hou, "clearAllSelected", None)
+        if callable(clear):
+            clear()
+        for i, node in enumerate(picked):
+            node.setSelected(True, clear_all_selected=False)
+            if i == 0:
+                node.setCurrent(True)
+    except Exception:  # noqa: BLE001 -- 選び直せなくても、階層は戻っている
+        pass
+    return f"作業場所に戻りました: {target.path()}" + (f"（選んでいたノード {len(picked)} 個を選び直しました）" if picked else "")
 
 
 def step_places(step: dict, sandbox_path: str = "") -> dict:

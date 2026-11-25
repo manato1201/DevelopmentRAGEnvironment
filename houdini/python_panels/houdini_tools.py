@@ -1147,6 +1147,28 @@ class HoudiniToolExecutor:
     _PURPOSE_CHARS = 60
 
     @staticmethod
+    def _parm_snapshot(node) -> dict:
+        out = {}
+        try:
+            for p in node.parms():
+                try:
+                    out[p.name()] = p.evalAsString()
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    def _apply_preset(self, node, parm, before: dict) -> list[str] | None:
+        """プリセットのメニューのスクリプトを動かす（pressButton）。変わった欄の名前の一覧を返す。動かせなければ None。"""
+        try:
+            parm.pressButton()
+        except Exception:  # noqa: BLE001 -- 動かせなければ、値を入れただけ（これまでどおり）
+            return None
+        after = self._parm_snapshot(node)
+        return [name for name, value in after.items() if before.get(name) != value and name != parm.name()]
+
+    @staticmethod
     def _menu_info(parm) -> dict:
         """パラメータのテンプレートから、値の言い換えの情報（guide_mode.parm_value_info）。取れなければ {}。"""
         try:
@@ -1497,7 +1519,20 @@ class HoudiniToolExecutor:
                 "list_available_node_types で正確なタイプ名を確認してください。"
             )
         node.moveToGoodPosition()
-        return f"作成しました: {self._rel(node)}（タイプ: {node.type().name()}）"
+        message = f"作成しました: {self._rel(node)}（タイプ: {node.type().name()}）"
+        hidden = self._tab_hidden_note(node.type())
+        if hidden:
+            message += f"\n注意: {hidden}。delete_node で消して、作り直してください"
+        if node.type().name() == "dopnet":
+            try:
+                auto = [c for c in node.children() if c.type().name() == "output"]
+            except Exception:  # noqa: BLE001
+                auto = []
+            if auto:
+                message += (f"\n注意: DOP ネットワークの中に、{auto[0].name()}（Output DOP。表示フラグ付き）が自動で置かれました。"
+                            f"最後のノード（ソルバー）を、connect_nodes で {self._rel(auto[0])} の入力 0 につないでください"
+                            "（つながないと、シミュレーションは空です）")
+        return message
 
     def _tool_set_parameter(self, args: dict) -> str:
         node = self._resolve(args["node"])
@@ -1521,12 +1556,20 @@ class HoudiniToolExecutor:
             )
         if parm is not None:
             old_value = self._safe_eval(parm)
+            menu_info = self._menu_info(parm)
+            before = self._parm_snapshot(node) if menu_info.get("preset") else {}
             parm.set(self._coerce_scalar(parm, value))
+            applied = self._apply_preset(node, parm, before) if menu_info.get("preset") else None
             self._last_parm_change = {
                 "node_path": node.path(), "name": parm_name, "label": self._parm_label(parm),
                 "old": old_value, "new": str(value), "code": self._is_code_parm(parm, value),
-                "menu_info": self._menu_info(parm),
+                "menu_info": menu_info,
             }
+            if applied is not None:
+                # プリセットのメニュー（Pyro Source の Initialize など）: set() だけでは、ほかの欄が変わらない（見本が、プリセットを
+                # 適用しないまま作られていた）。画面で選んだときと同じく、スクリプトを動かす（A21）
+                return (f"{self._rel(node)}.{parm_name} = {value}（プリセットのメニュー。画面で選んだときと同じく適用しました。"
+                        f"変わった欄: {', '.join(applied[:12]) or 'なし'}。メニューの表示は先頭に戻ります）")
             return f"{self._rel(node)}.{parm_name} = {value}"
 
         tuple_parm = node.parmTuple(parm_name)
@@ -2466,6 +2509,7 @@ class HoudiniToolExecutor:
                     f"[つなぎ] {where} の中で末端が{len(ends)}個あります（{names}）。"
                     "表示されるのは1つだけです。Merge で1本にまとめるか、不要なノードは delete_node で消してください"
                 )
+        issues += self._structure_issues(children)
         notes = self._validation_notes(timings, skipped, budget_used)
         if inner_count:
             notes += (
@@ -2481,6 +2525,70 @@ class HoudiniToolExecutor:
                 f"（cook 済みのノードにエラー・警告はなく、末端は各ネットワークで1つです）" + notes
             )
         return f"検証OK: ノード {len(children)} 個、エラー・警告なし、末端は各ネットワークで1つです" + notes
+
+    @staticmethod
+    def _tab_hidden_note(node_type) -> str:
+        """Tab メニューに出ないノードの種類なら、その説明（代わりの種類が分かれば、それも）。出るなら空文字。
+        （2026-11-25。実証実験の Pyro の見本が smokeobject・sourcevolume で作られ、学習者が同じノードを作れずに止まった）"""
+        try:
+            hidden = bool(node_type.hidden())
+            deprecated = bool(node_type.deprecated())
+        except Exception:  # noqa: BLE001 -- 調べられない種類（偽の hou など）は、出るものとして扱う
+            return ""
+        if not (hidden or deprecated):
+            return ""
+        instead = ""
+        try:
+            new = (node_type.deprecationInfo() or {}).get("new_type") if deprecated else None
+            if new is not None:
+                instead = f"代わりに {new.name()}（{new.description()}）を使ってください"
+        except Exception:  # noqa: BLE001
+            instead = ""
+        why = "古い（非推奨の）ノードで、" if deprecated else ""
+        return (f"{node_type.name()} は、{why}Houdini の Tab メニューに出ません。学習者は、手順書のとおりに作れません。"
+                + (instead or "Tab メニューに出るノードで作り直してください"))
+
+    def _structure_issues(self, nodes: list) -> list[str]:
+        """手順書が足りなくなる作りを見つける（2026-11-25。実証実験の A14）。
+          ・Tab メニューに出ない（非推奨の）ノード
+          ・DOP ネットワークで、表示フラグの付いた Output DOP（作ると自動で置かれる file_output）に、何もつながっていない
+            （シミュレーションが空になる。実証実験の見本の DOP は、11 か所すべてで、ソルバーがつながっていなかった）
+          ・DOP ネットワークの末端が複数（ソルバーの出力が、どこにもつながっていない）"""
+        issues: list[str] = []
+        for node in nodes:
+            try:
+                node_type = node.type()
+            except Exception:  # noqa: BLE001
+                continue
+            note = self._tab_hidden_note(node_type)
+            if note:
+                issues.append(f"[Tab に出ない] {self._rel(node)}: {note}（delete_node で消して、作り直す）")
+            if node_type.name() != "dopnet":
+                continue
+            try:
+                kids = list(node.children())
+                shown = node.displayNode() if hasattr(node, "displayNode") else None
+            except Exception:  # noqa: BLE001
+                continue
+            if not kids:
+                continue
+            where = self._rel(node)
+            ends = [k for k in kids if not k.outputs()]
+            if shown is not None and shown.type().name() == "output" and not any(getattr(shown, "inputs", lambda: [])()):
+                feed = [k for k in ends if k.path() != shown.path()]  # hou のノードは、呼ぶたびに別のオブジェクト（is では比べられない）
+                names = "、".join(self._rel(k) for k in feed) or "最後のノード（ソルバー）"
+                issues.append(
+                    f"[シミュレーション] {where}: 表示フラグの付いた {shown.name()}（Output DOP。DOP ネットワークを作ると自動で置かれる）に、"
+                    f"何もつながっていません。このままでは、シミュレーションは空です。{names} を connect_nodes で {self._rel(shown)} の入力 0 に"
+                    "つないでください（学習者の手順書にも、このつなぐ手順が載ります）"
+                )
+            elif len(ends) >= 2:
+                names = "、".join(self._rel(k) for k in ends)
+                issues.append(
+                    f"[つなぎ] {where} の中で末端が{len(ends)}個あります（{names}）。表示フラグの付いた 1 つだけが計算されます。"
+                    "ソルバーの出力を、Output DOP（file_output）か、表示フラグの付いたノードへつなぐか、不要なノードは delete_node で消してください"
+                )
+        return issues
 
     def _cook_for_validation(self, children: list) -> tuple[list[tuple[str, float]], list, float]:
         """
@@ -2936,6 +3044,20 @@ class HoudiniToolExecutor:
             except Exception:  # noqa: BLE001 -- 点検の失敗で、提出を止めない
                 fidelity, topic = "", ""
             gap_messages += [m for m in (fidelity, topic) if m]
+        # 手順書が足りなくなる作り（シミュレーションの出力のつなぎ忘れ・Tab に出ないノード）は、確定させない（2026-11-25、A14）。
+        # 直す手順が記録に入ると、学習者の手順書にも載る。3 回目の提出までで打ち切る（直せないときに、生成を止めない）
+        if len(self._finish_drafts) <= 3:
+            try:
+                root = self._hou.node(self.sandbox_path)
+                nodes = [n for n in root.allSubChildren() if not self._is_inside_locked_asset(n)] if root is not None else []
+                structure = self._structure_issues(nodes)
+            except Exception:  # noqa: BLE001 -- 点検の失敗で、提出を止めない
+                structure = []
+            if structure:
+                gap_messages.append(
+                    "【手順書が足りなくなる作り】学習者が手順書のとおりに作っても、結果が出ない・作れないところがあります。直してください:\n"
+                    + "\n".join(f"  {line}" for line in structure[:10])
+                )
         if gap_messages:
             return (
                 "チュートリアル内容を受け付けましたが、まだ確定していません。\n" + "\n\n".join(gap_messages)

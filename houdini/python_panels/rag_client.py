@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from typing import Callable, Iterator
 
 # Cloudflare は urllib 既定の User-Agent を bot として拒否する（error 1010）ため、明示する。
 _USER_AGENT = "HoudiniRAGPanel/1.0"
@@ -60,6 +61,63 @@ def get_json(url: str, timeout: int = 5) -> dict:
         return json.loads(resp.read())
 
 
+def iter_sse(lines) -> "Iterator[tuple[str, dict]]":
+    """Server-Sent Events（Worker の /query/stream）を、(イベント名, データ) の組にして返す。
+    lines は bytes の行の並び（urlopen の応答をそのまま渡せる）。データが JSON でない行は、飛ばす。"""
+    event, data = "message", []
+    for raw in lines:
+        line = raw.decode("utf-8", errors="replace").rstrip("\r\n") if isinstance(raw, bytes) else str(raw).rstrip("\r\n")
+        if not line:
+            if data:
+                try:
+                    payload = json.loads("\n".join(data))
+                except ValueError:
+                    payload = None
+                if isinstance(payload, dict):
+                    yield event, payload
+            event, data = "message", []
+            continue
+        if line.startswith(":"):
+            continue
+        name, _, value = line.partition(":")
+        value = value[1:] if value.startswith(" ") else value
+        if name == "event":
+            event = value
+        elif name == "data":
+            data.append(value)
+    if data:
+        try:
+            payload = json.loads("\n".join(data))
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            yield event, payload
+
+
+def post_stream(url: str, body: dict, api_key: str = "", timeout: int = 90,
+                on_sources: "Callable[[list], None] | None" = None, on_delta: "Callable[[str], None] | None" = None) -> dict:
+    """/query/stream に POST し、出典（sources）と本文の続き（delta）を、届いた順に呼び出し元へ渡す。完成した応答（done）を返す。
+    Worker が JSON で返したとき（外部ツールを使う質問など）は、その JSON を返す。途中の失敗（error）は、例外にする。"""
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json", "User-Agent": _USER_AGENT, "Accept": "text/event-stream"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        if "text/event-stream" not in str(resp.headers.get("Content-Type", "")):
+            return json.loads(resp.read())
+        for event, payload in iter_sse(resp):
+            if event == "sources" and on_sources is not None:
+                on_sources(list(payload.get("sources") or []))
+            elif event == "delta" and on_delta is not None:
+                on_delta(str(payload.get("text") or ""))
+            elif event == "done":
+                return payload
+            elif event == "error":
+                raise RuntimeError(str(payload.get("error") or "回答の生成に失敗しました"))
+    raise RuntimeError("回答が途中で切れました（通信が切れた可能性があります）")
+
+
 def _cf_base(cfg: dict) -> str:
     """Cloudflare Worker の URL（末尾の / を除く）。"""
     return str(cfg.get("cf_url", "")).strip().rstrip("/")
@@ -98,9 +156,15 @@ class RAGClient:
         context: str | None = None,
         explain: str | None = None,
         answer_mode: str | None = None,
+        on_sources: "Callable[[list], None] | None" = None,
+        on_delta: "Callable[[str], None] | None" = None,
     ) -> dict:
         """
         RAG にクエリを送る。モードに応じてエンドポイントとリクエスト形式を切り替える。
+
+        on_sources・on_delta を渡すと（Cloudflare モード）、/query/stream で受け取る。検索で見つかった出典を、回答より先に
+        on_sources へ、回答の本文を、届いた分ずつ on_delta へ渡す（待ち時間を短く感じさせる。2026-11-25、実証実験の A3）。
+        返り値は、/query と同じ形。/query/stream が無い Worker（HTTP 404）では、/query に戻す。
         history は会話コンテキストとして送る（Gemini / Claude のマルチターン対話用）。
 
         image_b64（VLM入力）は Cloudflare モードでのみ有効。{"image":{"mimeType","data"}} を
@@ -132,7 +196,14 @@ class RAGClient:
                 body["explain"] = explain  # 説明のレベル。auto（おまかせ）は、質問に使った専門用語の蓄積から決まる（成長）
             if answer_mode in ("open", "grounded"):
                 body["answerMode"] = answer_mode  # 答え方。open（既定）= 資料を最優先に、足りないところは「（推測）」と明示して答える / grounded = 資料だけ
-            return post_json(f"{base}/query", body, api_key=self.cfg.get("cf_api_key", ""))
+            api_key = self.cfg.get("cf_api_key", "")
+            if on_sources is not None or on_delta is not None:
+                try:
+                    return post_stream(f"{base}/query/stream", body, api_key=api_key, on_sources=on_sources, on_delta=on_delta)
+                except urllib.error.HTTPError as exc:
+                    if exc.code != 404:
+                        raise
+            return post_json(f"{base}/query", body, api_key=api_key)
         else:
             port = self.cfg["local_port"]
             local_body: dict = {"query": query, "history": history, "limit": 5}

@@ -22,6 +22,8 @@ SOURCES: dict[str, tuple[str, str]] = {
     "parms": ("Parameter editor", "https://www.sidefx.com/docs/houdini/network/parms.html"),
     "menus": ("Menus（Edit ▸ Undo）", "https://www.sidefx.com/docs/houdini/ref/menus.html"),
     "organize": ("Organizing, customizing, and annotating nodes and networks", "https://www.sidefx.com/docs/houdini/network/organize.html"),
+    # 公式ドキュメントに見当たらないが、実機で確かめたもの（2026-11-25、実証実験の運営。Houdini 22.0）。出典の代わりに、確かめた旨を出す
+    "field": ("実機で確認（Houdini 22.0、2026-11-25。公式ドキュメントには記載なし）", ""),
 }
 
 GROUP_NETWORK = "ネットワークエディタ"
@@ -102,6 +104,8 @@ _ROWS: list[tuple[str, str, str, str, str]] = [
     ("pm_prev", GROUP_PARM, "欄を右クリック → Revert to Previous Value", "直前の値に戻す", "parms"),
     ("pm_editor", GROUP_PARM, "欄をクリックして Alt + E", "外部のエディタで、中身（コードなど）を編集する", "parms"),
     ("pm_jump", GROUP_PARM, "Ctrl + 参照アイコンをクリック", "参照先のノードのパラメータを、別の窓で開く", "parms"),
+    ("pm_drop_path", GROUP_PARM, "ネットワークエディタのノードを、パラメータの欄へドラッグ", "そのノードを指す名前（パス）を欄に入れる（SOP Path など、ほかのノードを指す欄）", "parms"),
+    ("pm_paste_path", GROUP_PARM, "ノードを選んで Ctrl + C → パラメータの欄で Ctrl + V", "そのノードのパスを欄に貼る（自分のネットワークのノードを選ぶ。お手本のパスを貼らない）", "field"),
     # ── タイムライン ──
     ("tl_play", GROUP_TIMELINE, "↑／↓", "順方向／逆方向に再生する", "hotkeys"),
     ("tl_step", GROUP_TIMELINE, "←／→", "前／次の1フレームへ", "hotkeys"),
@@ -135,11 +139,16 @@ TOOL_IDS: dict[str, list[str]] = {
 }
 # コードを入れるパラメータの手順だけに足すキー
 CODE_PARM_IDS = ["pm_editor"]
+# ほかのノードを指す欄（SOP Path など）を変える手順だけに足すキー（for_step の path=True。A19）
+PATH_PARM_IDS = ["pm_paste_path", "pm_drop_path"]
 
 
-def for_step(tool: str, code: bool = False) -> list[dict]:
-    """手順（ツール）に合う、キーの一覧。各項目は {"keys", "what", "group"}。code=True なら、コード欄向けのキーも足す。"""
+def for_step(tool: str, code: bool = False, path: bool = False) -> list[dict]:
+    """手順（ツール）に合う、キーの一覧。各項目は {"keys", "what", "group"}。code=True なら、コード欄向けのキーも足す。
+    path=True（ほかのノードを指す欄を変える手順）なら、ノードのパスを貼る・落とすキーを先頭に足す（A19）。"""
     ids = list(TOOL_IDS.get(tool, []))
+    if path and tool == "set_parameter":
+        ids[0:0] = PATH_PARM_IDS
     if code:
         at = ids.index("pm_jump") if "pm_jump" in ids else len(ids)
         ids[at:at] = CODE_PARM_IDS

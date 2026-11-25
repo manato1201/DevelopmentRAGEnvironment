@@ -377,7 +377,13 @@ class ShortcutTableTest(unittest.TestCase):
         ids = [r["id"] for r in gs.SHORTCUTS]
         self.assertEqual(len(ids), len(set(ids)), "ids are unique")
         for name, (title, url) in gs.SOURCES.items():
+            if name == "field":  # 公式ドキュメントに無く、実機で確かめたもの（2026-11-25、運営の依頼。Ctrl+C → Ctrl+V でパスを貼る）。そう書いてあること
+                self.assertIn("実機で確認", title)
+                self.assertIn("記載なし", title)
+                continue
             self.assertTrue(url.startswith("https://www.sidefx.com/docs/houdini/"), name)
+        field_rows = [r["id"] for r in gs.SHORTCUTS if r["source"] == "field"]
+        self.assertEqual(field_rows, ["pm_paste_path"], "only the key the operator confirmed on a real Houdini")
 
     def test_there_are_many_more_than_before(self):
         self.assertGreaterEqual(len(gs.SHORTCUTS), 70)

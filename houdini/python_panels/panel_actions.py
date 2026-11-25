@@ -79,9 +79,26 @@ def px(n: float) -> int:
     return max(1, int(round(n * ui_scale())))
 
 
+TEXT_SCALES: tuple[tuple[float, str], ...] = ((1.0, "標準"), (1.15, "やや大きい"), (1.3, "大きい"), (1.5, "とても大きい"))
+TEXT_SCALE_KEY = "text_scale"
+
+
+def text_scale() -> float:
+    """利用者が選んだ文字の倍率（メニュー ≡ →「文字の大きさ」。2026-11-25、実証実験の A24「文字が小さい」）。既定は 1.0。
+    パネルを作るときに読む（変えたら、パネルを開き直すと反映）。"""
+    try:
+        from panel_widgets import ui_state_get
+
+        value = float(ui_state_get(TEXT_SCALE_KEY, 1.0) or 1.0)
+    except Exception:  # noqa: BLE001 -- 読めなければ標準
+        return 1.0
+    return min(2.0, max(0.8, value))
+
+
 def pt_qss(qss: str) -> str:
-    """font-size:Npx を font-size:Mpt に直す(96dpi では 1px = 0.75pt)。pt は OS の拡大に追従する。"""
-    return _PX_FONT.sub(lambda m: "font-size:%.1fpt" % (float(m.group(1)) * 0.75), qss)
+    """font-size:Npx を font-size:Mpt に直す(96dpi では 1px = 0.75pt)。pt は OS の拡大に追従する。文字の倍率（text_scale）も掛ける。"""
+    scale = text_scale()
+    return _PX_FONT.sub(lambda m: "font-size:%.1fpt" % (float(m.group(1)) * 0.75 * scale), qss)
 
 
 def normalize_fonts(root: QWidget) -> int:
@@ -112,7 +129,7 @@ def type_qss(role: str, color: str = "") -> str:
     """役割（heading / body / caption / code）の文字の大きさを、スタイルシートの断片にする。color を渡せば文字色も付ける。"""
     if role not in TYPE_SCALE:
         raise KeyError(f"unknown type role: {role}")
-    qss = f"font-size:{TYPE_SCALE[role]:.1f}pt;{_TYPE_EXTRA.get(role, '')}"
+    qss = f"font-size:{TYPE_SCALE[role] * text_scale():.1f}pt;{_TYPE_EXTRA.get(role, '')}"
     return qss + (f"color:{color};" if color else "")
 
 
@@ -121,7 +138,7 @@ def type_font(role: str) -> QFont:
     if role not in TYPE_SCALE:
         raise KeyError(f"unknown type role: {role}")
     font = QFont()
-    font.setPointSizeF(TYPE_SCALE[role])
+    font.setPointSizeF(TYPE_SCALE[role] * text_scale())
     if role == "heading":
         font.setBold(True)
     if role == "code":

@@ -19,6 +19,7 @@ Houdini セットアップ:
 from __future__ import annotations
 
 import base64
+import html
 import json
 import subprocess
 import tempfile
@@ -45,6 +46,7 @@ except NameError:
 # reference_view.py（Reference タブ: ノード・VEX・APEX・シェルフツールの説明）も同様
 try:
     from reference_view import ChatFigureStrip as _ChatFigureStrip  # 回答の下に、Reference の絵を添える（2026-11-25）
+    from reference_view import TermLookup as _TermLookup  # 用語をダブルクリックで、Reference で探す（2026-11-25、A20）
     from reference_view import ReferenceWidget as _ReferenceWidget
     _REFERENCE_AVAILABLE = True
 except ImportError:
@@ -71,6 +73,7 @@ from panel_info import ANSWER_MODE_CHOICES as _ANSWER_MODE_CHOICES, EXPLAIN_CHOI
 from panel_widgets import CollapsibleBox as _CollapsibleBox, ui_state_get as _ui_state_get, ui_state_set as _ui_state_set
 import panel_debug as _debug
 import node_links as _node_links
+import question_hints as _question_hints
 import panel_bus as _bus
 import panel_nav as _nav
 import panel_paths as _paths
@@ -78,6 +81,7 @@ from pilot_panel import PilotTaskPanel as _PilotTaskPanel
 from rag_client import post_json as _post_json
 from rag_client import _cf_base as _cf_base_url
 from panel_thinking import ThinkingRow as _ThinkingRow
+from panel_actions import TEXT_SCALES as _TEXT_SCALES, TEXT_SCALE_KEY as _TEXT_SCALE_KEY, text_scale as _text_scale
 from panel_actions import Speaker as _Speaker, action_button as _action_button, button_qss as _button_qss, make_icon as _make_icon, px as _px, type_font as _type_font, type_qss as _type_qss, normalize_fonts as _normalize_fonts, set_active as _action_set_active
 from PySide6.QtCore import Qt, QSize, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QPalette
@@ -244,10 +248,12 @@ class QueryWorker(QThread):
     """
     finished = Signal(dict)  # 成功時: {"answer": str, "sources": list}
     error    = Signal(str)   # 失敗時: エラーメッセージ
+    sources_ready = Signal(list)  # stream=True: 検索で見つかった出典（回答より先に届く）
+    delta    = Signal(str)   # stream=True: 回答の本文の続き
 
     def __init__(
         self, client: RAGClient, query: str, history: list[dict], image_b64: str | None = None,
-        explain: str | None = None, answer_mode: str | None = None,
+        explain: str | None = None, answer_mode: str | None = None, stream: bool = False,
     ) -> None:
         super().__init__()
         self._client    = client
@@ -256,10 +262,13 @@ class QueryWorker(QThread):
         self._image_b64 = image_b64
         self._explain   = explain
         self._answer_mode = answer_mode
+        self._stream    = stream
 
     def run(self) -> None:
         try:
-            result = self._client.query(self._query, self._history, image_b64=self._image_b64, explain=self._explain, answer_mode=self._answer_mode)
+            callbacks = {"on_sources": self.sources_ready.emit, "on_delta": self.delta.emit} if self._stream else {}
+            result = self._client.query(self._query, self._history, image_b64=self._image_b64, explain=self._explain,
+                                        answer_mode=self._answer_mode, **callbacks)
             self.finished.emit(result)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -609,7 +618,7 @@ class RAGChatbotPanel(QWidget):
         book = _make_icon(_nav.ICON_TABS["help"])
         help_index = tabs.addTab(self._wrap_tab(self._build_help_tab()), book, "" if not book.isNull() else "?")  # SVG が無い環境は、文字で代用
         tabs.setTabToolTip(help_index, "はじめに（使い方）")
-        tabs.addTab(self._wrap_tab(self._build_chat_tab()),     "Chat")
+        self._chat_tab_idx = tabs.addTab(self._wrap_tab(self._build_chat_tab()),     "Chat")
         tabs.addTab(self._wrap_tab(self._build_guide_tab(), scrollable=True, min_size=(_px(300), _px(560))), "Guide")
         tabs.addTab(self._tutorial_tab_wrapper,                 "Tutorial")
         tabs.addTab(self._wrap_tab(self._build_reference_tab(), scrollable=True, min_size=(_px(300), _px(520))), "Reference")
@@ -857,6 +866,15 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._chat_layout.addStretch()  # バブルを下から積み上げるためのスペーサー
         self._chat_scroll.setWidget(self._chat_inner)
         layout.addWidget(self._chat_scroll, stretch=1)
+
+        # 質問の例（押すと、そのまま送る）。「何がわからないのかがわからない」ときの入り口（2026-11-25、実証実験の A3）。
+        # いま見ている Guide の手順・選んでいるノード・エラーから作る（question_hints.py。AI は使わない）
+        self._hints_box = QWidget()
+        self._hints_layout = QHBoxLayout(self._hints_box)
+        self._hints_layout.setContentsMargins(0, 0, 0, 0)
+        self._hints_layout.setSpacing(_px(4))
+        layout.addWidget(self._hints_box)
+        QTimer.singleShot(0, self._refresh_hints)
 
         # テキスト入力（固定高さ70→50に縮小。ボタン行と合わせた最低限の要求高さを
         # 減らし、狭いペインでも収まりやすくする）
@@ -1315,6 +1333,8 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._set_status("デバッグ情報をコピーしました")
 
     def _on_tab_changed(self, index: int) -> None:
+        if index == getattr(self, "_chat_tab_idx", -1):
+            self._refresh_hints()  # Guide で進めた手順・選んだノードに合わせて、質問の例を作り直す
         if index == getattr(self, "_pilot_tab_idx", -1):
             self._pilot_panel.refresh()
 
@@ -1340,6 +1360,14 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             action.triggered.connect(lambda checked=False, k=key: self._show_sub(k))
             self._sub_actions[key] = action
         menu.addSeparator()
+        # 文字の大きさ（実証実験の A24「文字が小さい」）。だれでも変えられる。パネルを開き直すと反映
+        sizes = menu.addMenu("文字の大きさ")
+        current = _text_scale()
+        for value, label in _TEXT_SCALES:
+            act = sizes.addAction(f"{label}（{int(round(value * 100))}%）")
+            act.setCheckable(True)
+            act.setChecked(abs(value - current) < 0.01)
+            act.triggered.connect(lambda checked=False, v=value, l=label: self._on_text_scale(v, l))
         menu.addAction("このパネルを別ウィンドウで開く（並べて見る）").triggered.connect(self._on_open_new_window)
         menu.addAction("並べて見る方法").triggered.connect(self._show_parallel_help)
         menu.addAction("キー 1 つで、浮かぶパネルを出し入れする（設定）").triggered.connect(self._show_float_hotkey_help)
@@ -1354,6 +1382,13 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         button.setPopupMode(QToolButton.InstantPopup)
         button.setStyleSheet("QToolButton::menu-indicator{image:none;}")
         return button
+
+    def _on_text_scale(self, value: float, label: str) -> None:
+        _ui_state_set(_TEXT_SCALE_KEY, float(value))
+        for act in self._gear_menu.findChildren(type(self._gear_menu.menuAction())):
+            if act.isCheckable() and act.text().endswith("%）"):
+                act.setChecked(act.text().startswith(label + "（"))
+        self._set_status(f"文字の大きさを「{label}」にしました。パネルを開き直す（ペインタブを閉じて、もう一度開く）と反映します")
 
     def _build_sub_view(self) -> QWidget:
         """メニュー（≡）の中の画面を出す場所。上に「戻る」と見出し。"""
@@ -1458,6 +1493,8 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         """Ctrl+Enter で _on_send() を呼ぶ。それ以外は通常のイベント処理に委譲する。"""
         from PySide6.QtCore import QEvent
         from PySide6.QtGui import QKeyEvent
+        if obj is self._input and event.type() == QEvent.FocusIn:
+            self._refresh_hints()  # 入力欄を押したとき（ノードを選び直したあと など）、質問の例を作り直す
         if obj is self._input and event.type() == QEvent.KeyPress:
             ke = QKeyEvent(event)
             if ke.key() == Qt.Key_Return and ke.modifiers() == Qt.ControlModifier:
@@ -1613,10 +1650,161 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         # 直近 12 件の履歴を Worker に渡す（古すぎる会話は LLM に送らない）
         explain = self._explain_combo.currentData() if self._cfg.get("mode") == "cloudflare" else None
         answer_mode = _normalize_answer_mode(self._answer_combo.currentData())
-        self._worker = QueryWorker(self._client, query, self._history[-12:], image_b64=image_b64, explain=explain, answer_mode=answer_mode)
+        # Cloudflare では、出典を先に出し、回答を届いた分ずつ出す（/query/stream。待ち時間の体感を短くする。A3）
+        stream = self._cfg.get("mode") == "cloudflare" and self._cfg.get("chat_stream", True)
+        self._worker = QueryWorker(self._client, query, self._history[-12:], image_b64=image_b64, explain=explain,
+                                   answer_mode=answer_mode, stream=stream)
         self._worker.finished.connect(self._on_query_done)
         self._worker.error.connect(self._on_query_error)
+        self._worker.sources_ready.connect(self._on_early_sources)
+        self._worker.delta.connect(self._on_answer_delta)
         self._worker.start()
+
+    # ── 待っている間の表示（先に見つかった資料・届いた分の回答）と、質問の例（A3） ──────────────
+
+    def _insert_chat_widget(self, widget: QWidget, before: QWidget | None = None) -> None:
+        """チャットの末尾（before があれば、その手前）に足す。"""
+        index = self._chat_layout.indexOf(before) if before is not None else -1
+        self._chat_layout.insertWidget(index if index >= 0 else max(0, self._chat_layout.count() - 1), widget)
+
+    def _on_early_sources(self, sources: list) -> None:
+        """検索で見つかった資料を、回答より先に出す（回答が届いたら、回答の下の「出典」に置き換わる）。"""
+        try:
+            names = []
+            for s in sources or []:
+                name = str((s or {}).get("file") or (s or {}).get("title") or "").strip()
+                if name and name not in names:
+                    names.append(name)
+            if not names:
+                return
+            self._clear_stream_widgets(early=True, bubble=False)
+            shown = names[:5]
+            rest = f"<br>ほか {len(names) - len(shown)} 件" if len(names) > len(shown) else ""
+            label = QLabel(
+                "<b>先に見つかった資料</b>（回答を作っています。先に開いて読めます）<br>"
+                + "<br>".join(f"• {html.escape(n)}" for n in shown) + rest
+            )
+            label.setTextFormat(Qt.RichText)
+            label.setWordWrap(True)
+            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            label.setStyleSheet("color:#cbd5e1;font-size:11px;padding:4px 8px;background:#1e293b;border-radius:6px;")
+            label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
+            self._early_sources = label
+            self._insert_chat_widget(label, before=getattr(self, "_thinking_row", None))
+            QTimer.singleShot(0, self._scroll_to_bottom)
+        except Exception as exc:  # noqa: BLE001 -- 先出しが出せなくても、回答は待つ
+            _debug.log("質問", f"先に見つかった資料を出せませんでした: {exc}")
+
+    def _on_answer_delta(self, text: str) -> None:
+        """回答の本文を、届いた分ずつ出す（完成したら、リンク・図・出典の付いた、ふつうの回答に置き換える）。"""
+        try:
+            if not text:
+                return
+            bubble = getattr(self, "_stream_bubble", None)
+            if bubble is None:
+                self._hide_thinking()
+                self._stream_text = ""
+                bubble = ChatBubble("", is_user=False)
+                self._stream_bubble = bubble
+                self._insert_chat_widget(bubble)
+            self._stream_text += text
+            bubble.setText(self._stream_text)
+            QTimer.singleShot(0, self._scroll_to_bottom)
+        except Exception as exc:  # noqa: BLE001 -- 途中の表示ができなくても、完成した回答は出す
+            _debug.log("質問", f"届いた分の回答を出せませんでした: {exc}")
+
+    def _clear_stream_widgets(self, early: bool = True, bubble: bool = True) -> None:
+        names = (["_early_sources"] if early else []) + (["_stream_bubble"] if bubble else [])
+        for name in names:
+            widget = getattr(self, name, None)
+            if widget is not None:
+                self._chat_layout.removeWidget(widget)
+                widget.deleteLater()
+                setattr(self, name, None)
+
+    def _hint_context(self) -> tuple[dict | None, list[dict], list[dict]]:
+        """質問の例の材料（Guide の手順・選んでいるノード・エラーの出ているノード）。Houdini の外では、空。"""
+        guide = None
+        widget = getattr(self, "_guide_widget", None)
+        if widget is not None and hasattr(widget, "step_brief"):
+            try:
+                guide = widget.step_brief()
+            except Exception:  # noqa: BLE001 -- 手順が読めなくても、ほかの例は出す
+                guide = None
+        selected: list[dict] = []
+        errors: list[dict] = []
+        try:
+            import hou
+
+            for node in hou.selectedNodes()[:3]:
+                selected.append({"label": node.type().description(), "type": node.type().name(), "name": node.path()})
+            here: list = []
+            try:
+                editor = hou.ui.paneTabOfType(hou.paneTabType.NetworkEditor)  # いま見ているネットワークの中だけ（シーン全体は見ない。重くなるため）
+                here = list(editor.pwd().children())[:200] if editor is not None else []
+            except Exception:  # noqa: BLE001 -- 画面が無い（hython など）
+                here = []
+            for node in list(hou.selectedNodes() or [])[:3] + here:
+                try:
+                    if node.errors():
+                        errors.append({"label": node.type().description(), "type": node.type().name(), "name": node.path()})
+                        break
+                except Exception:  # noqa: BLE001 -- エラーの読めないノードは飛ばす
+                    continue
+        except Exception:  # noqa: BLE001 -- Houdini の外（テスト）では、空
+            pass
+        return guide, selected, errors
+
+    def _refresh_hints(self) -> None:
+        """質問の例を作り直す（Chat タブを開いたとき・入力欄を押したとき・回答のあと）。"""
+        layout = getattr(self, "_hints_layout", None)
+        if layout is None or not self._cfg.get("chat_hints", True):
+            if getattr(self, "_hints_box", None) is not None:
+                self._hints_box.hide()
+            return
+        try:
+            hints = _question_hints.suggest(*self._hint_context())
+        except Exception as exc:  # noqa: BLE001 -- 例が作れなくても、チャットは使える
+            _debug.log("質問", f"質問の例を作れませんでした: {exc}")
+            hints = []
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        if not hints:
+            self._hints_box.hide()
+            return
+        caption = QLabel("質問の例:")
+        caption.setStyleSheet(_type_qss("caption", "#94a3b8"))
+        layout.addWidget(caption)
+        for hint in hints:
+            button = QPushButton(hint["label"])
+            button.setToolTip("押すと、この質問を送ります:\n" + hint["query"])
+            button.setStyleSheet("QPushButton{font-size:11px;padding:2px 8px;border:1px solid #475569;border-radius:10px;}"
+                                 "QPushButton:hover{background:#334155;}")
+            button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            button.clicked.connect(lambda _checked=False, q=hint["query"]: self._send_hint(q))
+            layout.addWidget(button, 1)
+        self._hints_box.show()
+
+    def ask_chat(self, query: str) -> str:
+        """ほかのタブ（Guide の「この手順を Chat に聞く」など）から、Chat タブに切り替えて、質問を送る。画面に出す短い結果を返す。"""
+        if self._worker and self._worker.isRunning():
+            return "Chat が回答を作っています。届いてから、もう一度押してください"
+        self._show_main()
+        idx = getattr(self, "_chat_tab_idx", -1)
+        if idx >= 0:
+            self._tabs.setCurrentIndex(idx)
+        self._input.setPlainText(query)
+        self._on_send()
+        return "Chat タブで質問しました（回答は Chat タブに出ます）"
+
+    def _send_hint(self, query: str) -> None:
+        if self._worker and self._worker.isRunning():
+            self._set_status("回答を待っています。届いてから、もう一度押してください")
+            return
+        self._input.setPlainText(query)
+        self._on_send()
 
     def _show_thinking(self) -> None:
         """回答を待っているあいだの「関連情報を確認中… ●○○」を、チャットの末尾に出す（panel_thinking.py）。"""
@@ -1639,6 +1827,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         """回答の処理の途中で例外が出たとき、送信ボタンを使える状態に戻す（無効のまま残ると、質問できなくなる。2026-11-24）。"""
         try:
             self._hide_thinking()
+            self._clear_stream_widgets()
         except Exception:  # noqa: BLE001 -- 表示の片づけに失敗しても、ボタンは戻す
             pass
         self._send_btn.setEnabled(True)
@@ -1648,6 +1837,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
     def _on_query_done(self, result: dict) -> None:
         """クエリ成功時のコールバック。回答バブルを追加し参照ドキュメントをステータスに表示する。"""
         self._hide_thinking()
+        self._clear_stream_widgets()
         answer    = result.get("answer", "(空の回答)")
         sources   = result.get("sources", [])
         memory_id = result.get("memoryId", "")
@@ -1657,6 +1847,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         self._set_status(_summarize_sources(sources, answer)["summary"])
         self._send_btn.setEnabled(True)
         self._scroll_to_bottom()
+        self._refresh_hints()
         # 理解度スコアを自動更新
         uid = self._cfg.get("score_user_id", "")
         if self._cfg["mode"] == "local" and uid:
@@ -1666,6 +1857,7 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
     def _on_query_error(self, msg: str) -> None:
         """クエリ失敗時のコールバック。エラーをバブルとステータスに表示する。"""
         self._hide_thinking()
+        self._clear_stream_widgets()
         _debug.log("質問", f"エラー: {msg}")
         friendly = _friendly_error(msg)
         hint = "（詳細は、メニュー（≡）の「デバッグ」）" if _is_setup_user(self._role, self._cfg.get("mode", "cloudflare")) else ""
@@ -1681,6 +1873,8 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         """会話履歴とバブルをすべて削除してチャットをリセットする。"""
         self._history.clear()
         self._hide_thinking()
+        self._early_sources = None  # 下の一括削除で消える
+        self._stream_bubble = None
         # stretch（最後の要素）以外のすべてのバブルを削除する
         for i in reversed(range(self._chat_layout.count() - 1)):
             item = self._chat_layout.itemAt(i)
@@ -1818,7 +2012,14 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
 
         # テキストバブル行
         bubble_row = QHBoxLayout()
-        bubble_row.addWidget(ChatBubble(text, is_user=False, rich_links=True))  # 回答の中の URL は、リンクにする
+        answer_bubble = ChatBubble(text, is_user=False, rich_links=True)  # 回答の中の URL は、リンクにする
+        answer_bubble.setToolTip("語をダブルクリックすると、Reference で探します")
+        if _REFERENCE_AVAILABLE:
+            try:
+                _TermLookup.install(answer_bubble, self._set_status)  # 用語をダブルクリックで調べる（A20）
+            except Exception as exc:  # noqa: BLE001
+                _debug.log("用語", f"ダブルクリックの検索を付けられませんでした: {exc}")
+        bubble_row.addWidget(answer_bubble)
         bubble_row.addStretch()
         v.addLayout(bubble_row)
 

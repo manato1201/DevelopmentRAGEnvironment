@@ -30,7 +30,7 @@ import reference_data as rd
 import reference_remote as rr
 from reference_author import fetch_reference_items  # noqa: F401 -- 画面とテストが、この名前で使う（本体は reference_author）
 from panel_actions import button_qss, px, type_font, type_qss
-from PySide6.QtCore import QEvent, QSize, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QImage, QMovie, QPixmap, QTextDocument
 from PySide6.QtWidgets import (
     QBoxLayout,
@@ -664,6 +664,30 @@ class ReferenceWidget(QWidget):
                 return
         self._show(item)
 
+    SEARCH_KINDS = ("node", "vex", "shelf", "apex")
+
+    def search_term(self, term: str) -> str:
+        """用語で探す（Chat・Guide の文で、ダブルクリックした語。2026-11-25、A20）。ノード → VEX → シェルフ → APEX の順に、
+        当たる種類を選んで、検索欄に入れる。当たりが 1 件なら、その説明を開く。戻り値: 画面に出す 1 文。"""
+        term = " ".join(str(term or "").split()).strip("「」『』（）()[]、。,.:：")
+        if not term:
+            return "調べる語がありません"
+        for kind in self.SEARCH_KINDS:
+            if kind == "shelf":
+                self._ensure_shelf_tools()
+            hits = rd.search(kind, term, limit=50, extra=rd.remote_items(kind, self._remote))
+            if not hits:
+                continue
+            self._set_kind_button(kind)
+            self._kind = kind
+            self._used_only.setChecked(False)
+            self._search.setText(term)  # 一覧を絞る（_reload）
+            if len(hits) == 1 or hits[0]["label"].lower() == term.lower():
+                self.show_item(kind, hits[0]["key"], hits[0]["label"])
+                return f"Reference で「{hits[0]['label']}」を開きました"
+            return f"Reference で「{term}」を探しました（{len(hits)} 件）"
+        return f"Reference に「{term}」は見つかりませんでした（Chat で聞くと、説明が出ます）"
+
     def _set_kind_button(self, kind: str) -> None:
         button = self._kind_buttons.get(kind)
         if button is not None:
@@ -779,6 +803,70 @@ def open_item_for_step(source: QWidget, step: dict) -> str:
         return next((i for i in rd.remote_items("node", widget._remote) + rd.remote_items("apex", widget._remote) if i["name"].lower() == base), None)
 
     return open_item(source, "node", f"node/{rd.slug(base)}", label, label, fallback=remote_hit)
+
+
+def search_term(source: QWidget, term: str) -> str:
+    """Reference タブへ切り替えて、用語で探す（A20。別のパネルの Reference が見えていれば、そちらで）。戻り値: 画面に出す 1 文。"""
+    try:
+        import guide_view
+
+        other = panel_bus.route(source, ReferenceWidget, panel_bus.enabled())
+        host = guide_view.locate_in_tabs(other if other is not None else source)
+        if host is None:
+            return "Reference タブが見つかりません"
+        tabs = host[0]
+        widget = other if other is not None else tabs.findChild(ReferenceWidget)
+        if widget is None:
+            return "Reference タブが見つかりません"
+        tabs.setCurrentIndex(tabs.indexOf(_page_of(tabs, widget)))
+        return widget.search_term(term)
+    except Exception as exc:  # noqa: BLE001
+        return f"Reference で探せませんでした（{exc}）"
+
+
+class TermLookup(QObject):
+    """文の欄（QLabel・QTextBrowser）で、語をダブルクリックすると、その語を Reference で探す（A20）。
+    ダブルクリックで選ばれた語（Qt の標準の選択）を使う。日本語は、続いた文字のまとまりが選ばれる（「Scatter」「ノード」など）。
+    install(widget, on_message) で付ける。on_message は、結果の 1 文を受け取る（パネルの下の欄に出す）。"""
+
+    def __init__(self, source: QWidget, on_message: Callable[[str], None] | None = None) -> None:
+        super().__init__(source)
+        self._source = source
+        self._on_message = on_message
+
+    @staticmethod
+    def selected_text(widget) -> str:
+        try:
+            if hasattr(widget, "textCursor"):
+                return widget.textCursor().selectedText()
+            return widget.selectedText()
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 -- Qt
+        from PySide6.QtCore import QEvent
+
+        if event.type() == QEvent.MouseButtonDblClick:
+            target = watched.parent() if watched.objectName() == "qt_scrollarea_viewport" else watched
+            QTimer.singleShot(0, lambda w=target: self._lookup(w))  # 標準の処理で語が選ばれてから読む
+        return False
+
+    def _lookup(self, widget) -> None:
+        term = self.selected_text(widget).strip()
+        if not term or len(term) > 40:
+            return
+        message = search_term(self._source, term)
+        if self._on_message is not None:
+            self._on_message(message)
+
+    @classmethod
+    def install(cls, widget: QWidget, on_message: Callable[[str], None] | None = None) -> "TermLookup":
+        lookup = cls(widget, on_message)
+        widget.installEventFilter(lookup)
+        viewport = getattr(widget, "viewport", None)
+        if callable(viewport):
+            viewport().installEventFilter(lookup)
+        return lookup
 
 
 def open_item(source: QWidget, kind: str, key: str, label: str = "", shown: str = "", fallback: Callable | None = None) -> str:

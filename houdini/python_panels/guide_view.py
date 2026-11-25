@@ -405,7 +405,14 @@ class GuideWidget(QWidget):
         self._step_view.setFont(type_font("body"))
         self._step_view.setMinimumHeight(px(200))  # 説明の欄は、いちばん広く取る（ほかの部品に押しつぶされない）
         _wrap_anywhere(self._step_view)
+        self._step_view.setToolTip("語をダブルクリックすると、Reference で探します")
         root.addWidget(self._step_view, stretch=1)
+        try:
+            import reference_view  # 循環を避けるため、ここで読む（reference_view も guide_view を使う）
+
+            reference_view.TermLookup.install(self._step_view, lambda message: self._set_status([message]))  # 用語をダブルクリックで調べる（A20）
+        except Exception:  # noqa: BLE001 -- 付けられなくても、案内はできる
+            pass
 
         # 案内した結果（Houdini の画面を動かしたあとの、短い報告）
         self._status = QLabel("")
@@ -419,7 +426,7 @@ class GuideWidget(QWidget):
         self._apply_btn = QPushButton("この手順を案内")
         self._apply_btn.setStyleSheet(button_qss("primary"))
         self._apply_btn.setToolTip("見るタブを前面に出し、操作するノードを選んで画面に収めます。パラメータを変える手順では、その項目の位置へ合わせます")
-        self._apply_btn.clicked.connect(self._apply)
+        self._apply_btn.clicked.connect(lambda _checked=False: self._apply())
         self._auto = QCheckBox("手順を移るたびに自動で案内")
         self._ref_btn = QPushButton("ノードの説明")
         self._ref_btn.setToolTip("この手順のノードの「何をする・使いどころ・実例」を、Reference タブで開きます")
@@ -428,6 +435,27 @@ class GuideWidget(QWidget):
         actions.addWidget(self._ref_btn)
         actions.addWidget(self._auto, stretch=1)
         root.addLayout(actions)
+
+        # お手本と自分のネットワークの行き来・作業場所へ戻る・Chat に聞く（2026-11-25。実証実験の A16〜A18）
+        # 真似て、お手本と同じ名前で作ると、「自動」は自分の方を示す。お手本を見たいときは「お手本を見る」で、サンドボックスの実物へ
+        self._home: dict | None = None
+        swap = QHBoxLayout()
+        self._example_btn = QPushButton("お手本を見る")
+        self._example_btn.setToolTip("この手順のノードを、生成したサンドボックスの実物（お手本）で示します。同じ名前で真似て作っていても、お手本の方へ行きます")
+        self._example_btn.clicked.connect(lambda _checked=False: self._apply("sandbox"))
+        self._mine_btn = QPushButton("自分のを見る")
+        self._mine_btn.setToolTip("この手順のノードを、/obj の自分のネットワークで示します")
+        self._mine_btn.clicked.connect(lambda _checked=False: self._apply("own"))
+        self._home_btn = QPushButton("作業場所に戻る")
+        self._home_btn.setToolTip("Guide が画面を動かす前に、自分のネットワークで開いていた階層と、選んでいたノードへ戻ります")
+        self._home_btn.clicked.connect(self._go_home)
+        self._ask_btn = QPushButton("この手順を Chat に聞く")
+        self._ask_btn.setToolTip("この手順の作業と目的を添えて、Chat に「何をしているか・うまくいかないときに確かめること」を聞きます")
+        self._ask_btn.clicked.connect(self._ask_chat)
+        for button in (self._example_btn, self._mine_btn, self._home_btn, self._ask_btn):
+            swap.addWidget(button)
+        swap.addStretch()
+        root.addLayout(swap)
 
         # 前提条件・TIPS（折りたたむ。ショートカット一覧を開くと、ここに出る）
         self._extra_view = QTextBrowser()
@@ -536,6 +564,9 @@ class GuideWidget(QWidget):
         self._next_btn.setEnabled(has_guide)
         self._apply_btn.setEnabled(has_guide and hou is not None)
         self._auto.setEnabled(has_guide and hou is not None)
+        for button in (self._example_btn, self._mine_btn, self._home_btn):
+            button.setEnabled(has_guide and hou is not None)
+        self._ask_btn.setEnabled(has_guide)
         self._restore_btn.setEnabled(hou is not None and display_isolation.pending() > 0)
 
     def showEvent(self, event) -> None:  # noqa: N802 -- Qt
@@ -699,6 +730,16 @@ class GuideWidget(QWidget):
         _state_set(_MODE_KEY, self._mode_key())
         self._render()
 
+    def step_brief(self) -> dict | None:
+        """Chat の「質問の例」に使う、いま見ている手順の要点（question_hints.suggest の guide_step）。案内が無ければ None。"""
+        steps = (self._guide or {}).get("steps") or []
+        if not steps:
+            return None
+        step = steps[max(0, min(self._index, len(steps) - 1))]
+        return {"index": self._index, "total": len(steps), "title": str(self._guide.get("title") or ""),
+                "instruction": str(step.get("instruction") or ""), "node": str(step.get("node") or ""),
+                "node_label": str(step.get("node_label") or ""), "purpose": str(step.get("purpose") or "")}
+
     def _current_step(self) -> dict:
         step = self._guide["steps"][self._index]
         try:
@@ -748,29 +789,76 @@ class GuideWidget(QWidget):
         if self._auto.isChecked():
             self._apply()
 
-    def _apply(self) -> None:
+    def _apply(self, mode: str | None = None) -> None:
+        """この手順を案内する。mode: "sandbox"（お手本）/ "own"（自分）を、この 1 回だけ使う。None なら、設定の「案内する場所」。"""
         if self._guide is None or hou is None:
             return
+        mode = mode or self._mode_key()
+        try:
+            place = guide_mode.remember_place(hou)  # 自分の作業場所にいれば、動かす前の場所を覚える（「作業場所に戻る」用）
+            if place is not None:
+                self._home = place
+        except Exception:  # noqa: BLE001 -- 覚えられなくても、案内はする
+            pass
         step = self._guide["steps"][self._index]
         try:
-            messages = guide_mode.apply_step(hou, step, self._sandbox_path(), self._mode_key())
+            messages = guide_mode.apply_step(hou, step, self._sandbox_path(), mode)
         except Exception as exc:  # noqa: BLE001 -- 案内に失敗しても、パネルは止めない
             messages = [f"案内に失敗しました（{exc}）"]
+        if mode != "sandbox":
+            try:
+                messages = guide_mode.sandbox_references(hou) + list(messages)  # 自分のネットワークが、お手本を指していたら、先に知らせる（A26）
+            except Exception:  # noqa: BLE001
+                pass
         self._set_status(messages)
         self._update_where()
         if step.get("tool") == "set_parameter" and self._parm_focus.isChecked():
             # パラメータ画面がノードに追従するのを待ってから、項目の位置に合わせる（すぐだと、前のノードのままのことがある）
             index = self._index
-            QTimer.singleShot(250, lambda: self._highlight_parms(index, step))
+            QTimer.singleShot(250, lambda: self._highlight_parms(index, step, mode))
 
-    def _highlight_parms(self, index: int, step: dict) -> None:
+    def _go_home(self) -> None:
+        """Guide が画面を動かす前の、自分の作業場所へ戻る（A17）。"""
+        if hou is None:
+            return
+        try:
+            message = guide_mode.return_to_place(hou, self._home)
+        except Exception as exc:  # noqa: BLE001
+            message = f"作業場所に戻れませんでした（{exc}）"
+        self._set_status([message])
+        self._update_where()
+
+    def _ask_chat(self) -> None:
+        """この手順のことを、Chat に聞く（A18。同じパネルの Chat タブで送る）。"""
+        brief = self.step_brief()
+        if brief is None:
+            return
+        try:
+            import question_hints
+
+            query = question_hints.guide_step_question(brief, stuck=True)
+        except Exception as exc:  # noqa: BLE001
+            self._set_status([f"質問を作れませんでした（{exc}）"])
+            return
+        try:
+            import panel_bus
+
+            panel = panel_bus.panel_of(self)
+        except Exception:  # noqa: BLE001
+            panel = None
+        if panel is None or not hasattr(panel, "ask_chat"):
+            self._set_status(["Chat タブが見つかりません"])
+            return
+        self._set_status([panel.ask_chat(query)])
+
+    def _highlight_parms(self, index: int, step: dict, mode: str | None = None) -> None:
         """パラメータ画面を、この手順の項目の位置に合わせる。待っているあいだに手順が変わっていたら、何もしない。"""
         if hou is None or self._guide is None or index != self._index:
             return
         try:
             import screen_capture
 
-            hit = guide_mode.resolve_step_target(hou, step, self._sandbox_path(), self._mode_key())
+            hit = guide_mode.resolve_step_target(hou, step, self._sandbox_path(), mode or self._mode_key())
             messages = guide_mode.highlight_parms(hou, step, hit.node, screen_capture.reveal_parm_tabs)
         except Exception:  # noqa: BLE001 -- 合わせられなくても、案内は済んでいる
             messages = []
