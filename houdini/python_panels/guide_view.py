@@ -160,6 +160,7 @@ def render_step_html(guide: dict, index: int, step_override: dict | None = None,
     node_bits.append(f"見るタブ: <b>{esc(step.get('tab_label') or '')}</b>")
     rows.append("<p>" + "<br>".join(node_bits) + "</p>")
     if step.get("tool") == "create_node" and step.get("node_type"):
+        rows.append(guide_mode.tab_help_html(step))  # Tab で見つからないとき（作るネットワークの種類・表示名・作るボタン。2026-11-26）
         rows.append(tool_analogies.html_block(tool_analogies.for_node(str(step["node_type"]))))  # Maya・Blender でいうと（A27。無ければ空）
     if guide.get("builtin") == basics_guide.KEY:  # 基本操作の練習では、手順に出てくる用語の意味を添える（2026-11-26）
         rows.append(houdini_terms.html_block(houdini_terms.terms_in(f"{step.get('instruction') or ''} {step.get('hint') or ''}")))
@@ -681,8 +682,13 @@ class GuideWidget(QWidget):
         self._ask_btn = QPushButton("この手順を Chat に聞く")
         self._ask_btn.setToolTip("この手順の作業と目的を添えて、Chat に「何をしているか・うまくいかないときに確かめること」を聞きます")
         self._ask_btn.clicked.connect(self._ask_chat)
+        self._make_btn = QPushButton("Tab で出ないときは作る")
+        self._make_btn.setToolTip("Tab メニューで見つからないとき、この手順の種類（内部名）と名前のノードを、いま開いている自分のネットワークに作ります。"
+                                  "お手本（サンドボックス）の中・種類の違うネットワークには作りません")
+        self._make_btn.clicked.connect(self._make_node)
+        self._make_btn.setVisible(False)  # 作る手順のときだけ出す
         move_row = QHBoxLayout()
-        for button in (self._apply_btn, self._example_btn, self._mine_btn, self._home_btn):
+        for button in (self._apply_btn, self._example_btn, self._mine_btn, self._home_btn, self._make_btn):
             move_row.addWidget(button)
         move_row.addStretch()
         root.addLayout(move_row)
@@ -788,6 +794,9 @@ class GuideWidget(QWidget):
         if severity == "level":
             style = (f"{type_qss('body', '#fff7ed')}font-weight:bold;background:#7c2d12;border:{px(2)}px solid #f97316;"
                      f"border-radius:{px(4)}px;padding:{px(6)}px {px(8)}px;")
+        elif severity == "asset":  # 付属ノードの中身を見ている（作らなくてよい。思い込みを止める）: 琥珀の太い枠
+            style = (f"{type_qss('body', '#fef3c7')}font-weight:bold;background:#422006;border:{px(2)}px solid #f59e0b;"
+                     f"border-radius:{px(4)}px;padding:{px(6)}px {px(8)}px;")
         elif severity == "example":  # お手本を見ている（間違いではない）: 落ち着いた青
             style = f"{type_qss('caption', '#e0f2fe')}background:#0c4a6e;border-radius:{px(4)}px;padding:{px(4)}px {px(6)}px;"
         else:
@@ -843,7 +852,7 @@ class GuideWidget(QWidget):
         self._next_btn.setEnabled(has_guide)
         self._apply_btn.setEnabled(has_guide and hou is not None)
         self._auto.setEnabled(has_guide and hou is not None)
-        for button in (self._example_btn, self._mine_btn, self._home_btn):
+        for button in (self._example_btn, self._mine_btn, self._home_btn, self._make_btn):
             button.setEnabled(has_guide and hou is not None)
         self._ask_btn.setEnabled(has_guide)
         self._restore_btn.setEnabled(hou is not None and display_isolation.pending() > 0)
@@ -1047,6 +1056,11 @@ class GuideWidget(QWidget):
 
     def _current_step(self) -> dict:
         step = self._guide["steps"][self._index]
+        if hou is not None:
+            try:
+                step = guide_mode.fill_node_category(hou, step, self._sandbox_path())  # 以前の案内に、作るネットワークの種類を足す
+            except Exception:  # noqa: BLE001
+                pass
         try:
             return guide_mode.attach_parm_info(hou, step, self._sandbox_path(), self._mode_key())
         except Exception:  # noqa: BLE001 -- 値の言い換えができなくても、数字のまま出す
@@ -1062,6 +1076,7 @@ class GuideWidget(QWidget):
             report_basics_progress(self._cfg_getter() or {}, self._index + 1, len(steps))
         page = render_step_html(self._guide, self._index, self._current_step(), shortcuts_visible(self._index, self._sc_btn.isChecked()))
         self._step_view.setHtml(page)
+        self._make_btn.setVisible(steps[self._index].get("tool") == "create_node" and bool(steps[self._index].get("node_type")))
         self._shots_box.setVisible(self._shots.show_shots(guide_mode.step_shots(self._guide, steps[self._index])) > 0)
         self._prev_btn.setEnabled(self._index > 0)
         self._next_btn.setEnabled(self._index < len(steps) - 1)
@@ -1081,6 +1096,15 @@ class GuideWidget(QWidget):
             try:
                 current = guide_mode.current_network_path(hou)
                 text, severity = guide_mode.where_report(current, places, self._sandbox_path())
+                if self._guide is not None and severity in ("same", "name"):
+                    # 階層は合っていても、ネットワークの種類が違うと、手順のノードは Tab に出ない（SOP の中で DOP のノードを探す、など）
+                    step = guide_mode.fill_node_category(hou, self._guide["steps"][self._index], self._sandbox_path())
+                    mismatch = guide_mode.category_mismatch(guide_mode.network_child_category(hou, current), step)
+                    if mismatch:
+                        text, severity = f"{mismatch}\n{text}", "level"
+                inside = guide_mode.asset_inside_note(hou, current)  # Vellum Solver などの中身を見ている（作らなくてよい）
+                if inside:
+                    text, severity = f"{inside}\n{text}", "asset"
             except Exception:  # noqa: BLE001 -- 階層が読めなくても、手順の表示は止めない
                 text, severity = "", "same"
             self._restore_btn.setEnabled(display_isolation.pending() > 0)
@@ -1136,6 +1160,18 @@ class GuideWidget(QWidget):
             message = guide_mode.return_to_place(hou, self._home)
         except Exception as exc:  # noqa: BLE001
             message = f"作業場所に戻れませんでした（{exc}）"
+        self._set_status([message])
+        self._update_where()
+
+    def _make_node(self) -> None:
+        """Tab で見つからないときに、この手順のノードを、いま開いている自分のネットワークに作る（2026-11-26）。"""
+        if hou is None or self._guide is None:
+            return
+        try:
+            step = guide_mode.fill_node_category(hou, self._guide["steps"][self._index], self._sandbox_path())
+            message = guide_mode.create_step_node(hou, step, guide_mode.current_network_path(hou))
+        except Exception as exc:  # noqa: BLE001
+            message = f"ノードを作れませんでした（{exc}）"
         self._set_status([message])
         self._update_where()
 

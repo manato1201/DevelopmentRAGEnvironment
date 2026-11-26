@@ -1217,8 +1217,8 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             self._tutorial_model_combo.setCurrentText(self._cfg.get("tutorial_model", "claude-sonnet-5-5"))
             box.addWidget(self._tutorial_model_combo)
             hint = QLabel(
-                "claude-sonnet-5: 既定（$2/$10 per 1Mトークン） / "
-                "claude-sonnet-5-5: 同価格の後継 / "
+                "claude-sonnet-5-5: 既定（$2/$10 per 1Mトークン。思考の深さ medium で、1 回の生成が安く済む） / "
+                "claude-sonnet-5: 以前の既定（同価格。思考の深さを送らないため、1 回の生成が高くなりがち） / "
                 "claude-opus-5-5: 高品質・約2倍のコスト（$4/$20） / "
                 "claude-haiku-4-5: 低コスト（$1/$5）だが品質は下がる場合があります"
             )

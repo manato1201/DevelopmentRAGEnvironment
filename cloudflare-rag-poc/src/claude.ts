@@ -6,7 +6,8 @@ import { BudgetExceededError, reserveBudget, reconcileBudget } from "./budget";
 import { sha256Hex } from "./embeddings";
 import { startAuditLog, finalizeAuditLog } from "./auditLog";
 
-const DEFAULT_MODEL = "claude-sonnet-5";
+// パネルが model を送らなかったときの既定。パネルの既定（rag_client.DEFAULT_TUTORIAL_MODEL）と同じにする（2026-11-26）
+const DEFAULT_MODEL = "claude-sonnet-5-5";
 const DEFAULT_MAX_TOKENS = 4096;
 
 // 入力トークンの見積もり。messages全体の文字数/3（日本語混在を踏まえ安全側に厚め）が基本だが、

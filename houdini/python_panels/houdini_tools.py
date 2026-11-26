@@ -1249,6 +1249,10 @@ class HoudiniToolExecutor:
                     "node": node.name(), "node_path": self._rel(node),
                     "node_type": node_type.name(), "node_label": node_type.description(),
                 })
+                try:  # どの種類のネットワークの中で Tab に出るか（SOP の中では、DOP のノードは出ない。2026-11-26）
+                    guide["node_category"] = node_type.category().name()
+                except Exception:  # noqa: BLE001
+                    pass
                 purpose = self._purpose_for(tool_name, tool_input, node.name(), node_type.name(), self._rel(node), node_type.description())
                 if purpose:
                     guide["purpose"] = purpose

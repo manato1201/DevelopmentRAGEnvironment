@@ -260,6 +260,7 @@ def build_guide(step_screenshots: list[dict], title: str = "", level: str = "", 
             "node_path": str(g.get("node_path") or ""),
             "node_type": str(g.get("node_type") or ""),
             "node_label": str(g.get("node_label") or ""),
+            "node_category": str(g.get("node_category") or ""),  # SOP・DOP など、そのノードを作るネットワークの種類（2026-11-26）
             "parms": [p for p in (g.get("parms") or []) if isinstance(p, dict)][:12],
             "from": str(g.get("from") or ""),
             "to": str(g.get("to") or ""),
@@ -1465,3 +1466,197 @@ def where_report(current: str, places: dict, sandbox_path: str = "") -> tuple[st
     if severity == "level":
         return (f"⚠ 階層が違います\n{where}\n{level_hint(current, expected)}", "level")
     return (f"{where}\n（名前の違う、自分の作業場所なら、そのままで構いません）", "name")
+
+
+# ── Tab メニューで見つからないとき（2026-11-26。実機の指摘「手順のノードを Tab で探しても出てこない」）──────────────
+# Tab メニューに出るノードは、いま開いているネットワークの種類（SOP・DOP など）で決まる。DOP のノード（Vellum Source など）は、
+# geo の中（SOP）で Tab を押しても出ない。手順書の名前（作ったノードの名前・内部名）と、Tab に出る表示名が違うこともある。
+# Guide では、①Tab で打つ表示名と、作るネットワークの種類を出す、②いまのネットワークの種類が違えば知らせる、
+# ③それでも出ないときは、手順のとおりの種類（内部名）で、自分のネットワークに作れるようにする（create_step_node）。
+CATEGORY_LABELS = {
+    "Object": "Object（/obj の直下）",
+    "Sop": "SOP（ジオメトリ。geo などの中）",
+    "Dop": "DOP（シミュレーション。dopnet の中）",
+    "Vop": "VOP（ノードで組むシェーダ・処理の中）",
+    "Lop": "LOP（Solaris。stage の中）",
+    "Cop": "COP（画像。copnet の中）",
+    "Driver": "ROP（書き出し。/out の中）",
+    "Shop": "SHOP",
+    "Chop": "CHOP（チャンネル。chopnet の中）",
+    "Top": "TOP（タスク。topnet の中）",
+}
+
+
+def category_label(name: str) -> str:
+    return CATEGORY_LABELS.get(name, name)
+
+
+def tab_help_html(step: dict) -> str:
+    """作る手順の「Tab で見つからないとき」の案内（HTML）。作る手順でなければ ""。"""
+    if step.get("tool") != "create_node" or not step.get("node_type"):
+        return ""
+    import html
+
+    esc = html.escape
+    type_name = str(step["node_type"])
+    label = str(step.get("node_label") or type_name)
+    word = label.split()[0] if label.split() else label
+    where = f"<b>{esc(category_label(str(step['node_category'])))}</b> のネットワークの中で" if step.get("node_category") else "手順の階層で"
+    items = [
+        f"{where} Tab を押します（ネットワークの種類が違うと、出ません。いまの階層は、上の帯で確かめます）",
+        f"表示名「<b>{esc(label)}</b>」で探します。作ったノードの名前（{esc(str(step.get('node') or ''))}）や、"
+        f"内部名（<code>{esc(type_name)}</code>）では出ないことがあります。出ないときは、一部（「{esc(word)}」）だけで探します",
+        "お手本の Vellum Solver・Pyro Solver などの中に入って見えるノードは、Houdini が最初から入れている中身です。作る必要はありません",
+        "それでも出ないときは、下の「Tab で出ないときは作る」で、この種類のノードを、いま開いている自分のネットワークに作れます",
+    ]
+    return ("<p style='margin-bottom:0'><b>Tab で見つからないとき</b></p><ol style='margin-top:2px'>"
+            + "".join(f"<li>{item}</li>" for item in items) + "</ol>")
+
+
+def network_child_category(hou, path: str) -> str:
+    """そのネットワークの中に作れるノードの種類（"Sop" など）。分からなければ ""。"""
+    node = _node_at(hou, path) if path else None
+    try:
+        return node.childTypeCategory().name() if node is not None else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def category_mismatch(current_category: str, step: dict) -> str:
+    """作る手順で、いま開いているネットワークの種類が、ノードの種類と違うときの注意。同じ・分からないときは ""。"""
+    want = str(step.get("node_category") or "")
+    if step.get("tool") != "create_node" or not want or not current_category or current_category == want:
+        return ""
+    label = str(step.get("node_label") or step.get("node_type") or "このノード")
+    return (f"⚠ 「{label}」は {category_label(want)} のネットワークの中でだけ Tab に出ます。"
+            f"いま開いているのは {category_label(current_category)} です")
+
+
+def _locked(node) -> bool:
+    for name in ("isInsideLockedHDA", "isLockedHDA"):
+        try:
+            if bool(getattr(node, name)()):
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
+def create_step_node(hou, step: dict, network_path: str) -> str:
+    """作る手順のノードを、手順のとおりの種類（内部名）と名前で、いま開いている自分のネットワークに作る（Tab で出ないとき用）。
+    お手本（サンドボックス）の中・鍵の掛かったアセットの中・種類の違うネットワークには作らない（理由を返す）。"""
+    if step.get("tool") != "create_node" or not step.get("node_type"):
+        return "この手順は、ノードを作る手順ではありません"
+    type_name = str(step["node_type"])
+    label = str(step.get("node_label") or type_name)
+    path = (network_path or "").rstrip("/")
+    net = _node_at(hou, path) if path else None
+    if net is None:
+        return "いま開いているネットワークが分かりません（ネットワークエディタで、作る場所を開いてから押してください）"
+    if not (_is_own_workplace(path) or path == OWN_ROOT):
+        return f"お手本（サンドボックス）や /obj の外には作りません。自分の作業場所を開いてから押してください（いま: {path}）"
+    if _locked(net):
+        return f"{path} は、鍵の掛かったアセット（Houdini 付属のノードなど）の中なので、ノードを作れません"
+    current = network_child_category(hou, path)
+    want = str(step.get("node_category") or "")
+    if want and current and want != current:
+        return category_mismatch(current, step).lstrip("⚠ ") + "。作る場所を開いてから押してください"
+    name = str(step.get("node") or "") or None
+    existing = None
+    try:
+        existing = net.node(name) if name else None
+    except Exception:  # noqa: BLE001
+        existing = None
+    if existing is not None:
+        try:
+            existing.setCurrent(True, clear_all_selected=True)
+        except Exception:  # noqa: BLE001
+            pass
+        return f"{existing.path()} は、もうあります（選びました）"
+    try:
+        node = net.createNode(type_name, name)
+    except Exception as exc:  # noqa: BLE001
+        return f"「{label}」（{type_name}）を作れませんでした: {exc}"
+    try:
+        node.moveToGoodPosition()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        node.setCurrent(True, clear_all_selected=True)
+    except Exception:  # noqa: BLE001
+        pass
+    note = ""
+    try:
+        if node.type().hidden() or node.type().deprecated():
+            note = "（この種類は、Houdini の Tab メニューに出ない種類です）"
+    except Exception:  # noqa: BLE001
+        note = ""
+    after = note or f"。次からは、Tab で「{label}」と打つと探せます"
+    return f"作りました: {node.path()}（{label}。内部名 {type_name}）{after}"
+
+
+def fill_node_category(hou, step: dict, sandbox_path: str = "") -> dict:
+    """以前の案内（node_category が無い）に、お手本（サンドボックス）の実物から、ネットワークの種類を足す（コピーを返す）。
+    種類の名前だけで探すと、null・merge などは SOP・DOP・LOP のどれか分からないので、実物のノードで決める。"""
+    if step.get("node_category") or step.get("tool") != "create_node":
+        return step
+    node = _node_at(hou, step_places(step, sandbox_path)["sandbox_node"]) if sandbox_path else None
+    try:
+        category = node.type().category().name() if node is not None else ""
+    except Exception:  # noqa: BLE001
+        category = ""
+    return {**step, "node_category": category} if category else step
+
+
+# ── Houdini 付属ノードの中身（2026-11-26。実機: お手本の Vellum Solver の中に入り、最初から入っている Vellum Source
+#    （sources/defaultsource）を見て、自分でも作ろうとして、Tab で見つけられずに止まった）────────────────────────
+def _is_locked_asset(node) -> bool:
+    try:
+        return bool(node.isLockedHDA())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _inside_locked(node) -> bool:
+    try:
+        return bool(node.isInsideLockedHDA())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def locked_asset_owner(hou, path: str):
+    """path が、鍵の掛かったアセット（Vellum Solver・Pyro Solver など、Houdini 付属のノード）の中身なら、その外側のアセットのノード。
+    中身でなければ None。アセットの中でも、自分で足してよい場所（Vellum Solver の forces など、鍵が外れている所）は、中身としない。"""
+    node = _node_at(hou, path) if path else None
+    if node is None or not (_is_locked_asset(node) or _inside_locked(node)):
+        return None
+    try:
+        if not _is_locked_asset(node) and bool(node.isEditableInsideLockedHDA()):
+            return None  # 鍵が外れている所（Vellum Solver の forces など）。自分で足してよい
+    except Exception:  # noqa: BLE001
+        pass
+    owner = None
+    current = node
+    while current is not None:
+        if _is_locked_asset(current):
+            owner = current  # いちばん外側の、鍵の掛かったアセット（学習者が作るのは、これ）
+        try:
+            current = current.parent()
+        except Exception:  # noqa: BLE001
+            break
+        if current is not None and _path_of(current) in ("", "/"):
+            break
+    return owner
+
+
+def asset_inside_note(hou, path: str) -> str:
+    """付属ノードの中身を見ているときの説明。中身でなければ ""。"""
+    owner = locked_asset_owner(hou, path)
+    if owner is None:
+        return ""
+    try:
+        label = owner.type().description()
+    except Exception:  # noqa: BLE001
+        label = "このノード"
+    return (f"⚠ ここは「{label}」（{_path_of(owner)}）の中身です。中のノードは、Houdini が「{label}」に最初から入れているもので、"
+            f"自分で作る必要はありません（「{label}」を 1 つ作れば、同じ中身が入ります）。ネットワークエディタで U を押して、外へ出ます")

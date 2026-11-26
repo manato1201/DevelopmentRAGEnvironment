@@ -7,8 +7,8 @@ docs/design/content-generation.md §2 の設計に基づく:
        - "local": ローカルブリッジ /search（rag_local_bridge.py）
        - "cloudflare": Cloudflare Workers（cloudflare-rag-poc、/search）を呼ぶ。
          サーバー側の namespace 許可制御が唯一のホワイトリストになる
-  ② エージェントループ: DEFAULT_MODEL（既定claude-sonnet-5、TutorialAgent(model=...)で
-     claude-sonnet-5-5 / claude-opus-5-5 / claude-haiku-4-5に変更可）+ HOUDINI_TOOLS（最大MAX_ITERATIONS回）
+  ② エージェントループ: DEFAULT_MODEL（既定claude-sonnet-5-5、TutorialAgent(model=...)で
+     claude-sonnet-5 / claude-opus-5-5 / claude-haiku-4-5に変更可）+ HOUDINI_TOOLS（最大MAX_ITERATIONS回）
      プロンプトキャッシュ: システムプロンプト・ツール定義・RAGコンテキストを
      cache_control で固定
      Claude API呼び出しは常に Cloudflare Workers（cloudflare-rag-poc、/claude/messages）経由。
@@ -431,6 +431,7 @@ _SYSTEM_PROMPT_TEMPLATE = """あなたは Houdini のエキスパートで、チ
 - 時間で動く題材（爆発・煙・炎・水・パーティクル・布・アニメーション・リグ）は、結果が時間で動くように組む（シミュレーション、または $F・time を使った式。再生範囲は 1〜240 の既定のままでよい）。cook_node のあと、動く様子が約10秒の映像として動画に入る。動かない結果（静止した形）は、静止画のまま。「爆発のEffect」を、止まった形だけで済ませない。
 - finish_tutorial を呼ぶ前に、layout_network でノードを整列し、validate_network を1回呼び、エラー・警告・末端の複数（つなぎ忘れ）が無いことを確かめます。
 - 学習者は、手順書のとおりに Tab メニューからノードを作ります。Tab メニューに出ないノード（非推奨の古いノード。例: smokeobject → smokeobject_sparse、sourcevolume → volumesource）は使いません。create_node の結果に「Tab メニューに出ません」と出たら、消して、示された代わりのノードで作り直します。
+- 手順書でノードの種類を書くときは、Tab メニューに出る表示名（list_available_node_types の「—」の右。例: Vellum Source）と、内部名（例: vellumsource）を、両方そのまま書きます。語の順番を入れ替えたり（Source Vellum）、自分で名前を作ったりしません。DOP など、geo の中（SOP）ではないネットワークで作るノードは、どのネットワークの中で Tab を押すかも書きます（例: 「dopnet の中で Tab →『Vellum Source』」）。
 - DOP ネットワーク（dopnet）を作ると、中に file_output（Output DOP。表示フラグ付き）が自動で置かれます。最後のノード（ソルバー）を、必ず connect_nodes で file_output の入力 0 につなぎます（つながないと、シミュレーションは空で、学習者は結果を確かめられません）。
 - ノードを作ったら、そのノードの接続（connect_nodes）は、パラメータを変える前に行います。入力がつながるまで、選べない・効かないパラメータがあります（手順書も、作る → つなぐ → 値を変える、の順になります）。
 - Pyro（煙・炎）は、SOP の pyrosource → volumerasterizeattributes → pyrosolver で組みます。参考資料に出てくる Copernicus（COP）の Pyro（pyro_sourceshape・pyro_block_begin など）は、題材が画像・2D の煙を求めるときだけ使います（SOP の一覧に `pyro_` で始まるノードが無いのは正常です。SOP の Pyro は `pyrosolver`・`pyrosource` という名前です）。
