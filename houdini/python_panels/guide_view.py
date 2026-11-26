@@ -71,6 +71,7 @@ _PARM_FOCUS_KEY = "guide_parm_focus"
 _MODE_KEY = "guide_target_mode"
 _PILOT_KEY = "pilot_enabled"  # 「実証実験に参加する」（rag_chatbot）。入っているときだけ、練習の進み具合を送る
 _BASICS_SENT_KEY = "basics_sent_step"  # 送った手順の最大（同じ手順を何度も送らない）
+_basics_in_flight: set[int] = set()  # 送っている途中の手順（返事の前に、描き直しで同じ手順を送り直さない）
 
 
 def report_basics_progress(cfg: dict, step: int, total: int, post=None) -> bool:
@@ -79,8 +80,9 @@ def report_basics_progress(cfg: dict, step: int, total: int, post=None) -> bool:
     if not bool(_state_get(_PILOT_KEY, False)) or (cfg or {}).get("mode") != "cloudflare":
         return False
     sent = int(_state_get(_BASICS_SENT_KEY, 0) or 0)
-    if step <= sent:
-        return False
+    if step <= sent or step in _basics_in_flight:
+        return False  # 送り終えた・送っている途中（画面の描き直しのたびに、同じ手順を何度も送らない）
+    _basics_in_flight.add(step)
 
     def send() -> None:
         try:
@@ -94,6 +96,8 @@ def report_basics_progress(cfg: dict, step: int, total: int, post=None) -> bool:
                 _state_set(_BASICS_SENT_KEY, max(step, int(_state_get(_BASICS_SENT_KEY, 0) or 0)))
         except Exception:  # noqa: BLE001 -- 送れなくても、練習は続けられる
             pass
+        finally:
+            _basics_in_flight.discard(step)
 
     if post is not None:
         send()  # テスト用（同じスレッドで送る）
@@ -345,54 +349,159 @@ class _ShotLabel(QLabel):
         super().mousePressEvent(event)
 
 
+_DIAGRAM_BG = (0x2F, 0x2F, 0x31)  # screen_capture が描くノード図の背景（image.fill("#2f2f31")）
+_DIAGRAM_BAR = (0x23, 0x23, 0x25)  # 同じく、上のパスの帯
+
+
+def _near(rgb: int, ref: tuple[int, int, int], tol: int) -> bool:
+    return max(abs(((rgb >> 16) & 0xFF) - ref[0]), abs(((rgb >> 8) & 0xFF) - ref[1]), abs((rgb & 0xFF) - ref[2])) <= tol
+
+
+def diagram_content_rect(image) -> tuple[int, int, int, int] | None:
+    """撮影で描いたノード図（kind = node_diagram）の、ノードが描かれている範囲 (x, y, w, h)（元の画像の画素）。
+    ノードが 1 つだけの図は、2560x1440 の真ん中に小さく描かれ、Guide の小さな見本では、名前が読めなかった（2026-11-26）。
+    上のパスの帯と、背景の点（格子）は、範囲に入れない。描かれたものが見つからない・ほぼ全体なら None（切り出さない）。"""
+    width, height = image.width(), image.height()
+    if width < 8 or height < 8:
+        return None
+    small = image.scaledToWidth(240, Qt.FastTransformation)
+    sw, sh = small.width(), small.height()
+    top = 0
+    while top < sh // 5 and _near(small.pixel(1, top), _DIAGRAM_BAR, 6):
+        top += 1  # 上のパスの帯（Guide では、パスを手順の文で出している）
+    xs: list[int] = []
+    ys: list[int] = []
+    for y in range(top + 1, sh):
+        for x in range(sw):
+            if not _near(small.pixel(x, y), _DIAGRAM_BG, 40):
+                xs.append(x)
+                ys.append(y)
+    if not xs:
+        return None
+    scale = width / sw
+    x0, x1, y0, y1 = min(xs) * scale, (max(xs) + 1) * scale, min(ys) * scale, (max(ys) + 1) * scale
+    pad = max(24.0, 0.08 * max(x1 - x0, y1 - y0))
+    x0, y0 = max(0.0, x0 - pad), max(top * scale, y0 - pad)
+    x1, y1 = min(float(width), x1 + pad), min(float(height), y1 + pad)
+    w, h = x1 - x0, y1 - y0
+    if h < w / 2.4:  # 細すぎる帯にしない（横長の見本の枠に、上下の余白を残す）
+        grow = (w / 2.4 - h) / 2
+        y0, y1 = max(top * scale, y0 - grow), min(float(height), y1 + grow)
+    if (x1 - x0) * (y1 - y0) > 0.8 * width * height:
+        return None
+    return int(x0), int(y0), int(x1 - x0), int(y1 - y0)
+
+
+def _capture_kind(path: str) -> str:
+    try:
+        import json
+
+        data = json.loads(Path(path + ".meta.json").read_text(encoding="utf-8"))
+        return str(data.get("kind") or "") if isinstance(data, dict) else ""
+    except (OSError, ValueError):
+        return ""
+
+
 class ShotStrip(QWidget):
     """手順ごとの、お手本の画面（生成のときに撮った、この手順のあとのビューポートとネットワーク。2026-11-25、A25）。
-    画像が無い手順では、隠れる。押すと、元の大きさで開く。"""
+    画像が無い手順では、隠れる。押すと、元の大きさで開く。
+    2026-11-26: 幅に合わせて大きくする（WIDTH が上限）。ノード図は、ノードの描かれた範囲に寄せる。
+    以前は、手順を移るたびに、前の見出しが消えずに残り、新しい見出しと重なって読めなかった（入れ子の部品を消していなかった）。"""
 
-    WIDTH = 220
+    WIDTH = 360  # 1 枚の幅の上限（px の前）
+    MIN_WIDTH = 150
+    MAX_HEIGHT = 240
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._row = QHBoxLayout(self)
         self._row.setContentsMargins(0, 0, 0, 0)
-        self._row.setSpacing(px(6))
-        self._cache: dict[str, QPixmap] = {}  # 見せる・隠すは、外の折りたたみ（Guide の _shots_box）が決める
+        self._row.setSpacing(px(8))
+        self._cache: dict[tuple[str, float], QPixmap] = {}  # 見せる・隠すは、外の折りたたみ（Guide の _shots_box）が決める
+        self._shown: list[tuple[_ShotLabel, QPixmap]] = []
+        self._last_width = -1
 
-    def _pixmap(self, path: str) -> QPixmap | None:
-        if path not in self._cache:
+    def _source(self, path: str) -> QPixmap | None:
+        """元の画像（ノード図は、ノードの範囲に切り出したもの）。大きすぎる画像は、見本に十分な大きさへ縮めて覚える。"""
+        try:
+            key = (path, Path(path).stat().st_mtime)
+        except OSError:
+            return None
+        if key not in self._cache:
             image = QPixmap(path)
             if image.isNull():
                 return None
-            self._cache[path] = image.scaledToWidth(px(self.WIDTH), Qt.SmoothTransformation)
+            if _capture_kind(path) == "node_diagram":
+                rect = diagram_content_rect(image.toImage())
+                if rect is not None:
+                    image = image.copy(*rect)
+            limit = px(self.WIDTH) * 2
+            if image.width() > limit:
+                image = image.scaledToWidth(limit, Qt.SmoothTransformation)
+            self._cache[key] = image
             if len(self._cache) > 40:  # 長い手順書でも、覚えすぎない
                 self._cache.pop(next(iter(self._cache)))
-        return self._cache[path]
+        return self._cache[key]
+
+    def _clear(self) -> None:
+        """並べた部品を、全部消す（入れ子の縦並びの中の見出し・画像も。隠してから消す: deleteLater までのあいだも、重ならない）。"""
+        while self._row.count():
+            item = self._row.takeAt(0)
+            inner = item.layout()
+            widgets = [item.widget()] if item.widget() is not None else []
+            if inner is not None:
+                while inner.count():
+                    sub = inner.takeAt(0)
+                    if sub.widget() is not None:
+                        widgets.append(sub.widget())
+                inner.deleteLater()
+            for widget in widgets:
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+        self._shown = []
+
+    def _cell_width(self) -> int:
+        count = max(1, len(self._shown))
+        available = self.width() if self.width() > px(self.MIN_WIDTH) else px(self.WIDTH) * count
+        cell = (available - self._row.spacing() * (count - 1)) // count
+        return max(px(self.MIN_WIDTH), min(px(self.WIDTH), cell))
+
+    def _fit(self) -> None:
+        width = self._cell_width()
+        for picture, source in self._shown:
+            picture.setPixmap(source.scaled(width, px(self.MAX_HEIGHT), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self._last_width = self.width()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 -- Qt
+        super().resizeEvent(event)
+        if self._shown and self.width() != self._last_width:
+            self._fit()
 
     def show_shots(self, shots: list[tuple[str, str]]) -> int:
         """[(見出し, パス)] を並べる。並べた枚数を返す（0 なら隠す）。"""
-        while self._row.count():
-            item = self._row.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
-        shown = 0
+        self._clear()
         for label, path in shots:
-            image = self._pixmap(path)
+            image = self._source(path)
             if image is None:
                 continue
             box = QVBoxLayout()
+            box.setSpacing(px(2))
             caption = QLabel(label)
             caption.setStyleSheet(type_qss("caption", "#94a3b8"))
             picture = _ShotLabel()
-            picture.setPixmap(image)
             picture.setCursor(Qt.PointingHandCursor)
             picture.setToolTip("押すと、元の大きさで開きます")
+            picture.setAlignment(Qt.AlignLeft | Qt.AlignTop)
             picture.clicked.connect(lambda p=path: QDesktopServices.openUrl(QUrl.fromLocalFile(p)))
             box.addWidget(caption)
             box.addWidget(picture)
+            box.addStretch()
             self._row.addLayout(box)
-            shown += 1
+            self._shown.append((picture, image))
         self._row.addStretch()
-        return shown
+        self._fit()
+        return len(self._shown)
 
 
 class GuideStepWindow(QWidget):
@@ -480,13 +589,6 @@ class GuideWidget(QWidget):
         bar.addWidget(self._refresh_btn)
         root.addLayout(bar)
 
-        # どの階層にいるか（いまのネットワークと、この手順の作業場所）。常に出す。場所が違うときは、色を変える
-        self._where = QLabel("")
-        self._where.setWordWrap(True)
-        self._where.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self._set_where_style(True)
-        root.addWidget(self._where)
-
         nav = QHBoxLayout()
         self._prev_btn = QPushButton("◀ 前へ")
         self._next_btn = QPushButton("次へ ▶")
@@ -500,6 +602,13 @@ class GuideWidget(QWidget):
         nav.addWidget(self._next_btn)
         root.addLayout(nav)
 
+        # どの階層にいるか（いまのネットワークと、この手順の作業場所）。常に出す。場所が違うときは、色を変える
+        self._where = QLabel("")
+        self._where.setWordWrap(True)
+        self._where.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._set_where_style(True)
+        root.addWidget(self._where)
+
         # 手順（主役。いちばん広く取る）
         self._step_view = QTextBrowser()
         self._step_view.setOpenLinks(False)
@@ -508,12 +617,6 @@ class GuideWidget(QWidget):
         _wrap_anywhere(self._step_view)
         self._step_view.setToolTip("語をダブルクリックすると、Reference で探します")
         root.addWidget(self._step_view, stretch=1)
-        # お手本の画面（この手順のあと、生成のときに撮ったもの。A25）。折りたためる。画像の無い手順では隠れる
-        self._shots = ShotStrip()
-        self._shots_box = CollapsibleBox("お手本の画面（この手順のあと。押すと大きく開く）", self._shots, collapsed=False,
-                                         state_key="guide_shots", left_align=True)
-        self._shots_box.hide()
-        root.addWidget(self._shots_box)
         try:
             import reference_view  # 循環を避けるため、ここで読む（reference_view も guide_view を使う）
 
@@ -546,8 +649,10 @@ class GuideWidget(QWidget):
         self._status_lines: list[str] = []
         root.addWidget(self._status)
 
-        # 主な操作: 「この手順を案内」（主ボタン）と、移るたびの自動案内
-        actions = QHBoxLayout()
+        # 操作は 2 段にまとめる（2026-11-26。以前は、案内・説明・用語・自動のチェックと、お手本・自分・戻る・Chat が混ざって並び、
+        # どれが Houdini の画面を動かすのか分かりにくかった）:
+        #   1 段目: Houdini の画面を動かす（この手順を案内〈主ボタン〉・お手本を見る・自分のを見る・作業場所に戻る）
+        #   2 段目: 調べる・聞く（ノードの説明・用語の一覧・Chat に聞く）と、移るたびの自動案内
         self._apply_btn = QPushButton("この手順を案内")
         self._apply_btn.setStyleSheet(button_qss("primary"))
         self._apply_btn.setToolTip("見るタブを前面に出し、操作するノードを選んで画面に収めます。パラメータを変える手順では、その項目の位置へ合わせます")
@@ -560,16 +665,10 @@ class GuideWidget(QWidget):
         self._terms_btn.setCheckable(True)
         self._terms_btn.setToolTip("ノード・表示フラグ・SOP・属性など、Houdini の画面と考え方の基本の言葉を、まとめて見ます。もう一度押すと、前提条件・TIPS に戻ります")
         self._terms_btn.toggled.connect(self._on_terms_toggled)
-        actions.addWidget(self._apply_btn)
-        actions.addWidget(self._ref_btn)
-        actions.addWidget(self._terms_btn)
-        actions.addWidget(self._auto, stretch=1)
-        root.addLayout(actions)
 
         # お手本と自分のネットワークの行き来・作業場所へ戻る・Chat に聞く（2026-11-25。実証実験の A16〜A18）
         # 真似て、お手本と同じ名前で作ると、「自動」は自分の方を示す。お手本を見たいときは「お手本を見る」で、サンドボックスの実物へ
         self._home: dict | None = None
-        swap = QHBoxLayout()
         self._example_btn = QPushButton("お手本を見る")
         self._example_btn.setToolTip("この手順のノードを、生成したサンドボックスの実物（お手本）で示します。同じ名前で真似て作っていても、お手本の方へ行きます")
         self._example_btn.clicked.connect(lambda _checked=False: self._apply("sandbox"))
@@ -582,10 +681,25 @@ class GuideWidget(QWidget):
         self._ask_btn = QPushButton("この手順を Chat に聞く")
         self._ask_btn.setToolTip("この手順の作業と目的を添えて、Chat に「何をしているか・うまくいかないときに確かめること」を聞きます")
         self._ask_btn.clicked.connect(self._ask_chat)
-        for button in (self._example_btn, self._mine_btn, self._home_btn, self._ask_btn):
-            swap.addWidget(button)
-        swap.addStretch()
-        root.addLayout(swap)
+        move_row = QHBoxLayout()
+        for button in (self._apply_btn, self._example_btn, self._mine_btn, self._home_btn):
+            move_row.addWidget(button)
+        move_row.addStretch()
+        root.addLayout(move_row)
+        look_row = QHBoxLayout()
+        for button in (self._ref_btn, self._terms_btn, self._ask_btn):
+            look_row.addWidget(button)
+        look_row.addStretch()
+        look_row.addWidget(self._auto)
+        root.addLayout(look_row)
+
+        # お手本の画面（この手順のあと、生成のときに撮ったもの。A25）。折りたためる。画像の無い手順では隠れる。
+        # 手順の文と操作のボタンのあいだに挟まないよう、ボタンの下に置く（2026-11-26）
+        self._shots = ShotStrip()
+        self._shots_box = CollapsibleBox("お手本の画面（この手順のあと。押すと大きく開く）", self._shots, collapsed=False,
+                                         state_key="guide_shots", left_align=True)
+        self._shots_box.hide()
+        root.addWidget(self._shots_box)
 
         # 前提条件・TIPS（折りたたむ。ショートカット一覧を開くと、ここに出る）
         self._extra_view = QTextBrowser()
@@ -674,6 +788,8 @@ class GuideWidget(QWidget):
         if severity == "level":
             style = (f"{type_qss('body', '#fff7ed')}font-weight:bold;background:#7c2d12;border:{px(2)}px solid #f97316;"
                      f"border-radius:{px(4)}px;padding:{px(6)}px {px(8)}px;")
+        elif severity == "example":  # お手本を見ている（間違いではない）: 落ち着いた青
+            style = f"{type_qss('caption', '#e0f2fe')}background:#0c4a6e;border-radius:{px(4)}px;padding:{px(4)}px {px(6)}px;"
         else:
             same = severity == "same"
             style = (f"{type_qss('caption', '#cbd5e1' if same else '#fde68a')}background:{'#1e293b' if same else '#422006'};"
@@ -955,20 +1071,16 @@ class GuideWidget(QWidget):
 
     def _update_where(self) -> None:
         """どの階層にいるか。いまのネットワークと、この手順の作業場所を並べて出す（Houdini の外では、手順の場所だけ）。"""
-        expected = ""
+        places: dict = {}
         if self._guide is not None:
-            expected = guide_mode.step_places(self._guide["steps"][self._index], self._sandbox_path())["network"]
+            places = guide_mode.step_places(self._guide["steps"][self._index], self._sandbox_path())
+        expected = str(places.get("network") or "")
         text = ""
         severity = "same"
         if hou is not None:
             try:
                 current = guide_mode.current_network_path(hou)
-                text, _same = guide_mode.location_status(current, expected)
-                severity = guide_mode.location_severity(current, expected)
-                if severity == "level":
-                    text = f"⚠ 階層が違います\n{text}\n{guide_mode.level_hint(current, expected)}"
-                elif severity == "name":
-                    text += "\n（名前の違う、自分の作業場所なら、そのままで構いません）"
+                text, severity = guide_mode.where_report(current, places, self._sandbox_path())
             except Exception:  # noqa: BLE001 -- 階層が読めなくても、手順の表示は止めない
                 text, severity = "", "same"
             self._restore_btn.setEnabled(display_isolation.pending() > 0)

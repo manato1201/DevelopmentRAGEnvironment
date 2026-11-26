@@ -898,6 +898,9 @@ def capture_viewport(
         else:
             flatten_alpha(output_path, log_path)
             crop_to_aspect(output_path, OUTPUT_ASPECT, log_path)  # 動画で 16:9 の枠に収まるように、中央を切り出す
+            # どう合わせて撮ったか（"bounds" = サンドボックスの形に合わせた）。Guide のお手本の画面は、これを見て、
+            # サンドボックスの形が映っていない画像（ほかのオブジェクト・格子だけ）を出さない（guide_mode.viewport_shot_ok）
+            write_capture_meta(output_path, {"kind": "viewport", "framing": method or "unchanged", "frame_path": frame_path or ""}, log_path)
         return exists
     except Exception as exc:  # noqa: BLE001 -- best-effort, never raise
         _log(f"viewport capture failed: {exc!r}", log_path)

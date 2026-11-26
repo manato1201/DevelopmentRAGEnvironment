@@ -403,11 +403,85 @@ def screenshots_path_for(guide_path: Path) -> Path:
 
 
 def step_shots(guide: dict | None, step: dict | None) -> list[tuple[str, str]]:
-    """この手順の、お手本の画面（[(見出し, 画像のパス)]）。ファイルがあるものだけ。"""
+    """この手順の、お手本の画面（[(見出し, 画像のパス)]）。ファイルがあるものだけ。
+    ビューポートは、サンドボックスの形に合わせて撮れたものだけ（viewport_shot_ok）。合わせられなかった画像は、
+    ほかのオブジェクトや、格子だけが映っていて、お手本にならない（2026-11-26、実機の指摘「違うビューポートの画面を出している」）。"""
     if not guide or not isinstance(step, dict) or not isinstance(step.get("step"), int):
         return []
     paths = (guide.get(SHOTS_KEY) or {}).get(step["step"]) or {}
-    return [(label, paths[role]) for role, label in SHOT_ROLES if paths.get(role) and Path(paths[role]).is_file()]
+    out = []
+    for role, label in SHOT_ROLES:
+        path = paths.get(role)
+        if not path or not Path(path).is_file():
+            continue
+        if role == "viewport" and not viewport_shot_ok(path):
+            continue
+        out.append((label, path))
+    return out
+
+
+# 撮影のとき、ビューポートをどう合わせたか（screen_capture._frame_view）。"bounds" だけが、サンドボックスの形に合わせた構図。
+# "all"（全体に合わせた）は、サンドボックスに表示中の形が無かったとき: ほかのオブジェクトや、格子だけが映る。
+_FRAMING_OK = "bounds"
+_FRAMING_LINE_RE = re.compile(r"^(\S+) \[screen_capture\] viewport framing: (\w+)")
+_LOG_MATCH_SECONDS = 5.0  # 画像の書き込みは、構図を決めた行の 1 秒ほどあと。それより離れた行は、別の撮影
+_framing_log_cache: dict[tuple[str, float], list[tuple[float, str]]] = {}
+
+
+def _framing_log(log_path: Path) -> list[tuple[float, str]]:
+    """capture.log の「viewport framing: …」の行を、(時刻, 合わせ方) の一覧にする（同じファイルは、読み直さない）。"""
+    try:
+        key = (str(log_path), log_path.stat().st_mtime)
+    except OSError:
+        return []
+    if key not in _framing_log_cache:
+        from datetime import datetime
+
+        rows: list[tuple[float, str]] = []
+        try:
+            text = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        for line in text.splitlines():
+            m = _FRAMING_LINE_RE.match(line)
+            if not m:
+                continue
+            try:
+                rows.append((datetime.fromisoformat(m.group(1)).timestamp(), m.group(2)))
+            except ValueError:
+                continue
+        if len(_framing_log_cache) > 20:
+            _framing_log_cache.clear()
+        _framing_log_cache[key] = rows
+    return _framing_log_cache[key]
+
+
+def viewport_framing(path) -> str:
+    """ビューポートの画像を、どう合わせて撮ったか（"bounds" / "all" / "unchanged"）。分からなければ ""。
+    撮影の補足情報（<画像>.meta.json の framing。2026-11-26 から書く）を読む。無い以前の画像は、同じフォルダの capture.log の、
+    画像を書いた時刻の直前の「viewport framing」の行から求める。"""
+    image = Path(path)
+    try:
+        meta = json.loads(image.with_name(image.name + ".meta.json").read_text(encoding="utf-8"))
+        if isinstance(meta, dict) and meta.get("framing"):
+            return str(meta["framing"])
+    except (OSError, ValueError):
+        pass
+    try:
+        written = image.stat().st_mtime
+    except OSError:
+        return ""
+    best = ""
+    for at, method in _framing_log(image.with_name("capture.log")):
+        if at <= written + 0.05 and written - at <= _LOG_MATCH_SECONDS:  # 画像は、行のあとに書かれる（次の撮影の行は拾わない）
+            best = method  # 時刻の順に並んでいるので、最後に合ったものが、いちばん近い
+    return best
+
+
+def viewport_shot_ok(path) -> bool:
+    """お手本として出してよいビューポートの画像か。合わせ方が分からない（記録が無い）ときは、出す。"""
+    framing = viewport_framing(path)
+    return framing in ("", _FRAMING_OK)
 
 
 def md_path_for(guide_path: Path) -> Path:
@@ -1305,7 +1379,7 @@ def remember_place(hou) -> dict | None:
     """学習者が、自分の作業場所（/obj の下で、サンドボックスの外）にいれば、その場所（開いている階層・選んでいるノード）を返す。
     Guide が画面を動かす前に覚えておき、「作業場所に戻る」で戻す（2026-11-25、A17）。作業場所でなければ None（上書きしない）。"""
     where = current_network_path(hou)
-    if not _is_own_workplace(where):
+    if not _is_own_workplace(where):  # /obj は覚えない（Guide が /obj へ動かしたあとに、本当の作業場所を上書きしないため）
         return None
     try:
         selected = [n.path() for n in hou.selectedNodes()]
@@ -1353,4 +1427,41 @@ def step_places(step: dict, sandbox_path: str = "") -> dict:
         "network": own_path(parent_rel) if rel else "",
         "node": own_path(rel) if rel else node,
         "sandbox_node": f"{sandbox_path}/{rel}" if sandbox_path and rel else "",
+        # お手本（サンドボックス）の中で、この手順に当たる階層（「お手本を見る」で開く場所）
+        "sandbox_network": (f"{sandbox_path}/{parent_rel}" if parent_rel else sandbox_path) if sandbox_path and rel else "",
     }
+
+
+def _sandbox_top(path: str) -> str:
+    """path が、生成したサンドボックス（/obj/ai_tutorial_…）の中なら、そのサンドボックスのパス。違えば ""。"""
+    top = display_isolation.top_object_path(path)
+    return top if top.startswith(f"{OWN_ROOT}/{SANDBOX_PREFIX}") else ""
+
+
+def where_report(current: str, places: dict, sandbox_path: str = "") -> tuple[str, str]:
+    """いまのネットワークと、この手順の作業場所を比べた、表示文と、ずれの大きさ（2026-11-26）。
+    ずれの大きさは location_severity と同じ（"same" / "name" / "level" / "unknown"）に、"example" を足したもの:
+      "example" … この手順書のお手本（サンドボックス）の、この手順の階層を見ている（「お手本を見る」のあと）。間違いではない。
+    以前は、お手本を見ているだけでも「階層が違います」の赤い警告になり、本当の階層ミスと見分けられなかった。
+    別のサンドボックス（前に生成したもの）の中にいるときは、それを言う（自分の作業場所ではない）。"""
+    expected = str(places.get("network") or "")
+    example = str(places.get("sandbox_network") or "").rstrip("/")
+    cur = (current or "").rstrip("/")
+    if cur and example and cur == example:
+        return (f"お手本（生成したサンドボックス）を見ています: {current}\n自分の作業場所: {expected}（「作業場所に戻る」で戻れます）", "example")
+    severity = location_severity(current, expected)
+    if severity == "same":
+        return (location_status(current, expected)[0], "same")
+    if severity == "unknown":
+        return (f"この手順の場所: {expected}（いまのネットワークは分かりません）", "unknown")
+    other = _sandbox_top(cur)
+    mine = (sandbox_path or "").rstrip("/")
+    where = f"いまのネットワーク: {current}\nこの手順の場所: {expected}（違います）"
+    if other and other != mine:
+        note = "前に生成した、別のお手本（サンドボックス）の中です。自分の作業場所へ移ってください"
+        return (f"⚠ 別のお手本の中にいます\n{where}\n{note}（{level_hint(current, expected)}）", "level")
+    if other:
+        return (f"お手本（生成したサンドボックス）の中です: {current}\n自分の作業場所: {expected}（「作業場所に戻る」で戻れます）", "name")
+    if severity == "level":
+        return (f"⚠ 階層が違います\n{where}\n{level_hint(current, expected)}", "level")
+    return (f"{where}\n（名前の違う、自分の作業場所なら、そのままで構いません）", "name")
