@@ -32,6 +32,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from panel_actions import COLOR_MUTED, px, type_qss
+from panel_motion import Spring
 
 _LOG_RELATIVE_PATH = Path("logs") / "houdini_token_usage.jsonl"
 _QUOTA_CACHE_RELATIVE_PATH = Path("logs") / "houdini_claude_quota_cache.json"
@@ -212,15 +213,27 @@ class DonutGauge(QWidget):
     """
     「残量」を円弧の塗り具合で表す小型ゲージ。中央にパーセント、直下にラベル。
     used/budget が大きいほど円弧が減っていく（budgetを使い切ると0%）。
+    値が変わると、円弧がばねで縮み（260/24）、線が一瞬細くなって戻る（520/16）。最初の表示は動かさない（panel_motion.py。2026-11-26）。
     """
 
     def __init__(self, parent: Optional[QWidget] = None, size: int = 120) -> None:
         super().__init__(parent)
         self._percent = 100.0
+        self._shown = False  # 最初の set_percent は、動かさずに合わせる
+        self._arc = Spring("meterWidth", 100.0, lambda _v: self.update(), self)
+        self._squash = Spring("meterSquash", 1.0, lambda _v: self.update(), self)
         self.setMinimumSize(px(size), px(size))  # 96dpi での大きさ。いまの拡大率に直す
 
     def set_percent(self, percent: float) -> None:
-        self._percent = max(0.0, min(100.0, percent))
+        value = max(0.0, min(100.0, percent))
+        if not self._shown:
+            self._shown = True
+            self._arc.jump(value)
+        elif abs(value - self._percent) >= 0.05:
+            self._arc.to(value)
+            self._squash.jump(0.7)
+            self._squash.to(1.0)
+        self._percent = value
         self.update()
 
     def paintEvent(self, _event) -> None:
@@ -232,15 +245,16 @@ class DonutGauge(QWidget):
             (self.width() - side) / 2, (self.height() - side) / 2, side, side
         )
 
-        track_pen = QPen(QColor("#3a3f4a"), max(4, side // 10))
+        thick = max(4, side // 10)
+        track_pen = QPen(QColor("#3a3f4a"), thick)
         track_pen.setCapStyle(Qt.FlatCap)
         painter.setPen(track_pen)
         painter.drawArc(rect, 0, 360 * 16)
 
-        fill_pen = QPen(QColor("#4a90e2"), max(4, side // 10))
+        fill_pen = QPen(QColor("#4a90e2"), max(2.0, thick * self._squash.value))
         fill_pen.setCapStyle(Qt.RoundCap)
         painter.setPen(fill_pen)
-        span = int(360 * 16 * (self._percent / 100.0))
+        span = int(360 * 16 * (max(0.0, min(100.0, self._arc.value)) / 100.0))  # 数字は目標の値、円弧はばねで追いつく
         painter.drawArc(rect, 90 * 16, -span)
 
         painter.setPen(QColor("#e6e8ee"))

@@ -51,11 +51,13 @@ ICON_PATHS: dict[str, str] = {
     # 本（開いた本）。「はじめに」タブのアイコン
     "book": "M8 3.5C6.7 2.7 4.6 2.5 2.5 2.7v9.8c2.1-.2 4.2 0 5.5.8 1.3-.8 3.4-1 5.5-.8V2.7c-2.1-.2-4.2 0-5.5.8zM8 3.5v9.8",
     "back": "M9.5 3.5L5 8l4.5 4.5M5 8h8",
+    # チェック。コピーできたあと、コピーのアイコンと入れ替える(panel_motion.CopyFeedback。Web と同じ線)
+    "check": "M3.5 8.5l3 3 6-7",
 }
 # SVG が使えないときの代用文字（絵文字は使わない）
 _FALLBACK_TEXT = {
     "copy": "⧉", "thumbUp": "+", "thumbDown": "−", "share": "⇪", "speaker": "♪",
-    "refresh": "↻", "bookmark": "★", "docSearch": "≡", "fit": "⛶", "gear": "…", "back": "←", "menu": "≡", "book": "?", "bookSearch": "…",
+    "refresh": "↻", "bookmark": "★", "docSearch": "≡", "fit": "⛶", "gear": "…", "back": "←", "menu": "≡", "book": "?", "bookSearch": "…", "check": "✓",
 }
 
 COLOR_NORMAL = "#cbd5e1"

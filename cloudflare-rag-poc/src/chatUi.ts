@@ -365,6 +365,22 @@ export function chatUiHtml(): string {
   #myBudget { white-space: nowrap; display: inline-flex; align-items: center; }
   .budget-low { color: var(--bad); font-weight: 600; }
   .radial-progress { vertical-align: middle; margin-right: .2rem; }
+  /* ---- 状態変化(ばね。2026-11-26): 回答のコピー・質問の文字数・予算のメーター。動かすのは transform と opacity だけ ---- */
+  .act-btn .ic-swap { position: relative; display: inline-block; width: 1.1rem; height: 1.1rem; }
+  .act-btn .ic-swap .icon { position: absolute; inset: 0; }
+  .act-btn .ic-swap .ic-ok { color: var(--good); opacity: 0; }
+  .q-limit { display: inline-flex; align-items: center; gap: .3rem; align-self: center; font-size: .78rem; color: var(--muted); font-variant-numeric: var(--font-num); }
+  .q-limit[hidden] { display: none; }
+  .q-limit svg { width: 24px; height: 24px; transform: rotate(-90deg); flex: none; }
+  .q-limit .q-track { stroke: var(--border); }
+  .q-limit .q-fill { stroke: var(--muted); }
+  .q-limit.is-near .q-fill { stroke: var(--highlight); }
+  .q-limit.is-near .q-limit-n { color: var(--highlight); }
+  .q-limit.is-over .q-fill { stroke: var(--bad); }
+  .q-limit.is-over .q-limit-n { color: var(--bad); font-weight: 600; }
+  .budget-meter { display: inline-block; width: 44px; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; margin-right: .3rem; vertical-align: middle; }
+  .budget-meter-fill { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--accent); transform-origin: left center; }
+  .budget-meter.is-low .budget-meter-fill { background: var(--bad); }
 
   /* 権限の詳細化（2026-09-10追加）: editorロールには管理者専用セクションを一切見せない。
      実際の権限チェックは各/admin/*エンドポイント側（requireAdmin/requireKnowledgeEditor）が
@@ -810,6 +826,7 @@ export function chatUiHtml(): string {
     <div class="composer-row">
       <label class="attach-btn" title="画像を添付する（VLM入力。8MBまで、検索には使わず最終回答生成時にだけ渡す）"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M11 5L6 10a1.5 1.5 0 002 2l5-5a3 3 0 00-4.5-4L4 8a4.5 4.5 0 006.5 6"/></svg><input type="file" id="imageAttachInput" accept="image/*" style="display:none;"></label>
       <textarea id="input" placeholder="質問を入力（Enterで送信、Shift+Enterで改行）" rows="1"></textarea>
+      <span id="qLimit" class="q-limit" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle class="q-track" cx="12" cy="12" r="9" fill="none" stroke-width="2.6"/><circle class="q-fill" cx="12" cy="12" r="9" fill="none" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="56.55" stroke-dashoffset="56.55"/></svg><span class="q-limit-n" aria-live="polite"></span></span>
       <button id="send">送信</button>
     </div>
   </div>
@@ -1844,6 +1861,97 @@ export function chatUiHtml(): string {
     }
   }
 
+  // ---------- 状態変化の動き(ばね。2026-11-26) ----------
+  // designbookmark.com の Motion 部品(Copy button・Letter limit・Storage meter)の、ばねの値と動きの決まりだけを合わせて
+  // 書き直した(元のコードはライセンスの記載が無いので使わない)。質量 1 のばね・4 分割の半陰的オイラー・1 フレーム最大 1/30 秒。
+  // 動きを減らす設定では、ばねを使わず、すぐ目標の値にする(止める = 消すのでなく、即時の切替)。
+  const DRMotion = (function () {
+    const SPRINGS = { copyIcon: [420, 18], limitFill: [280, 22], limitPop: [520, 16], limitShake: [700, 12], meterWidth: [260, 24], meterSquash: [520, 16] };
+    const mq = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+    const reduced = function () { return !!(mq && mq.matches); };
+    const active = new Set();
+    let running = false, last = 0;
+    function frame(t) {
+      const h = Math.min((t - last) / 1000, 1 / 30) / 4;
+      last = t;
+      active.forEach(function (s) {
+        for (let i = 0; i < 4; i++) { const a = -s.k * (s.x - s.target) - s.c * s.v; s.v += a * h; s.x += s.v * h; }
+        if (Math.abs(s.x - s.target) < 0.001 && Math.abs(s.v) < 0.01) { s.x = s.target; s.v = 0; active.delete(s); }
+        s.onUpdate(s.x, s.v);
+      });
+      running = active.size > 0;
+      if (running) requestAnimationFrame(frame);
+    }
+    function wake(s) { active.add(s); if (!running) { running = true; last = performance.now(); requestAnimationFrame(frame); } }
+    function spring(name, value, onUpdate) {
+      const kc = SPRINGS[name];
+      const s = { x: value, v: 0, target: value, k: kc[0], c: kc[1], onUpdate: onUpdate };
+      return {
+        get x() { return s.x; },
+        to: function (t) { s.target = t; if (reduced()) { s.x = t; s.v = 0; active.delete(s); s.onUpdate(s.x, 0); return; } wake(s); },
+        set: function (v) { s.x = v; s.target = v; s.v = 0; active.delete(s); s.onUpdate(s.x, 0); },
+        kick: function (v) { if (reduced()) return; s.v += v; wake(s); },
+      };
+    }
+    return { SPRINGS: SPRINGS, spring: spring, reduced: reduced };
+  })();
+  const dmClamp01 = function (v) { return Math.max(0, Math.min(1, v)); };
+
+  // コピー(回答の下のアイコン): コピーのアイコンが回りながら小さくなり、✓ が出る。1.8 秒で戻る。
+  function copyIconSwap(btn, idleLabel) {
+    const box = document.createElement("span");
+    box.className = "ic-swap";
+    const icCopy = iconEl("copy");
+    const icOk = iconEl("check");
+    icOk.classList.add("ic-ok");
+    box.appendChild(icCopy);
+    box.appendChild(icOk);
+    btn.replaceChildren(box);
+    let timer = 0;
+    const sp = DRMotion.spring("copyIcon", 0, function (x) {
+      const i = Math.max(-0.2, Math.min(1.2, x));
+      const p = dmClamp01(i);
+      icCopy.style.opacity = String(dmClamp01(1 - 1.6 * i));
+      icCopy.style.transform = "scale(" + (1 - 0.5 * p) + ") rotate(" + (-40 * p) + "deg)";
+      icOk.style.opacity = String(dmClamp01(1.6 * i - 0.4));
+      icOk.style.transform = "scale(" + (0.4 + 0.6 * i) + ")";
+    });
+    return function copied() {
+      clearTimeout(timer);
+      sp.to(1);
+      btn.title = "コピーしました";
+      btn.setAttribute("aria-label", "コピーしました");
+      timer = setTimeout(function () { sp.to(0); btn.title = idleLabel; btn.setAttribute("aria-label", idleLabel); }, 1800);
+    };
+  }
+
+  // トークン予算の横棒(残りの割合)。値が変わると、ばねで縮み、縦に小さく弾む。最初の表示は動かさない。
+  const budgetMeters = {};
+  function budgetMeter(label, pct, isLow) {
+    let m = budgetMeters[label];
+    if (!m) {
+      const bar = document.createElement("span");
+      bar.className = "budget-meter";
+      bar.setAttribute("aria-hidden", "true");
+      const fill = document.createElement("span");
+      fill.className = "budget-meter-fill";
+      bar.appendChild(fill);
+      m = budgetMeters[label] = { bar: bar, fill: fill, w: 0, h: 1, pct: null };
+      const paint = function () { fill.style.transform = "scaleX(" + dmClamp01(m.w / 100) + ") scaleY(" + Math.max(0.5, Math.min(1.1, 0.86 + 0.14 * m.h)) + ")"; };
+      m.ws = DRMotion.spring("meterWidth", pct, function (x) { m.w = x; paint(); });
+      m.hs = DRMotion.spring("meterSquash", 1, function (x) { m.h = x; paint(); });
+      m.pct = pct;
+      m.ws.set(pct);
+    } else if (m.pct !== pct) {
+      m.pct = pct;
+      m.ws.to(pct);
+      m.hs.set(0.7);
+      m.hs.to(1);
+    }
+    m.bar.classList.toggle("is-low", !!isLow);
+    return m.bar;
+  }
+
   // トークン予算のパーセンテージをSVG円環ゲージとして描画する（2026-09-09追加）。
   // 既存コードはXSS対策としてtextContent/appendChildを徹底しinnerHTMLをほぼ
   // 使っていないため、文字列結合+innerHTMLではなくSVG要素をDOM APIで直接組み立てる。
@@ -1896,7 +2004,7 @@ export function chatUiHtml(): string {
         if (i > 0) el.appendChild(document.createTextNode(" ／ "));
         const pct = b.limit > 0 ? Math.round((100 * b.remaining) / b.limit) : 0;
         const isLow = pct <= 10;
-        el.appendChild(budgetRadialSvg(pct, isLow));
+        el.appendChild(budgetMeter(label, pct, isLow));
         const span = document.createElement("span");
         span.className = isLow ? "budget-low" : "";
         span.textContent = label + " 残り" + pct + "%";
@@ -2209,6 +2317,7 @@ export function chatUiHtml(): string {
     pen: "M3 13l1-3 7-7 2 2-7 7zM10 4l2 2",
     book: "M2 3h5a1 1 0 011 1v9a1 1 0 00-1-1H2zM14 3H9a1 1 0 00-1 1v9a1 1 0 011-1h5z",
     copy: "M5.5 5.5h7v8h-7zM3.5 10.5v-8h7",
+    check: "M3.5 8.5l3 3 6-7",
     thumbUp: "M2.5 7.5h2.5v6H2.5zM5 7.5l2.5-5c1.2 0 1.8.8 1.5 2L8.6 6.5h3.9a1 1 0 011 1.2l-.9 4.8a1 1 0 01-1 .8H5",
     thumbDown: "M2.5 8.5h2.5v-6H2.5zM5 8.5l2.5 5c1.2 0 1.8-.8 1.5-2l-.4-2h3.9a1 1 0 001-1.2l-.9-4.8a1 1 0 00-1-.8H5",
     share: "M4.5 9.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM11.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM11.5 14a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM6 8.2l4-2.4M6 7.8l4 2.4",
@@ -2587,16 +2696,18 @@ export function chatUiHtml(): string {
       void btn.offsetWidth;
       btn.classList.add("act-pop");
     }
-    const copyBtn = actionBtn("copy", "回答をコピー(Shift を押しながらで、出典つきの Markdown)", async (ev) => {
+    const COPY_LABEL = "回答をコピー(Shift を押しながらで、出典つきの Markdown)";
+    const copyBtn = actionBtn("copy", COPY_LABEL, async (ev) => {
       try {
         const text = ev.shiftKey ? buildMarkdownExport(question, answer, sources) : answer;
         await navigator.clipboard.writeText(text);
-        popAction(copyBtn);
+        copiedFx();
         showToast(ev.shiftKey ? "出典つきの Markdown をコピーしました" : "回答をコピーしました", "success");
       } catch {
         showToast("コピーに失敗しました", "error");
       }
     });
+    const copiedFx = copyIconSwap(copyBtn, COPY_LABEL);
     meta.appendChild(copyBtn);
 
     if (memoryId) {
@@ -2925,6 +3036,7 @@ export function chatUiHtml(): string {
     const imageToSend = pendingImage;
     inputEl.value = "";
     inputEl.style.height = "auto";
+    updateQLimit();
     clearPendingImage();
     stopChatHero();
     if (!currentThread.id) currentThread.id = newThreadId();
@@ -3004,6 +3116,7 @@ export function chatUiHtml(): string {
       currentThread.history.push({ role: "user", content: text }, { role: "assistant", content: data.answer });
       messagesEl.scrollTop = messagesEl.scrollHeight;
       setStatus("");
+      loadMyBudget(); // 使った分だけ、予算のメーターが縮む
     } catch (e) {
       skeleton.remove();
       streamUi = null;
@@ -3823,6 +3936,44 @@ ${ASCII_ART_JS}
   sendBtn.addEventListener("click", send);
   inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
   inputEl.addEventListener("input", () => { inputEl.style.height = "auto"; inputEl.style.height = Math.min(inputEl.scrollHeight, 128) + "px"; });
+  // 質問の文字数(2026-11-26)。サーバーに上限は無いが、続けて質問したとき、前の質問が文脈に入るのは 800 字まで
+  // (src/query.ts の履歴)。400 字を超えたら輪と残りの字数を出し、残り 80 字で橙、超えたら赤で揺らす。入力は止めない。
+  const Q_SOFT_LIMIT = 800;
+  const qLimitEl = $("qLimit");
+  const qFillEl = qLimitEl.querySelector(".q-fill");
+  const qCountEl = qLimitEl.querySelector(".q-limit-n");
+  const Q_RING = 56.55; // 2πr(r=9)
+  let qShakeX = 0, qPop = 1, qWasOver = false;
+  const paintQ = function () {
+    qCountEl.style.transform = "translateX(" + qShakeX + "px) scale(" + qPop + ")";
+    qFillEl.parentNode.style.transform = "translateX(" + (qShakeX / 2) + "px) rotate(-90deg)";
+  };
+  const qFill = DRMotion.spring("limitFill", 0, function (x) { qFillEl.setAttribute("stroke-dashoffset", String(Q_RING * (1 - dmClamp01(x)))); });
+  const qPopS = DRMotion.spring("limitPop", 1, function (x) { qPop = x; paintQ(); });
+  const qShake = DRMotion.spring("limitShake", 0, function (x) { qShakeX = x; paintQ(); });
+  function updateQLimit() {
+    const n = inputEl.value.length;
+    const show = n >= Q_SOFT_LIMIT / 2;
+    if (qLimitEl.hidden && show) qFill.set(n / Q_SOFT_LIMIT); // 出た瞬間は、動かさずに合わせる
+    qLimitEl.hidden = !show;
+    if (!show) { qWasOver = false; return; }
+    const left = Q_SOFT_LIMIT - n;
+    const over = left < 0;
+    qLimitEl.classList.toggle("is-near", !over && left <= Q_SOFT_LIMIT / 10);
+    qLimitEl.classList.toggle("is-over", over);
+    qLimitEl.title = over
+      ? "800 字を超えた分は、続けて質問したときの文脈には入りません(この質問の検索・回答には使います)"
+      : "続けて質問したとき、前の質問は 800 字まで文脈に入ります";
+    if (qCountEl.textContent !== String(left)) {
+      qCountEl.textContent = String(left);
+      qPopS.set(over && !qWasOver ? 1.25 : 1.12);
+      qPopS.to(1);
+    }
+    if (over && !qWasOver) qShake.kick(34); // 超えた瞬間だけ、首を振る
+    qWasOver = over;
+    qFill.to(n / Q_SOFT_LIMIT);
+  }
+  inputEl.addEventListener("input", updateQLimit);
 
   // 今のセッションで交わした一問一答をまとめて1つのMarkdownファイルとしてダウンロードする
   // （2026-09-04追加。1問1答単位のコピーは既にあるが、会議後の記録用途などまとめて

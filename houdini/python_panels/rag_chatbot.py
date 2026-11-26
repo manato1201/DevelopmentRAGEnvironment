@@ -81,6 +81,7 @@ from pilot_panel import PilotTaskPanel as _PilotTaskPanel
 from rag_client import post_json as _post_json
 from rag_client import _cf_base as _cf_base_url
 from panel_thinking import ThinkingRow as _ThinkingRow
+from panel_motion import CopyFeedback as _CopyFeedback, LetterLimitRing as _LetterLimitRing
 from panel_actions import TEXT_SCALES as _TEXT_SCALES, set_text_scale as _set_text_scale, text_scale as _text_scale
 from panel_actions import Speaker as _Speaker, action_button as _action_button, button_qss as _button_qss, make_icon as _make_icon, px as _px, type_font as _type_font, type_qss as _type_qss, normalize_fonts as _normalize_fonts, set_active as _action_set_active
 from PySide6.QtCore import Qt, QSize, QThread, QTimer, QUrl, Signal
@@ -886,6 +887,10 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
         # 主な操作は「送信」（主ボタン）。「クリア」は副。送るキーの案内は、補足の文字で左に置く
         btn_row = QHBoxLayout()
         btn_row.addWidget(caption("Ctrl+Enter で送信"))
+        # 質問の文字数の輪(400 字から出る。800 字 = 続けて質問したとき前の質問が文脈に残る長さ。入力は止めない。panel_motion.py)
+        self._q_limit = _LetterLimitRing()
+        btn_row.addWidget(self._q_limit)
+        self._input.textChanged.connect(lambda: self._q_limit.set_count(len(self._input.toPlainText())))
         self._send_btn = QPushButton("送信")
         self._send_btn.setStyleSheet(_button_qss("primary"))
         self._send_btn.clicked.connect(self._on_send)
@@ -2112,8 +2117,12 @@ SideFX の公式ドキュメントへのリンクが出ます。</li>
             text = _answer_markdown(q, a, s) if mods & Qt.ShiftModifier else a
             QApplication.clipboard().setText(text)
             toast("出典つきの Markdown をコピーしました" if mods & Qt.ShiftModifier else "回答をコピーしました")
+            copy_fx.copied()  # アイコンが ✓ に変わり、1.8 秒で戻る(panel_motion.py)
 
-        row.addWidget(_action_button("copy", "回答をコピー(Shift を押しながらで、出典つきの Markdown)", on_copy))
+        copy_tip = "回答をコピー(Shift を押しながらで、出典つきの Markdown)"
+        copy_btn = _action_button("copy", copy_tip, on_copy)
+        copy_fx = _CopyFeedback(copy_btn, copy_tip)
+        row.addWidget(copy_btn)
 
         if memory_id:
             up = _action_button("thumbUp", "役に立った", checkable=True)
