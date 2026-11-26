@@ -13,6 +13,7 @@ import sys
 import tempfile
 import types
 import unittest
+import uuid
 from unittest import mock
 import xml.etree.ElementTree as ET
 import zipfile
@@ -47,7 +48,7 @@ class BuildTest(unittest.TestCase):
                                "lesson_design", "tutorial_review", "graph_diagram", "video_progress", "screen_capture", "doc_tools", "display_isolation", "tutorial_followup", "guide_view", "guide_mode", "guide_shortcuts", "trial_pruning",
                                "panel_paths", "panel_nav", "node_links", "node_link_data"):
                     self.assertIn(f"python/{module}.py", names)
-                for name in ("install.ps1", "install.cmd", "VERSION", "houdini/python_panels/RAGReelTutorial.pypanel"):
+                for name in ("install.ps1", "install.cmd", "uninstall.cmd", "VERSION", "houdini/python_panels/RAGReelTutorial.pypanel"):
                     self.assertIn(name, names)
                 self.assertEqual(z.read("VERSION").decode().strip(), "9.9.9")
                 # PowerShell 5.1 reads a Japanese script correctly only with a BOM
@@ -62,7 +63,7 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(set(deploy_panels.MODULES) - packaged, set())
 
     def test_pypanel_is_valid_xml_and_a_thin_loader(self) -> None:
-        tree = ET.parse(PACKAGE_PYPANEL := ROOT / "houdini" / "package" / "RAGReelTutorial.pypanel")
+        tree = ET.parse(PACKAGE_PYPANEL := ROOT / "houdini" / "package" / "houdini" / "python_panels" / "RAGReelTutorial.pypanel")
         self.assertTrue(PACKAGE_PYPANEL.exists())
         interface = tree.getroot().find("interface")
         assert interface is not None
@@ -76,13 +77,13 @@ class BuildTest(unittest.TestCase):
 
     def test_pypanel_is_listed_in_both_menus(self) -> None:
         """実証実験で「Misc に見つからない」「Python Panel メニューに無い」と言われた。ペインのタブのメニューと、Windows メニューの両方に出す。"""
-        interface = ET.parse(ROOT / "houdini" / "package" / "RAGReelTutorial.pypanel").getroot().find("interface")
+        interface = ET.parse(ROOT / "houdini" / "package" / "houdini" / "python_panels" / "RAGReelTutorial.pypanel").getroot().find("interface")
         assert interface is not None
         self.assertIsNotNone(interface.find("includeInPaneTabMenu"), "New Pane Tab Type のメニュー用")
         self.assertIsNotNone(interface.find("includeInToolbarMenu"), "Windows > Python Panel のメニュー用")
 
     def _load_loader(self):
-        interface = ET.parse(ROOT / "houdini" / "package" / "RAGReelTutorial.pypanel").getroot().find("interface")
+        interface = ET.parse(ROOT / "houdini" / "package" / "houdini" / "python_panels" / "RAGReelTutorial.pypanel").getroot().find("interface")
         assert interface is not None
         namespace: dict = {}
         exec(compile(interface.findtext("script") or "", "pypanel", "exec"), namespace)  # noqa: S102 -- 配布する定義そのもの
@@ -128,6 +129,38 @@ class InstallScriptTest(unittest.TestCase):
         self.install = self.tmp / "RAGReelTutorial"
         self.data = self.tmp / "MyData"
         self.config = self.tmp / "home" / ".houdini" / "rag_chatbot_config.json"
+        # 「設定 → アプリ」への登録は、本物の場所（...\Uninstall\RAGReelTutorial）ではなく、テスト用のキーに書く
+        self.reg_sub = f"Software\\RAGReelTutorialTest\\{uuid.uuid4().hex}"
+        self.reg_key = "HKCU:\\" + self.reg_sub
+        self.addCleanup(self._delete_test_key)
+
+    def _delete_test_key(self) -> None:
+        import winreg
+
+        for sub in (self.reg_sub, "Software\\RAGReelTutorialTest"):
+            try:
+                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, sub)
+            except OSError:
+                pass  # 無い・まだ中にキーがある（ほかのテストの分）
+
+    def _registry_values(self) -> dict | None:
+        import winreg
+
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.reg_sub)
+        except OSError:
+            return None
+        values = {}
+        with key:
+            i = 0
+            while True:
+                try:
+                    name, value, _ = winreg.EnumValue(key, i)
+                except OSError:
+                    break
+                values[name] = value
+                i += 1
+        return values
 
     def run_ps(self, *extra: str, data: Path | None = None, houdini_root: Path | None = None) -> subprocess.CompletedProcess:
         """install.ps1 を、一時フォルダだけを向けて動かす。本物の Documents・設定ファイル・Houdini の入っている場所は、見ない。
@@ -137,7 +170,7 @@ class InstallScriptTest(unittest.TestCase):
             [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(self.pkg / "install.ps1"),
              "-DocumentsDir", str(self.docs), "-InstallDir", str(self.install), "-ConfigPath", str(self.config),
              "-DataDir", str(data or self.data), "-HoudiniInstallRoot", str(houdini_root or (self.tmp / "NoHoudiniHere")),
-             "-NoPrompt", *extra],
+             "-UninstallKey", self.reg_key, "-NoPrompt", *extra],
             capture_output=True, timeout=120,
         )
         return subprocess.CompletedProcess(raw.args, raw.returncode, _decode(raw.stdout), _decode(raw.stderr))
@@ -254,6 +287,7 @@ class InstallScriptTest(unittest.TestCase):
         for version in ("houdini21.0", "houdini22.0"):
             self.assertFalse((self.docs / version / "packages" / "ragreel_tutorial.json").exists())
         self.assertTrue(self.config.exists())
+        self.assertIsNone(self._registry_values())
 
     # ── 実証実験（2026-11-17）で見つかった不具合の再現と、導入の見直し ─────────────────
 
@@ -386,6 +420,69 @@ class InstallScriptTest(unittest.TestCase):
         raw = subprocess.run(["cmd", "/c", "echo.|", str(lone / "install.cmd")], capture_output=True, timeout=60)
         self.assertNotEqual(raw.returncode, 0)
         self.assertIn("Extract", _decode(raw.stdout))
+
+    # ── 別の PC への導入で見つかった点（2026-11-26）─────────────────────────────
+
+    def test_a_missing_version_folder_is_created_even_when_another_version_exists(self) -> None:
+        """houdini21.0 はあるが、新しく入れた 22.0 は一度も起動していない。以前は、1 つもないときだけ作っていたので、22.0 に登録されなかった。"""
+        shutil.rmtree(self.docs / "houdini22.0")
+        root = self.tmp / "Side Effects Software"
+        (root / "Houdini 22.0.504").mkdir(parents=True)
+        (root / "Houdini 21.0.700").mkdir(parents=True)
+        r = self.run_ps(houdini_root=root)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for version in ("houdini21.0", "houdini22.0"):
+            self.assertTrue((self.docs / version / "packages" / "ragreel_tutorial.json").exists(), version)
+        self.assertIn("設定フォルダを作りました", r.stdout)
+        self.assertNotIn("[NG]", r.stdout)
+
+    def test_old_houdini_installs_do_not_get_a_folder(self) -> None:
+        root = self.tmp / "Side Effects Software"
+        (root / "Houdini 20.5.613").mkdir(parents=True)
+        r = self.run_ps(houdini_root=root)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse((self.docs / "houdini20.5").exists())
+
+    def test_install_registers_an_uninstaller(self) -> None:
+        r = self.run_ps()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        cmd = self.install / "uninstall.cmd"
+        self.assertTrue(cmd.exists())
+        self.assertTrue((self.install / "install.ps1").exists(), "zip を消しても削除できるよう、スクリプトの写しを置く")
+        cmd.read_bytes().decode("ascii")  # cmd が確実に読めるよう、ASCII だけ
+        values = self._registry_values()
+        assert values is not None, "「設定 → アプリ」に登録されていない"
+        self.assertEqual(values["DisplayName"], "RAGReel Tutorial (Houdini panel)")
+        self.assertEqual(values["DisplayVersion"], "1.2.3")
+        self.assertEqual(values["InstallLocation"], str(self.install))
+        self.assertIn(str(cmd), values["UninstallString"])
+        self.assertEqual(values["NoModify"], 1)
+        self.assertIn("設定 → アプリ", r.stdout)
+
+    def test_the_installed_uninstaller_removes_everything_but_the_settings(self) -> None:
+        """zip を消したあと、導入先の uninstall.cmd（「設定 → アプリ」から動くもの）だけで消せる。"""
+        self.assertEqual(self.run_ps("-CloudflareUrl", "https://x.example", "-ApiKey", "K").returncode, 0)
+        shutil.rmtree(self.pkg)  # zip を展開したフォルダは、もう無い
+        raw = subprocess.run(["cmd", "/c", str(self.install / "uninstall.cmd")], input=b"\r\n\r\n",
+                             capture_output=True, timeout=120)
+        out = _decode(raw.stdout) + _decode(raw.stderr)
+        self.assertEqual(raw.returncode, 0, out)
+        self.assertFalse(self.install.exists(), out)
+        for version in ("houdini21.0", "houdini22.0"):
+            self.assertFalse((self.docs / version / "packages" / "ragreel_tutorial.json").exists())
+        self.assertIsNone(self._registry_values(), "「設定 → アプリ」の登録が残っている")
+        self.assertTrue(self.config.exists(), "設定ファイルは残す")
+        self.assertTrue(self.data.exists(), "生成物の保存先は残す")
+        self.assertFalse((Path(tempfile.gettempdir()) / "ragreel_tutorial_uninstall.ps1").exists(), "一時の写しを残さない")
+
+    def test_the_zip_uninstall_cmd_runs_the_uninstall(self) -> None:
+        self.assertEqual(self.run_ps().returncode, 0)
+        raw = subprocess.run(["cmd", "/c", str(self.pkg / "uninstall.cmd"), "-DocumentsDir", str(self.docs),
+                              "-InstallDir", str(self.install), "-UninstallKey", self.reg_key],
+                             input=b"\r\n", capture_output=True, timeout=120)
+        self.assertEqual(raw.returncode, 0, _decode(raw.stdout))
+        self.assertFalse(self.install.exists())
+        self.assertIsNone(self._registry_values())
 
     def test_the_zip_ships_a_readme_and_the_installer_mentions_the_new_menu(self) -> None:
         names = set(zipfile.ZipFile(self.tmp / "dist" / "RAGReelTutorial-1.2.3.zip").namelist())

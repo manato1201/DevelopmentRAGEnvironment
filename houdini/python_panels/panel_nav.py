@@ -38,7 +38,7 @@ SUB_PAGES = (
     ("debug", "デバッグ（設定者向け）", "デバッグ", True),
 )
 
-# このパネルの定義の名前。配布版（install.cmd）は RAGReelTutorial、開発用の手動配置（deploy_panels.py --pypanel）は RAGChatBot。
+# このパネルの定義の名前。配布版（install.cmd）も開発用のパッケージ（deploy_panels.py）も RAGReelTutorial。RAGChatBot は、以前のコピー方式の名残。
 PANEL_INTERFACE_NAMES = ("RAGReelTutorial", "RAGChatBot")
 
 PARALLEL_VIEW_HELP = (

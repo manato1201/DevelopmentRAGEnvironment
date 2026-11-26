@@ -205,7 +205,8 @@ flowchart LR
 - パネルの Python ファイルを `%LOCALAPPDATA%\RAGReelTutorial\python` に置き、**Houdini のパッケージ（`Documents\houdiniXX.X\packages\ragreel_tutorial.json`）**で、`PYTHONPATH` とパネル定義の場所を登録する。パネル定義（`.pypanel`）は、`import rag_chatbot` するだけの**薄い読み込み用**（ASCII のみ。Latin-1 の落とし穴を避ける）。更新は、ファイルの置き換えだけで済む。
 - 設定ファイル（`~\.houdini\rag_chatbot_config.json`）に、接続先・動画エンジンの場所・保存先（`local_bridge_dir`。未設定だと保存できない）を、**既存の値を残して**書く。元の設定は、退避する。
 - **確認済み:** Houdini 22（hython）が、パッケージを読み、`RAGReelTutorial` のパネル定義を認識し、`import rag_chatbot` が通る。インストール・更新・削除・複数バージョン・設定の統合は、自動テスト（PowerShell、一時フォルダ）。
-- 開発者用の `deploy_panels.py`（リポジトリから、自分の Houdini へコピー）は、別に残す。**新しい `.py` を足したら、`MODULES` に追加する**（漏れると、配置されず、黙って古い動作になる。テストが検出する）。
+- 開発者用の `deploy_panels.py` は、2026-11-26 から**コピーをやめ、リポジトリを直接指すパッケージ**（同じ `ragreel_tutorial.json`。`RAGREEL_TUTORIAL_DEV` → `houdini/python_panels` と `houdini/package/houdini`）を登録する。コピーし忘れて古いまま動く（約12日分の修正が届かなかった）ことが、起きなくなる。**新しい `.py` を足したら、`MODULES` に追加する**（配布 zip とのずれをテストが検出する）。
+- 削除の手段（2026-11-26）: 導入先に `uninstall.cmd` とスクリプトの写しを置き、「設定 → アプリ」（HKCU の Uninstall キー。管理者権限は不要）に登録する。zip にも `uninstall.cmd` を入れる。版の設定フォルダは、ほかの版のフォルダがあっても、見つかった本体の版の分を作る（別の PC で、`houdini21.0` だけがあり、新しく入れた 22.0 に登録されなかった）。
 
 ## 7. 検証の状況
 

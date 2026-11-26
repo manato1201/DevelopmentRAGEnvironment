@@ -89,11 +89,11 @@ uv run python scripts\rag_local_bridge.py            # ローカル HTTP ブリ�
 ### Houdini
 
 ```powershell
-# パネルを Houdini の設定フォルダへ配置（上書き前に自動で退避。--check で差分だけ見る）
-uv run python houdini\deploy_panels.py 22.0 --pypanel
+# リポジトリを直接読む開発用のパッケージを登録（1回だけ。--check で状態、--remove で外す）
+uv run python houdini\deploy_panels.py 22.0
 ```
 
-配置後に Houdini を**再起動**し、Python Panel から RAGChatBot を追加します。**Settings タブで、Worker の URL と API キーを設定**します（チュートリアル生成の Claude 呼び出しは、常に Cloudflare 経由。手元に `ANTHROPIC_API_KEY` は要りません）。**Tutorial** タブでトピックを入力するか、Chat タブで `/tutorial <トピック>` と入力します。
+登録後に Houdini を**再起動**し、Python Panel から **RAGReel Tutorial** を追加します（以後はリポジトリを直して再起動するだけで反映）。**Settings タブで、Worker の URL と API キーを設定**します（チュートリアル生成の Claude 呼び出しは、常に Cloudflare 経由。手元に `ANTHROPIC_API_KEY` は要りません）。**Tutorial** タブでトピックを入力するか、Chat タブで `/tutorial <トピック>` と入力します。
 
 → [取扱説明書（Houdini）](docs/guides/manual-houdini-tutorial.md)・[設計](docs/design/content-generation.md)
 

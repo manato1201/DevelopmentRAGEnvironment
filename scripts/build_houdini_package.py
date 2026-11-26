@@ -6,6 +6,7 @@
 
 zip の中身（展開して install.cmd をダブルクリックすれば導入できる）:
     install.cmd / install.ps1          導入（Houdini のパッケージ登録 + 設定 + 動画エンジンの検出 + 導入後の自己診断）。-Uninstall で削除
+    uninstall.cmd                      削除（install.cmd -Uninstall と同じ）
     python/*.py                        パネルの Python ファイル（houdini/python_panels の全部）
     houdini/python_panels/RAGReelTutorial.pypanel   パネル定義（薄い読み込み用。中身は python/ にある）
     LICENSE / THIRD_PARTY_NOTICES.md   使ってよい範囲（非商用）と、第三者の表記
@@ -45,10 +46,11 @@ def collect_files() -> list[tuple[Path, str]]:
     files: list[tuple[Path, str]] = []
     for path in sorted(PANELS.glob("*.py")):
         files.append((path, f"python/{path.name}"))
-    files.append((PACKAGE / "RAGReelTutorial.pypanel", "houdini/python_panels/RAGReelTutorial.pypanel"))
+    files.append((PACKAGE / "houdini" / "python_panels" / "RAGReelTutorial.pypanel", "houdini/python_panels/RAGReelTutorial.pypanel"))
     files.append((PACKAGE / "houdini" / "toolbar" / "ragreel_tutorial.shelf", "houdini/toolbar/ragreel_tutorial.shelf"))  # 浮かぶパネルを出し入れするシェルフツール
     files.append((PACKAGE / "install.ps1", "install.ps1"))
     files.append((PACKAGE / "install.cmd", "install.cmd"))
+    files.append((PACKAGE / "uninstall.cmd", "uninstall.cmd"))  # 削除（2026-11-26。導入後は、設定 → アプリ からも消せる）
     readme = PACKAGE / "README.txt"
     if readme.exists():
         files.append((readme, "README.txt"))

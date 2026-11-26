@@ -47,8 +47,11 @@
 ```
 install.cmd -HoudiniVersion 22.0      # 登録する版を指定（22 や 22.0.504 と書いても 22.0 として扱う）
 install.cmd -DataDir D:\RAGReelData   # 保存先を指定（既定は ドキュメント\RAGReelTutorial）
-install.cmd -Uninstall                # 取り除く
+install.cmd -Uninstall                # 取り除く（uninstall.cmd と同じ）
 ```
+
+- Houdini の版の設定フォルダ（`Documents\houdini22.0` など）が無いときは、導入のときに作ります。ほかの版のフォルダ（`houdini21.0` など）があっても、見つかった Houdini 本体の版のフォルダは作ります（先に Houdini を起動しなくて構いません）。
+- 導入すると、Windows の「**設定 → アプリ → インストールされているアプリ**」に **RAGReel Tutorial (Houdini panel)** が出ます。zip を消したあとでも、そこから取り除けます。
 
 ## 3. 動作の確認（3分）
 
@@ -95,7 +98,7 @@ setx RAGREEL_VIDEO_PROFILE 1080p15
 | 動画が作られない | 「接続・アカウント」→「動画・ギャラリー」の `Video Factory exe` のパスを確認（RAGReel を入れると自動で入る）。入っていなければ RAGReel を入れてから、`install.cmd` をもう一度実行 |
 | ギャラリーに載せる（実証実験） | 同じ「動画・ギャラリー」に、運営から受け取った**ギャラリーの URL とアップロードトークン**を入れて保存 |
 | 更新したい | 新しい zip で、手順2〜6をやり直す（設定は残る） |
-| 取り除きたい | `install.cmd -Uninstall` ／ RAGReel は「アプリと機能」から |
+| 取り除きたい | 「設定 → アプリ → インストールされているアプリ」の **RAGReel Tutorial (Houdini panel)** → アンインストール（zip の `uninstall.cmd`・`install.cmd -Uninstall` でも同じ。設定ファイルと生成物は残る）／ RAGReel も同じ画面から |
 
 ## 5. パネルが開けないときの確認（Houdini の Python Shell）
 

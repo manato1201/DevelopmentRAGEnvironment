@@ -7,7 +7,8 @@
   2. パネル定義（.pypanel。薄い読み込み用）を、%LOCALAPPDATA%\RAGReelTutorial\houdini\python_panels へ置く
   3. 見つかった Houdini のバージョンごとに、Documents\houdiniXX.X\packages\ragreel_tutorial.json を書く
      （これだけで、Houdini の起動時にパネルが読み込まれる。Python Panel Editor での貼り付けは要らない）
-     ・Houdini 本体は入っているのに、Documents\houdiniXX.X がまだ無いときは、そのフォルダを作る（先に Houdini を起動しなくてよい）
+     ・Houdini 本体は入っているのに、Documents\houdiniXX.X がまだ無いときは、そのフォルダを作る（先に Houdini を起動しなくてよい）。
+       ほかの版のフォルダ（houdini21.0 など）があっても、無い版のフォルダは作る（2026-11-26。以前は、1 つもないときだけ作っていた）
      ・OneDrive に移された「ドキュメント」も探す
   4. 設定ファイル（~\.houdini\rag_chatbot_config.json）に、接続先・動画エンジンの場所・保存先を書く（元の設定は退避する）
      ・保存先（local_bridge_dir）が、空・空白だけ・欠けている・別の PC の値（存在しないドライブ）のときは、
@@ -15,8 +16,12 @@
   5. 最後に、導入の結果を自己診断して表示する（書いたファイルの場所・Houdini のバージョンごとの登録・設定の接続先とキーが
      「入っている / 空」・保存先）。API キーなどの値は、表示しない。同じ内容を、導入先の install_report.txt にも書く
 
+  3b. 削除の手段を置く（2026-11-26）: 導入先に uninstall.cmd を書き、Windows の「設定 → アプリ → インストールされているアプリ」に
+     「RAGReel Tutorial」として登録する（HKCU。管理者権限は要らない）。そこの「アンインストール」で、uninstall.cmd が動く
+
   管理者権限は要らない。何度実行しても同じ結果になる（更新にも使える）。
-  元に戻すときは  -Uninstall。
+  元に戻すときは  -Uninstall（zip の uninstall.cmd、導入先の uninstall.cmd、設定 → アプリ、のどれでも同じ）。
+  設定ファイルと、生成物の保存先（Documents\RAGReelTutorial）は消さない。
 
 .EXAMPLE
   .\install.ps1 -CloudflareUrl https://rag-poc.example.workers.dev
@@ -37,6 +42,8 @@ param(
   # 生成物（localRAG\tutorials）とログ（logs）の保存先。パネルの「保存先フォルダ（local_bridge_dir）」に設定する
   [string]$DataDir = (Join-Path ([Environment]::GetFolderPath("MyDocuments")) "RAGReelTutorial"),
   [string]$ConfigPath = (Join-Path $HOME ".houdini\rag_chatbot_config.json"),
+  # 「設定 → アプリ」に出す登録の場所（テストでは、別の場所を指す）
+  [string]$UninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\RAGReelTutorial",
   [switch]$NoPrompt,
   [switch]$Uninstall
 )
@@ -196,8 +203,15 @@ if ($Uninstall) {
     $pkg = Join-Path $h.FullName "packages\ragreel_tutorial.json"
     if (Test-Path $pkg) { Remove-Item $pkg -Force; Write-Step "パッケージを削除: $pkg" }
   }
-  if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force; Write-Step "フォルダを削除: $InstallDir" }
-  Write-Host "完了。設定ファイル（$ConfigPath）は残しています。Houdini を再起動してください。"
+  # 導入先の uninstall.cmd から動いているとき、カレントが導入先の中だと消せない
+  Set-Location -LiteralPath ([System.IO.Path]::GetTempPath())
+  if (Test-Path -LiteralPath $InstallDir) { Remove-Item -LiteralPath $InstallDir -Recurse -Force; Write-Step "フォルダを削除: $InstallDir" }
+  if ($UninstallKey -and (Test-Path -LiteralPath $UninstallKey)) { Remove-Item -LiteralPath $UninstallKey -Recurse -Force; Write-Step "「設定 → アプリ」の登録を削除しました" }
+  Write-Host "完了。設定ファイル（$ConfigPath）と、生成物の保存先は残しています。Houdini を再起動してください。"
+  # 導入先の uninstall.cmd は、この スクリプトを一時フォルダへ写してから動かす。写しは、ここで消す（読み込み済みなので消せる）
+  if ($PSCommandPath -and ((Split-Path -Leaf $PSCommandPath) -eq "ragreel_tutorial_uninstall.ps1")) {
+    Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+  }
   return
 }
 
@@ -212,23 +226,24 @@ if (-not (Test-Path (Join-Path $srcPython "rag_chatbot.py"))) {
 
 # ── 0b. 導入先の Houdini を決める ─────────────────────────────────────
 $installs = @(Get-HoudiniInstalls)
-$houdiniFolders = @(Get-HoudiniFolders)
 $created = @()
-if ($houdiniFolders.Count -eq 0) {
-  # Houdini 本体は入っているのに、Documents\houdiniXX.X がまだ無い（一度も起動していない）。パッケージの置き場所を、先に作る。
-  $versions = @()
-  if ($TargetVersion) { $versions = @($TargetVersion) }
-  else { $versions = @($installs | ForEach-Object { $_.Minor } | Where-Object { (Get-FolderMajor "houdini$_") -ge $MinHoudiniMajor } | Select-Object -Unique) }
-  $primaryRoot = @(Get-DocumentRoots)[0]
-  if ($versions.Count -gt 0 -and $primaryRoot) {
-    foreach ($v in $versions) {
-      $dir = Join-Path $primaryRoot "houdini$v"
-      New-Item -ItemType Directory -Force -Path $dir | Out-Null
-      $created += $dir
-    }
-    $houdiniFolders = @(Get-HoudiniFolders)
+# Houdini 本体は入っているのに、Documents\houdiniXX.X がまだ無い（その版を一度も起動していない）。パッケージの置き場所を、先に作る。
+# ほかの版のフォルダがあっても作る（例: houdini21.0 はあるが、新しく入れた 22.0 はまだ起動していない。2026-11-26 に別の PC で発生）。
+$versions = @()
+if ($TargetVersion) { $versions = @($TargetVersion) }
+else { $versions = @($installs | ForEach-Object { $_.Minor } | Select-Object -Unique) }
+$versions = @($versions | Where-Object { (Get-FolderMajor "houdini$_") -ge $MinHoudiniMajor })
+$existingNames = @(Get-HoudiniFolders | ForEach-Object { $_.Name })
+$primaryRoot = @(Get-DocumentRoots)[0]
+if ($primaryRoot) {
+  foreach ($v in $versions) {
+    if ($existingNames -contains "houdini$v") { continue }
+    $dir = Join-Path $primaryRoot "houdini$v"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $created += $dir
   }
 }
+$houdiniFolders = @(Get-HoudiniFolders)
 $skipped = @($houdiniFolders | Where-Object { (Get-FolderMajor $_.Name) -lt $MinHoudiniMajor })
 $houdiniFolders = @($houdiniFolders | Where-Object { (Get-FolderMajor $_.Name) -ge $MinHoudiniMajor })
 if ($houdiniFolders.Count -eq 0) {
@@ -282,6 +297,46 @@ foreach ($h in $houdiniFolders) {
   Write-Step "パッケージを登録: $($h.Name)（$($h.FullName)）"
 }
 foreach ($s in $skipped) { Write-Step "対象外（Houdini 21 より前）のため、登録しません: $($s.Name)" }
+
+# ── 2b. 削除の手段（uninstall.cmd と「設定 → アプリ」への登録）──────────────
+# zip を消したあとでも削除できるよう、このスクリプトの写しと uninstall.cmd を導入先に置く。
+# uninstall.cmd は、スクリプトを一時フォルダへ写してから動かす（導入先のフォルダごと消すため）。
+# 削除の後に cmd が（消えた）ファイルを読み直さないよう、最後の行は (goto) 2>nul でバッチを抜けてから動かす（同じ行の残りは、そのまま動く）。
+Copy-Item -LiteralPath $PSCommandPath (Join-Path $InstallDir "install.ps1") -Force
+$uninstallArgs = "-Uninstall -InstallDir `"$InstallDir`" -UninstallKey `"$UninstallKey`""
+if ($DocumentsExplicit) { $uninstallArgs += " -DocumentsDir `"$DocumentsDir`"" }
+$uninstallCmd = @(
+  "@echo off",
+  "rem RAGReel Tutorial panel uninstaller (written by install.ps1). Removes the panel; keeps your settings and tutorials.",
+  "if not exist `"%~dp0install.ps1`" (echo install.ps1 was not found next to uninstall.cmd. & pause & exit /b 1)",
+  "copy /y `"%~dp0install.ps1`" `"%TEMP%\ragreel_tutorial_uninstall.ps1`" >nul",
+  "cd /d `"%TEMP%`"",
+  "(goto) 2>nul & powershell -NoProfile -ExecutionPolicy Bypass -File `"%TEMP%\ragreel_tutorial_uninstall.ps1`" $uninstallArgs && (echo. & pause & cmd /c exit 0) || (echo. & pause & cmd /c exit 1)"
+) -join "`r`n"
+$uninstallCmdPath = Join-Path $InstallDir "uninstall.cmd"
+[System.IO.File]::WriteAllText($uninstallCmdPath, $uninstallCmd + "`r`n", (New-Object System.Text.ASCIIEncoding))
+$registered = $false
+if ($UninstallKey) {
+  try {
+    $versionText = ""
+    if (Test-Path (Join-Path $InstallDir "VERSION")) { $versionText = (Get-Content -Raw (Join-Path $InstallDir "VERSION")).Trim() }
+    $sizeKb = [int]((Get-ChildItem -LiteralPath $InstallDir -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1024)
+    New-Item -Path $UninstallKey -Force | Out-Null
+    $values = [ordered]@{
+      DisplayName     = "RAGReel Tutorial (Houdini panel)"
+      DisplayVersion  = $versionText
+      Publisher       = "RAGReel"
+      InstallLocation = $InstallDir
+      InstallDate     = (Get-Date -Format "yyyyMMdd")
+      UninstallString = "`"$env:SystemRoot\System32\cmd.exe`" /c `"`"$uninstallCmdPath`"`""
+    }
+    foreach ($k in $values.Keys) { New-ItemProperty -Path $UninstallKey -Name $k -Value $values[$k] -PropertyType String -Force | Out-Null }
+    foreach ($k in @("NoModify", "NoRepair")) { New-ItemProperty -Path $UninstallKey -Name $k -Value 1 -PropertyType DWord -Force | Out-Null }
+    New-ItemProperty -Path $UninstallKey -Name "EstimatedSize" -Value $sizeKb -PropertyType DWord -Force | Out-Null
+    $registered = $true
+  } catch { $registered = $false }
+}
+Write-Step "削除用の uninstall.cmd を置きました: $uninstallCmdPath"
 
 # ── 3. 設定ファイル ───────────────────────────────────────────────────
 if (-not $NoPrompt) {
@@ -371,6 +426,10 @@ else { Write-Check "NG" "rag_chatbot.py（パネル本体）" "$chatbot があ�
 $pypanel = Join-Path $InstallDir "houdini\python_panels\RAGReelTutorial.pypanel"
 if (Test-Path -LiteralPath $pypanel) { Write-Check "OK" "パネル定義（RAGReelTutorial.pypanel）" $pypanel }
 else { Write-Check "NG" "パネル定義（RAGReelTutorial.pypanel）" "$pypanel がありません" }
+if (Test-Path -LiteralPath $uninstallCmdPath) {
+  if ($registered) { Write-Check "OK" "削除の手段" "「設定 → アプリ → インストールされているアプリ」の RAGReel Tutorial、または $uninstallCmdPath" }
+  else { Write-Check "注意" "削除の手段" "「設定 → アプリ」には登録できませんでした。削除は $uninstallCmdPath で行えます" }
+} else { Write-Check "注意" "削除の手段" "uninstall.cmd を置けませんでした。削除は zip の uninstall.cmd で行えます" }
 
 # 4b. Houdini のバージョンごとの登録
 foreach ($h in $houdiniFolders) {
@@ -434,6 +493,7 @@ Write-Line "  2. 「Windows メニュー → Python Panel → RAGReel Tutorial�
 Write-Line "  3. 開けない・見つからないときは、Houdini の Python Shell で  import rag_chatbot  を実行して、出た内容を確認する（導入手順の「困ったとき」を参照）"
 Write-Line "  4. パネル右上のメニュー（≡）→「接続・アカウント」で、接続先の URL と API キーが入っていることを確認する"
 if (-not $CloudflareUrl -or -not $ApiKey) { Write-Line "     ※ この導入では、URL または API キーを入力していません。「接続・アカウント」で入力してください（すでに入っているなら、そのままで構いません）。" }
+Write-Line "  削除するときは、Windows の「設定 → アプリ → インストールされているアプリ」で RAGReel Tutorial を選ぶ（設定ファイルと生成物は残ります）"
 Write-Line "  この結果は、次のファイルにも書きました: $(Join-Path $InstallDir 'install_report.txt')"
 
 try {

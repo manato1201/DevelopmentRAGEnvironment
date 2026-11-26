@@ -388,8 +388,8 @@ namespaceの**作成**、**参考資料数の上限**（複数のnamespaceを横
 **配布用（実証実験のテスター）:** zip を展開して、`install.cmd` を実行する（Houdiniのパッケージとして登録され、設定も書かれる）。手順は [manual-houdini-tutorial.md](manual-houdini-tutorial.md) §3。RAGReel（動画エンジン）は、別のインストーラー（[manual-ragreel.md](manual-ragreel.md)）。
 
 **開発者（リポジトリから、自分のHoudiniへ）:**
-1. `uv run python houdini/deploy_panels.py 22.0` で、`houdini/python_panels/`のファイルを、**Houdiniが読むフォルダ**（`Documents/houdini22.0/python_panels`）へコピーする。**リポジトリを直しただけでは、実機に反映されない。**パネル本体（`rag_chatbot.py`）を直したときは、`--pypanel` も付ける。
-2. Houdiniの Python Panel のメニューから、RAGチャットのパネルを追加する。
+1. `uv run python houdini/deploy_panels.py 22.0` で、**リポジトリを直接読む開発用のパッケージ**（`Documents/houdini22.0/packages/ragreel_tutorial.json`）を登録する（1回だけ。フォルダが無ければ作り、以前のコピー方式で置いたファイルは退避する）。以後は、リポジトリを直して **Houdini を再起動するだけ**で反映される（コピーは要らない）。状態の確認は `--check`、配布版を試す前は `--remove`。
+2. Houdiniの Python Panel のメニュー（Windows → Python Panel）から、**RAGReel Tutorial** を追加する（配布版と同じパネル定義）。
 3. **接続**タブで、接続先（Cloudflare）のURLとAPIキー、動画ギャラリー（ダッシュボード）のURLとトークンを設定する。**HoudiniのPCに、Claudeの鍵を置く必要は無い。**
 
 ### 9.2 タブ

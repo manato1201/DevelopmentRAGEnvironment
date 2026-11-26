@@ -23,7 +23,12 @@ Python Shell in Houdini and run   import rag_chatbot   to see the real error.
 All Houdini 22.0.x builds (for example 22.0.429 / 22.0.459 / 22.0.504) share one settings folder,
 Documents\houdini22.0, so one registration covers them. Use  install.cmd -HoudiniVersion 22.0  to pick a version.
 
-To update: run install.cmd from the new zip again. To remove: install.cmd -Uninstall
+If the settings folder for your Houdini version (for example Documents\houdini22.0) does not exist yet,
+the installer creates it, even when a folder for another version (houdini21.0) is already there.
+
+To update: run install.cmd from the new zip again.
+To remove: Settings > Apps > Installed apps > "RAGReel Tutorial (Houdini panel)" > Uninstall,
+or run uninstall.cmd (same as install.cmd -Uninstall). Your settings file and generated tutorials are kept.
 
 Install RAGReel (video engine) separately with RAGReel-Setup-<version>.exe if you want videos.
 Full instructions (Japanese): install-other-pc.md (setup) and manual-houdini-tutorial.md (usage)
