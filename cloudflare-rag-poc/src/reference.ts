@@ -68,7 +68,34 @@ export function cleanEntryBody(value: unknown): Record<string, unknown> | null {
       return /^https?:\/\//.test(url) ? [{ title: clip(ref.title, 120), url, source: clip(ref.source, 60) }] : [];
     });
   }
+  const conditions = cleanConditions(rec.conditions);
+  if (conditions) body.conditions = conditions;
   return body;
+}
+
+// 同じ結果にする条件（2026-11-28）。撮影のネットワークを実機で書き出したもの（ノード・パラメータ・入出力の表示名・フレーム）。
+// 形は決まっているが、ここでは中身を解釈せず、大きさだけを抑える: 入れ子 5 段・配列 40 件・文字 600 字・キーは英小文字と _ だけ、全体 32KB まで。
+export const CONDITIONS_MAX_CHARS = 32000;
+const CONDITION_KEY = /^[a-z_]{1,24}$/;
+function cleanValue(value: unknown, depth: number): unknown {
+  if (typeof value === "string") return value.slice(0, 600);
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "boolean") return value;
+  if (depth >= 5 || value === null || typeof value !== "object") return null;
+  if (Array.isArray(value)) return value.slice(0, 40).map((v) => cleanValue(v, depth + 1)).filter((v) => v !== null);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>).slice(0, 40)) {
+    if (!CONDITION_KEY.test(k)) continue;
+    const cleaned = cleanValue(v, depth + 1);
+    if (cleaned !== null) out[k] = cleaned;
+  }
+  return out;
+}
+export function cleanConditions(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const cleaned = cleanValue(value, 0) as Record<string, unknown>;
+  if (!Array.isArray(cleaned.nodes) || cleaned.nodes.length === 0) return null;
+  return JSON.stringify(cleaned).length <= CONDITIONS_MAX_CHARS ? cleaned : null;
 }
 
 async function readJson(req: Request): Promise<Record<string, unknown>> {

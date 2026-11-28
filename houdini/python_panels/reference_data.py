@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import html
 
+import reference_conditions
 import tool_analogies
 import json
 import re
@@ -446,7 +447,12 @@ def sanitize_entry(entry: dict | None) -> dict | None:
     if _PROCESS_LEAK_RE.search(str(entry.get("what") or "")):
         return None
     clean = {k: ("" if _PROCESS_LEAK_RE.search(str(entry.get(k) or "")) else str(entry.get(k) or "")) for k in SECTION_KEYS}
-    return clean if clean.get("what") else None
+    if not clean.get("what"):
+        return None
+    conditions = reference_conditions.clean(entry.get("conditions"))  # 同じ結果にする条件（2026-11-28）。形の決まった、機械で作った材料なので、そのまま残す
+    if conditions is not None:
+        clean["conditions"] = conditions
+    return clean
 
 
 def parse_entry(text: str) -> dict | None:
@@ -585,6 +591,9 @@ def entry_html(item: dict, entry: dict | None, references: list[dict] | None = N
             body = str(entry.get(key) or "").strip()
             if body:
                 parts.append(_heading(esc(title)) + f"<p style='margin-top:2px'>{esc(body)}</p>")
+        conditions = reference_conditions.html_block(entry.get("conditions"))  # 同じ結果にする条件（2026-11-28。作り直しても同じにならなかった）
+        if conditions:
+            parts.append(conditions)
     elif loading:
         parts.append(f"<p style='color:{_TEXT_MUTED}'>説明を読み込んでいます…</p>")
     elif not author:

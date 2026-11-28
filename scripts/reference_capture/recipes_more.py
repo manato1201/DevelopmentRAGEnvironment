@@ -134,7 +134,7 @@ for _r in NODE_MORE:
 
 # 2026-11-25 の追加（VEX）
 _VOLUME_SPHERE = {"type": "sphere", "parms": {"type": 2, "rad": [1.2, 1.2, 1.2]}, "after": [{"type": "isooffset", "parms": {}}]}  # 球から作った密度のボリューム（Iso Offset の初期値）
-_BUMPY = {"type": "grid", "parms": {"rows": 60, "cols": 60, "size": [3, 3]}, "after": [{"type": "mountain::2.0", "parms": {"height": 0.6}}]}
+_BUMPY = {"type": "grid", "parms": {"rows": 60, "cols": 60, "size": [3, 3]}, "after": [{"type": "attribnoise::2.0", "parms": {"displace": 1, "attribs": "P", "noiserange": 1, "amplitude": 0.6}}]}  # 凸凹の板（2026-11-28: Tab に出ない mountain::2.0 から、Attribute Noise に）
 _HALF_GROUP = {"type": "grid", "parms": {"rows": 40, "cols": 40, "size": [3, 3]},
                "after": [{"type": "attribwrangle", "parms": {"snippet": "i@group_half = @P.x > 0;"}}]}  # 右半分の点を、グループ half にした板
 VEX_MORE += [

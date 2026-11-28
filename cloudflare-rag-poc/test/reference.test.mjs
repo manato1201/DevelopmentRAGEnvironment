@@ -18,6 +18,15 @@ assert.equal(ref.cleanEntryBody("x"), null);
 const body = ref.cleanEntryBody({ what: "点を散らす", when: "x".repeat(5000), references: [{ title: "t", url: "https://e.com/a" }, { title: "bad", url: "javascript:alert(1)" }] });
 assert.equal(body.what, "点を散らす");
 assert.equal(body.when.length, ref.SECTION_MAX, "long text is clipped");
+// 同じ結果にする条件（2026-11-28）: 形を保って通し、変なキー・深すぎる入れ子・大きすぎるものは落とす
+const cond = { frame: 40, sim: true, display: "final", nodes: [{ name: "cloth", type: "grid", parms: [{ name: "size", label: "Size", value: "2, 2" }], inputs: [], "Bad-Key": "x", a: { b: { c: { d: { e: { f: 1 } } } } } }] };
+const withCond = ref.cleanEntryBody({ what: "布を動かす", conditions: cond });
+assert.equal(withCond.conditions.frame, 40);
+assert.equal(withCond.conditions.nodes[0].parms[0].label, "Size");
+assert.ok(!("Bad-Key" in withCond.conditions.nodes[0]), "odd keys are dropped");
+assert.equal(ref.cleanConditions({ frame: 1, nodes: [] }), null, "no nodes, no conditions");
+assert.equal(ref.cleanConditions({ nodes: Array.from({ length: 40 }, () => ({ note: "x".repeat(600), more: "y".repeat(600) })) }), null, "too large is rejected");
+assert.equal(ref.cleanEntryBody({ what: "x", conditions: "text" }).conditions, undefined);
 assert.equal(body.references.length, 1, "non-http references are dropped");
 
 // ---- ハンドラ（実際のスキーマで） ----

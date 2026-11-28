@@ -201,6 +201,17 @@ def render_node_image(recipe: dict, path: Path) -> bool:
     import screen_capture as sc
 
     app = QGuiApplication.instance() or QGuiApplication([])  # noqa: F841
+    # 実機で書き出した条件（dump_conditions.py）があれば、ポートの位置どおりの図（wiring_diagram.py）で描く（2026-11-28）
+    try:
+        conditions = json.loads((Path(__file__).resolve().parents[2] / "build" / "reference_conditions.json").read_text(encoding="utf-8"))
+        cond = conditions.get(recipe["key"]) if isinstance(conditions, dict) else None
+        if isinstance(cond, dict) and "error" not in cond and not any(n.get("vop") for n in cond.get("nodes") or []):
+            import wiring_diagram
+
+            if wiring_diagram.render(cond, path):
+                return True
+    except (OSError, ValueError):
+        pass
     types = recipe["type"] if isinstance(recipe["type"], list) else [recipe["type"]]
     node_label = recipe["key"].split("/")[-1] if recipe["kind"] == "node" else types[-1].split("::")[0]  # VEX・シェルフの図は、実際に置くノードの名前（attribwrangle など）
     inputs = input_specs(recipe)

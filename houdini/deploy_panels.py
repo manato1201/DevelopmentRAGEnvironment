@@ -36,7 +36,7 @@ DEV_ENV = "RAGREEL_TUTORIAL_DEV"
 MODULES = [
     "doc_tools", "display_isolation", "tutorial_followup", "panel_thinking", "video_short", "reference_data", "reference_author", "reference_remote", "reference_view", "guide_view", "guide_mode", "guide_shortcuts", "trial_pruning", "houdini_tools", "screen_capture", "token_usage", "tutorial_agent",
     "tutorial_feedback", "tutorial_graph_simplify", "tutorial_view", "video_factory_bridge",
-    "video_script", "lesson_design", "tutorial_review", "graph_diagram", "video_progress", "rag_client", "gallery_upload", "panel_info", "panel_widgets", "panel_actions", "panel_debug", "panel_paths", "panel_nav", "panel_bus", "node_links", "node_link_data", "report_dialog", "pilot_task", "pilot_panel", "chat_figures", "question_hints", "tool_analogies", "basics_guide", "houdini_terms", "panel_motion",
+    "video_script", "lesson_design", "tutorial_review", "graph_diagram", "video_progress", "rag_client", "gallery_upload", "panel_info", "panel_widgets", "panel_actions", "panel_debug", "panel_paths", "panel_nav", "panel_bus", "node_links", "node_link_data", "report_dialog", "pilot_task", "pilot_panel", "chat_figures", "question_hints", "tool_analogies", "basics_guide", "houdini_terms", "panel_motion", "reference_conditions",
 ]
 # 退避の対象のうち、MODULES に無いもの（パネル本体と、以前のコピー方式で置いていて今はリポジトリに無いモジュール）
 LEGACY_MODULES = ["rag_chatbot", "graph_view", "docs_view"]

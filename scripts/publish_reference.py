@@ -137,6 +137,22 @@ def publish_target(cfg: dict, target: dict, opener=None, parms: dict | None = No
     return {"key": item["key"], "version": result.get("version"), "media": len(media)}
 
 
+def attach_conditions(targets: list[dict], path: Path) -> int:
+    """撮影のネットワークの条件（同じ結果にする条件）を、説明に付ける。付けた数を返す。ファイルが無い・読めないときは、付けない。
+    条件は、撮影のレシピと同じ作り方で、実機（hython）で組んで書き出したもの（dump_conditions.py）。キーは、レシピのキー（sop/vellumsolver など）。"""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+    count = 0
+    for t in targets:
+        cond = data.get(t["item"]["key"]) if isinstance(data, dict) else None
+        if t["entry"] is not None and isinstance(cond, dict) and "error" not in cond:
+            t["entry"] = {**t["entry"], "conditions": cond}
+            count += 1
+    return count
+
+
 def load_config(path: Path) -> dict:
     try:
         cfg = json.loads(path.read_text(encoding="utf-8"))
@@ -155,6 +171,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="通信せずに、公開する内容だけを表示")
     parser.add_argument("--parms", default=str(DEFAULT_PARMS), help="audit_reference.py の出力（本物のパラメータ名）。公開の前の点検に使う")
     parser.add_argument("--skip-audit", action="store_true", help="点検を省く（通常は、使わない。嘘の内容が公開される恐れがある）")
+    parser.add_argument("--conditions", default=str(ROOT / "build" / "reference_conditions.json"),
+                        help="同じ結果にする条件（reference_capture/dump_conditions.py の出力）。あれば、説明に付けて公開する（2026-11-28）")
     parser.add_argument("--unpublish", default="", help="公開済みの説明を取り下げる（kind/key をカンマ区切り。例: node/sop/transform,vex/chf）。ほかは何もしない")
     args = parser.parse_args(argv)
     cfg = load_config(Path(args.config))
@@ -178,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         in_set = {i["key"] for i in select_items(args.set, set())}
         only = (only & in_set) if only else in_set
     targets = find_targets(base_dir, media_root, only)
+    attach_conditions(targets, Path(args.conditions))
     if not targets:
         print("公開するものがありません（説明は、開発者モードの Reference タブで作れます）")
         return 0

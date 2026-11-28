@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import copy
 
-from recipe_common import create_sweep
+from recipe_common import GRID, create_sweep
 
 # シェルフのキー → 同じ働きのノードのキー
 SHELF_FROM_NODE = {
@@ -31,9 +31,7 @@ SHELF_FROM_NODE = {
     "shelf/sop_ray": "sop/ray",
     "shelf/sop_carve": "sop/carve",
     "shelf/sop_skin": "sop/skin",
-    "shelf/geometry_twist": "sop/twist",
     "shelf/sop_bend": "sop/bend",
-    "shelf/geometry_mountain": "sop/mountain",
     "shelf/sop_ripple_2_0": "sop/ripple",
     "shelf/sop_fractal": "sop/fractal",
     "shelf/sop_heightfield": "sop/heightfield",  # 2026-11-25
@@ -61,11 +59,29 @@ for _r in CREATE_RECIPES:
         _r["sweep"] = create_sweep(_r["type"][0])
 
 
-# Knife（シェルフだけ。ノードの説明は無い）: 球を、平面で切って、上だけを残す（2026-11-25）
-KNIFE = {"kind": "shelf", "key": "shelf/geometry_knife", "type": ["knife"], "input": {"type": "sphere", "parms": {"type": 2, "rows": 40, "cols": 80}},
-         "parms": {"dirx": 0.4}, "sweep": {"parm": "originy", "from": -0.8, "to": 0.2},
-         "note": "球を、少し傾いた平面（向き (0.4, 1, 0)）で切り、knifeop は初期値（メニューの「Primitives Above the Plane」）で、平面の上の面だけを残す。動きは、平面の高さ originy を -0.8 から 0.2 へ"}
-CREATE_RECIPES.append(KNIFE)
+# シェルフのツールが、実際に置くノードで撮る（2026-11-28）。以前は、Mountain・Twist・Knife を、Tab に出ない古いノード
+# （mountain::2.0・twist・knife）で撮っていた。Houdini 22 のツールの中身（hou.shelves.tool(...).script()）は、次のとおり:
+#   Mountain → Attribute Noise（attribnoise::2.0。名前は mountain1）、Twist → Bend（Twist を入れ、Bend を外す。名前は twist1）、
+#   Knife → Clip（clip::2.0。Keep = Both。名前は knife1）
+TALL_RIBBON = {"type": "grid", "parms": {"orient": 0, "size": [1.2, 3], "rows": 40, "cols": 6}}
+SHELF_TOOL_RECIPES: list[dict] = [
+    {"kind": "shelf", "key": "shelf/geometry_mountain", "type": ["attribnoise::2.0"], "input": GRID,
+     "parms": {"displace": 1, "attribs": "P", "noiserange": 1, "fractal": 3, "oct": 8, "rough": 0.4, "amplitude": 0.6},
+     "sweep": {"parm": "amplitude", "from": 0.0, "to": 0.6},
+     "note": "シェルフの Mountain は、Attribute Noise（attribnoise::2.0）を mountain1 という名前で置く。Displace Along を入れ、位置（P）を、"
+             "Noise Range = Zero Centered で上下に動かす。Fractal・Octaves・Roughness はツールの値のまま。Amplitude は、見やすいよう 0.6（ツールの値は 0.25）"},
+    {"kind": "shelf", "key": "shelf/geometry_twist", "type": ["bend"], "input": TALL_RIBBON,
+     "parms": {"enabletwist": 1, "twist": 160,
+               "origin": [0, -1.5, 0], "dir": [0, 1, 0], "length": 3},
+     "sweep": {"parm": "twist", "from": 0, "to": 160},
+     "note": "シェルフの Twist は、Bend を twist1 という名前で置き、Twist を入れて Bend を外す。縦長の板（高さ 3）の下端（0, -1.5, 0）から上向き（0, 1, 0）に、"
+             "長さ 3 の範囲を、Twist = 160 度ねじる（Bend の角度は 0 のままなので、曲げは効かない）"},
+    {"kind": "shelf", "key": "shelf/geometry_knife", "type": ["clip::2.0"], "input": {"type": "sphere", "parms": {"type": 2, "rows": 40, "cols": 80}},
+     "parms": {"clipop": 0, "dir": [0.4, 1, 0]}, "sweep": {"parm": "originy", "from": -0.8, "to": 0.2},
+     "note": "シェルフの Knife は、Clip（clip::2.0）を knife1 という名前で置く（Keep = Both: 両側を残して、切れ目だけを入れる）。"
+             "ここでは切れ目が見えるよう、Keep を Above（平面の上だけ残す）にし、少し傾けた平面（Direction (0.4, 1, 0)）で球を切る。動きは、平面の高さ（Origin の Y）を -0.8 から 0.2 へ"},
+]
+CREATE_RECIPES.extend(SHELF_TOOL_RECIPES)
 
 
 def build(node_recipes: list[dict]) -> list[dict]:
